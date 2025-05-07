@@ -1,8 +1,12 @@
 # from dydx3.constants import API_HOST_MAINNET, API_HOST_GOERLI
 from decouple import config
 
+
 # For gathering tesnet data or live market data for cointegration calculation
-MARKET_DATA_MODE = "TESTNET"  # vs "MAINNET"
+if config("TESTNET") == "True":
+    MARKET_DATA_MODE = "TESTNET"  # vs "MAINNET"
+else:
+    MARKET_DATA_MODE = "MAINNET"
 
 # Close all open positions and orders
 ABORT_ALL_POSITIONS = True

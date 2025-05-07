@@ -2,7 +2,7 @@
 from decouple import config
 
 # For gathering tesnet data or live market data for cointegration calculation
-MARKET_DATA_MODE = "TESTNET" # vs "MAINNET"
+MARKET_DATA_MODE = "TESTNET"  # vs "MAINNET"
 
 # Close all open positions and orders
 ABORT_ALL_POSITIONS = True
@@ -39,6 +39,6 @@ INDEXER_ACCOUNT_ENDPOINT = INDEXER_ENDPOINT_TESTNET
 # Environment Variables
 DYDX_ADDRESS = config("DYDX_ADDRESS")
 SECRET_PHRASE = config("SECRET_PHRASE")
-MNEMONIC = (SECRET_PHRASE)
+MNEMONIC = SECRET_PHRASE
 TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = config("TELEGRAM_CHAT_ID")

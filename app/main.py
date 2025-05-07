@@ -1,5 +1,6 @@
 import asyncio
 import time
+from config import config
 from constants import ABORT_ALL_POSITIONS, FIND_COINTEGRATED, PLACE_TRADES, MANAGE_EXITS
 from func_connections import connect_dydx
 from func_private import abort_all_positions, place_market_order, get_open_positions
@@ -12,7 +13,16 @@ from func_messaging import send_message
 
 # MAIN FUNCTION
 async def main():
-
+    # Load and print the configuration
+    try:
+        current_config = config()
+        print("Configuration loaded successfully:")
+        print(f"Is Testnet: {current_config.is_testnet}")
+        print(f"Bot Strategy: {current_config.botSettings.strategy}")
+        print(f"Telegram Chat ID: {current_config.telegram.chat_id}")
+    except Exception as e:
+        print(f"Error loading configuration: {e}")
+    exit(1)
     # Message on start
     send_message("Bot launch successful")
 

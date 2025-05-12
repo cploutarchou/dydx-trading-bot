@@ -36,7 +36,9 @@ async def connect_dydx():
     # Indexer Account = connection we will use to query our testnet trades
     indexer_account = IndexerClient(host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
 
-    # node = private connection we will use to send orders etc to the testnet
+    # node = private connection we will use to send orders etc to the testnet or mainnet
+    # Always use TESTNET for the connection, regardless of the is_testnet setting
+    # The appropriate indexer endpoint will be used based on the is_testnet setting
     node = await NodeClient.connect(TESTNET.node)
     wallet = await Wallet.from_mnemonic(node, MNEMONIC, DYDX_ADDRESS)
     client = Client(indexer, indexer_account, node, wallet)

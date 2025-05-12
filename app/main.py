@@ -22,7 +22,7 @@ async def main():
         print(f"Telegram Chat ID: {current_config.telegram.chat_id}")
     except Exception as e:
         print(f"Error loading configuration: {e}")
-    exit(1)
+        exit(1)
     # Message on start
     send_message("Bot launch successful")
 

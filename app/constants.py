@@ -1,48 +1,51 @@
 # from dydx3.constants import API_HOST_MAINNET, API_HOST_GOERLI
-from decouple import config
+from config import config as app_config
 
 
 # For gathering tesnet data or live market data for cointegration calculation
-if config("TESTNET") == "True":
+if app_config().is_testnet:
     MARKET_DATA_MODE = "TESTNET"  # vs "MAINNET"
 else:
     MARKET_DATA_MODE = "MAINNET"
 
+# Get bot settings from config
+bot_settings = app_config().botSettings
+
 # Close all open positions and orders
-ABORT_ALL_POSITIONS = True
+ABORT_ALL_POSITIONS = bot_settings.abortAllPositions
 
 # Find Cointegrated Pairs
-FIND_COINTEGRATED = True
+FIND_COINTEGRATED = bot_settings.findCointegratedPairs
 
 # Manage Exits
-MANAGE_EXITS = True
+MANAGE_EXITS = bot_settings.manageExits
 
 # Place Trades
-PLACE_TRADES = True
+PLACE_TRADES = bot_settings.placeTrades
 
 # Resolution
-RESOLUTION = "1HOUR"
+RESOLUTION = bot_settings.resolutionTimeframe
 
 # Stats Window
-WINDOW = 21
+WINDOW = bot_settings.statsWindow
 
 # Thresholds - Opening
-MAX_HALF_LIFE = 24
-ZSCORE_THRESH = 1.5
-USD_PER_TRADE = 10
-USD_MIN_COLLATERAL = 100
+MAX_HALF_LIFE = bot_settings.maxHalfLife
+ZSCORE_THRESH = bot_settings.ZScoreThreshold
+USD_PER_TRADE = bot_settings.usdPerTrade
+USD_MIN_COLLATERAL = bot_settings.usdMinCollateral
 
 # Thresholds - Closing
-CLOSE_AT_ZSCORE_CROSS = True
+CLOSE_AT_ZSCORE_CROSS = bot_settings.closeAtZscoreCross
 
-# Endpoint for Account Queries on Testnet
-INDEXER_ENDPOINT_TESTNET = "https://indexer.v4testnet.dydx.exchange"
-INDEXER_ENDPOINT_MAINNET = "https://indexer.dydx.trade"
-INDEXER_ACCOUNT_ENDPOINT = INDEXER_ENDPOINT_TESTNET
+# Endpoint for Account Queries
+INDEXER_ENDPOINT_TESTNET = bot_settings.indexer_endpoint.testnet
+INDEXER_ENDPOINT_MAINNET = bot_settings.indexer_endpoint.mainnet
+INDEXER_ACCOUNT_ENDPOINT = INDEXER_ENDPOINT_TESTNET if app_config().is_testnet else INDEXER_ENDPOINT_MAINNET
 
-# Environment Variables
-DYDX_ADDRESS = config("DYDX_ADDRESS")
-SECRET_PHRASE = config("SECRET_PHRASE")
+# Get dydx and telegram settings from config
+DYDX_ADDRESS = app_config().dydx_chain_address
+SECRET_PHRASE = app_config().dydx_secret_phrase
 MNEMONIC = SECRET_PHRASE
-TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = config("TELEGRAM_CHAT_ID")
+TELEGRAM_TOKEN = app_config().telegram.token
+TELEGRAM_CHAT_ID = app_config().telegram.chat_id

@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 .idea
 app/cointegrated_pairs.csv
+app/config.py

@@ -63,11 +63,31 @@ class ConfigurationManager:
         """Load configuration from the YAML file."""
         if config_path is None:
             # Default to looking for config.yaml in the same directory as this file
-            config_path = Path(__file__).parent / "config.yaml"
+            app_config_path = Path(__file__).parent / "config.yaml"
+            scripts_config_path = Path(__file__).parent.parent / "scripts" / "config.yaml"
+
+            # Try app directory first, then scripts directory
+            if app_config_path.exists():
+                config_path = app_config_path
+            elif scripts_config_path.exists():
+                config_path = scripts_config_path
+            else:
+                config_path = app_config_path  # Default to app path for error message
 
         try:
             with open(config_path, "r") as f:
                 data = yaml.safe_load(f)
+
+            # Handle different config structures (with or without 'dydx' top-level key)
+            if "dydx" in data:
+                dydx_data = data["dydx"]
+                dydx_chain_address = dydx_data.get("dydx_chain_address", "")
+                dydx_secret_phrase = dydx_data.get("dydx_secret_phrase", "")
+                is_testnet = dydx_data.get("is_testnet", False)
+            else:
+                dydx_chain_address = data.get("dydx_chain_address", "")
+                dydx_secret_phrase = data.get("dydx_secret_phrase", "")
+                is_testnet = data.get("is_testnet", False)
 
             # Parse nested structures
             indexer = data["botSettings"]["indexer_endpoint"]
@@ -80,9 +100,9 @@ class ConfigurationManager:
             telegram_settings = TelegramSettings(**data["telegram"])
 
             self._config = DydxConfig(
-                dydx_chain_address=data["dydx_chain_address"],
-                dydx_secret_phrase=data["dydx_secret_phrase"],
-                is_testnet=data["is_testnet"],
+                dydx_chain_address=dydx_chain_address,
+                dydx_secret_phrase=dydx_secret_phrase,
+                is_testnet=is_testnet,
                 telegram=telegram_settings,
                 botSettings=bot_settings,
             )

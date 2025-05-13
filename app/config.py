@@ -25,6 +25,18 @@ class BotSettings:
     usdMinCollateral: float
     closeAtZscoreCross: bool
     indexer_endpoint: IndexerEndpoint
+    WalletSettings: WalletSettings
+
+
+@dataclass
+class EthereumSettings:
+    Address: str
+    PrivateKey: str
+
+
+@dataclass
+class WalletSettings:
+    EthereumSettings: EthereumSettings
 
 
 @dataclass
@@ -34,12 +46,24 @@ class TelegramSettings:
 
 
 @dataclass
-class DydxConfig:
+class DYDXTestnetSettings:
     dydx_chain_address: str
-    dydx_secret_phrase: str
+    dydx_chain_secret: str
+
+
+@dataclass
+class DYDXMainnetSettings:
+    dydx_chain_address: str
+    dydx_chain_secret: str
+
+
+@dataclass
+class DydxConfig:
     is_testnet: bool
     telegram: TelegramSettings
     botSettings: BotSettings
+    dydx_testnet: DYDXTestnetSettings
+    dydx_mainnet: DYDXMainnetSettings
 
 
 class ConfigurationManager:

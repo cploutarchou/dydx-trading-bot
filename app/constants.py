@@ -1,8 +1,6 @@
-# from dydx3.constants import API_HOST_MAINNET, API_HOST_GOERLI
 from config import config as app_config
 
-
-# For gathering tesnet data or live market data for cointegration calculation
+# For gathering testnet data or live market data for cointegration calculation
 if app_config().is_testnet:
     MARKET_DATA_MODE = "TESTNET"  # vs "MAINNET"
 else:
@@ -43,9 +41,14 @@ INDEXER_ENDPOINT_TESTNET = bot_settings.indexer_endpoint.testnet
 INDEXER_ENDPOINT_MAINNET = bot_settings.indexer_endpoint.mainnet
 INDEXER_ACCOUNT_ENDPOINT = INDEXER_ENDPOINT_TESTNET if app_config().is_testnet else INDEXER_ENDPOINT_MAINNET
 
+if app_config().is_testnet:
+    DYDX_ADDRESS = app_config().dydx_testnet.dydx_chain_address
+    SECRET_PHRASE = app_config().dydx_testnet.dydx_chain_secret
+else:
+    DYDX_ADDRESS = app_config().dydx_mainnet.dydx_chain_address
+    SECRET_PHRASE = app_config().dydx_mainnet.dydx_chain_secret
+
 # Get dydx and telegram settings from config
-DYDX_ADDRESS = app_config().dydx_chain_address
-SECRET_PHRASE = app_config().dydx_secret_phrase
 MNEMONIC = SECRET_PHRASE
 TELEGRAM_TOKEN = app_config().telegram.token
 TELEGRAM_CHAT_ID = app_config().telegram.chat_id

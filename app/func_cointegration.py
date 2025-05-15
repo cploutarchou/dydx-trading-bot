@@ -5,10 +5,8 @@ from statsmodels.tsa.stattools import coint
 from scipy.stats import linregress
 from constants import MAX_HALF_LIFE, WINDOW
 
-
 class SmartError(Exception):
     pass
-
 
 def half_life_mean_reversion(series):
     if len(series) <= 1:

@@ -1,6 +1,11 @@
+import logging
+from typing import Tuple, cast
+
 import numpy as np
 import pandas as pd
 from constants import MAX_HALF_LIFE, WINDOW
+
+logger = logging.getLogger(__name__)
 
 
 class SmartError(Exception):
@@ -12,15 +17,36 @@ def half_life_mean_reversion(series):
     # Import locally to avoid pulling heavy dependencies at module import time
     from scipy.stats import linregress
 
+    # Ensure we operate on a numpy float64 array (helps typing and numeric stability)
+    series = np.asarray(series, dtype=np.float64)
     difference = np.diff(series)
     lagged_series = series[:-1]
-    slope, _, _, _, _ = linregress(lagged_series, difference)
-    if np.abs(slope) < np.finfo(np.float64).eps:
+
+    # Ensure both arrays are 1D
+    lagged_series = np.asarray(lagged_series).flatten()
+    difference = np.asarray(difference).flatten()
+
+    # linregress returns (slope, intercept, rvalue, pvalue, stderr) for backward compatibility
+    # Guard against degenerate regression inputs before calling linregress
+    if np.nanstd(lagged_series) < np.finfo(np.float64).eps:
         raise SmartError(
-            "Cannot calculate half life. Slope value is too close to zero."
+            "Cannot calculate half life. Lagged series variance is too small for regression."
         )
+    if np.nanstd(difference) < np.finfo(np.float64).eps:
+        raise SmartError(
+            "Cannot calculate half life. Difference series variance is too small for regression."
+        )
+
+    result_tuple = linregress(lagged_series, difference)
+    slope_val, _, _, _, _ = cast(Tuple[float, float, float, float, float], result_tuple)
+    slope: float = float(slope_val)
+
+    # Guard against near-zero slope
+    if abs(slope) < np.finfo(np.float64).eps:
+        raise SmartError("Cannot calculate half life. Slope value is too close to zero.")
+
     half_life = -np.log(2) / slope
-    return half_life
+    return float(half_life)
 
 
 # Calculate ZScore
@@ -42,6 +68,17 @@ def calculate_cointegration(series_1, series_2):
     series_1 = np.array(series_1).astype(np.float64)
     series_2 = np.array(series_2).astype(np.float64)
     coint_flag = 0
+    # Basic guards: skip if either series has (near-)zero variance or contains NaNs
+    if np.isnan(series_1).any() or np.isnan(series_2).any():
+        raise SmartError("Series contains NaN values")
+    if np.nanstd(series_1) < np.finfo(np.float64).eps or np.nanstd(series_2) < np.finfo(np.float64).eps:
+        raise SmartError("Series variance is too small for reliable cointegration test")
+    # Quick check for nearly identical series which make the test ill-conditioned
+    if np.allclose(series_1, series_2, rtol=1e-6, atol=1e-8):
+        raise SmartError("Series are nearly identical; cointegration test is unreliable")
+    # Check for spread with too little movement prior to regression/half-life
+    if np.nanstd(series_1 - series_2) < np.finfo(np.float64).eps:
+        raise SmartError("Series spread variance is too small for reliable cointegration test")
     coint_res = coint(series_1, series_2)
     coint_t = coint_res[0]
     p_value = coint_res[1]
@@ -69,17 +106,60 @@ def store_cointegration_results(df_market_prices):
 
     # Find cointegrated pairs
     # Start with our base pair
+    # Minimum return std (percent change) to consider a market tradeable for cointegration
+    MIN_RETURN_STD = 1e-4
     for index, base_market in enumerate(markets[:-1]):
         series_1 = df_market_prices[base_market].values.astype(np.float64).tolist()
+
+        # Quick filter: skip base markets with almost-zero return volatility
+        try:
+            import pandas as _pd
+
+            returns_1 = _pd.Series(series_1).pct_change().dropna()
+            if returns_1.empty or returns_1.std() < MIN_RETURN_STD:
+                # Too little movement in base market — skip all pairs with this base
+                # This avoids a flood of 'Series variance is too small' messages
+                # and speeds up the scan.
+                # Print once per base market for visibility.
+                logger.debug(
+                    "Skipping market %s: return volatility below threshold", base_market
+                )
+                continue
+        except Exception:
+            # If any error computing returns, skip this market
+            logger.warning("Skipping market %s: error computing returns", base_market)
+            continue
 
         # Get Quote Pair
         for quote_market in markets[index + 1 :]:
             series_2 = df_market_prices[quote_market].values.astype(np.float64).tolist()
 
-            # Check cointegration
-            coint_flag, hedge_ratio, half_life = calculate_cointegration(
-                series_1, series_2
-            )
+            # Quick filter: skip quote markets with near-zero return volatility
+            try:
+                returns_2 = _pd.Series(series_2).pct_change().dropna()
+                if returns_2.empty or returns_2.std() < MIN_RETURN_STD:
+                    # Skip this pair silently to avoid noise
+                    continue
+            except Exception:
+                continue
+
+            # Check cointegration (guard errors per-pair so one bad pair doesn't abort the whole run)
+            try:
+                coint_flag, hedge_ratio, half_life = calculate_cointegration(
+                    series_1, series_2
+                )
+            except SmartError as e:
+                # Skip problematic pairs (constant series, NaNs, near-zero variance, etc.)
+                logger.debug(
+                    "Skipping pair %s / %s: %s", base_market, quote_market, e
+                )
+                continue
+            except Exception:
+                # Catch-all: skip pair but log for debugging
+                logger.exception(
+                    "Error testing pair %s / %s", base_market, quote_market
+                )
+                continue
 
             # Log pair
             if coint_flag == 1 and half_life <= MAX_HALF_LIFE and half_life > 0:
@@ -98,5 +178,5 @@ def store_cointegration_results(df_market_prices):
     del df_criteria_met
 
     # Return result
-    print("Cointegrated pairs successfully saved")
+    logger.info("Cointegrated pairs successfully saved")
     return "saved"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -15,58 +15,62 @@ class IndexerEndpoint:
 
 @dataclass
 class BotSettings:
-    abortAllPositions: bool
-    findCointegratedPairs: bool
-    manageExits: bool
-    placeTrades: bool
-    resolutionTimeframe: str
-    strategy: str
-    statsWindow: int
-    maxHalfLife: int
-    ZScoreThreshold: float
-    usdPerTrade: float
-    usdMinCollateral: float
-    closeAtZscoreCross: bool
-    indexer_endpoint: IndexerEndpoint
+    abortAllPositions: bool = False
+    findCointegratedPairs: bool = False
+    manageExits: bool = False
+    placeTrades: bool = False
+    resolutionTimeframe: str = "1HOUR"
+    strategy: str = "cointegration"
+    statsWindow: int = 21
+    maxHalfLife: int = 24
+    ZScoreThreshold: float = 1.5
+    usdPerTrade: float = 10.0
+    usdMinCollateral: float = 100.0
+    closeAtZscoreCross: bool = True
+    indexer_endpoint: IndexerEndpoint = field(
+        default_factory=lambda: IndexerEndpoint(testnet="", mainnet="")
+    )
     # WalletSettings is optional in the YAML; if present add parsing logic later
 
 
 @dataclass
 class EthereumSettings:
-    Address: str
-    PrivateKey: str
+    Address: str = ""
+    PrivateKey: str = ""
 
 
 @dataclass
 class WalletSettings:
-    EthereumSettings: EthereumSettings
+    EthereumSettings: EthereumSettings = field(
+        default_factory=lambda: EthereumSettings()
+    )
 
 
 @dataclass
 class TelegramSettings:
-    token: str
-    chat_id: str
+    token: str = ""
+    chat_id: str = ""
 
 
 @dataclass
 class DYDXTestnetSettings:
-    dydx_chain_address: str
-    dydx_chain_secret: str
+    dydx_chain_address: str = ""
+    dydx_chain_secret: str = ""
 
 
 @dataclass
 class DYDXMainnetSettings:
-    dydx_chain_address: str
-    dydx_chain_secret: str
+    dydx_chain_address: str = ""
+    dydx_chain_secret: str = ""
 
 
 @dataclass
 class DydxConfig:
-    is_testnet: bool
-    telegram: TelegramSettings
-    botSettings: BotSettings
-    dydx_testnet: DYDXTestnetSettings
-    dydx_mainnet: DYDXMainnetSettings
+    is_testnet: bool = False
+    telegram: Optional[TelegramSettings] = None
+    botSettings: Optional[BotSettings] = None
+    dydx_testnet: Optional[DYDXTestnetSettings] = None
+    dydx_mainnet: Optional[DYDXMainnetSettings] = None
 
 
 class ConfigurationManager:
@@ -79,14 +83,14 @@ class ConfigurationManager:
         return cls._instance
 
     @classmethod
-    def get_config(cls) -> DydxConfig:
+    def get_config(cls) -> Optional[DydxConfig]:
         """Get the configuration instance. Loads it if not already loaded."""
         if cls._instance is None or cls._instance._config is None:
             cls._instance = ConfigurationManager()
             cls._instance.load_config()
         return cls._instance._config
 
-    def load_config(self, config_path: str = None) -> None:
+    def load_config(self, config_path: Optional[str | Path] = None) -> None:
         """Load configuration from the YAML file."""
         if config_path is None:
             # Default to looking for config.yaml in the same directory as this file
@@ -100,6 +104,9 @@ class ConfigurationManager:
                 config_path = scripts_config_path
             else:
                 config_path = app_config_path  # Default to app path for error message
+
+        # Normalize to Path
+        config_path = Path(config_path)
 
         try:
             with open(config_path, "r") as f:

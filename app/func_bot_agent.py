@@ -1,9 +1,11 @@
-from func_private import place_market_order, check_order_status, cancel_order
-from datetime import datetime
-from func_messaging import send_message
+import logging
 import time
+from datetime import datetime
 
-from pprint import pprint
+from func_messaging import send_message
+from func_private import cancel_order, check_order_status, place_market_order
+
+logger = logging.getLogger(__name__)
 
 
 # Class: Agent for managing opening and checking trades
@@ -76,7 +78,9 @@ class BotAgent:
 
         # Guard: If order cancelled move onto next Pair
         if order_status == "CANCELED":
-            print(f"{self.market_1} vs {self.market_2} - Order cancelled...")
+            logger.warning(
+                "%s vs %s - Order cancelled", self.market_1, self.market_2
+            )
             self.order_dict["pair_status"] = "FAILED"
             return "failed"
 
@@ -87,7 +91,9 @@ class BotAgent:
 
             # Guard: If order cancelled move onto next Pair
             if order_status == "CANCELED":
-                print(f"{self.market_1} vs {self.market_2} - Order cancelled...")
+                logger.warning(
+                    "%s vs %s - Order cancelled", self.market_1, self.market_2
+                )
                 self.order_dict["pair_status"] = "FAILED"
                 return "failed"
 
@@ -95,8 +101,10 @@ class BotAgent:
             if order_status != "FILLED":
                 await cancel_order(self.client, order_id)
                 self.order_dict["pair_status"] = "ERROR"
-                print(
-                    f"{self.market_1} vs {self.market_2} - Order error. Cancellation request sent, please check open orders.."
+                logger.error(
+                    "%s vs %s - Order error. Cancellation request sent, verify open orders",
+                    self.market_1,
+                    self.market_2,
                 )
                 return "error"
 
@@ -107,12 +115,13 @@ class BotAgent:
     async def open_trades(self):
 
         # Print status
-        print("---")
-        print(f"{self.market_1}: Placing first order...")
-        print(
-            f"Side: {self.base_side}, Size: {self.base_size}, Price: {self.base_price}"
+        logger.info(
+            "%s: Placing first order | side=%s size=%s price=%s",
+            self.market_1,
+            self.base_side,
+            self.base_size,
+            self.base_price,
         )
-        print("---")
 
         # Place Base Order
         try:
@@ -128,20 +137,19 @@ class BotAgent:
             # Store the order id
             self.order_dict["order_id_m1"] = order_id
             self.order_dict["order_time_m1"] = datetime.now().isoformat()
-            print("First order sent...")
+            logger.info("First order for %s sent", self.market_1)
         except Exception as e:
-            print(e)
+            logger.exception("Error placing first order for %s", self.market_1)
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"Market 1 {self.market_1}: , {e}"
             return self.order_dict
 
         # Ensure order is live before processing
-        print("Checking first order status...")
-        print(self.order_dict["order_id_m1"])
+        logger.info("Checking first order status for %s", self.order_dict["order_id_m1"])
         order_status_m1 = await self.check_order_status_by_id(
             self.order_dict["order_id_m1"]
         )
-        print(order_status_m1)
+        logger.info("First order status: %s", order_status_m1)
 
         # Guard: Aborder if order failed
         if order_status_m1 != "live":
@@ -150,12 +158,13 @@ class BotAgent:
             return self.order_dict
 
         # Print status - opening second order
-        print("---")
-        print(f"{self.market_2}: Placing second order...")
-        print(
-            f"Side: {self.quote_side}, Size: {self.quote_size}, Price: {self.quote_price}"
+        logger.info(
+            "%s: Placing second order | side=%s size=%s price=%s",
+            self.market_2,
+            self.quote_side,
+            self.quote_size,
+            self.quote_price,
         )
-        print("---")
 
         # Place Quote Order
         try:
@@ -169,17 +178,17 @@ class BotAgent:
             )
 
             # Store the order id
-            print(order_id)
             self.order_dict["order_id_m2"] = order_id
             self.order_dict["order_time_m2"] = datetime.now().isoformat()
-            print("Second order sent...")
+            logger.info("Second order for %s sent (id=%s)", self.market_2, order_id)
         except Exception as e:
+            logger.exception("Error placing second order for %s", self.market_2)
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"Market 2 {self.market_2}: , {e}"
             return self.order_dict
 
         # Ensure order is live before processing
-        print("Checking second order status...")
+        logger.info("Checking second order status for %s", self.order_dict["order_id_m2"])
         order_status_m2 = await self.check_order_status_by_id(
             self.order_dict["order_id_m2"]
         )
@@ -206,9 +215,12 @@ class BotAgent:
                     self.client, order_id
                 )
                 if order_status_close_order != "FILLED":
-                    print("ABORT PROGRAM")
-                    print("Unexpected Error")
-                    print(order_status_close_order)
+                    logger.critical("ABORT PROGRAM - Failed to close hedged position")
+                    logger.critical(
+                        "Unexpected error closing %s -> status %s",
+                        self.market_1,
+                        order_status_close_order,
+                    )
 
                     # Send Message
                     send_message("Failed to execute. Code red. Error code: 100")
@@ -218,9 +230,11 @@ class BotAgent:
             except Exception as e:
                 self.order_dict["pair_status"] = "ERROR"
                 self.order_dict["comments"] = f"Close Market 1 {self.market_1}: , {e}"
-                print("ABORT PROGRAM")
-                print("Unexpected Error")
-                print(order_status_close_order)
+                status_snapshot = locals().get("order_status_close_order", "unknown")
+                logger.critical(
+                    "ABORT PROGRAM - Unexpected error closing %s", self.market_1
+                )
+                logger.critical("order_status_close_order=%s", status_snapshot)
 
                 # Send Message
                 send_message("Failed to execute. Code red. Error code: 101")
@@ -230,8 +244,6 @@ class BotAgent:
 
         # Return success result
         else:
-            print("")
-            print("SUCCESS: LIVE PAIR")
-            print("")
+            logger.info("SUCCESS: LIVE PAIR %s / %s", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "LIVE"
             return self.order_dict

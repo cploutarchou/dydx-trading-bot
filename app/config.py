@@ -1,7 +1,10 @@
-import yaml
-from dataclasses import dataclass
-from typing import Optional
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict, Optional
+
+import yaml
 
 
 @dataclass
@@ -12,58 +15,79 @@ class IndexerEndpoint:
 
 @dataclass
 class BotSettings:
-    abortAllPositions: bool
-    findCointegratedPairs: bool
-    manageExits: bool
-    placeTrades: bool
-    resolutionTimeframe: str
-    strategy: str
-    statsWindow: int
-    maxHalfLife: int
-    ZScoreThreshold: float
-    usdPerTrade: float
-    usdMinCollateral: float
-    closeAtZscoreCross: bool
-    indexer_endpoint: IndexerEndpoint
-    WalletSettings: WalletSettings
+    abortAllPositions: bool = False
+    findCointegratedPairs: bool = False
+    manageExits: bool = False
+    placeTrades: bool = False
+    resolutionTimeframe: str = "1HOUR"
+    strategy: str = "cointegration"
+    statsWindow: int = 21
+    maxHalfLife: int = 24
+    ZScoreThreshold: float = 1.5
+    usdPerTrade: float = 10.0
+    usdMinCollateral: float = 100.0
+    closeAtZscoreCross: bool = True
+    indexer_endpoint: IndexerEndpoint = field(
+        default_factory=lambda: IndexerEndpoint(testnet="", mainnet="")
+    )
+    # WalletSettings is optional in the YAML; if present add parsing logic later
 
 
 @dataclass
 class EthereumSettings:
-    Address: str
-    PrivateKey: str
+    Address: str = ""
+    PrivateKey: str = ""
 
 
 @dataclass
 class WalletSettings:
-    EthereumSettings: EthereumSettings
+    EthereumSettings: EthereumSettings = field(
+        default_factory=lambda: EthereumSettings()
+    )
 
 
 @dataclass
 class TelegramSettings:
-    token: str
-    chat_id: str
+    token: str = ""
+    chat_id: str = ""
 
 
 @dataclass
 class DYDXTestnetSettings:
-    dydx_chain_address: str
-    dydx_chain_secret: str
+    dydx_chain_address: str = ""
+    dydx_chain_secret: str = ""
 
 
 @dataclass
 class DYDXMainnetSettings:
-    dydx_chain_address: str
-    dydx_chain_secret: str
+    dydx_chain_address: str = ""
+    dydx_chain_secret: str = ""
+
+
+@dataclass
+class LokiSettings:
+    enabled: bool = False
+    url: str = ""
+    username: str = ""
+    password: str = ""
+    tenant_id: Optional[str] = None
+    labels: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class LoggingSettings:
+    level: str = "INFO"
+    loki: LokiSettings = field(default_factory=LokiSettings)
 
 
 @dataclass
 class DydxConfig:
-    is_testnet: bool
-    telegram: TelegramSettings
-    botSettings: BotSettings
-    dydx_testnet: DYDXTestnetSettings
-    dydx_mainnet: DYDXMainnetSettings
+    is_testnet: bool = False
+    telegram: Optional[TelegramSettings] = None
+    botSettings: Optional[BotSettings] = None
+    dydx_testnet: Optional[DYDXTestnetSettings] = None
+    dydx_mainnet: Optional[DYDXMainnetSettings] = None
+    logging: Optional[LoggingSettings] = None
 
 
 class ConfigurationManager:
@@ -76,14 +100,14 @@ class ConfigurationManager:
         return cls._instance
 
     @classmethod
-    def get_config(cls) -> DydxConfig:
+    def get_config(cls) -> Optional[DydxConfig]:
         """Get the configuration instance. Loads it if not already loaded."""
         if cls._instance is None or cls._instance._config is None:
             cls._instance = ConfigurationManager()
             cls._instance.load_config()
         return cls._instance._config
 
-    def load_config(self, config_path: str = None) -> None:
+    def load_config(self, config_path: Optional[str | Path] = None) -> None:
         """Load configuration from the YAML file."""
         if config_path is None:
             # Default to looking for config.yaml in the same directory as this file
@@ -97,6 +121,9 @@ class ConfigurationManager:
                 config_path = scripts_config_path
             else:
                 config_path = app_config_path  # Default to app path for error message
+
+        # Normalize to Path
+        config_path = Path(config_path)
 
         try:
             with open(config_path, "r") as f:
@@ -123,12 +150,34 @@ class ConfigurationManager:
 
             telegram_settings = TelegramSettings(**data["telegram"])
 
+            # Build DYDX network settings. Support either a top-level `dydx` block
+            # or explicit `dydx_testnet`/`dydx_mainnet` keys.
+            if "dydx" in data:
+                dydx_testnet = DYDXTestnetSettings(
+                    dydx_chain_address=dydx_chain_address,
+                    dydx_chain_secret=dydx_secret_phrase,
+                )
+                dydx_mainnet = DYDXMainnetSettings(
+                    dydx_chain_address=dydx_chain_address,
+                    dydx_chain_secret=dydx_secret_phrase,
+                )
+            else:
+                # Expect explicit sub-keys when no top-level `dydx` block
+                dt = data.get("dydx_testnet", {})
+                dm = data.get("dydx_mainnet", {})
+                dydx_testnet = DYDXTestnetSettings(**dt)
+                dydx_mainnet = DYDXMainnetSettings(**dm)
+
+            logging_settings = self._build_logging_settings(data)
+
+            # Create DydxConfig instance
             self._config = DydxConfig(
-                dydx_chain_address=dydx_chain_address,
-                dydx_secret_phrase=dydx_secret_phrase,
                 is_testnet=is_testnet,
                 telegram=telegram_settings,
                 botSettings=bot_settings,
+                dydx_testnet=dydx_testnet,
+                dydx_mainnet=dydx_mainnet,
+                logging=logging_settings,
             )
         except FileNotFoundError:
             raise FileNotFoundError(f"Configuration file not found at: {config_path}")
@@ -136,6 +185,33 @@ class ConfigurationManager:
             raise ValueError(f"Error parsing YAML configuration: {e}")
         except KeyError as e:
             raise KeyError(f"Missing required configuration key: {e}")
+
+    def _build_logging_settings(self, data: dict) -> Optional[LoggingSettings]:
+        logging_data = data.get("logging")
+        if logging_data is None:
+            return None
+
+        loki_data = logging_data.get("loki", {}) or {}
+
+        # Ensure labels are stored as a dictionary of strings
+        raw_labels = loki_data.get("labels") or {}
+        labels: Dict[str, str] = {
+            str(key): str(value) for key, value in raw_labels.items()
+        }
+
+        loki_settings = LokiSettings(
+            enabled=bool(loki_data.get("enabled", False)),
+            url=str(loki_data.get("url", "")),
+            username=str(loki_data.get("username", "")),
+            password=str(loki_data.get("password", "")),
+            tenant_id=loki_data.get("tenant_id"),
+            labels=labels,
+        )
+
+        return LoggingSettings(
+            level=str(logging_data.get("level", "INFO")),
+            loki=loki_settings,
+        )
 
 
 # Create a global instance for easy access

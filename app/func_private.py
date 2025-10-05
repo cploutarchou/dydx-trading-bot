@@ -19,8 +19,10 @@ async def cancel_order(client, order_id):
             "markets"
         ][order["ticker"]]
     )
+    # Use the client's wallet address when available to derive client id
+    address = getattr(client.wallet, "address", DYDX_ADDRESS)
     market_order_id = market.order_id(
-        DYDX_ADDRESS, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
+        address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
     )
     market_order_id.client_id = int(order["clientId"])
     market_order_id.clob_pair_id = int(order["clobPairId"])
@@ -37,13 +39,24 @@ async def cancel_order(client, order_id):
 
 # Get Account
 async def get_account(client):
-    account = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+    # Try client's wallet address first, fall back to configured DYDX_ADDRESS
+    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    try:
+        account = await client.indexer_account.account.get_subaccount(address, 0)
+    except Exception:
+        # Fallback to configured DYDX_ADDRESS
+        account = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
     return account["subaccount"]
 
 
 # Get Open Positions
 async def get_open_positions(client):
-    response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+    # Try client's wallet address first, fall back to configured DYDX_ADDRESS
+    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    try:
+        response = await client.indexer_account.account.get_subaccount(address, 0)
+    except Exception:
+        response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
     return response["subaccount"]["openPerpetualPositions"]
 
 
@@ -58,8 +71,13 @@ async def is_open_positions(client, market):
     # Protect API
     time.sleep(0.2)
 
-    # Get positions
-    response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+    # Get positions (try wallet address then configured address)
+    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    try:
+        response = await client.indexer_account.account.get_subaccount(address, 0)
+    except Exception:
+        response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+
     open_positions = response["subaccount"]["openPerpetualPositions"]
 
     # Determine if open
@@ -89,8 +107,9 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     market = Market(
         (await client.indexer.markets.get_perpetual_markets(market))["markets"][market]
     )
+    address = getattr(client.wallet, "address", DYDX_ADDRESS)
     market_order_id = market.order_id(
-        DYDX_ADDRESS, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
+        address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
     )
     good_til_block = current_block + 1 + 10
 

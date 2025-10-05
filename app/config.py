@@ -1,7 +1,10 @@
-import yaml
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
 from pathlib import Path
+from typing import Optional
+
+import yaml
 
 
 @dataclass
@@ -25,7 +28,7 @@ class BotSettings:
     usdMinCollateral: float
     closeAtZscoreCross: bool
     indexer_endpoint: IndexerEndpoint
-    WalletSettings: WalletSettings
+    # WalletSettings is optional in the YAML; if present add parsing logic later
 
 
 @dataclass
@@ -123,12 +126,31 @@ class ConfigurationManager:
 
             telegram_settings = TelegramSettings(**data["telegram"])
 
+            # Build DYDX network settings. Support either a top-level `dydx` block
+            # or explicit `dydx_testnet`/`dydx_mainnet` keys.
+            if "dydx" in data:
+                dydx_testnet = DYDXTestnetSettings(
+                    dydx_chain_address=dydx_chain_address,
+                    dydx_chain_secret=dydx_secret_phrase,
+                )
+                dydx_mainnet = DYDXMainnetSettings(
+                    dydx_chain_address=dydx_chain_address,
+                    dydx_chain_secret=dydx_secret_phrase,
+                )
+            else:
+                # Expect explicit sub-keys when no top-level `dydx` block
+                dt = data.get("dydx_testnet", {})
+                dm = data.get("dydx_mainnet", {})
+                dydx_testnet = DYDXTestnetSettings(**dt)
+                dydx_mainnet = DYDXMainnetSettings(**dm)
+
+            # Create DydxConfig instance
             self._config = DydxConfig(
-                dydx_chain_address=dydx_chain_address,
-                dydx_secret_phrase=dydx_secret_phrase,
                 is_testnet=is_testnet,
                 telegram=telegram_settings,
                 botSettings=bot_settings,
+                dydx_testnet=dydx_testnet,
+                dydx_mainnet=dydx_mainnet,
             )
         except FileNotFoundError:
             raise FileNotFoundError(f"Configuration file not found at: {config_path}")

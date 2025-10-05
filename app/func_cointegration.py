@@ -1,8 +1,11 @@
+import logging
 from typing import Tuple, cast
 
 import numpy as np
 import pandas as pd
 from constants import MAX_HALF_LIFE, WINDOW
+
+logger = logging.getLogger(__name__)
 
 
 class SmartError(Exception):
@@ -118,11 +121,13 @@ def store_cointegration_results(df_market_prices):
                 # This avoids a flood of 'Series variance is too small' messages
                 # and speeds up the scan.
                 # Print once per base market for visibility.
-                print(f"Skipping market {base_market}: return volatility below threshold")
+                logger.debug(
+                    "Skipping market %s: return volatility below threshold", base_market
+                )
                 continue
         except Exception:
             # If any error computing returns, skip this market
-            print(f"Skipping market {base_market}: error computing returns")
+            logger.warning("Skipping market %s: error computing returns", base_market)
             continue
 
         # Get Quote Pair
@@ -145,11 +150,15 @@ def store_cointegration_results(df_market_prices):
                 )
             except SmartError as e:
                 # Skip problematic pairs (constant series, NaNs, near-zero variance, etc.)
-                print(f"Skipping pair {base_market} / {quote_market}: {e}")
+                logger.debug(
+                    "Skipping pair %s / %s: %s", base_market, quote_market, e
+                )
                 continue
-            except Exception as e:
+            except Exception:
                 # Catch-all: skip pair but log for debugging
-                print(f"Error testing pair {base_market} / {quote_market}: {e}")
+                logger.exception(
+                    "Error testing pair %s / %s", base_market, quote_market
+                )
                 continue
 
             # Log pair
@@ -169,5 +178,5 @@ def store_cointegration_results(df_market_prices):
     del df_criteria_met
 
     # Return result
-    print("Cointegrated pairs successfully saved")
+    logger.info("Cointegrated pairs successfully saved")
     return "saved"

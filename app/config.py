@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import yaml
 
@@ -65,12 +65,29 @@ class DYDXMainnetSettings:
 
 
 @dataclass
+class LokiSettings:
+    enabled: bool = False
+    url: str = ""
+    username: str = ""
+    password: str = ""
+    tenant_id: Optional[str] = None
+    labels: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class LoggingSettings:
+    level: str = "INFO"
+    loki: LokiSettings = field(default_factory=LokiSettings)
+
+
+@dataclass
 class DydxConfig:
     is_testnet: bool = False
     telegram: Optional[TelegramSettings] = None
     botSettings: Optional[BotSettings] = None
     dydx_testnet: Optional[DYDXTestnetSettings] = None
     dydx_mainnet: Optional[DYDXMainnetSettings] = None
+    logging: Optional[LoggingSettings] = None
 
 
 class ConfigurationManager:
@@ -151,6 +168,8 @@ class ConfigurationManager:
                 dydx_testnet = DYDXTestnetSettings(**dt)
                 dydx_mainnet = DYDXMainnetSettings(**dm)
 
+            logging_settings = self._build_logging_settings(data)
+
             # Create DydxConfig instance
             self._config = DydxConfig(
                 is_testnet=is_testnet,
@@ -158,6 +177,7 @@ class ConfigurationManager:
                 botSettings=bot_settings,
                 dydx_testnet=dydx_testnet,
                 dydx_mainnet=dydx_mainnet,
+                logging=logging_settings,
             )
         except FileNotFoundError:
             raise FileNotFoundError(f"Configuration file not found at: {config_path}")
@@ -165,6 +185,33 @@ class ConfigurationManager:
             raise ValueError(f"Error parsing YAML configuration: {e}")
         except KeyError as e:
             raise KeyError(f"Missing required configuration key: {e}")
+
+    def _build_logging_settings(self, data: dict) -> Optional[LoggingSettings]:
+        logging_data = data.get("logging")
+        if logging_data is None:
+            return None
+
+        loki_data = logging_data.get("loki", {}) or {}
+
+        # Ensure labels are stored as a dictionary of strings
+        raw_labels = loki_data.get("labels") or {}
+        labels: Dict[str, str] = {
+            str(key): str(value) for key, value in raw_labels.items()
+        }
+
+        loki_settings = LokiSettings(
+            enabled=bool(loki_data.get("enabled", False)),
+            url=str(loki_data.get("url", "")),
+            username=str(loki_data.get("username", "")),
+            password=str(loki_data.get("password", "")),
+            tenant_id=loki_data.get("tenant_id"),
+            labels=labels,
+        )
+
+        return LoggingSettings(
+            level=str(logging_data.get("level", "INFO")),
+            loki=loki_settings,
+        )
 
 
 # Create a global instance for easy access

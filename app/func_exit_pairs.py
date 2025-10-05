@@ -1,12 +1,14 @@
-from constants import CLOSE_AT_ZSCORE_CROSS
-from func_utils import format_number
-from func_cointegration import calculate_zscore
-from func_public import get_candles_recent, get_markets
-from func_private import place_market_order, get_open_positions, get_order
 import json
+import logging
 import time
 
-from pprint import pprint
+from constants import CLOSE_AT_ZSCORE_CROSS
+from func_cointegration import calculate_zscore
+from func_private import get_open_positions, get_order, place_market_order
+from func_public import get_candles_recent, get_markets
+from func_utils import format_number
+
+logger = logging.getLogger(__name__)
 
 
 # Manage trade exits
@@ -23,7 +25,9 @@ async def manage_trade_exits(client):
     try:
         open_positions_file = open("bot_agents.json")
         open_positions_dict = json.load(open_positions_file)
-    except:
+        logger.debug("Loaded %d tracked positions", len(open_positions_dict))
+    except Exception:
+        logger.info("No bot_agents.json found; nothing to close")
         return "complete"
 
     # Guard: Exit if no open positions in file
@@ -32,6 +36,7 @@ async def manage_trade_exits(client):
 
     # Get all open positions per trading platform
     exchange_pos = await get_open_positions(client)
+    logger.debug("Exchange reports %d open positions", len(exchange_pos))
 
     # Create live position tickers list
     markets_live = list(exchange_pos.keys())
@@ -96,13 +101,15 @@ async def manage_trade_exits(client):
 
         # Guard: If not all match exit with error
         if not check_m1 or not check_m2 or not check_live:
-            print(
-                f"Warning: Not all open positions match exchange records for {position_market_m1} and {position_market_m2}"
+            logger.error(
+                "Position mismatch for %s / %s; local state diverged from exchange",
+                position_market_m1,
+                position_market_m2,
             )
-            print(
-                f"This means that the program does not recognise some of the open positions. Please check and close trades for this pair."
+            logger.error(
+                "Program does not recognise some open positions. Manual intervention required."
             )
-            print(f"Exiting program")
+            logger.error("Exiting program")
             exit(1)
 
         # Get prices
@@ -171,8 +178,10 @@ async def manage_trade_exits(client):
             try:
 
                 # Close position for market 1
-                print(">>> Closing market 1 <<<")
-                print(f"Closing position for {position_market_m1}")
+                logger.info(
+                    "Closing position for %s (subaccount inferred)",
+                    position_market_m1,
+                )
 
                 (close_order_m1, order_id) = await place_market_order(
                     client,
@@ -183,15 +192,16 @@ async def manage_trade_exits(client):
                     reduce_only=True,
                 )
 
-                print(close_order_m1["id"])
-                print(">>> <<<")
+                logger.debug("Close order m1 id: %s", close_order_m1.get("id"))
 
                 # Protect API
                 time.sleep(1)
 
                 # Close position for market 2
-                print(">>> Closing market 2 <<<")
-                print(f"Closing position for {position_market_m2}")
+                logger.info(
+                    "Closing position for %s (subaccount inferred)",
+                    position_market_m2,
+                )
 
                 (close_order_m2, order_id) = await place_market_order(
                     client,
@@ -202,12 +212,14 @@ async def manage_trade_exits(client):
                     reduce_only=True,
                 )
 
-                print(close_order_m2["id"])
-                print(">>> <<<")
+                logger.debug("Close order m2 id: %s", close_order_m2.get("id"))
 
-            except Exception as e:
-                print(e)
-                print(f"Exit failed for {position_market_m1} with {position_market_m2}")
+            except Exception:
+                logger.exception(
+                    "Exit failed for %s with %s",
+                    position_market_m1,
+                    position_market_m2,
+                )
                 save_output.append(position)
 
         # Keep record if items and save
@@ -215,6 +227,6 @@ async def manage_trade_exits(client):
             save_output.append(position)
 
     # Save remaining items
-    print(f"{len(save_output)} Items remaining. Saving file...")
+    logger.info("%d items remaining; persisting bot_agents.json", len(save_output))
     with open("bot_agents.json", "w") as f:
         json.dump(save_output, f)

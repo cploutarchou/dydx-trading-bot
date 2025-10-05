@@ -1,13 +1,15 @@
-from constants import ZSCORE_THRESH, USD_PER_TRADE, USD_MIN_COLLATERAL
-from func_utils import format_number
-from func_cointegration import calculate_zscore
-from func_public import get_candles_recent, get_markets
-from func_private import is_open_positions, get_account
-from func_bot_agent import BotAgent
-import pandas as pd
 import json
+import logging
 
-from pprint import pprint
+import pandas as pd
+from constants import USD_MIN_COLLATERAL, USD_PER_TRADE, ZSCORE_THRESH
+from func_bot_agent import BotAgent
+from func_cointegration import calculate_zscore
+from func_private import get_account, is_open_positions
+from func_public import get_candles_recent, get_markets
+from func_utils import format_number
+
+logger = logging.getLogger(__name__)
 
 IGNORE_ASSETS = [
     "BTC-USD_x",
@@ -24,6 +26,7 @@ async def open_positions(client):
 
     # Load cointegrated pairs
     df = pd.read_csv("cointegrated_pairs.csv")
+    logger.info("Loaded %d cointegrated pairs", len(df))
 
     # Get markets from referencing of min order size, tick size etc
     markets = await get_markets(client)
@@ -37,8 +40,9 @@ async def open_positions(client):
         open_positions_dict = json.load(open_positions_file)
         for p in open_positions_dict:
             bot_agents.append(p)
-    except:
+    except Exception:
         bot_agents = []
+        logger.debug("No existing bot_agents.json found; starting fresh")
 
     # Find ZScore triggers
     for index, row in df.iterrows():
@@ -57,8 +61,10 @@ async def open_positions(client):
         try:
             series_1 = await get_candles_recent(client, base_market)
             series_2 = await get_candles_recent(client, quote_market)
-        except Exception as e:
-            print(e)
+        except Exception:
+            logger.exception(
+                "Failed to fetch candles for %s / %s", base_market, quote_market
+            )
             continue
 
         # Get ZScore
@@ -138,12 +144,19 @@ async def open_positions(client):
                         # Check account balance
                         account = await get_account(client)
                         free_collateral = float(account["freeCollateral"])
-                        print(
-                            f"Balance: {free_collateral} and minimum at {USD_MIN_COLLATERAL}"
+                        logger.info(
+                            "Free collateral %.2f (min required %.2f)",
+                            free_collateral,
+                            USD_MIN_COLLATERAL,
                         )
 
                         # Guard: Ensure collateral
                         if free_collateral < USD_MIN_COLLATERAL:
+                            logger.warning(
+                                "Insufficient collateral %.2f < %.2f; skipping trade",
+                                free_collateral,
+                                USD_MIN_COLLATERAL,
+                            )
                             break
 
                         # Create Bot Agent
@@ -168,10 +181,15 @@ async def open_positions(client):
 
                         # Guard: Handle failure
                         if bot_open_dict == "failed":
+                            logger.warning(
+                                "Bot agent failed to open trades for %s / %s",
+                                base_market,
+                                quote_market,
+                            )
                             continue
 
                         # Handle success in opening trades
-                        if bot_open_dict["pair_status"] == "LIVE":
+                        if isinstance(bot_open_dict, dict) and bot_open_dict.get("pair_status") == "LIVE":
 
                             # Append to list of bot agents
                             bot_agents.append(bot_open_dict)
@@ -182,11 +200,14 @@ async def open_positions(client):
                                 json.dump(bot_agents, f)
 
                             # Confirm live status in print
-                            print("Trade status: Live")
-                            print("---")
+                            logger.info(
+                                "Trade status: Live for %s / %s",
+                                base_market,
+                                quote_market,
+                            )
 
     # Save agents
-    print(f"Success: Manage open trades checked")
+    logger.info("Manage open trades cycle complete")
     # if len(bot_agents) > 0:
     #   with open("bot_agents.json", "w") as f:
     #     json.dump(bot_agents, f)

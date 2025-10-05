@@ -22,6 +22,28 @@ You can create a `config.yaml` file with the required configuration using:
 make config
 ```
 
+### Recommended local setup (virtualenv)
+
+Create a virtual environment and install dependencies before running the bot. Example (macOS / zsh):
+
+```bash
+# create venv
+python3 -m venv .venv
+# activate
+source .venv/bin/activate
+# upgrade pip (you may see a message to upgrade; upgrading to latest pip is recommended)
+python -m pip install --upgrade pip
+# install requirements
+pip install -r requirements.txt
+# run tests
+PYTHONPATH=. pytest -q
+# run bot
+. .venv/bin/activate
+python app/main.py
+```
+
+Note: heavy scientific libraries (scipy/statsmodels) are imported only when cointegration calculations run. This speeds up lightweight commands and tests.
+
 This will create a `config.yaml` file in the app directory with default values that you can edit. The YAML configuration provides a more structured and maintainable way to configure the bot.
 
 ## Configuration Parameters

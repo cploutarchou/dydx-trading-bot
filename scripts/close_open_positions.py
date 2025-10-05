@@ -11,27 +11,38 @@ Run inside the project's venv:
 . .venv/bin/activate
 python scripts/close_open_positions.py
 """
+import argparse
 import asyncio
+import logging
 import random
 import sys
 import time
 from pathlib import Path
-from pprint import pprint
 
 # Make the app/ directory importable the same way other scripts do
 repo_root = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(repo_root / "app"))
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
 
-import argparse
+from dydx_v4_client import (  # noqa: E402
+    MAX_CLIENT_ID,
+    NodeClient,
+    Order,
+    OrderFlags,
+    Wallet,
+)
+from dydx_v4_client.indexer.rest.constants import OrderType  # noqa: E402
+from dydx_v4_client.indexer.rest.indexer_client import IndexerClient  # noqa: E402
+from dydx_v4_client.network import TESTNET  # noqa: E402
+from dydx_v4_client.node.market import Market  # noqa: E402
 
-from config import config as app_config
-from constants import INDEXER_ACCOUNT_ENDPOINT
-from dydx_v4_client import MAX_CLIENT_ID, NodeClient, Order, OrderFlags, Wallet
-from dydx_v4_client.indexer.rest.constants import OrderType
-from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
-from dydx_v4_client.network import TESTNET
-from dydx_v4_client.node.market import Market
-from func_utils import format_number
+from app.config import config as app_config  # noqa: E402
+from app.constants import INDEXER_ACCOUNT_ENDPOINT  # noqa: E402
+from app.func_utils import format_number  # noqa: E402
+from app.logging_setup import setup_logging  # noqa: E402
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def parse_args():
@@ -54,25 +65,36 @@ async def connect_for_script(indexer_endpoint: str, mnemonic: str, derived_addre
 async def main():
     args = parse_args()
     cfg = app_config()
+    if cfg is None:
+        logger.error("Configuration could not be loaded; aborting")
+        return
     # Get mnemonic from config depending on network
     if cfg.is_testnet:
+        if cfg.dydx_testnet is None:
+            logger.error("Testnet configuration missing dydx_testnet block; aborting")
+            return
         mnemonic = cfg.dydx_testnet.dydx_chain_secret
         cfg_address = cfg.dydx_testnet.dydx_chain_address
     else:
+        if cfg.dydx_mainnet is None:
+            logger.error("Mainnet configuration missing dydx_mainnet block; aborting")
+            return
         mnemonic = cfg.dydx_mainnet.dydx_chain_secret
         cfg_address = cfg.dydx_mainnet.dydx_chain_address
 
-    print("Deriving address from mnemonic...")
+    logger.info("Deriving address from mnemonic...")
     # Derive wallet address
     node = await NodeClient.connect(TESTNET.node)
     wallet = await Wallet.from_mnemonic(node, mnemonic, cfg_address)
     derived_address = wallet.address
-    print("Configured address:", cfg_address)
-    print("Derived address:   ", derived_address)
+    logger.info("Configured address: %s", cfg_address)
+    logger.info("Derived address:   %s", derived_address)
 
     # Prefer derived address if it differs
     if derived_address != cfg_address:
-        print("Address mismatch detected. Using derived address to query indexer and close positions.")
+        logger.warning(
+            "Address mismatch detected. Using derived address to query indexer and close positions."
+        )
         address_to_use = derived_address
     else:
         address_to_use = cfg_address
@@ -81,13 +103,17 @@ async def main():
     indexer, node, wallet = await connect_for_script(INDEXER_ACCOUNT_ENDPOINT, mnemonic, address_to_use)
 
     found = []  # list of tuples (subaccount, open_positions dict)
-    print(f"Scanning up to {args.max_subaccounts} subaccounts for address {address_to_use}...")
+    logger.info(
+        "Scanning up to %d subaccounts for address %s...",
+        args.max_subaccounts,
+        address_to_use,
+    )
     for subacct in range(0, args.max_subaccounts):
         try:
             resp = await indexer.account.get_subaccount(address_to_use, subacct)
         except Exception as e:
             # likely 404 — no subaccount at this index
-            print(f"subaccount {subacct}: not found ({e})")
+            logger.debug("subaccount %d: not found (%s)", subacct, e)
             continue
         sub = resp.get("subaccount", {})
         positions = sub.get("openPerpetualPositions", {})
@@ -95,26 +121,39 @@ async def main():
             found.append((subacct, positions))
 
     if not found:
-        print("No open positions found across scanned subaccounts.")
+        logger.info("No open positions found across scanned subaccounts.")
         return
 
     # Summarize
     total_positions = sum(len(p) for _, p in found)
-    print(f"Found positions in {len(found)} subaccounts (total {total_positions} positions):")
+    logger.info(
+        "Found positions in %d subaccounts (total %d positions):",
+        len(found),
+        total_positions,
+    )
     for subacct, positions in found:
-        print(f" subaccount {subacct}: {len(positions)} positions")
+        logger.info(" subaccount %d: %d positions", subacct, len(positions))
         for token, pos in positions.items():
-            print(f"  - {pos['market']} side={pos['side']} size={pos['sumOpen']} entry={pos.get('entryPrice')}")
+            logger.info(
+                "  - %s side=%s size=%s entry=%s",
+                pos["market"],
+                pos["side"],
+                pos["sumOpen"],
+                pos.get("entryPrice"),
+            )
 
     if args.dry_run:
-        print("Dry-run mode: no orders will be placed. Use without --dry-run to actually close positions.")
+        logger.info(
+            "Dry-run mode: no orders will be placed. Use without --dry-run to actually close positions."
+        )
         return
 
     # Confirm if not auto-yes
     if not args.y:
+        logger.info("Awaiting user confirmation to close positions...")
         confirm = input("Close all found positions? Type 'yes' to proceed: ")
         if confirm.strip().lower() != "yes":
-            print("Aborting — no orders placed.")
+            logger.info("Aborting — no orders placed.")
             return
 
     # Fetch markets for tick sizes
@@ -141,29 +180,40 @@ async def main():
             current_block = await node.latest_block_height()
             good_til_block = current_block + 1 + 10
 
-            print(f"Placing reduce-only market order to close {market} (subaccount {subacct}): side {side}, size {size}, price {accept_price}")
+            logger.info(
+                "Placing reduce-only market order to close %s (subaccount %d): side %s, size %s, price %s",
+                market,
+                subacct,
+                side,
+                size,
+                accept_price,
+            )
             try:
                 order = await node.place_order(
                     wallet,
                     market_obj.order(
                         market_order_id,
-                        order_type=OrderType.MARKET,
+                        order_type=OrderType.MARKET,  # type: ignore[arg-type]
                         side=Order.Side.SIDE_BUY if side == "BUY" else Order.Side.SIDE_SELL,
                         size=float(size),
-                        price=float(accept_price),
+                        price=float(accept_price),  # type: ignore[arg-type]
                         time_in_force=Order.TIME_IN_FORCE_UNSPECIFIED,
                         reduce_only=True,
                         good_til_block=good_til_block,
                     ),
                 )
-                print("Close order placed, response:")
-                pprint(order)
+                logger.debug("Close order response: %s", order)
                 # brief wait
                 time.sleep(1.5)
             except Exception as e:
-                print(f"Failed to place close order for {market} on subaccount {subacct}: {e}")
+                logger.error(
+                    "Failed to place close order for %s on subaccount %d: %s",
+                    market,
+                    subacct,
+                    e,
+                )
 
-    print("Done attempting to close positions.")
+    logger.info("Done attempting to close positions.")
 
 
 if __name__ == "__main__":

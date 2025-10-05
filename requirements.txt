@@ -78,3 +78,4 @@ pylint==2.17.0
 black==25.1.0
 pyyaml==6.0.2
 numpy
+python-logging-loki==0.3.1

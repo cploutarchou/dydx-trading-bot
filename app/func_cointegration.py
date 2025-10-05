@@ -1,9 +1,7 @@
-import pandas as pd
 import numpy as np
-import statsmodels.api as sm
-from statsmodels.tsa.stattools import coint
-from scipy.stats import linregress
+import pandas as pd
 from constants import MAX_HALF_LIFE, WINDOW
+
 
 class SmartError(Exception):
     pass
@@ -11,6 +9,9 @@ class SmartError(Exception):
 def half_life_mean_reversion(series):
     if len(series) <= 1:
         raise SmartError("Series length must be greater than 1.")
+    # Import locally to avoid pulling heavy dependencies at module import time
+    from scipy.stats import linregress
+
     difference = np.diff(series)
     lagged_series = series[:-1]
     slope, _, _, _, _ = linregress(lagged_series, difference)
@@ -34,6 +35,10 @@ def calculate_zscore(spread):
 
 # Calculate Cointegration
 def calculate_cointegration(series_1, series_2):
+    # Local imports to avoid heavy startup time when main merely loads modules
+    import statsmodels.api as sm
+    from statsmodels.tsa.stattools import coint
+
     series_1 = np.array(series_1).astype(np.float64)
     series_2 = np.array(series_2).astype(np.float64)
     coint_flag = 0

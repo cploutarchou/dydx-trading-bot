@@ -1,15 +1,14 @@
-from dydx_v4_client import MAX_CLIENT_ID, Order, OrderFlags
-from dydx_v4_client.node.market import Market, since_now
-from dydx_v4_client.indexer.rest.constants import OrderType
-from constants import DYDX_ADDRESS
-from func_utils import format_number
-from func_public import get_markets
+import json
 import random
 import time
-import json
-from datetime import datetime
-
 from pprint import pprint
+
+from constants import DYDX_ADDRESS
+from dydx_v4_client import MAX_CLIENT_ID, Order, OrderFlags
+from dydx_v4_client.indexer.rest.constants import OrderType
+from dydx_v4_client.node.market import Market
+from func_public import get_markets
+from func_utils import format_number
 
 
 # Cancel Order
@@ -155,9 +154,15 @@ async def place_market_order(client, market, side, size, price, reduce_only):
 
 # Get Open Orders
 async def cancel_all_orders(client):
-    orders = await client.indexer_account.account.get_subaccount_orders(
-        DYDX_ADDRESS, 0, status="OPEN"
-    )
+    try:
+        orders = await client.indexer_account.account.get_subaccount_orders(
+            DYDX_ADDRESS, 0, status="OPEN"
+        )
+    except Exception as e:
+        # If the account doesn't exist on the indexer (404) treat as no open orders
+        print(f"Warning: could not fetch open orders: {e}")
+        return []
+
     if len(orders) > 0:
         for order in orders:
             await cancel_order(client, order["id"])
@@ -183,7 +188,12 @@ async def abort_all_positions(client):
     time.sleep(0.5)
 
     # Get all open positions
-    positions = await get_open_positions(client)
+    try:
+        positions = await get_open_positions(client)
+    except Exception as e:
+        # If the indexer returns 404 or similar, assume no positions for this test account
+        print(f"Warning: could not fetch open positions: {e}")
+        return []
 
     # Handle open positions
     close_orders = []

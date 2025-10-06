@@ -78,9 +78,7 @@ class BotAgent:
 
         # Guard: If order cancelled move onto next Pair
         if order_status == "CANCELED":
-            logger.warning(
-                "%s vs %s - Order cancelled", self.market_1, self.market_2
-            )
+            logger.warning("%s vs %s - Order cancelled", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "FAILED"
             return "failed"
 
@@ -145,7 +143,9 @@ class BotAgent:
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info("Checking first order status for %s", self.order_dict["order_id_m1"])
+        logger.info(
+            "Checking first order status for %s", self.order_dict["order_id_m1"]
+        )
         order_status_m1 = await self.check_order_status_by_id(
             self.order_dict["order_id_m1"]
         )
@@ -188,7 +188,9 @@ class BotAgent:
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info("Checking second order status for %s", self.order_dict["order_id_m2"])
+        logger.info(
+            "Checking second order status for %s", self.order_dict["order_id_m2"]
+        )
         order_status_m2 = await self.check_order_status_by_id(
             self.order_dict["order_id_m2"]
         )

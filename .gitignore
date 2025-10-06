@@ -175,3 +175,4 @@ cython_debug/
 .idea
 app/cointegrated_pairs.csv
 app/config.py
+app/config.yaml

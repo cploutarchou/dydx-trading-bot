@@ -102,10 +102,7 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
     handler_kwargs = {
         "url": LOKI_PUSH_URL,
         "auth": (LOKI_USERNAME, LOKI_PASSWORD),
-        "level": level,
-        "version": "1",
         "tags": LOKI_LABELS or {},
-        "timeout": 10,
     }
 
     if LOKI_TENANT_ID:
@@ -113,6 +110,7 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
 
     try:
         handler = LokiHandler(**handler_kwargs)  # type: ignore[arg-type]
+        handler.setLevel(level)
     except Exception as exc:  # pragma: no cover - network failures
         logging.getLogger(__name__).error(
             "Failed to initialize Loki handler: %s", exc, exc_info=True

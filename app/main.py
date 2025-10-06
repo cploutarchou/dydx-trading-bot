@@ -8,12 +8,16 @@ from func_connections import connect_dydx
 from func_entry_pairs import open_positions
 from func_exit_pairs import manage_trade_exits
 from func_messaging import send_message
-from func_private import abort_all_positions, get_open_positions, place_market_order
+from func_private import abort_all_positions
 from func_public import construct_market_prices
+from logging_setup import setup_logging
 
 
 # MAIN FUNCTION
 async def main():
+    # Initialize logging first
+    setup_logging()
+    
     # Load and print the configuration
     try:
         current_config = config()

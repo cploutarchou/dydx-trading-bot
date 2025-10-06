@@ -144,7 +144,9 @@ def setup_logging() -> None:
     stderr_logger = logging.getLogger("stderr")
     stderr_logger.setLevel(logging.ERROR)
 
-    sys.stdout = _LoggerStream(stdout_logger, level, fallback=sys.__stdout__)
-    sys.stderr = _LoggerStream(stderr_logger, logging.ERROR, fallback=sys.__stderr__)
+    # NOTE: Commented out stdout/stderr redirection to avoid KeyboardInterrupt issues
+    # If you need print() statements captured, use logger.info() instead of print()
+    # sys.stdout = _LoggerStream(stdout_logger, level, fallback=sys.__stdout__)
+    # sys.stderr = _LoggerStream(stderr_logger, logging.ERROR, fallback=sys.__stderr__)
 
     root_logger.debug("Logging initialized. Loki enabled: %s", LOKI_ENABLED)

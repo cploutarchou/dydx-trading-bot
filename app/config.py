@@ -83,6 +83,7 @@ class LoggingSettings:
 @dataclass
 class DydxConfig:
     is_testnet: bool = False
+    environment: str = "development"
     telegram: TelegramSettings = field(default_factory=TelegramSettings)
     botSettings: BotSettings = field(default_factory=BotSettings)
     dydx_testnet: DYDXTestnetSettings = field(default_factory=DYDXTestnetSettings)
@@ -173,6 +174,7 @@ class ConfigurationManager:
             # Create DydxConfig instance
             self._config = DydxConfig(
                 is_testnet=is_testnet,
+                environment=data.get("environment", "development"),
                 telegram=telegram_settings,
                 botSettings=bot_settings,
                 dydx_testnet=dydx_testnet,

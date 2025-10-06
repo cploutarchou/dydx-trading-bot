@@ -1,4 +1,29 @@
-.PHONY: env config setup install test lint format clean help
+.PHONY: help env config setup install test lint format clean run start stop status restart logs
+
+# Default target - show help when running just 'make'
+help: ## Show this help message
+	@echo "dYdX Trading Bot - Availab	else \
+		echo "Creating config.yaml file..."; \
+		echo 'environment: "development"  # Options: "development", "dev", "production", "prod"' > $$CONFIG_DIR/config.yaml; \
+		echo 'dydx:' >> $$CONFIG_DIR/config.yaml; \
+		echo '  dydx_chain_address: "dydx1ENTERYOURTESTADDRESS"' >> $$CONFIG_DIR/config.yaml; \
+		echo '  dydx_secret_phrase: "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"' >> $$CONFIG_DIR/config.yaml; \
+		echo '  is_testnet: false' >> $$CONFIG_DIR/config.yaml;ommands:"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Quick start:"
+	@echo "  1. make setup     # Create virtual environment"
+	@echo "  2. make install   # Install dependencies"
+	@echo "  3. make config    # Create configuration file"
+	@echo "  4. make start     # Start the trading bot"
+	@echo ""
+	@echo "Bot management:"
+	@echo "  make start        # Start bot in background"
+	@echo "  make stop         # Stop running bot"
+	@echo "  make restart      # Restart the bot"
+	@echo "  make status       # Check bot status"
+	@echo "  make logs         # View bot logs"
 
 env:
 	@echo "⚠️  WARNING: .env configuration is DEPRECATED!"
@@ -90,7 +115,7 @@ clean: ## Clean up generated files
 	rm -rf .mypy_cache/
 	@echo "Cleanup complete!"
 
-run: ## Run the trading bot
+run: ## Run the trading bot (foreground)
 	@if [ ! -f "app/config.yaml" ]; then \
 		echo "Configuration file not found. Run 'make config' first."; \
 		exit 1; \
@@ -101,16 +126,47 @@ run: ## Run the trading bot
 	fi
 	cd app && ../.venv/bin/python main.py
 
-help: ## Show this help message
-	@echo "dYdX Trading Bot - Available Commands:"
-	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Quick start:"
-	@echo "  1. make setup     # Create virtual environment"
-	@echo "  2. make install   # Install dependencies"
-	@echo "  3. make config    # Create configuration file"
-	@echo "  4. make run       # Start the trading bot"
+start: ## Start the trading bot in background
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh start
+
+stop: ## Stop the running trading bot
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh stop
+
+restart: ## Restart the trading bot
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh restart
+
+status: ## Check trading bot status
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh status
+
+logs: ## View recent bot logs (if logging to file)
+	@echo "Recent bot activity:"
+	@if [ -f "bot.log" ]; then \
+		tail -n 50 bot.log; \
+	else \
+		echo "No log file found. Bot logs are sent to console and/or Loki."; \
+		echo "To see live logs, use: make run"; \
+		echo "Or check your Loki/Grafana dashboard if configured."; \
+	fi
 
 config:
 	@if [ -d app ]; then \
@@ -164,7 +220,8 @@ config:
 		fi; \
 	else \
 		echo "Creating config.yaml file..."; \
-		echo 'dydx:' > $$CONFIG_DIR/config.yaml; \
+		echo 'environment: "development"  # Options: "development", "dev", "production", "prod"' > $$CONFIG_DIR/config.yaml; \
+		echo 'dydx:' >> $$CONFIG_DIR/config.yaml; \
 		echo '  dydx_chain_address: "dydx1ENTERYOURTESTADDRESS"' >> $$CONFIG_DIR/config.yaml; \
 		echo '  dydx_secret_phrase: "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"' >> $$CONFIG_DIR/config.yaml; \
 		echo '  is_testnet: false' >> $$CONFIG_DIR/config.yaml; \

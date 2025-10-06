@@ -4,6 +4,7 @@ import threading
 from typing import Optional
 
 from constants import (
+    ENVIRONMENT,
     LOG_LEVEL,
     LOKI_ENABLED,
     LOKI_LABELS,
@@ -84,26 +85,36 @@ def _initialize_console_handler(level: int) -> logging.Handler:
 
 
 def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
-    if not (LOKI_ENABLED and LOKI_PUSH_URL and LOKI_USERNAME and LOKI_PASSWORD):
+    if not (LOKI_ENABLED and LOKI_PUSH_URL):
         return None
 
-    placeholder_tokens = {"<your_grafana_api_token>", "changeme", ""}
-    if LOKI_PASSWORD.strip().lower() in placeholder_tokens or "<" in LOKI_PASSWORD:
-        logging.getLogger(__name__).warning(
-            "Loki logging enabled but password appears to be a placeholder. Skipping remote handler."
-        )
-        return None
     if LokiHandler is None:
-        logging.getLogger(__name__).warning(
-            "Loki handler unavailable. Install python-logging-loki to enable remote logging."
-        )
+        print("Loki handler unavailable. Install python-logging-loki to enable remote logging.")
         return None
 
+    # Check environment to determine authentication requirements
+    is_dev_environment = ENVIRONMENT in ("development", "dev")
+    
     handler_kwargs = {
         "url": LOKI_PUSH_URL,
-        "auth": (LOKI_USERNAME, LOKI_PASSWORD),
         "tags": LOKI_LABELS or {},
     }
+
+    # Only add authentication for production environments
+    if not is_dev_environment:
+        if not (LOKI_USERNAME and LOKI_PASSWORD):
+            print("Production environment detected but Loki credentials missing. Skipping remote handler.")
+            return None
+            
+        placeholder_tokens = {"<your_grafana_api_token>", "changeme", ""}
+        if LOKI_PASSWORD.strip().lower() in placeholder_tokens or "<" in LOKI_PASSWORD:
+            print("Loki logging enabled but password appears to be a placeholder. Skipping remote handler.")
+            return None
+            
+        handler_kwargs["auth"] = (LOKI_USERNAME, LOKI_PASSWORD)
+        print("Production environment: Using authenticated Loki connection")
+    else:
+        print("Development environment: Using unauthenticated Loki connection")
 
     if LOKI_TENANT_ID:
         handler_kwargs["tenant_id"] = LOKI_TENANT_ID
@@ -111,10 +122,19 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
     try:
         handler = LokiHandler(**handler_kwargs)  # type: ignore[arg-type]
         handler.setLevel(level)
+        
+        # Prevent recursion by filtering out urllib3 and requests loggers from going to Loki
+        class NoRecursionFilter(logging.Filter):
+            def filter(self, record):
+                # Prevent urllib3, requests, and logging_loki logs from being sent to Loki
+                return not any(record.name.startswith(prefix) for prefix in [
+                    'urllib3', 'requests', 'logging_loki', 'http.client'
+                ])
+        
+        handler.addFilter(NoRecursionFilter())
+        print(f"Loki handler initialized for {ENVIRONMENT} environment")
     except Exception as exc:  # pragma: no cover - network failures
-        logging.getLogger(__name__).error(
-            "Failed to initialize Loki handler: %s", exc, exc_info=True
-        )
+        print(f"Failed to initialize Loki handler: {exc}")
         return None
     return handler
 

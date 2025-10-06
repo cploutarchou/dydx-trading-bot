@@ -127,9 +127,7 @@ async def place_market_order(client, market, side, size, price, reduce_only):
             order_type=OrderType.MARKET,  # type: ignore[arg-type]
             side=Order.Side.SIDE_BUY if side == "BUY" else Order.Side.SIDE_SELL,
             size=float(size),
-            price=float(
-                price
-            ),  # type: ignore[arg-type]
+            price=float(price),  # type: ignore[arg-type]
             time_in_force=time_in_force,
             reduce_only=reduce_only,
             good_til_block=good_til_block,
@@ -162,7 +160,9 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Ensure latest order
     if order_id == "":
         sorted_orders = sorted(orders, key=lambda x: x["createdAtHeight"], reverse=True)
-        logger.error("Unable to detect latest order; most recent entry: %s", sorted_orders[0])
+        logger.error(
+            "Unable to detect latest order; most recent entry: %s", sorted_orders[0]
+        )
         logger.error("Please verify the order status on the dashboard")
         exit(1)
 

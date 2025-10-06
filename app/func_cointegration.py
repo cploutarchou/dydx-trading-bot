@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 class SmartError(Exception):
     pass
 
+
 def half_life_mean_reversion(series):
     if len(series) <= 1:
         raise SmartError("Series length must be greater than 1.")
@@ -43,7 +44,9 @@ def half_life_mean_reversion(series):
 
     # Guard against near-zero slope
     if abs(slope) < np.finfo(np.float64).eps:
-        raise SmartError("Cannot calculate half life. Slope value is too close to zero.")
+        raise SmartError(
+            "Cannot calculate half life. Slope value is too close to zero."
+        )
 
     half_life = -np.log(2) / slope
     return float(half_life)
@@ -71,14 +74,21 @@ def calculate_cointegration(series_1, series_2):
     # Basic guards: skip if either series has (near-)zero variance or contains NaNs
     if np.isnan(series_1).any() or np.isnan(series_2).any():
         raise SmartError("Series contains NaN values")
-    if np.nanstd(series_1) < np.finfo(np.float64).eps or np.nanstd(series_2) < np.finfo(np.float64).eps:
+    if (
+        np.nanstd(series_1) < np.finfo(np.float64).eps
+        or np.nanstd(series_2) < np.finfo(np.float64).eps
+    ):
         raise SmartError("Series variance is too small for reliable cointegration test")
     # Quick check for nearly identical series which make the test ill-conditioned
     if np.allclose(series_1, series_2, rtol=1e-6, atol=1e-8):
-        raise SmartError("Series are nearly identical; cointegration test is unreliable")
+        raise SmartError(
+            "Series are nearly identical; cointegration test is unreliable"
+        )
     # Check for spread with too little movement prior to regression/half-life
     if np.nanstd(series_1 - series_2) < np.finfo(np.float64).eps:
-        raise SmartError("Series spread variance is too small for reliable cointegration test")
+        raise SmartError(
+            "Series spread variance is too small for reliable cointegration test"
+        )
     coint_res = coint(series_1, series_2)
     coint_t = coint_res[0]
     p_value = coint_res[1]
@@ -150,9 +160,7 @@ def store_cointegration_results(df_market_prices):
                 )
             except SmartError as e:
                 # Skip problematic pairs (constant series, NaNs, near-zero variance, etc.)
-                logger.debug(
-                    "Skipping pair %s / %s: %s", base_market, quote_market, e
-                )
+                logger.debug("Skipping pair %s / %s: %s", base_market, quote_market, e)
                 continue
             except Exception:
                 # Catch-all: skip pair but log for debugging

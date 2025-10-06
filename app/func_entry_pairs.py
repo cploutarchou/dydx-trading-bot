@@ -189,7 +189,10 @@ async def open_positions(client):
                             continue
 
                         # Handle success in opening trades
-                        if isinstance(bot_open_dict, dict) and bot_open_dict.get("pair_status") == "LIVE":
+                        if (
+                            isinstance(bot_open_dict, dict)
+                            and bot_open_dict.get("pair_status") == "LIVE"
+                        ):
 
                             # Append to list of bot agents
                             bot_agents.append(bot_open_dict)

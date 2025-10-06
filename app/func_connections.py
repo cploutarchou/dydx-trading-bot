@@ -44,15 +44,22 @@ async def connect_dydx():
         indexer = IndexerClient(host=market_data_endpoint, api_timeout=5)
         logger.info("Initialized indexer client against %s", market_data_endpoint)
     except Exception:
-        logger.exception("Failed to initialize indexer client for %s", market_data_endpoint)
+        logger.exception(
+            "Failed to initialize indexer client for %s", market_data_endpoint
+        )
         raise
 
     # Indexer Account = connection we will use to query our testnet trades
     try:
         indexer_account = IndexerClient(host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
-        logger.info("Initialized account indexer client against %s", INDEXER_ACCOUNT_ENDPOINT)
+        logger.info(
+            "Initialized account indexer client against %s", INDEXER_ACCOUNT_ENDPOINT
+        )
     except Exception:
-        logger.exception("Failed to initialize account indexer client for %s", INDEXER_ACCOUNT_ENDPOINT)
+        logger.exception(
+            "Failed to initialize account indexer client for %s",
+            INDEXER_ACCOUNT_ENDPOINT,
+        )
         raise
 
     # node = private connection we will use to send orders etc to the testnet or mainnet

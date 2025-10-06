@@ -10,9 +10,12 @@ Automated cointegration trading bot for dYdX v4 decentralized exchange. Identifi
 - **Legacy**: `.env` file (deprecated, redirects to YAML)
 - **Setup**: `make config` creates template with defaults
 - **Pattern**: Singleton ConfigurationManager with type-safe dataclass hierarchy
+- **Testing**: Supports both `dydx` unified block and separate `dydx_testnet`/`dydx_mainnet` configurations
 
 ### Execution Flow (`app/main.py`)
-1. Config validation → 2. dYdX connection → 3. Optional position cleanup → 4. Optional cointegration analysis → 5. Continuous trading loop (exits then entries)
+1. Logging setup → 2. Config validation → 3. dYdX connection → 4. Optional position cleanup → 5. Optional cointegration analysis → 6. Continuous trading loop (exits then entries)
+- **Critical**: Always initializes `setup_logging()` before any other operations
+- **Async**: Entire main flow is async with proper exception handling and Telegram notifications
 
 ### Client Architecture (`func_connections.py`)
 - **Custom Client wrapper**: Bundles `indexer` (market data) + `indexer_account` (positions) + `node` (orders) + `wallet` (signing)
@@ -47,26 +50,36 @@ Automated cointegration trading bot for dYdX v4 decentralized exchange. Identifi
 - **`cointegrated_pairs.csv`**: Statistical analysis results
 - **Key pattern**: Files persist state across bot restarts
 
+### Logging System (`logging_setup.py`)
+- **Structured logging**: Configures root logger with console + optional Grafana Loki handlers
+- **stdout/stderr mirroring**: Redirects all print statements to structured logging
+- **Loki integration**: Ships logs to Grafana Cloud when enabled with proper auth tokens
+- **Per-module loggers**: Use `logger = logging.getLogger(__name__)` pattern throughout
+
 ## Development Workflows
 
-### Configuration Setup
+### Complete Development Setup
 ```bash
-make config          # Creates app/config.yaml with defaults
-make env            # Creates legacy .env (redirects to YAML)
+make setup           # Create virtual environment
+make install         # Install all dependencies + dev tools
+make config          # Create app/config.yaml with defaults
+make test            # Run pytest suite
+make lint            # Run flake8, pylint, mypy, bandit
+make format          # Apply black + isort formatting
 ```
 
-### Running the Bot
+### Legacy Commands (for reference)
 ```bash
+make env             # Creates deprecated .env (shows migration notice)
 cd app && python main.py    # Main trading loop
-python test.py             # Test single order placement
+python app/test.py   # Test single order placement  
 ```
 
-### Virtual Environment Setup
+### Development Environment
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=. pytest -q      # Run tests
+source .venv/bin/activate    # Always use venv
+PYTHONPATH=. pytest -q      # Run tests with proper module resolution
+make run                     # Full bot execution with config validation
 ```
 
 ### Key Configuration Parameters

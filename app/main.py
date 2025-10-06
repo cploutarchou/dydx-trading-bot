@@ -81,30 +81,40 @@ async def main():
             exit(1)
 
     # Run as always on
-    while True:
+    try:
+        while True:
+            # Manage existing positions
+            if MANAGE_EXITS:
+                try:
+                    print("")
+                    print("Managing exits...")
+                    await manage_trade_exits(client)
+                    time.sleep(1)
+                except Exception as e:
+                    print("Error managing exiting positions: ", e)
+                    send_message(f"Error managing exiting positions {e}")
+                    exit(1)
 
-        # Manage existing positions
-        if MANAGE_EXITS:
-            try:
-                print("")
-                print("Managing exits...")
-                await manage_trade_exits(client)
-                time.sleep(1)
-            except Exception as e:
-                print("Error managing exiting positions: ", e)
-                send_message(f"Error managing exiting positions {e}")
-                exit(1)
-
-        # Place trades for opening positions
-        if PLACE_TRADES:
-            try:
-                print("")
-                print("Finding trading opportunities...")
-                await open_positions(client)
-            except Exception as e:
-                print("Error trading pairs: ", e)
-                send_message(f"Error opening trades {e}")
-                exit(1)
+            # Place trades for opening positions
+            if PLACE_TRADES:
+                try:
+                    print("")
+                    print("Finding trading opportunities...")
+                    await open_positions(client)
+                except Exception as e:
+                    print("Error trading pairs: ", e)
+                    send_message(f"Error opening trades {e}")
+                    exit(1)
+    
+    except KeyboardInterrupt:
+        print("\nBot stopped by user (Ctrl+C)")
+        send_message("Bot stopped by user interrupt")
+        exit(0)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nBot interrupted during startup")
+        exit(0)

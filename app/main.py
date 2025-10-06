@@ -1,4 +1,7 @@
 import asyncio
+import logging
+import signal
+import sys
 import time
 
 from config import config
@@ -13,21 +16,32 @@ from func_public import construct_market_prices
 from logging_setup import setup_logging
 
 
+# Signal handler for graceful shutdown
+def signal_handler(signum, frame):
+    logging.info("Received signal %d, shutting down gracefully...", signum)
+    sys.exit(0)
+
+
 # MAIN FUNCTION
 async def main():
     # Initialize logging first
     setup_logging()
+    logger = logging.getLogger(__name__)
+    
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     # Load and print the configuration
     try:
         current_config = config()
-        print("Configuration loaded successfully:")
-        print(f"Is Testnet: {current_config.is_testnet}")
-        print(f"Bot Strategy: {current_config.botSettings.strategy}")
-        print(f"Telegram Chat ID: {current_config.telegram.chat_id}")
+        logger.info("Configuration loaded successfully")
+        logger.info("Is Testnet: %s", current_config.is_testnet if current_config else "Unknown")
+        logger.info("Bot Strategy: %s", current_config.botSettings.strategy if current_config and current_config.botSettings else "Unknown")
+        logger.info("Telegram Chat ID: %s", current_config.telegram.chat_id if current_config and current_config.telegram else "Unknown")
     except Exception as e:
-        print(f"Error loading configuration: {e}")
-        exit(1)
+        logger.error("Error loading configuration: %s", e)
+        sys.exit(1)
     # Message on start
     send_message("Bot launch successful")
 
@@ -107,14 +121,15 @@ async def main():
                     exit(1)
     
     except KeyboardInterrupt:
-        print("\nBot stopped by user (Ctrl+C)")
+        logger = logging.getLogger(__name__)
+        logger.info("Bot stopped by user (Ctrl+C)")
         send_message("Bot stopped by user interrupt")
-        exit(0)
+        sys.exit(0)
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nBot interrupted during startup")
-        exit(0)
+        logging.info("Bot interrupted during startup")
+        sys.exit(0)

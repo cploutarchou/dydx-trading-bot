@@ -1,27 +1,118 @@
-.PHONY: env config
+.PHONY: env config setup install test lint format clean help
 
 env:
-	@echo "Note: Configuration is now managed through config.yaml. The .env file is no longer used."
+	@echo "⚠️  WARNING: .env configuration is DEPRECATED!"
+	@echo "Use 'make config' to create the new YAML-based configuration instead."
+	@echo "The .env file is no longer supported by this application."
 	@if [ -f .env ]; then \
-		read -p ".env file already exists. Do you want to overwrite it? (y/n): " answer; \
+		read -p ".env file already exists. Do you want to overwrite it with a deprecation notice? (y/n): " answer; \
 		if [ "$$answer"="y" ] || [ "$$answer"="yes" ]; then \
-			echo "Creating .env file..."; \
-			echo '# This file is kept for backward compatibility' > .env; \
-			echo '# Configuration is now managed through config.yaml' >> .env; \
-			echo '# Run `make config` to create or update config.yaml' >> .env; \
-			echo ".env file created successfully."; \
+			echo "Creating deprecation notice in .env file..."; \
+			echo '# ⚠️  DEPRECATED: This .env file is no longer used' > .env; \
+			echo '# Configuration is now managed through app/config.yaml' >> .env; \
+			echo '# Run `make config` to create the new configuration file' >> .env; \
+			echo '# See README.md for migration instructions' >> .env; \
+			echo "Deprecation notice created in .env file."; \
 		else \
 			echo "Operation cancelled."; \
 		fi; \
 	else \
-		echo "Creating .env file..."; \
-		echo '# This file is kept for backward compatibility' > .env; \
-		echo '# Configuration is now managed through config.yaml' >> .env; \
-		echo '# Run `make config` to create or update config.yaml' >> .env; \
-		echo ".env file created successfully."; \
+		echo "Creating deprecation notice in .env file..."; \
+		echo '# ⚠️  DEPRECATED: This .env file is no longer used' > .env; \
+		echo '# Configuration is now managed through app/config.yaml' >> .env; \
+		echo '# Run `make config` to create the new configuration file' >> .env; \
+		echo '# See README.md for migration instructions' >> .env; \
+		echo "Deprecation notice created in .env file."; \
 	fi
 
-create :
+setup: ## Set up development environment
+	@echo "Setting up development environment..."
+	python3 -m venv .venv
+	@echo "Virtual environment created. Activate with: source .venv/bin/activate"
+
+check-system: ## Check system dependencies
+	@echo "Checking system dependencies..."
+	@which gcc >/dev/null 2>&1 || (echo "❌ gcc not found. Install with: sudo apt install build-essential" && exit 1)
+	@which python3-config >/dev/null 2>&1 || (echo "❌ Python dev headers not found. Install with: sudo apt install python3-dev python3.12-dev" && exit 1)
+	@echo "✅ System dependencies OK"
+
+install: check-system ## Install project dependencies
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@echo "Installing dependencies..."
+	.venv/bin/pip install --upgrade pip
+	@echo "Installing main requirements..."
+	.venv/bin/pip install -r requirements.txt
+	@echo "Installing development tools..."
+	.venv/bin/pip install flake8 pylint mypy bandit black isort pytest
+	@echo "Dependencies installed successfully!"
+
+test: ## Run tests
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Running tests..."
+	PYTHONPATH=. .venv/bin/pytest -q
+
+lint: ## Run linting tools
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Running linting tools..."
+	@echo "→ Flake8..."
+	.venv/bin/flake8 app/ --max-line-length=88 --extend-ignore=E203,W503
+	@echo "→ Pylint..."
+	.venv/bin/pylint app/ --disable=C0114,C0115,C0116 --max-line-length=88
+	@echo "→ MyPy..."
+	.venv/bin/mypy app/ --ignore-missing-imports --follow-imports=silent
+	@echo "→ Bandit (security)..."
+	.venv/bin/bandit -r app/ -f json || true
+
+format: ## Format code with Black and isort
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Formatting code..."
+	.venv/bin/black app/ --line-length=88
+	.venv/bin/isort app/ --profile black
+
+clean: ## Clean up generated files
+	@echo "Cleaning up..."
+	find . -type f -name "*.pyc" -delete
+	find . -type d -name "__pycache__" -delete
+	find . -type d -name "*.egg-info" -exec rm -rf {} +
+	rm -rf .pytest_cache/
+	rm -rf .mypy_cache/
+	@echo "Cleanup complete!"
+
+run: ## Run the trading bot
+	@if [ ! -f "app/config.yaml" ]; then \
+		echo "Configuration file not found. Run 'make config' first."; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	cd app && ../.venv/bin/python main.py
+
+help: ## Show this help message
+	@echo "dYdX Trading Bot - Available Commands:"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Quick start:"
+	@echo "  1. make setup     # Create virtual environment"
+	@echo "  2. make install   # Install dependencies"
+	@echo "  3. make config    # Create configuration file"
+	@echo "  4. make run       # Start the trading bot"
+
+config:
 	@if [ -d app ]; then \
 		CONFIG_DIR="app"; \
 	else \
@@ -56,6 +147,17 @@ create :
 			echo '  indexer_endpoint:' >> $$CONFIG_DIR/config.yaml; \
 			echo '    testnet: "https://indexer.v4testnet.dydx.exchange"' >> $$CONFIG_DIR/config.yaml; \
 			echo '    mainnet: "https://indexer.dydx.trade"' >> $$CONFIG_DIR/config.yaml; \
+			echo 'logging:' >> $$CONFIG_DIR/config.yaml; \
+			echo '  level: "INFO"' >> $$CONFIG_DIR/config.yaml; \
+			echo '  loki:' >> $$CONFIG_DIR/config.yaml; \
+			echo '    enabled: false' >> $$CONFIG_DIR/config.yaml; \
+			echo '    url: ""' >> $$CONFIG_DIR/config.yaml; \
+			echo '    username: ""' >> $$CONFIG_DIR/config.yaml; \
+			echo '    password: ""' >> $$CONFIG_DIR/config.yaml; \
+			echo '    tenant_id: null' >> $$CONFIG_DIR/config.yaml; \
+			echo '    labels:' >> $$CONFIG_DIR/config.yaml; \
+			echo '      app: "dydx-trading-bot"' >> $$CONFIG_DIR/config.yaml; \
+			echo '      environment: "development"' >> $$CONFIG_DIR/config.yaml; \
 			echo "config.yaml file created successfully in $$CONFIG_DIR."; \
 		else \
 			echo "Operation cancelled."; \
@@ -87,5 +189,16 @@ create :
 		echo '  indexer_endpoint:' >> $$CONFIG_DIR/config.yaml; \
 		echo '    testnet: "https://indexer.v4testnet.dydx.exchange"' >> $$CONFIG_DIR/config.yaml; \
 		echo '    mainnet: "https://indexer.dydx.trade"' >> $$CONFIG_DIR/config.yaml; \
+		echo 'logging:' >> $$CONFIG_DIR/config.yaml; \
+		echo '  level: "INFO"' >> $$CONFIG_DIR/config.yaml; \
+		echo '  loki:' >> $$CONFIG_DIR/config.yaml; \
+		echo '    enabled: false' >> $$CONFIG_DIR/config.yaml; \
+		echo '    url: ""' >> $$CONFIG_DIR/config.yaml; \
+		echo '    username: ""' >> $$CONFIG_DIR/config.yaml; \
+		echo '    password: ""' >> $$CONFIG_DIR/config.yaml; \
+		echo '    tenant_id: null' >> $$CONFIG_DIR/config.yaml; \
+		echo '    labels:' >> $$CONFIG_DIR/config.yaml; \
+		echo '      app: "dydx-trading-bot"' >> $$CONFIG_DIR/config.yaml; \
+		echo '      environment: "development"' >> $$CONFIG_DIR/config.yaml; \
 		echo "config.yaml file created successfully in $$CONFIG_DIR."; \
 	fi

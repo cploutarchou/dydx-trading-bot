@@ -1,70 +1,51 @@
 # dYdX Trading Bot - AI Agent Instructions
 
 ## Project Overview
-This is an automated cointegration trading bot for dYdX v4 decentralized exchange. The bot identifies statistically cointegrated cryptocurrency pairs, opens paired positions when Z-scores exceed thresholds, and closes positions when correlations revert to the mean.
+Automated cointegration trading bot for dYdX v4 decentralized exchange. Identifies statistically cointegrated cryptocurrency pairs, opens paired positions when Z-scores exceed thresholds, and closes positions when correlations revert to the mean.
 
-## Architecture & Core Components
+## Key Architecture Patterns
 
-### Configuration System (YAML-based)
-- **Primary config**: `app/config.yaml` - structured YAML configuration (preferred)
-- **Legacy fallback**: `.env` file (deprecated, points users to YAML)
-- **Config loading**: `app/config.py` - singleton pattern with dataclasses for type safety
-- **Constants mapping**: `app/constants.py` - maps config to module-level constants
-- Use `make config` to generate template configuration files
+### Configuration System (YAML-first)
+- **Primary**: `app/config.yaml` → `app/config.py` (dataclasses) → `app/constants.py` (module constants)
+- **Legacy**: `.env` file (deprecated, redirects to YAML)
+- **Setup**: `make config` creates template with defaults
+- **Pattern**: Singleton ConfigurationManager with type-safe dataclass hierarchy
 
-### Main Execution Flow (`app/main.py`)
-1. **Configuration validation** - Load and validate config, exit on errors
-2. **dYdX connection** - Connect to testnet/mainnet via multiple indexer endpoints
-3. **Position cleanup** (optional) - Close all open positions if `ABORT_ALL_POSITIONS=true`
-4. **Cointegration analysis** (optional) - Fetch 400+ hours of price data, calculate statistical relationships
-5. **Continuous trading loop**:
-   - Exit management: Monitor open pairs, close when Z-scores cross zero
-   - Entry management: Scan for new trading opportunities based on Z-score thresholds
+### Execution Flow (`app/main.py`)
+1. Config validation → 2. dYdX connection → 3. Optional position cleanup → 4. Optional cointegration analysis → 5. Continuous trading loop (exits then entries)
 
-### Client Connection Pattern (`func_connections.py`)
-- **Custom Client class**: Wraps multiple dYdX client types (indexer, account, node, wallet)
-- **Endpoint logic**: Uses mainnet indexer for price data regardless of testnet/mainnet trading
-- **Jurisdiction check**: Validates API access (dYdX blocks certain countries)
-- **Connection hierarchy**: `indexer` (market data) → `indexer_account` (positions) → `node` (orders) → `wallet` (signing)
+### Client Architecture (`func_connections.py`)
+- **Custom Client wrapper**: Bundles `indexer` (market data) + `indexer_account` (positions) + `node` (orders) + `wallet` (signing)
+- **Critical pattern**: Always uses mainnet indexer for price data, regardless of testnet/mainnet trading
+- **Jurisdiction validation**: HTTP 403 = geographical restriction
 
-### Statistical Trading Engine
+### Trading Engine Components
 
 #### Cointegration Analysis (`func_cointegration.py`)
-- **Pair discovery**: Tests all market combinations for statistical cointegration
-- **Key metrics**: P-value < 0.05, half-life ≤ 24 hours, hedge ratio calculation
-- **Output**: `cointegrated_pairs.csv` with tradeable pairs and their parameters
-- **Z-score calculation**: Rolling window (21 periods) for entry/exit signals
+- Tests all market pairs for statistical cointegration (p-value < 0.05, half-life ≤ 24h)
+- Output: `cointegrated_pairs.csv` with hedge ratios and Z-score parameters
+- Uses 21-period rolling window for Z-score calculations
 
-#### Trade Entry Logic (`func_entry_pairs.py`)
-- **Trigger**: |Z-score| ≥ 1.5 (configurable via `ZScoreThreshold`)
-- **Position sizing**: Fixed USD amount per trade (`USD_PER_TRADE`)
-- **Market checks**: Validates minimum order sizes, tick sizes, collateral requirements
-- **BotAgent pattern**: Each pair trade managed as a state machine instance
+#### Entry/Exit Logic (`func_entry_pairs.py`, `func_exit_pairs.py`)
+- **Entry trigger**: |Z-score| ≥ 1.5, creates paired positions via BotAgent state machine
+- **Exit trigger**: Z-score crosses zero (mean reversion)
+- **State file**: `bot_agents.json` tracks active pairs with hedge ratios, order IDs
+- **Failsafe**: Force-close positions on exchange/local state mismatches
 
-#### Trade Exit Logic (`func_exit_pairs.py`)
-- **Exit condition**: Z-score crosses zero (mean reversion complete)
-- **State persistence**: `bot_agents.json` tracks all open paired positions
-- **Order matching**: Validates exchange records match local state before closing
-- **Failsafe logic**: Force-exits if position mismatches detected
+#### Order Management (`func_private.py`)
+- Market orders only with ±70% price bounds for reliability
+- Respects exchange tick/step sizes via `format_number()`
+- 0.2-0.5s delays between API calls for rate limiting
 
-### Order Management (`func_private.py`)
-- **Market orders only**: Uses market orders with price bounds for reliability
-- **Order tracking**: Polls order status, handles cancellations and failures
-- **Size formatting**: Respects exchange tick sizes and step sizes via `format_number()`
-- **Failsafe prices**: Wide price bounds (±70%) to ensure fills in volatile conditions
+#### BotAgent State Machine (`func_bot_agent.py`)
+- Manages atomic pair trades: both positions succeed or entire trade fails
+- States: `FAILED`, `LIVE`, `CLOSE`, `ERROR` with Telegram notifications
+- Handles order polling, cancellations, and cleanup logic
 
-### State Management Patterns
-
-#### Bot Agent State Machine (`func_bot_agent.py`)
-- **Atomic pair trading**: Opens both positions or fails completely
-- **Error handling**: Closes first position if second position fails
-- **Status tracking**: `FAILED`, `LIVE`, `CLOSE`, `ERROR` states
-- **Telegram integration**: Sends critical failure alerts
-
-#### Persistent State Files
-- **`bot_agents.json`**: Active paired positions with hedge ratios, Z-scores, order IDs
-- **`cointegrated_pairs.csv`**: Statistical analysis results for pair selection
-- **Empty `bot_agents.json`** indicates no open positions (reset after cleanup)
+### State Files
+- **`bot_agents.json`**: Active paired positions (empty array = no open trades)
+- **`cointegrated_pairs.csv`**: Statistical analysis results
+- **Key pattern**: Files persist state across bot restarts
 
 ## Development Workflows
 
@@ -78,6 +59,14 @@ make env            # Creates legacy .env (redirects to YAML)
 ```bash
 cd app && python main.py    # Main trading loop
 python test.py             # Test single order placement
+```
+
+### Virtual Environment Setup
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+PYTHONPATH=. pytest -q      # Run tests
 ```
 
 ### Key Configuration Parameters

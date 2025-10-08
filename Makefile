@@ -1,4 +1,4 @@
-.PHONY: help env config setup install test lint format clean run start stop status restart logs
+.PHONY: help env config setup install test lint format clean run start stop status restart logs test-loki test-loki-dev test-loki-prod
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -24,6 +24,10 @@ help: ## Show this help message
 	@echo "  make restart      # Restart the bot"
 	@echo "  make status       # Check bot status"
 	@echo "  make logs         # View bot logs"
+	@echo ""
+	@echo "Loki testing:"
+	@echo "  make test-loki-dev   # Test Loki connection (development)"
+	@echo "  make test-loki-prod  # Test Loki connection (production)"
 
 env:
 	@echo "⚠️  WARNING: .env configuration is DEPRECATED!"
@@ -167,6 +171,42 @@ logs: ## View recent bot logs (if logging to file)
 		echo "To see live logs, use: make run"; \
 		echo "Or check your Loki/Grafana dashboard if configured."; \
 	fi
+
+test-loki-dev: ## Test Loki connection in development mode (no auth)
+	@if [ ! -f "scripts/test_loki.py" ]; then \
+		echo "Loki test script not found."; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Testing Loki connection in DEVELOPMENT mode (no authentication)..."
+	.venv/bin/python scripts/test_loki.py development
+
+test-loki-prod: ## Test Loki connection in production mode (with auth)
+	@if [ ! -f "scripts/test_loki.py" ]; then \
+		echo "Loki test script not found."; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Testing Loki connection in PRODUCTION mode (with authentication)..."
+	.venv/bin/python scripts/test_loki.py production
+
+test-loki: ## Test Loki connection (auto-detect environment from config)
+	@if [ ! -f "scripts/test_loki.py" ]; then \
+		echo "Loki test script not found."; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Testing Loki connection (auto-detecting environment from config.yaml)..."
+	.venv/bin/python scripts/test_loki.py
 
 config:
 	@if [ -d app ]; then \

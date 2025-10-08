@@ -18,7 +18,8 @@ from logging_setup import setup_logging
 
 # Signal handler for graceful shutdown
 def signal_handler(signum, frame):
-    logging.info("Received signal %d, shutting down gracefully...", signum)
+    # Use print instead of logging to avoid Loki connection issues during shutdown
+    print(f"Received signal {signum}, shutting down gracefully...")
     sys.exit(0)
 
 

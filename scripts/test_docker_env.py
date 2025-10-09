@@ -9,7 +9,6 @@ This script tests that the Docker image can:
 """
 
 import sys
-import os
 
 # Add app directory to path
 sys.path.insert(0, '/app')
@@ -27,7 +26,7 @@ def test_docker_environment():
         if config is None:
             raise Exception("Failed to load configuration")
         
-        print(f"✅ Configuration loaded successfully")
+        print("✅ Configuration loaded successfully")
         print(f"   - Environment: {getattr(config, 'environment', 'development')}")
         print(f"   - Is testnet: {config.is_testnet}")
         print(f"   - Strategy: {config.botSettings.strategy}")

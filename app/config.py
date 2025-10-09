@@ -83,11 +83,12 @@ class LoggingSettings:
 @dataclass
 class DydxConfig:
     is_testnet: bool = False
-    telegram: Optional[TelegramSettings] = None
-    botSettings: Optional[BotSettings] = None
-    dydx_testnet: Optional[DYDXTestnetSettings] = None
-    dydx_mainnet: Optional[DYDXMainnetSettings] = None
-    logging: Optional[LoggingSettings] = None
+    environment: str = "development"
+    telegram: TelegramSettings = field(default_factory=TelegramSettings)
+    botSettings: BotSettings = field(default_factory=BotSettings)
+    dydx_testnet: DYDXTestnetSettings = field(default_factory=DYDXTestnetSettings)
+    dydx_mainnet: DYDXMainnetSettings = field(default_factory=DYDXMainnetSettings)
+    logging: LoggingSettings = field(default_factory=LoggingSettings)
 
 
 class ConfigurationManager:
@@ -173,6 +174,7 @@ class ConfigurationManager:
             # Create DydxConfig instance
             self._config = DydxConfig(
                 is_testnet=is_testnet,
+                environment=data.get("environment", "development"),
                 telegram=telegram_settings,
                 botSettings=bot_settings,
                 dydx_testnet=dydx_testnet,
@@ -186,10 +188,10 @@ class ConfigurationManager:
         except KeyError as e:
             raise KeyError(f"Missing required configuration key: {e}")
 
-    def _build_logging_settings(self, data: dict) -> Optional[LoggingSettings]:
+    def _build_logging_settings(self, data: dict) -> LoggingSettings:
         logging_data = data.get("logging")
         if logging_data is None:
-            return None
+            return LoggingSettings()
 
         loki_data = logging_data.get("loki", {}) or {}
 

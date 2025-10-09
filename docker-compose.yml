@@ -1,0 +1,128 @@
+# Docker Compose configuration for dYdX Trading Bot
+# Supports both development and production deployments
+
+version: '3.8'
+
+services:
+  # Main trading bot service
+  dydx-trading-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        BUILD_TARGET: production
+    container_name: dydx-trading-bot
+    restart: unless-stopped
+    
+    # Mount configuration and state files
+    volumes:
+      - ./app/config.yaml:/app/app/config.yaml:ro
+      - ./app/bot_agents.json:/app/app/bot_agents.json
+      - ./app/cointegrated_pairs.csv:/app/app/cointegrated_pairs.csv
+      - bot_logs:/app/logs
+    
+    # Environment variables (can be overridden)
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+    
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "from app.config import ConfigurationManager; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Network configuration
+    networks:
+      - dydx-network
+
+  # Development service (alternative to production)
+  dydx-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+      args:
+        BUILD_TARGET: development
+    container_name: dydx-trading-bot-dev
+    restart: "no"
+    
+    # Development mounts (live code reload)
+    volumes:
+      - .:/app
+      - dev_venv:/home/dydx/.local
+      - bot_logs:/app/logs
+    
+    # Development environment
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - DEVELOPMENT=1
+    
+    # Keep container running for development
+    command: tail -f /dev/null
+    
+    networks:
+      - dydx-network
+    
+    profiles:
+      - dev
+
+  # Optional: Log aggregator for development
+  loki:
+    image: grafana/loki:latest
+    container_name: dydx-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - dydx-network
+    profiles:
+      - logging
+
+  # Optional: Log viewer for development  
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dydx-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - dydx-network
+    profiles:
+      - logging
+
+networks:
+  dydx-network:
+    driver: bridge
+
+volumes:
+  bot_logs:
+    driver: local
+  dev_venv:
+    driver: local
+  grafana_data:
+    driver: local

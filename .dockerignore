@@ -1,0 +1,113 @@
+# .dockerignore - Optimize Docker build context for dYdX Trading Bot
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Testing artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Linting/formatting
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Docker files (don't include in build context)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Make artifacts
+Makefile
+
+# State files that should be mounted as volumes instead
+app/bot_agents.json
+app/cointegrated_pairs*.csv
+
+# Config files (should be mounted securely)
+app/config.yaml
+.env*
+
+# Development scripts (not needed in production)
+test_*.py
+scripts/test_*.py
+
+# CI/CD files
+.github/
+.gitattributes
+
+# Package manager files
+requirements-dev.txt
+poetry.lock
+Pipfile*

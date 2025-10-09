@@ -5,6 +5,7 @@ import pandas as pd
 from constants import USD_MIN_COLLATERAL, USD_PER_TRADE, ZSCORE_THRESH
 from func_bot_agent import BotAgent
 from func_cointegration import calculate_zscore
+from func_messaging import TelegramMessenger
 from func_private import get_account, is_open_positions
 from func_public import get_candles_recent, get_markets
 from func_utils import format_number
@@ -23,6 +24,9 @@ async def open_positions(client):
     Manage finding triggers for trade entry
     Store trades for managing later on on exit function
     """
+    
+    # Initialize Telegram messenger
+    messenger = TelegramMessenger()
 
     # Load cointegrated pairs
     df = pd.read_csv("cointegrated_pairs.csv")
@@ -193,6 +197,23 @@ async def open_positions(client):
                             isinstance(bot_open_dict, dict)
                             and bot_open_dict.get("pair_status") == "LIVE"
                         ):
+                            
+                            # Send trade opened notification before deleting bot_open_dict
+                            trade_info = {
+                                "pair": f"{base_market} / {quote_market}",
+                                "base_market": base_market,
+                                "quote_market": quote_market,
+                                "base_side": bot_open_dict.get("base_side", "Unknown"),
+                                "quote_side": bot_open_dict.get("quote_side", "Unknown"),
+                                "base_size": bot_open_dict.get("base_size", 0),
+                                "quote_size": bot_open_dict.get("quote_size", 0),
+                                "z_score": bot_open_dict.get("z_score", 0),
+                                "hedge_ratio": bot_open_dict.get("hedge_ratio", 0),
+                                "half_life": bot_open_dict.get("half_life", 0),
+                                "market_1_order_id": bot_open_dict.get("market_1_order_id", ""),
+                                "market_2_order_id": bot_open_dict.get("market_2_order_id", "")
+                            }
+                            messenger.send_trade_opened_message(trade_info)
 
                             # Append to list of bot agents
                             bot_agents.append(bot_open_dict)

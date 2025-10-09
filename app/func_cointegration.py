@@ -1,9 +1,11 @@
 import logging
+import time
 from typing import Tuple, cast
 
 import numpy as np
 import pandas as pd
 from constants import MAX_HALF_LIFE, WINDOW
+from func_messaging import TelegramMessenger
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,8 @@ def calculate_cointegration(series_1, series_2):
 def store_cointegration_results(df_market_prices):
 
     # Initialize
+    start_time = time.time()
+    messenger = TelegramMessenger()
     markets = df_market_prices.columns.to_list()
     criteria_met_pairs = []
 
@@ -183,6 +187,12 @@ def store_cointegration_results(df_market_prices):
     # Create and save DataFrame
     df_criteria_met = pd.DataFrame(criteria_met_pairs)
     df_criteria_met.to_csv("cointegrated_pairs.csv")
+    
+    # Calculate analysis time and send notification
+    analysis_time = time.time() - start_time
+    pairs_found = len(criteria_met_pairs)
+    messenger.send_cointegration_results(pairs_found, analysis_time)
+    
     del df_criteria_met
 
     # Return result

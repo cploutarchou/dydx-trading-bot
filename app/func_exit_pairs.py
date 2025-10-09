@@ -4,6 +4,7 @@ import time
 
 from constants import CLOSE_AT_ZSCORE_CROSS
 from func_cointegration import calculate_zscore
+from func_messaging import TelegramMessenger
 from func_private import get_open_positions, get_order, place_market_order
 from func_public import get_candles_recent, get_markets
 from func_utils import format_number
@@ -17,6 +18,9 @@ async def manage_trade_exits(client):
     Manage exiting open positions
     Based upon criteria set in constants
     """
+    
+    # Initialize Telegram messenger
+    messenger = TelegramMessenger()
 
     # Initialize saving output
     save_output = []
@@ -213,6 +217,21 @@ async def manage_trade_exits(client):
                 )
 
                 logger.debug("Close order m2 id: %s", close_order_m2.get("id"))
+                
+                # Send trade closed notification
+                trade_info = {
+                    "pair": f"{position_market_m1} / {position_market_m2}",
+                    "base_market": position_market_m1,
+                    "quote_market": position_market_m2,
+                    "base_side": side_m1,
+                    "quote_side": side_m2,
+                    "base_size": position_size_m1,
+                    "quote_size": position_size_m2,
+                    "z_score": z_score_current,
+                    "close_order_m1_id": close_order_m1.get("id", "") if close_order_m1 else "",
+                    "close_order_m2_id": close_order_m2.get("id", "") if close_order_m2 else ""
+                }
+                messenger.send_trade_closed_message(trade_info, "Z-score reversion")
 
             except Exception:
                 logger.exception(

@@ -52,8 +52,9 @@ Automated cointegration trading bot for dYdX v4 decentralized exchange. Identifi
 
 ### Logging System (`logging_setup.py`)
 - **Structured logging**: Configures root logger with console + optional Grafana Loki handlers
-- **stdout/stderr mirroring**: Redirects all print statements to structured logging
-- **Loki integration**: Ships logs to Grafana Cloud when enabled with proper auth tokens
+- **Loki stream labels**: Log level sent as stream label (`level=info/warning/error`) for Grafana filtering
+- **Custom Loki handler**: Uses direct HTTP requests to avoid silent failures from `logging_loki` library
+- **Grafana filtering**: Query with `{job="dydx-trading-bot", level="error"}` to filter by log level
 - **Per-module loggers**: Use `logger = logging.getLogger(__name__)` pattern throughout
 
 ## Development Workflows
@@ -82,6 +83,28 @@ PYTHONPATH=. pytest -q      # Run tests with proper module resolution
 make run                     # Full bot execution with config validation
 ```
 
+### Docker Workflows
+```bash
+# Production deployment
+make docker-build   # Build production Docker image
+make docker-run     # Run bot in Docker container
+make docker-stop    # Stop and remove container
+make docker-logs    # View container logs
+make docker-status  # Check container status
+
+# Docker Compose (recommended)
+make docker-up      # Start with Docker Compose
+make docker-down    # Stop all services
+make docker-up-dev  # Start development environment
+make docker-up-logging  # Start with Loki+Grafana logging stack
+
+# Development & debugging
+make docker-build-dev  # Build development image
+make docker-dev     # Interactive development container
+make docker-shell   # Shell into running container
+make docker-clean   # Remove all Docker resources
+```
+
 ### Key Configuration Parameters
 - **Trading thresholds**: `ZScoreThreshold` (1.5), `maxHalfLife` (24h), `statsWindow` (21)
 - **Position sizing**: `usdPerTrade` (10), `usdMinCollateral` (100)
@@ -105,3 +128,15 @@ make run                     # Full bot execution with config validation
 - **Debug workflow**: Check `cointegrated_pairs.csv` for statistical analysis results
 - **Position validation**: Verify `bot_agents.json` matches exchange open positions
 - **Connection testing**: Bot performs jurisdiction/connectivity checks on startup
+- **Emergency tools**: `scripts/close_open_positions.py` for immediate position cleanup
+- **Fast analysis**: `scripts/fast_cointegration.py --n 30` for rapid cointegration scanning
+- **Test structure**: Tests in `tests/` directory, run with `PYTHONPATH=. pytest -q`
+- **Docker debugging**: `make docker-dev` for containerized development environment
+
+## Docker Deployment Patterns
+- **Multi-stage builds**: Separate development/production images for optimal size and security
+- **Volume management**: State files (`bot_agents.json`, `cointegrated_pairs.csv`) and config mounted as volumes
+- **Security**: Non-root user, minimal base image, separate build contexts
+- **Configuration**: Supports both unified `dydx` block and separate testnet/mainnet configs
+- **Logging integration**: Custom Loki handler with stream labels for Grafana filtering
+- **Health checks**: Built-in container health monitoring and restart policies

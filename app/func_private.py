@@ -61,10 +61,13 @@ async def get_open_positions(client):
     except Exception:
         # If primary address fails (likely 404 for fresh account), try configured address
         try:
-            response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+            response = await client.indexer_account.account.get_subaccount(
+                DYDX_ADDRESS, 0
+            )
         except Exception as e2:
             # Both addresses failed - likely fresh testnet account with no trading history
             import httpx
+
             if isinstance(e2, httpx.HTTPStatusError) and e2.response.status_code == 404:
                 logger.debug("No subaccount found (404) - likely fresh testnet account")
                 return {}
@@ -89,12 +92,18 @@ async def is_open_positions(client, market):
         response = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
         try:
-            response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+            response = await client.indexer_account.account.get_subaccount(
+                DYDX_ADDRESS, 0
+            )
         except Exception as e:
             # Both addresses failed - likely fresh testnet account
             import httpx
+
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
-                logger.debug("No subaccount found (404) for market %s - likely fresh testnet account", market)
+                logger.debug(
+                    "No subaccount found (404) for market %s - likely fresh testnet account",
+                    market,
+                )
                 return False
             raise e
 

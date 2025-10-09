@@ -99,18 +99,32 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
         )
         return None
 
-    handler_kwargs = {
-        "url": LOKI_PUSH_URL,
-        "auth": (LOKI_USERNAME, LOKI_PASSWORD),
-        "tags": LOKI_LABELS or {},
-    }
 
-    if LOKI_TENANT_ID:
-        handler_kwargs["tenant_id"] = LOKI_TENANT_ID
 
     try:
-        handler = LokiHandler(**handler_kwargs)  # type: ignore[arg-type]
+        # Build handler arguments
+        handler_args = {
+            "url": LOKI_PUSH_URL,
+            "auth": (LOKI_USERNAME, LOKI_PASSWORD),
+            "tags": LOKI_LABELS,
+            "version": "1"
+        }
+        
+        # Add tenant_id if specified
+        if LOKI_TENANT_ID:
+            handler_args["tenant_id"] = LOKI_TENANT_ID
+            
+        logging.getLogger(__name__).info(
+            "Initializing Loki handler with URL: %s, Username: %s, Labels: %s", 
+            LOKI_PUSH_URL, LOKI_USERNAME, LOKI_LABELS
+        )
+        
+        handler = LokiHandler(**handler_args)  # type: ignore[arg-type]
         handler.setLevel(level)
+        
+        logging.getLogger(__name__).info("Loki handler initialized successfully")
+        return handler
+        
     except Exception as exc:  # pragma: no cover - network failures
         logging.getLogger(__name__).error(
             "Failed to initialize Loki handler: %s", exc, exc_info=True
@@ -123,6 +137,13 @@ def setup_logging() -> None:
     """Configure global logging and mirror stdout/stderr to the logger."""
 
     level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
+
+    # Suppress noisy third-party loggers BEFORE initializing handlers
+    if level <= logging.DEBUG:
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("requests").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
     root_logger = logging.getLogger()
     root_logger.setLevel(level)

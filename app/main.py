@@ -10,7 +10,7 @@ from func_cointegration import store_cointegration_results
 from func_connections import connect_dydx
 from func_entry_pairs import open_positions
 from func_exit_pairs import manage_trade_exits
-from func_messaging import send_message
+from func_messaging import TelegramMessenger
 from func_private import abort_all_positions
 from func_public import construct_market_prices
 from logging_setup import setup_logging
@@ -59,8 +59,21 @@ async def main():
     except Exception as e:
         logger.error("Error loading configuration: %s", e)
         sys.exit(1)
-    # Message on start
-    send_message("Bot launch successful")
+    # Initialize Telegram messenger
+    telegram_messenger = TelegramMessenger()
+    
+    # Send startup message with configuration details
+    config_dict = {
+        "environment": current_config.environment if current_config else "development",
+        "is_testnet": current_config.is_testnet if current_config else False,
+        "strategy": current_config.botSettings.strategy if current_config and current_config.botSettings else "Unknown",
+        "usd_per_trade": current_config.botSettings.usdPerTrade if current_config and current_config.botSettings else 0,
+        "abort_all_positions": ABORT_ALL_POSITIONS,
+        "find_cointegrated": FIND_COINTEGRATED,
+        "manage_exits": MANAGE_EXITS,
+        "place_trades": PLACE_TRADES
+    }
+    telegram_messenger.send_startup_message(config_dict)
 
     # Connect to client
     try:
@@ -70,7 +83,7 @@ async def main():
         client = await connect_dydx()
     except Exception as e:
         print("Error connecting to client: ", e)
-        send_message(f"Failed to connect to client {e}")
+        telegram_messenger.send_error_message("Connection Failed", f"Failed to connect to dYdX client: {str(e)}", is_critical=True)
         exit(1)
 
     # Abort all open positions
@@ -81,7 +94,7 @@ async def main():
             await abort_all_positions(client)
         except Exception as e:
             print("Error closing all positions: ", e)
-            send_message(f"Error closing all positions {e}")
+            telegram_messenger.send_error_message("Position Closure Failed", f"Error closing all positions: {str(e)}", is_critical=True)
             exit(1)
 
     # Find Cointegrated Pairs
@@ -95,7 +108,7 @@ async def main():
             print(df_market_prices)
         except Exception as e:
             print("Error constructing market prices: ", e)
-            send_message(f"Error constructing market prices {e}")
+            telegram_messenger.send_error_message("Market Data Error", f"Error constructing market prices: {str(e)}", is_critical=True)
             exit(1)
 
         # Store Cointegrated Pairs
@@ -108,7 +121,7 @@ async def main():
                 exit(1)
         except Exception as e:
             print("Error saving cointegrated pairs: ", e)
-            send_message(f"Error saving cointegrated pairs {e}")
+            telegram_messenger.send_error_message("Cointegration Analysis Failed", f"Error saving cointegrated pairs: {str(e)}", is_critical=True)
             exit(1)
 
     # Run as always on
@@ -123,7 +136,7 @@ async def main():
                     time.sleep(1)
                 except Exception as e:
                     print("Error managing exiting positions: ", e)
-                    send_message(f"Error managing exiting positions {e}")
+                    telegram_messenger.send_error_message("Exit Management Error", f"Error managing exiting positions: {str(e)}", is_critical=False)
                     exit(1)
 
             # Place trades for opening positions
@@ -134,13 +147,13 @@ async def main():
                     await open_positions(client)
                 except Exception as e:
                     print("Error trading pairs: ", e)
-                    send_message(f"Error opening trades {e}")
+                    telegram_messenger.send_error_message("Trade Entry Error", f"Error opening trades: {str(e)}", is_critical=False)
                     exit(1)
 
     except KeyboardInterrupt:
         logger = logging.getLogger(__name__)
         logger.info("Bot stopped by user (Ctrl+C)")
-        send_message("Bot stopped by user interrupt")
+        telegram_messenger.send_shutdown_message("User interrupt (Ctrl+C)")
         sys.exit(0)
 
 

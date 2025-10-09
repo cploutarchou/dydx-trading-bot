@@ -28,18 +28,34 @@ async def main():
     # Initialize logging first
     setup_logging()
     logger = logging.getLogger(__name__)
-    
+
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     # Load and print the configuration
     try:
         current_config = config()
         logger.info("Configuration loaded successfully")
-        logger.info("Is Testnet: %s", current_config.is_testnet if current_config else "Unknown")
-        logger.info("Bot Strategy: %s", current_config.botSettings.strategy if current_config and current_config.botSettings else "Unknown")
-        logger.info("Telegram Chat ID: %s", current_config.telegram.chat_id if current_config and current_config.telegram else "Unknown")
+        logger.info(
+            "Is Testnet: %s", current_config.is_testnet if current_config else "Unknown"
+        )
+        logger.info(
+            "Bot Strategy: %s",
+            (
+                current_config.botSettings.strategy
+                if current_config and current_config.botSettings
+                else "Unknown"
+            ),
+        )
+        logger.info(
+            "Telegram Chat ID: %s",
+            (
+                current_config.telegram.chat_id
+                if current_config and current_config.telegram
+                else "Unknown"
+            ),
+        )
     except Exception as e:
         logger.error("Error loading configuration: %s", e)
         sys.exit(1)
@@ -120,7 +136,7 @@ async def main():
                     print("Error trading pairs: ", e)
                     send_message(f"Error opening trades {e}")
                     exit(1)
-    
+
     except KeyboardInterrupt:
         logger = logging.getLogger(__name__)
         logger.info("Bot stopped by user (Ctrl+C)")

@@ -2,7 +2,7 @@ import logging
 import time
 from datetime import datetime
 
-from func_messaging import send_message
+from func_messaging import TelegramMessenger
 from func_private import cancel_order, check_order_status, place_market_order
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,9 @@ class BotAgent:
         self.z_score = z_score
         self.half_life = half_life
         self.hedge_ratio = hedge_ratio
+        
+        # Initialize Telegram messenger
+        self.messenger = TelegramMessenger()
 
         # Initialze output variable
         # Pair status options are FAILED, LIVE, CLOSE, ERROR
@@ -225,7 +228,11 @@ class BotAgent:
                     )
 
                     # Send Message
-                    send_message("Failed to execute. Code red. Error code: 100")
+                    self.messenger.send_error_message(
+                        "CRITICAL: Position Closure Failed",
+                        f"Failed to close hedged position for {self.market_1}. Status: {order_status_close_order}. Emergency intervention required!",
+                        is_critical=True
+                    )
 
                     # ABORT
                     exit(1)
@@ -239,7 +246,11 @@ class BotAgent:
                 logger.critical("order_status_close_order=%s", status_snapshot)
 
                 # Send Message
-                send_message("Failed to execute. Code red. Error code: 101")
+                self.messenger.send_error_message(
+                    "CRITICAL: Unexpected Closure Error",
+                    f"Unexpected error closing {self.market_1}. Exception: {str(e)}. Status: {status_snapshot}. Emergency intervention required!",
+                    is_critical=True
+                )
 
                 # ABORT
                 exit(1)

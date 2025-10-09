@@ -91,13 +91,17 @@ def send_to_loki_directly(message: str, level: str, labels: Dict[str, str],
     # Use the URL directly - it already contains the full endpoint path
     endpoint = url
     
-    # Create Loki payload
+    # Create Loki payload with level as a stream label for proper filtering
     timestamp = str(int(time.time() * 1000000000))  # nanoseconds
+    
+    # Add level as a stream label so Grafana can filter by it
+    stream_labels = labels.copy()
+    stream_labels["level"] = level.lower()  # Use lowercase for consistency
     
     payload = {
         "streams": [{
-            "stream": labels,
-            "values": [[timestamp, f"[{level}] {message}"]]
+            "stream": stream_labels,
+            "values": [[timestamp, message]]  # Don't prefix with level since it's in labels now
         }]
     }
     
@@ -170,7 +174,7 @@ def validate_loki_config() -> bool:
         # Send minimal test payload for connectivity validation
         payload = {
             "streams": [{
-                "stream": {"test": "validation", "job": "loki-validation"},
+                "stream": {"test": "validation", "job": "loki-validation", "level": "info"},
                 "values": [[str(int(time.time() * 1000000000)), "connectivity-test"]]
             }]
         }
@@ -226,7 +230,7 @@ def _initialize_console_handler(level: int) -> logging.Handler:
     console_handler = logging.StreamHandler(sys.__stdout__)
     console_handler.setLevel(level)
     formatter = logging.Formatter(
-        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     console_handler.setFormatter(formatter)

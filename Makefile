@@ -1,4 +1,36 @@
-.PHONY: env config setup install test lint format clean help
+.PHONY: help env config setup install test lint format clean run start stop status restart logs test-loki test-loki-dev test-loki-prod \
+	docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down
+
+# Default target - show help when running just 'make'
+help: ## Show this help message
+	@echo "dYdX Trading Bot - Available Commands:"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Quick start:"
+	@echo "  1. make setup     # Create virtual environment"
+	@echo "  2. make install   # Install dependencies"
+	@echo "  3. make config    # Create configuration file"
+	@echo "  4. make start     # Start the trading bot"
+	@echo ""
+	@echo "Bot management:"
+	@echo "  make start        # Start bot in background"
+	@echo "  make stop         # Stop running bot"
+	@echo "  make restart      # Restart the bot"
+	@echo "  make status       # Check bot status"
+	@echo "  make logs         # View bot logs"
+	@echo ""
+	@echo "Docker commands:"
+	@echo "  make docker-build    # Build Docker image"
+	@echo "  make docker-run      # Run bot in Docker"
+	@echo "  make docker-stop     # Stop Docker container"
+	@echo "  make docker-logs     # View Docker logs"
+	@echo "  make docker-up       # Start with Docker Compose"
+	@echo "  make docker-down     # Stop Docker Compose services"
+	@echo ""
+	@echo "Loki testing:"
+	@echo "  make test-loki-dev   # Test Loki connection (development)"
+	@echo "  make test-loki-prod  # Test Loki connection (production)"
 
 env:
 	@echo "⚠️  WARNING: .env configuration is DEPRECATED!"
@@ -90,7 +122,7 @@ clean: ## Clean up generated files
 	rm -rf .mypy_cache/
 	@echo "Cleanup complete!"
 
-run: ## Run the trading bot
+run: ## Run the trading bot (foreground)
 	@if [ ! -f "app/config.yaml" ]; then \
 		echo "Configuration file not found. Run 'make config' first."; \
 		exit 1; \
@@ -101,16 +133,83 @@ run: ## Run the trading bot
 	fi
 	cd app && ../.venv/bin/python main.py
 
-help: ## Show this help message
-	@echo "dYdX Trading Bot - Available Commands:"
-	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Quick start:"
-	@echo "  1. make setup     # Create virtual environment"
-	@echo "  2. make install   # Install dependencies"
-	@echo "  3. make config    # Create configuration file"
-	@echo "  4. make run       # Start the trading bot"
+start: ## Start the trading bot in background
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh start
+
+stop: ## Stop the running trading bot
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh stop
+
+restart: ## Restart the trading bot
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh restart
+
+status: ## Check trading bot status
+	@if [ ! -f "scripts/manage_bot.sh" ]; then \
+		echo "Bot management script not found."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/manage_bot.sh
+	./scripts/manage_bot.sh status
+
+logs: ## View recent bot logs (if logging to file)
+	@echo "Recent bot activity:"
+	@if [ -f "bot.log" ]; then \
+		tail -n 50 bot.log; \
+	else \
+		echo "No log file found. Bot logs are sent to console and/or Loki."; \
+		echo "To see live logs, use: make run"; \
+		echo "Or check your Loki/Grafana dashboard if configured."; \
+	fi
+
+test-loki-dev: ## Test Loki connection in development mode (no auth)
+	@if [ ! -f "scripts/test_loki.py" ]; then \
+		echo "Loki test script not found."; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Testing Loki connection in DEVELOPMENT mode (no authentication)..."
+	.venv/bin/python scripts/test_loki.py development
+
+test-loki-prod: ## Test Loki connection in production mode (with auth)
+	@if [ ! -f "scripts/test_loki.py" ]; then \
+		echo "Loki test script not found."; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Testing Loki connection in PRODUCTION mode (with authentication)..."
+	.venv/bin/python scripts/test_loki.py production
+
+test-loki: ## Test Loki connection (auto-detect environment from config)
+	@if [ ! -f "scripts/test_loki.py" ]; then \
+		echo "Loki test script not found."; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "Testing Loki connection (auto-detecting environment from config.yaml)..."
+	.venv/bin/python scripts/test_loki.py
 
 config:
 	@if [ -d app ]; then \
@@ -164,7 +263,8 @@ config:
 		fi; \
 	else \
 		echo "Creating config.yaml file..."; \
-		echo 'dydx:' > $$CONFIG_DIR/config.yaml; \
+		echo 'environment: "development"  # Options: "development", "dev", "production", "prod"' > $$CONFIG_DIR/config.yaml; \
+		echo 'dydx:' >> $$CONFIG_DIR/config.yaml; \
 		echo '  dydx_chain_address: "dydx1ENTERYOURTESTADDRESS"' >> $$CONFIG_DIR/config.yaml; \
 		echo '  dydx_secret_phrase: "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"' >> $$CONFIG_DIR/config.yaml; \
 		echo '  is_testnet: false' >> $$CONFIG_DIR/config.yaml; \
@@ -202,3 +302,116 @@ config:
 		echo '      environment: "development"' >> $$CONFIG_DIR/config.yaml; \
 		echo "config.yaml file created successfully in $$CONFIG_DIR."; \
 	fi
+
+# ============================================================================
+# Docker Commands
+# ============================================================================
+
+docker-build: ## Build Docker image for production
+	@echo "🐳 Building Docker image for production..."
+	@if [ ! -f "app/config.yaml" ]; then \
+		echo "⚠️  Configuration file not found. Run 'make config' first."; \
+		exit 1; \
+	fi
+	docker build -t dydx-trading-bot:latest --target production .
+	@echo "✅ Docker image built successfully!"
+
+docker-build-dev: ## Build Docker image for development
+	@echo "🐳 Building Docker image for development..."
+	docker build -t dydx-trading-bot:dev --target development .
+	@echo "✅ Development Docker image built successfully!"
+
+docker-run: ## Run trading bot in Docker container (production)
+	@echo "🚀 Starting trading bot in Docker..."
+	@if [ ! -f "app/config.yaml" ]; then \
+		echo "⚠️  Configuration file not found. Run 'make config' first."; \
+		exit 1; \
+	fi
+	docker run -d \
+		--name dydx-trading-bot \
+		--restart unless-stopped \
+		-v $(PWD)/app/config.yaml:/app/app/config.yaml:ro \
+		-v $(PWD)/app/bot_agents.json:/app/app/bot_agents.json \
+		-v $(PWD)/app/cointegrated_pairs.csv:/app/app/cointegrated_pairs.csv \
+		dydx-trading-bot:latest
+	@echo "✅ Trading bot started in Docker! Use 'make docker-logs' to see output."
+
+docker-stop: ## Stop and remove Docker container
+	@echo "🛑 Stopping Docker container..."
+	@if [ $$(docker ps -q -f name=dydx-trading-bot) ]; then \
+		docker stop dydx-trading-bot; \
+	fi
+	@if [ $$(docker ps -aq -f name=dydx-trading-bot) ]; then \
+		docker rm dydx-trading-bot; \
+	fi
+	@echo "✅ Docker container stopped and removed."
+
+docker-logs: ## View Docker container logs
+	@echo "📋 Viewing Docker logs..."
+	@if [ $$(docker ps -q -f name=dydx-trading-bot) ]; then \
+		docker logs -f dydx-trading-bot; \
+	else \
+		echo "❌ No running container found. Use 'make docker-run' to start."; \
+	fi
+
+docker-shell: ## Open shell in running Docker container
+	@echo "🐚 Opening shell in Docker container..."
+	@if [ $$(docker ps -q -f name=dydx-trading-bot) ]; then \
+		docker exec -it dydx-trading-bot /bin/bash; \
+	else \
+		echo "❌ No running container found. Use 'make docker-run' to start."; \
+	fi
+
+docker-dev: ## Start development container with volume mounts
+	@echo "🔧 Starting development Docker container..."
+	docker run -it --rm \
+		--name dydx-trading-bot-dev \
+		-v $(PWD):/app \
+		-w /app \
+		dydx-trading-bot:dev /bin/bash
+	@echo "✅ Development container ready! You're now inside the container."
+
+docker-clean: ## Remove Docker images and containers
+	@echo "🧹 Cleaning up Docker resources..."
+	@if [ $$(docker ps -aq -f name=dydx-trading-bot) ]; then \
+		docker rm -f $$(docker ps -aq -f name=dydx-trading-bot); \
+	fi
+	@if [ $$(docker images -q dydx-trading-bot) ]; then \
+		docker rmi $$(docker images -q dydx-trading-bot); \
+	fi
+	@echo "✅ Docker cleanup complete."
+
+# Docker Compose commands
+docker-up: ## Start services with Docker Compose (production)
+	@echo "🐳 Starting services with Docker Compose..."
+	@if [ ! -f "app/config.yaml" ]; then \
+		echo "⚠️  Configuration file not found. Run 'make config' first."; \
+		exit 1; \
+	fi
+	docker compose up -d dydx-trading-bot
+	@echo "✅ Services started! Use 'docker compose logs -f' to see output."
+
+docker-up-dev: ## Start development services with Docker Compose  
+	@echo "🔧 Starting development services with Docker Compose..."
+	docker compose --profile dev up -d dydx-dev
+	@echo "✅ Development services started!"
+
+docker-up-logging: ## Start with logging stack (Loki + Grafana)
+	@echo "📊 Starting services with logging stack..."
+	docker compose --profile logging up -d
+	@echo "✅ Services with logging started!"
+	@echo "   - Grafana: http://localhost:3000 (admin/admin)"
+	@echo "   - Loki: http://localhost:3100"
+
+docker-down: ## Stop Docker Compose services
+	@echo "🛑 Stopping Docker Compose services..."
+	docker compose down --remove-orphans
+	@echo "✅ Services stopped."
+
+docker-status: ## Show Docker container status
+	@echo "📊 Docker container status:"
+	@echo ""
+	@docker ps -a --filter "name=dydx" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+	@echo ""
+	@echo "Images:"
+	@docker images --filter "reference=dydx-trading-bot" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"

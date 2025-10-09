@@ -10,9 +10,12 @@ Automated cointegration trading bot for dYdX v4 decentralized exchange. Identifi
 - **Legacy**: `.env` file (deprecated, redirects to YAML)
 - **Setup**: `make config` creates template with defaults
 - **Pattern**: Singleton ConfigurationManager with type-safe dataclass hierarchy
+- **Testing**: Supports both `dydx` unified block and separate `dydx_testnet`/`dydx_mainnet` configurations
 
 ### Execution Flow (`app/main.py`)
-1. Config validation → 2. dYdX connection → 3. Optional position cleanup → 4. Optional cointegration analysis → 5. Continuous trading loop (exits then entries)
+1. Logging setup → 2. Config validation → 3. dYdX connection → 4. Optional position cleanup → 5. Optional cointegration analysis → 6. Continuous trading loop (exits then entries)
+- **Critical**: Always initializes `setup_logging()` before any other operations
+- **Async**: Entire main flow is async with proper exception handling and Telegram notifications
 
 ### Client Architecture (`func_connections.py`)
 - **Custom Client wrapper**: Bundles `indexer` (market data) + `indexer_account` (positions) + `node` (orders) + `wallet` (signing)
@@ -47,26 +50,59 @@ Automated cointegration trading bot for dYdX v4 decentralized exchange. Identifi
 - **`cointegrated_pairs.csv`**: Statistical analysis results
 - **Key pattern**: Files persist state across bot restarts
 
+### Logging System (`logging_setup.py`)
+- **Structured logging**: Configures root logger with console + optional Grafana Loki handlers
+- **Loki stream labels**: Log level sent as stream label (`level=info/warning/error`) for Grafana filtering
+- **Custom Loki handler**: Uses direct HTTP requests to avoid silent failures from `logging_loki` library
+- **Grafana filtering**: Query with `{job="dydx-trading-bot", level="error"}` to filter by log level
+- **Per-module loggers**: Use `logger = logging.getLogger(__name__)` pattern throughout
+
 ## Development Workflows
 
-### Configuration Setup
+### Complete Development Setup
 ```bash
-make config          # Creates app/config.yaml with defaults
-make env            # Creates legacy .env (redirects to YAML)
+make setup           # Create virtual environment
+make install         # Install all dependencies + dev tools
+make config          # Create app/config.yaml with defaults
+make test            # Run pytest suite
+make lint            # Run flake8, pylint, mypy, bandit
+make format          # Apply black + isort formatting
 ```
 
-### Running the Bot
+### Legacy Commands (for reference)
 ```bash
+make env             # Creates deprecated .env (shows migration notice)
 cd app && python main.py    # Main trading loop
-python test.py             # Test single order placement
+python app/test.py   # Test single order placement  
 ```
 
-### Virtual Environment Setup
+### Development Environment
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=. pytest -q      # Run tests
+source .venv/bin/activate    # Always use venv
+PYTHONPATH=. pytest -q      # Run tests with proper module resolution
+make run                     # Full bot execution with config validation
+```
+
+### Docker Workflows
+```bash
+# Production deployment
+make docker-build   # Build production Docker image
+make docker-run     # Run bot in Docker container
+make docker-stop    # Stop and remove container
+make docker-logs    # View container logs
+make docker-status  # Check container status
+
+# Docker Compose (recommended)
+make docker-up      # Start with Docker Compose
+make docker-down    # Stop all services
+make docker-up-dev  # Start development environment
+make docker-up-logging  # Start with Loki+Grafana logging stack
+
+# Development & debugging
+make docker-build-dev  # Build development image
+make docker-dev     # Interactive development container
+make docker-shell   # Shell into running container
+make docker-clean   # Remove all Docker resources
 ```
 
 ### Key Configuration Parameters
@@ -92,3 +128,15 @@ PYTHONPATH=. pytest -q      # Run tests
 - **Debug workflow**: Check `cointegrated_pairs.csv` for statistical analysis results
 - **Position validation**: Verify `bot_agents.json` matches exchange open positions
 - **Connection testing**: Bot performs jurisdiction/connectivity checks on startup
+- **Emergency tools**: `scripts/close_open_positions.py` for immediate position cleanup
+- **Fast analysis**: `scripts/fast_cointegration.py --n 30` for rapid cointegration scanning
+- **Test structure**: Tests in `tests/` directory, run with `PYTHONPATH=. pytest -q`
+- **Docker debugging**: `make docker-dev` for containerized development environment
+
+## Docker Deployment Patterns
+- **Multi-stage builds**: Separate development/production images for optimal size and security
+- **Volume management**: State files (`bot_agents.json`, `cointegrated_pairs.csv`) and config mounted as volumes
+- **Security**: Non-root user, minimal base image, separate build contexts
+- **Configuration**: Supports both unified `dydx` block and separate testnet/mainnet configs
+- **Logging integration**: Custom Loki handler with stream labels for Grafana filtering
+- **Health checks**: Built-in container health monitoring and restart policies

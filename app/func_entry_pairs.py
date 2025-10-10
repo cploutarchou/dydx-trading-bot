@@ -9,6 +9,7 @@ from func_messaging import TelegramMessenger
 from func_private import get_account, is_open_positions
 from func_public import get_candles_recent, get_markets
 from func_utils import format_number
+from models.pair_storage import pair_storage
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,16 @@ async def open_positions(client):
     # Initialize Telegram messenger
     messenger = TelegramMessenger()
 
-    # Load cointegrated pairs
-    df = pd.read_csv("cointegrated_pairs.csv")
-    logger.info("Loaded %d cointegrated pairs", len(df))
+    # Load cointegrated pairs using enhanced storage
+    pairs = pair_storage.load_pairs()
+    logger.info("Loaded %d cointegrated pairs from enhanced storage", len(pairs))
+    
+    # Convert to DataFrame for backward compatibility with existing logic
+    if pairs:
+        df = pd.DataFrame([pair.to_dict() for pair in pairs])
+    else:
+        logger.warning("No cointegrated pairs found")
+        return
 
     # Get markets from referencing of min order size, tick size etc
     markets = await get_markets(client)

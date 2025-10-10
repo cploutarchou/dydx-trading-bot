@@ -170,16 +170,21 @@ class TelegramMessenger:
         
         return self.send_message(message)
 
-    def send_cointegration_results(self, pairs_found: int, analysis_time: float) -> bool:
-        """Send cointegration analysis results."""
+    def send_cointegration_results(self, pairs_found: int, analysis_time: float, high_confidence_pairs: int = 0) -> bool:
+        """Send enhanced cointegration analysis results."""
+        confidence_ratio = (high_confidence_pairs / pairs_found * 100) if pairs_found > 0 else 0
+        
+        status_emoji = "🎯" if high_confidence_pairs > 0 else "📊" if pairs_found > 0 else "⚠️"
+        
         message = f"""
 🔬 <b>COINTEGRATION ANALYSIS COMPLETE</b>
 
-📊 <b>Pairs Found:</b> {pairs_found}
+{status_emoji} <b>Total Pairs Found:</b> {pairs_found}
+⭐ <b>High-Confidence Pairs:</b> {high_confidence_pairs} ({confidence_ratio:.0f}%)
 ⏱️ <b>Analysis Time:</b> {analysis_time:.1f} seconds
 ⏰ <b>Completed:</b> {self._format_timestamp()}
 
-<i>{"Ready to identify trading opportunities!" if pairs_found > 0 else "No suitable pairs found - will retry next cycle."}</i>
+<i>{"Ready for high-quality trading opportunities!" if high_confidence_pairs > 0 else "Ready to identify trading opportunities!" if pairs_found > 0 else "No suitable pairs found - will retry next cycle."}</i>
         """.strip()
         
         return self.send_message(message)

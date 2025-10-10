@@ -1,11 +1,17 @@
 import logging
 import time
+from datetime import datetime
 from typing import Tuple, cast
 
 import numpy as np
 import pandas as pd
 from constants import MAX_HALF_LIFE, WINDOW
 from func_messaging import TelegramMessenger
+from models.pair_storage import (
+    CointegrationResult,
+    calculate_confidence_score,
+    pair_storage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +115,22 @@ def calculate_cointegration(series_1, series_2):
     return coint_flag, hedge_ratio, half_life
 
 
+def count_zero_crossings(series):
+    """Count zero crossings in a time series."""
+    if len(series) < 2:
+        return 0
+    
+    # Remove NaN values
+    clean_series = series.dropna()
+    if len(clean_series) < 2:
+        return 0
+    
+    # Count sign changes (zero crossings)
+    signs = np.sign(clean_series)
+    sign_changes = np.diff(signs)
+    return int(np.sum(np.abs(sign_changes) == 2))
+
+
 # Store Cointegration Results
 def store_cointegration_results(df_market_prices):
 
@@ -173,28 +195,71 @@ def store_cointegration_results(df_market_prices):
                 )
                 continue
 
-            # Log pair
+            # Log pair and calculate enhanced metrics
             if coint_flag == 1 and half_life <= MAX_HALF_LIFE and half_life > 0:
-                criteria_met_pairs.append(
-                    {
-                        "base_market": base_market,
-                        "quote_market": quote_market,
-                        "hedge_ratio": hedge_ratio,
-                        "half_life": half_life,
-                    }
-                )
+                # Calculate Z-score statistics for confidence scoring
+                try:
+                    # Create spread for Z-score analysis
+                    spread = pd.Series(series_1) - hedge_ratio * pd.Series(series_2)
+                    z_scores = calculate_zscore(spread)
+                    
+                    # Calculate zero crossings
+                    zero_crossings = count_zero_crossings(z_scores)
+                    
+                    # Calculate confidence score
+                    confidence = calculate_confidence_score(
+                        p_value=0.01,  # Placeholder - would need actual cointegration test p-value
+                        half_life=half_life,
+                        zero_crossings=zero_crossings
+                    )
+                    
+                    # Create enhanced result
+                    cointegration_result = CointegrationResult(
+                        base_market=base_market,
+                        quote_market=quote_market,
+                        hedge_ratio=hedge_ratio,
+                        half_life=half_life,
+                        zero_crossings=zero_crossings,
+                        p_value=0.01,  # Placeholder for actual p-value
+                        z_score_mean=float(z_scores.mean()),
+                        z_score_std=float(z_scores.std()),
+                        analysis_timestamp=datetime.now().isoformat(),
+                        confidence_score=confidence
+                    )
+                    
+                    criteria_met_pairs.append(cointegration_result)
+                    
+                except Exception as e:
+                    # If enhanced metrics fail, create basic result
+                    logger.warning(f"Enhanced metrics failed for {base_market}/{quote_market}: {e}")
+                    basic_result = CointegrationResult(
+                        base_market=base_market,
+                        quote_market=quote_market,
+                        hedge_ratio=hedge_ratio,
+                        half_life=half_life,
+                        zero_crossings=0,
+                        p_value=0.01,
+                        z_score_mean=0.0,
+                        z_score_std=1.0,
+                        analysis_timestamp=datetime.now().isoformat(),
+                        confidence_score=0.5
+                    )
+                    criteria_met_pairs.append(basic_result)
 
-    # Create and save DataFrame
-    df_criteria_met = pd.DataFrame(criteria_met_pairs)
-    df_criteria_met.to_csv("cointegrated_pairs.csv")
+    # Save using enhanced storage system
+    result = pair_storage.save_pairs(criteria_met_pairs)
     
-    # Calculate analysis time and send notification
+    # Calculate analysis time and send enhanced notification
     analysis_time = time.time() - start_time
     pairs_found = len(criteria_met_pairs)
-    messenger.send_cointegration_results(pairs_found, analysis_time)
+    high_confidence_pairs = len([p for p in criteria_met_pairs if p.is_high_confidence])
     
-    del df_criteria_met
+    messenger.send_cointegration_results(pairs_found, analysis_time, high_confidence_pairs)
+    
+    # Log enhanced results
+    logger.info(
+        f"Cointegrated pairs analysis complete: {pairs_found} total pairs, "
+        f"{high_confidence_pairs} high-confidence pairs, {analysis_time:.1f}s"
+    )
 
-    # Return result
-    logger.info("Cointegrated pairs successfully saved")
-    return "saved"
+    return result

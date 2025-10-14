@@ -4,11 +4,12 @@ import random
 import time
 
 from constants import DYDX_ADDRESS
-from dydx_v4_client import MAX_CLIENT_ID, Order, OrderFlags
+from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
 from func_public import get_markets
 from func_utils import format_number
+from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,8 @@ async def get_open_positions(client):
             import httpx
 
             if isinstance(e2, httpx.HTTPStatusError) and e2.response.status_code == 404:
-                logger.debug("No subaccount found (404) - likely fresh testnet account")
+                logger.debug(
+                    "No subaccount found (404) - likely fresh testnet account")
                 return {}
             raise e2
     return response["subaccount"]["openPerpetualPositions"]
@@ -185,7 +187,8 @@ async def place_market_order(client, market, side, size, price, reduce_only):
 
     # Ensure latest order
     if order_id == "":
-        sorted_orders = sorted(orders, key=lambda x: x["createdAtHeight"], reverse=True)
+        sorted_orders = sorted(
+            orders, key=lambda x: x["createdAtHeight"], reverse=True)
         logger.error(
             "Unable to detect latest order; most recent entry: %s", sorted_orders[0]
         )

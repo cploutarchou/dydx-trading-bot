@@ -52,3 +52,5 @@ safety>=2.3.0
 
 # Code Coverage
 coverage>=7.3.0
+flake8
+pytest-asyncio

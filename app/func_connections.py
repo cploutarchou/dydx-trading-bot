@@ -7,9 +7,10 @@ from constants import (
     MARKET_DATA_MODE,
     MNEMONIC,
 )
-from dydx_v4_client import NodeClient, Wallet
 from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
 from dydx_v4_client.network import TESTNET
+from dydx_v4_client.node.client import NodeClient
+from dydx_v4_client.wallet import Wallet
 from func_public import get_candles_recent
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,8 @@ async def connect_dydx():
     # Indexer = connection we will use to get live mainnet data if using INDEXER_ENDPOINT_MAINNET, else we will use testnet
     try:
         indexer = IndexerClient(host=market_data_endpoint, api_timeout=5)
-        logger.info("Initialized indexer client against %s", market_data_endpoint)
+        logger.info("Initialized indexer client against %s",
+                    market_data_endpoint)
     except Exception:
         logger.exception(
             "Failed to initialize indexer client for %s", market_data_endpoint
@@ -51,7 +53,8 @@ async def connect_dydx():
 
     # Indexer Account = connection we will use to query our testnet trades
     try:
-        indexer_account = IndexerClient(host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
+        indexer_account = IndexerClient(
+            host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
         logger.info(
             "Initialized account indexer client against %s", INDEXER_ACCOUNT_ENDPOINT
         )
@@ -76,7 +79,8 @@ async def connect_dydx():
         wallet = await Wallet.from_mnemonic(node, MNEMONIC, DYDX_ADDRESS)
         logger.info("Loaded wallet for address %s", DYDX_ADDRESS)
     except Exception:
-        logger.exception("Failed to derive wallet for address %s", DYDX_ADDRESS)
+        logger.exception(
+            "Failed to derive wallet for address %s", DYDX_ADDRESS)
         raise
 
     client = Client(indexer, indexer_account, node, wallet)

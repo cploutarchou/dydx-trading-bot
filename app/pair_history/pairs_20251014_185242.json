@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "analysis_timestamp": "2025-10-14T18:52:42.249373",
+    "total_pairs": 4,
+    "version": "2.0",
+    "bot_version": "dydx-trading-bot-enhanced",
+    "high_confidence_count": 2
+  },
+  "pairs": [
+    {
+      "base_market": "BTC-USD",
+      "quote_market": "ETH-USD",
+      "hedge_ratio": 0.85,
+      "half_life": 12.5,
+      "zero_crossings": 15,
+      "p_value": 0.01,
+      "z_score_mean": 0.02,
+      "z_score_std": 1.15,
+      "analysis_timestamp": "2025-10-14T18:52:42.249294",
+      "confidence_score": 0.75
+    },
+    {
+      "base_market": "LINK-USD",
+      "quote_market": "UNI-USD",
+      "hedge_ratio": 1.2,
+      "half_life": 18.0,
+      "zero_crossings": 8,
+      "p_value": 0.03,
+      "z_score_mean": -0.05,
+      "z_score_std": 0.95,
+      "analysis_timestamp": "2025-10-14T18:52:42.249312",
+      "confidence_score": 0.65
+    },
+    {
+      "base_market": "SOL-USD",
+      "quote_market": "AVAX-USD",
+      "hedge_ratio": 0.95,
+      "half_life": 22.0,
+      "zero_crossings": 5,
+      "p_value": 0.045,
+      "z_score_mean": 0.1,
+      "z_score_std": 1.05,
+      "analysis_timestamp": "2025-10-14T18:52:42.249316",
+      "confidence_score": 0.45
+    },
+    {
+      "base_market": "ADA-USD",
+      "quote_market": "DOT-USD",
+      "hedge_ratio": 0.78,
+      "half_life": 8.5,
+      "zero_crossings": 20,
+      "p_value": 0.005,
+      "z_score_mean": 0.0,
+      "z_score_std": 0.98,
+      "analysis_timestamp": "2025-10-14T18:52:42.249340",
+      "confidence_score": 0.88
+    }
+  ]
+}

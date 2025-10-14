@@ -1,5 +1,6 @@
 .PHONY: help env config setup install test lint format clean run start stop status restart logs test-loki test-loki-dev test-loki-prod \
-	docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down
+	docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down \
+	devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -27,6 +28,12 @@ help: ## Show this help message
 	@echo "  make docker-logs     # View Docker logs"
 	@echo "  make docker-up       # Start with Docker Compose"
 	@echo "  make docker-down     # Stop Docker Compose services"
+	@echo ""
+	@echo "Development container:"
+	@echo "  make devcontainer       # Open in VS Code Dev Container (recommended)"
+	@echo "  make devcontainer-up    # Start dev container with Docker Compose"
+	@echo "  make devcontainer-shell # Open shell in dev container"
+	@echo "  make devcontainer-down  # Stop dev container"
 	@echo ""
 	@echo "Loki testing:"
 	@echo "  make test-loki-dev   # Test Loki connection (development)"
@@ -90,19 +97,15 @@ test: ## Run tests
 	PYTHONPATH=. .venv/bin/pytest -q
 
 lint: ## Run linting tools
-	@if [ ! -d ".venv" ]; then \
-		echo "Virtual environment not found. Run 'make setup install' first."; \
-		exit 1; \
-	fi
 	@echo "Running linting tools..."
 	@echo "→ Flake8..."
-	.venv/bin/flake8 app/ --max-line-length=88 --extend-ignore=E203,W503
+	python3 -m flake8 app/ --max-line-length=88 --extend-ignore=E203,W503
 	@echo "→ Pylint..."
-	.venv/bin/pylint app/ --disable=C0114,C0115,C0116 --max-line-length=88
+	python3 -m pylint app/ --disable=C0114,C0115,C0116 --max-line-length=88
 	@echo "→ MyPy..."
-	.venv/bin/mypy app/ --ignore-missing-imports --follow-imports=silent
+	python3 -m mypy app/ --ignore-missing-imports --follow-imports=silent
 	@echo "→ Bandit (security)..."
-	.venv/bin/bandit -r app/ -f json || true
+	python3 -m bandit -r app/ -f json || true
 
 format: ## Format code with Black and isort
 	@if [ ! -d ".venv" ]; then \
@@ -415,3 +418,91 @@ docker-status: ## Show Docker container status
 	@echo ""
 	@echo "Images:"
 	@docker images --filter "reference=dydx-trading-bot" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"
+
+# ============================================================================
+# Development Container Commands
+# ============================================================================
+
+devcontainer: ## Open project in VS Code Dev Container (recommended)
+	@echo "🚀 Opening project in VS Code Dev Container..."
+	@if ! command -v code >/dev/null 2>&1; then \
+		echo "❌ VS Code CLI not found. Please install VS Code and ensure 'code' command is available."; \
+		echo "   Or manually: Open VS Code → Open Folder → Choose this directory → Reopen in Container"; \
+		exit 1; \
+	fi
+	@if [ ! -f .devcontainer/devcontainer.json ]; then \
+		echo "❌ Dev container configuration not found at .devcontainer/devcontainer.json"; \
+		exit 1; \
+	fi
+	code .
+	@echo "✅ VS Code should now prompt to 'Reopen in Container' or use Ctrl/Cmd+Shift+P → 'Dev Containers: Rebuild and Reopen in Container'"
+
+devcontainer-build: ## Build development container image
+	@echo "🔧 Building development container image..."
+	@if [ ! -f .devcontainer/devcontainer.json ]; then \
+		echo "❌ Dev container configuration not found at .devcontainer/devcontainer.json"; \
+		exit 1; \
+	fi
+	cd .devcontainer && docker build -f Dockerfile -t dydx-trading-bot-devcontainer ..
+	@echo "✅ Development container image built successfully!"
+
+devcontainer-up: ## Start development container with Docker Compose
+	@echo "🚀 Starting development container with Docker Compose..."
+	@if [ ! -f .devcontainer/docker-compose.yml ]; then \
+		echo "❌ Dev container compose file not found at .devcontainer/docker-compose.yml"; \
+		exit 1; \
+	fi
+	cd .devcontainer && docker-compose up -d devcontainer
+	@echo "✅ Development container started!"
+	@echo "📝 Connect with: make devcontainer-shell"
+	@echo "📊 View logs with: make devcontainer-logs"
+
+devcontainer-down: ## Stop development container
+	@echo "🛑 Stopping development container..."
+	@if [ ! -f .devcontainer/docker-compose.yml ]; then \
+		echo "❌ Dev container compose file not found at .devcontainer/docker-compose.yml"; \
+		exit 1; \
+	fi
+	cd .devcontainer && docker-compose down
+	@echo "✅ Development container stopped."
+
+devcontainer-shell: ## Open shell in development container
+	@echo "🐚 Opening shell in development container..."
+	@if [ ! -f .devcontainer/docker-compose.yml ]; then \
+		echo "❌ Dev container compose file not found"; \
+		exit 1; \
+	fi
+	cd .devcontainer && docker-compose exec devcontainer bash
+	@echo "🎉 You're now in the development container!"
+
+devcontainer-logs: ## View development container logs
+	@echo "📋 Viewing development container logs..."
+	@if [ ! -f .devcontainer/docker-compose.yml ]; then \
+		echo "❌ Dev container compose file not found"; \
+		exit 1; \
+	fi
+	cd .devcontainer && docker-compose logs -f devcontainer
+
+devcontainer-setup: ## Quick setup inside development container
+	@echo "🔧 Running quick setup for development container..."
+	@if command -v bot-setup >/dev/null 2>&1; then \
+		bot-setup; \
+	else \
+		echo "Setting up development environment manually..."; \
+		pip install --upgrade pip setuptools wheel; \
+		if [ -f requirements.txt ]; then pip install -r requirements.txt; fi; \
+		if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi; \
+		echo "✅ Development environment setup complete!"; \
+	fi
+
+devcontainer-status: ## Show development container status
+	@echo "📊 Development container status:"
+	@echo ""
+	@if [ -f .devcontainer/docker-compose.yml ]; then \
+		cd .devcontainer && docker-compose ps; \
+	else \
+		docker ps -a --filter "name=dydx.*dev" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; \
+	fi
+	@echo ""
+	@echo "Development images:"
+	@docker images --filter "reference=*dydx*dev*" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"

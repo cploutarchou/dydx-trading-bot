@@ -1,142 +1,165 @@
 # dYdX Trading Bot - AI Agent Instructions
 
 ## Project Overview
-Automated cointegration trading bot for dYdX v4 decentralized exchange. Identifies statistically cointegrated cryptocurrency pairs, opens paired positions when Z-scores exceed thresholds, and closes positions when correlations revert to the mean.
+Automated cointegration pairs trading bot for dYdX v4 decentralized exchange. Uses statistical analysis to identify mean-reverting cryptocurrency pairs, opens paired positions when Z-scores exceed thresholds (±1.5), and closes when correlations revert to the mean (Z-score crosses zero).
 
-## Key Architecture Patterns
+## Architecture & Data Flow
+
+### Core Components (`app/`)
+```
+main.py → setup_logging() → config validation → connect_dydx() → trading loop
+├─ func_cointegration.py   # Statistical analysis & pair identification  
+├─ func_entry_pairs.py     # Trade entry logic & BotAgent orchestration
+├─ func_exit_pairs.py      # Position monitoring & mean reversion exits
+├─ func_bot_agent.py       # Atomic paired order state machine
+├─ func_connections.py     # dYdX client wrapper (indexer+node+wallet)
+├─ func_private.py         # Order placement & account queries
+└─ func_messaging.py       # Telegram notifications
+```
 
 ### Configuration System (YAML-first)
-- **Primary**: `app/config.yaml` → `app/config.py` (dataclasses) → `app/constants.py` (module constants)
-- **Legacy**: `.env` file (deprecated, redirects to YAML)
-- **Setup**: `make config` creates template with defaults
-- **Pattern**: Singleton ConfigurationManager with type-safe dataclass hierarchy
-- **Testing**: Supports both `dydx` unified block and separate `dydx_testnet`/`dydx_mainnet` configurations
+- **Primary path**: `app/config.yaml` → `config.py` (dataclasses) → `constants.py` (module constants)
+- **Critical pattern**: Singleton `ConfigurationManager.get_config()` with type-safe hierarchy
+- **Setup command**: `make config` creates template with placeholders
+- **Network flexibility**: Supports unified `dydx:` block OR separate `dydx_testnet:`/`dydx_mainnet:` keys
 
-### Execution Flow (`app/main.py`)
-1. Logging setup → 2. Config validation → 3. dYdX connection → 4. Optional position cleanup → 5. Optional cointegration analysis → 6. Continuous trading loop (exits then entries)
-- **Critical**: Always initializes `setup_logging()` before any other operations
-- **Async**: Entire main flow is async with proper exception handling and Telegram notifications
+### State Management 
+- **`bot_agents.json`**: Active paired positions with order IDs, hedge ratios, Z-scores (empty array = no trades)
+- **`cointegrated_pairs.csv`**: Statistical analysis results (p-values, half-lives, hedge ratios)
+- **Persistence**: Files survive bot restarts, critical for position tracking
 
-### Client Architecture (`func_connections.py`)
-- **Custom Client wrapper**: Bundles `indexer` (market data) + `indexer_account` (positions) + `node` (orders) + `wallet` (signing)
-- **Critical pattern**: Always uses mainnet indexer for price data, regardless of testnet/mainnet trading
-- **Jurisdiction validation**: HTTP 403 = geographical restriction
+## Trading Logic Deep Dive
 
-### Trading Engine Components
-
-#### Cointegration Analysis (`func_cointegration.py`)
-- Tests all market pairs for statistical cointegration (p-value < 0.05, half-life ≤ 24h)
-- Output: `cointegrated_pairs.csv` with hedge ratios and Z-score parameters
-- Uses 21-period rolling window for Z-score calculations
-
-#### Entry/Exit Logic (`func_entry_pairs.py`, `func_exit_pairs.py`)
-- **Entry trigger**: |Z-score| ≥ 1.5, creates paired positions via BotAgent state machine
-- **Exit trigger**: Z-score crosses zero (mean reversion)
-- **State file**: `bot_agents.json` tracks active pairs with hedge ratios, order IDs
-- **Failsafe**: Force-close positions on exchange/local state mismatches
-
-#### Order Management (`func_private.py`)
-- Market orders only with ±70% price bounds for reliability
-- Respects exchange tick/step sizes via `format_number()`
-- 0.2-0.5s delays between API calls for rate limiting
-
-#### BotAgent State Machine (`func_bot_agent.py`)
-- Manages atomic pair trades: both positions succeed or entire trade fails
-- States: `FAILED`, `LIVE`, `CLOSE`, `ERROR` with Telegram notifications
-- Handles order polling, cancellations, and cleanup logic
-
-### State Files
-- **`bot_agents.json`**: Active paired positions (empty array = no open trades)
-- **`cointegrated_pairs.csv`**: Statistical analysis results
-- **Key pattern**: Files persist state across bot restarts
-
-### Logging System (`logging_setup.py`)
-- **Structured logging**: Configures root logger with console + optional Grafana Loki handlers
-- **Loki stream labels**: Log level sent as stream label (`level=info/warning/error`) for Grafana filtering
-- **Custom Loki handler**: Uses direct HTTP requests to avoid silent failures from `logging_loki` library
-- **Grafana filtering**: Query with `{job="dydx-trading-bot", level="error"}` to filter by log level
-- **Per-module loggers**: Use `logger = logging.getLogger(__name__)` pattern throughout
-
-## Development Workflows
-
-### Complete Development Setup
-```bash
-make setup           # Create virtual environment
-make install         # Install all dependencies + dev tools
-make config          # Create app/config.yaml with defaults
-make test            # Run pytest suite
-make lint            # Run flake8, pylint, mypy, bandit
-make format          # Apply black + isort formatting
+### BotAgent State Machine (`func_bot_agent.py`)
+```python
+# States: FAILED, LIVE, CLOSE, ERROR
+# Atomic execution: both orders succeed or entire pair fails with cleanup
+class BotAgent:
+    async def open_trades(self):
+        # 1. Place market_1 order, verify FILLED
+        # 2. Place market_2 order, verify FILLED  
+        # 3. If market_2 fails → emergency close market_1 (failsafe_price)
+        # 4. Critical failures → exit(1) with Telegram alert
 ```
 
-### Legacy Commands (for reference)
-```bash
-make env             # Creates deprecated .env (shows migration notice)
-cd app && python main.py    # Main trading loop
-python app/test.py   # Test single order placement  
+### Entry Logic Flow (`func_entry_pairs.py`)
+```python
+# Load cointegrated_pairs.csv → calculate current Z-scores → trigger trades
+if |z_score| >= ZSCORE_THRESH:  # Default 1.5
+    base_side = "BUY" if z_score < 0 else "SELL"
+    quote_side = "BUY" if z_score > 0 else "SELL"  # Opposite direction
+    # Position sizing: USD_PER_TRADE (default $10) converted to asset quantities
 ```
 
-### Development Environment
-```bash
-source .venv/bin/activate    # Always use venv
-PYTHONPATH=. pytest -q      # Run tests with proper module resolution
-make run                     # Full bot execution with config validation
+### Exit Logic Flow (`func_exit_pairs.py`)
+```python
+# Monitor bot_agents.json positions → recalculate Z-scores → close on mean reversion
+if CLOSE_AT_ZSCORE_CROSS and z_score crosses zero:
+    # Place reduce_only=True market orders for both positions
+    # Critical: Validate exchange state matches local state before closing
 ```
 
-### Docker Workflows
-```bash
-# Production deployment
-make docker-build   # Build production Docker image
-make docker-run     # Run bot in Docker container
-make docker-stop    # Stop and remove container
-make docker-logs    # View container logs
-make docker-status  # Check container status
-
-# Docker Compose (recommended)
-make docker-up      # Start with Docker Compose
-make docker-down    # Stop all services
-make docker-up-dev  # Start development environment
-make docker-up-logging  # Start with Loki+Grafana logging stack
-
-# Development & debugging
-make docker-build-dev  # Build development image
-make docker-dev     # Interactive development container
-make docker-shell   # Shell into running container
-make docker-clean   # Remove all Docker resources
+### dYdX Client Architecture (`func_connections.py`)
+```python
+class Client:
+    indexer          # Market data (always mainnet for better liquidity data)
+    indexer_account  # Position/balance queries (testnet/mainnet based on is_testnet)  
+    node             # Order placement (testnet connection regardless of trading mode)
+    wallet           # Transaction signing
 ```
 
-### Key Configuration Parameters
-- **Trading thresholds**: `ZScoreThreshold` (1.5), `maxHalfLife` (24h), `statsWindow` (21)
-- **Position sizing**: `usdPerTrade` (10), `usdMinCollateral` (100)
-- **Behavior flags**: `abortAllPositions`, `findCointegratedPairs`, `manageExits`, `placeTrades`
-- **Network selection**: `is_testnet` (false for mainnet)
+## Development Workflow
 
-### Error Handling Patterns
-- **Critical failures**: Exit immediately with status code 1 and Telegram alert
-- **API rate limiting**: 0.2-0.5 second delays between dYdX API calls
-- **Order failures**: Implement failsafe closure logic to prevent orphaned positions
-- **Jurisdiction errors**: HTTP 403 indicates geographical restriction
+### Essential Setup Commands
+```bash
+make setup install config    # Complete development environment
+make run                     # Start bot (validates config + checks jurisdiction)
+make test                    # Run pytest with PYTHONPATH=. 
+make lint format            # flake8, pylint, mypy, bandit + black, isort
+```
+
+### Docker Deployment (Multi-stage)
+```bash
+# Production (optimized image)
+make docker-build docker-run      # Build + run production container  
+
+# Development (with dev tools)
+make docker-build-dev docker-dev  # Interactive development container
+
+# Monitoring stack  
+make docker-up-logging            # Loki + Grafana for log aggregation
+```
+
+### Critical File Patterns
+- **Logging initialization**: ALWAYS call `setup_logging()` first in any script
+- **Module imports**: Use `logger = logging.getLogger(__name__)` pattern
+- **API rate limiting**: 0.2-0.5s delays (`time.sleep()`) between dYdX calls
+- **Number formatting**: Use `format_number(value, tick_size)` for exchange precision
+- **Error handling**: Critical failures call `exit(1)` + send Telegram alerts
+
+## Configuration & Constants
+
+### Key Parameters (`app/config.yaml`)
+```yaml
+botSettings:
+  ZScoreThreshold: 1.5        # Entry trigger threshold  
+  statsWindow: 21             # Rolling window for Z-score calculation
+  maxHalfLife: 24             # Max half-life hours for cointegration
+  usdPerTrade: 10.0          # Position size per trade
+  usdMinCollateral: 100.0    # Required account balance
+  closeAtZscoreCross: true   # Exit on mean reversion
+```
+
+### Behavioral Flags
+```yaml  
+botSettings:
+  abortAllPositions: false      # Close all positions on startup
+  findCointegratedPairs: true   # Run statistical analysis
+  manageExits: true            # Monitor existing positions  
+  placeTrades: true            # Execute new trades
+```
+
+## Logging & Monitoring (`logging_setup.py`)
+
+### Custom Loki Integration
+```python
+# Uses direct HTTP requests (not logging_loki library which fails silently)
+# Log levels sent as stream labels: {job="dydx-trading-bot", level="error"}
+# Grafana queries: {job="dydx-trading-bot"} |= "CRITICAL"
+```
+
+### Production Logging Pattern
+- **Console handler**: Always active for development/debugging
+- **Loki handler**: Optional remote aggregation (requires auth in production)
+- **Environment detection**: Auto-configures based on `environment: "production"`
+
+## Emergency & Debugging Tools
+
+### Critical Scripts (`scripts/`)
+```bash
+python scripts/close_open_positions.py    # Emergency position closure
+python scripts/fast_cointegration.py --n 30  # Quick statistical analysis
+```
+
+### State Validation
+```bash
+# Check active positions
+cat app/bot_agents.json | jq length        # Count of tracked pairs
+
+# Verify statistical analysis
+head -5 app/cointegrated_pairs.csv         # Recent cointegration results
+
+# Monitor logs  
+make docker-logs                          # Container output
+# OR check Grafana: {job="dydx-trading-bot", level="error"}
+```
+
+### Jurisdiction & Connectivity
+- **Startup check**: Bot tests market data access (HTTP 403 = geographical restriction)
+- **Rate limiting**: Built-in delays prevent API throttling
+- **Testnet safety**: Use `is_testnet: true` for safe testing with testnet funds
 
 ## Integration Points
-- **dYdX v4 API**: Uses `dydx-v4-client` for all exchange interactions
-- **Telegram alerts**: Sends startup confirmations and critical error notifications
-- **Statistical libraries**: `statsmodels` for cointegration tests, `pandas` for data manipulation
-- **File-based state**: JSON and CSV files for persistence across bot restarts
-
-## Testing & Debugging
-- **Test mode**: Use `is_testnet: true` for safe testing with testnet funds
-- **Debug workflow**: Check `cointegrated_pairs.csv` for statistical analysis results
-- **Position validation**: Verify `bot_agents.json` matches exchange open positions
-- **Connection testing**: Bot performs jurisdiction/connectivity checks on startup
-- **Emergency tools**: `scripts/close_open_positions.py` for immediate position cleanup
-- **Fast analysis**: `scripts/fast_cointegration.py --n 30` for rapid cointegration scanning
-- **Test structure**: Tests in `tests/` directory, run with `PYTHONPATH=. pytest -q`
-- **Docker debugging**: `make docker-dev` for containerized development environment
-
-## Docker Deployment Patterns
-- **Multi-stage builds**: Separate development/production images for optimal size and security
-- **Volume management**: State files (`bot_agents.json`, `cointegrated_pairs.csv`) and config mounted as volumes
-- **Security**: Non-root user, minimal base image, separate build contexts
-- **Configuration**: Supports both unified `dydx` block and separate testnet/mainnet configs
-- **Logging integration**: Custom Loki handler with stream labels for Grafana filtering
-- **Health checks**: Built-in container health monitoring and restart policies
+- **dYdX v4**: `dydx-v4-client` library for all exchange operations
+- **Statistical analysis**: `scipy`, `statsmodels` for cointegration tests (imported only when needed)
+- **Telegram**: Real-time notifications for trades, errors, and system status

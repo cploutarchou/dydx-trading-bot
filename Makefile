@@ -97,19 +97,15 @@ test: ## Run tests
 	PYTHONPATH=. .venv/bin/pytest -q
 
 lint: ## Run linting tools
-	@if [ ! -d ".venv" ]; then \
-		echo "Virtual environment not found. Run 'make setup install' first."; \
-		exit 1; \
-	fi
 	@echo "Running linting tools..."
 	@echo "→ Flake8..."
-	.venv/bin/flake8 app/ --max-line-length=88 --extend-ignore=E203,W503
+	python3 -m flake8 app/ --max-line-length=88 --extend-ignore=E203,W503
 	@echo "→ Pylint..."
-	.venv/bin/pylint app/ --disable=C0114,C0115,C0116 --max-line-length=88
+	python3 -m pylint app/ --disable=C0114,C0115,C0116 --max-line-length=88
 	@echo "→ MyPy..."
-	.venv/bin/mypy app/ --ignore-missing-imports --follow-imports=silent
+	python3 -m mypy app/ --ignore-missing-imports --follow-imports=silent
 	@echo "→ Bandit (security)..."
-	.venv/bin/bandit -r app/ -f json || true
+	python3 -m bandit -r app/ -f json || true
 
 format: ## Format code with Black and isort
 	@if [ ! -d ".venv" ]; then \

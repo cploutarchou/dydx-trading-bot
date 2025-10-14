@@ -176,3 +176,7 @@ cython_debug/
 app/cointegrated_pairs.csv
 app/config.py
 app/config.yaml
+app/cointegrated_pairs.json
+app/pair_history/pairs_20251012_092707.json
+.github/copilot-instructions.md
+.github/copilot-instructions.md

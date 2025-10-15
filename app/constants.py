@@ -10,6 +10,7 @@ if _CONFIG.is_testnet:
 else:
     MARKET_DATA_MODE = "MAINNET"
 
+print(f"Market Data Mode: {MARKET_DATA_MODE}")
 # Get bot settings from config
 bot_settings = _CONFIG.botSettings
 if bot_settings is None:

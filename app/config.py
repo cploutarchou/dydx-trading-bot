@@ -81,14 +81,33 @@ class LoggingSettings:
 
 
 @dataclass
+class BacktestSettings:
+    # Historical data settings
+    candleResolution: str = "1HOUR"
+    maxHistoryDays: int = 90
+
+    # Simulation parameters
+    startingBalance: float = 1000.0
+    transactionFee: float = 0.0005  # 0.05% per trade (dYdX maker fee)
+    slippage: float = 0.001  # 0.1% estimated slippage
+
+    # Analysis settings
+    benchmarkSymbol: str = "BTC-USD"
+    riskFreeRate: float = 0.02  # Annual risk-free rate (2%)
+
+
+@dataclass
 class DydxConfig:
     is_testnet: bool = False
     environment: str = "development"
     telegram: TelegramSettings = field(default_factory=TelegramSettings)
     botSettings: BotSettings = field(default_factory=BotSettings)
-    dydx_testnet: DYDXTestnetSettings = field(default_factory=DYDXTestnetSettings)
-    dydx_mainnet: DYDXMainnetSettings = field(default_factory=DYDXMainnetSettings)
+    dydx_testnet: DYDXTestnetSettings = field(
+        default_factory=DYDXTestnetSettings)
+    dydx_mainnet: DYDXMainnetSettings = field(
+        default_factory=DYDXMainnetSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
+    backtesting: BacktestSettings = field(default_factory=BacktestSettings)
 
 
 class ConfigurationManager:
@@ -113,7 +132,8 @@ class ConfigurationManager:
         if config_path is None:
             # Default to looking for config.yaml in the same directory as this file
             app_config_path = Path(__file__).parent / "config.yaml"
-            scripts_config_path = Path(__file__).parent.parent / "scripts" / "config.yaml"
+            scripts_config_path = Path(
+                __file__).parent.parent / "scripts" / "config.yaml"
 
             # Try app directory first, then scripts directory
             if app_config_path.exists():
@@ -182,7 +202,8 @@ class ConfigurationManager:
                 logging=logging_settings,
             )
         except FileNotFoundError:
-            raise FileNotFoundError(f"Configuration file not found at: {config_path}")
+            raise FileNotFoundError(
+                f"Configuration file not found at: {config_path}")
         except yaml.YAMLError as e:
             raise ValueError(f"Error parsing YAML configuration: {e}")
         except KeyError as e:

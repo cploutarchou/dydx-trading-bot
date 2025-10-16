@@ -75,13 +75,20 @@ async def connect_dydx():
         logger.exception("Failed to connect node client to %s", TESTNET.node)
         raise
 
-    try:
-        wallet = await Wallet.from_mnemonic(node, MNEMONIC, DYDX_ADDRESS)
-        logger.info("Loaded wallet for address %s", DYDX_ADDRESS)
-    except Exception:
-        logger.exception(
-            "Failed to derive wallet for address %s", DYDX_ADDRESS)
-        raise
+    # For backtesting, we don't need a real wallet since we're simulating trades
+    wallet = None
+    if MNEMONIC and DYDX_ADDRESS and not DYDX_ADDRESS.startswith('${'):
+        try:
+            wallet = await Wallet.from_mnemonic(node, MNEMONIC, DYDX_ADDRESS)
+            logger.info("Loaded wallet for address %s", DYDX_ADDRESS)
+        except Exception:
+            logger.warning(
+                "Failed to derive wallet for address %s. Continuing without wallet (backtesting mode).",
+                DYDX_ADDRESS)
+            # Don't raise - continue with None wallet for backtesting
+    else:
+        logger.info(
+            "Wallet creation skipped (backtesting mode or missing config)")
 
     client = Client(indexer, indexer_account, node, wallet)
     await check_juristiction(client, "BTC-USD")

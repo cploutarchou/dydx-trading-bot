@@ -40,7 +40,52 @@
 - dYdX v4 account (testnet or mainnet)
 - Telegram bot (for notifications)
 
-### Installation
+### 🐳 Dev Container Setup (Recommended for Development)
+
+**Fastest way to get started with backend + frontend running simultaneously!**
+
+#### Step-by-Step Instructions
+
+```bash
+# 1. Open project in VS Code
+code /home/chris/workspace/dydx-trading-bot
+
+# 2. Open in Dev Container
+# Cmd/Ctrl + Shift + P → "Dev Containers: Reopen in Container"
+# Wait 2-3 minutes for Docker image build and container startup...
+
+# 3. Install dependencies (in container terminal)
+pip install -r backend/requirements.txt
+cd frontend && npm install && cd ..
+
+# 4. Start Backend (Terminal 1)
+cd backend && python -m uvicorn main:app --reload --port 8000
+
+# 5. Start Frontend (Terminal 2 - Ctrl + Shift + `)
+cd frontend && npm run dev
+
+# 6. Access services
+# Frontend: http://localhost:5173
+# Backend API Docs: http://localhost:8000/docs
+# Backend ReDoc: http://localhost:8000/redoc
+```
+
+**✅ Both services support hot reload on file changes!**
+
+**Why Dev Containers?**
+
+- ✅ Isolated, reproducible development environment
+- ✅ No "works on my machine" issues
+- ✅ Pre-configured Python 3.12, Node.js 18, Docker-in-Docker
+- ✅ 25+ VS Code extensions pre-installed
+- ✅ Automatic port forwarding (5173, 8000, 9000, 3100)
+- ✅ Hot reload for backend (uvicorn) and frontend (Vite HMR)
+- ✅ Git SSH keys auto-mounted
+- ✅ Full IDE integration with debugging (F5 breakpoints)
+
+**📖 [Complete Dev Container Guide →](./DEV_CONTAINER_GUIDE.md)**
+
+### Installation (Local Development Alternative)
 
 ```bash
 # Clone the repository

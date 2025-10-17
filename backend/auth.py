@@ -2,13 +2,14 @@
 JWT Authentication module with user management.
 """
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from passlib.context import CryptContext
+
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
-import logging
 
 logger = logging.getLogger(__name__)
 

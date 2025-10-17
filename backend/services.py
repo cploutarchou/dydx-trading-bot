@@ -6,13 +6,12 @@ Handles CRUD operations and complex queries.
 import logging
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, func, and_
 
-from backend.database import (
-    BacktestRun, BacktestResult, TradeLog, User, AuditLog
-)
+from sqlalchemy import and_, desc, func
+from sqlalchemy.orm import Session
+
 from backend.auth import hash_password, verify_password
+from backend.database import AuditLog, BacktestResult, BacktestRun, TradeLog, User
 
 logger = logging.getLogger(__name__)
 

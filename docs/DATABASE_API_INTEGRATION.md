@@ -62,6 +62,7 @@ docker-compose -f docker-compose.full-stack.yml up -d
 ### Option 2: Local Development
 
 **Prerequisites:**
+
 - Python 3.11+
 - Node.js 18+
 - PostgreSQL 15+ (or SQLite for dev)
@@ -113,6 +114,7 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -136,6 +138,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 ```
 
 Response:
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -180,6 +183,7 @@ curl -X POST http://localhost:8000/api/v1/auth/refresh \
 ## 💾 Database Schema
 
 ### BacktestRun Table
+
 ```sql
 CREATE TABLE backtest_runs (
   id SERIAL PRIMARY KEY,
@@ -210,6 +214,7 @@ CREATE INDEX idx_run_user_created ON backtest_runs(user_id, created_at);
 ```
 
 ### BacktestResult Table
+
 ```sql
 CREATE TABLE backtest_results (
   id SERIAL PRIMARY KEY,
@@ -232,6 +237,7 @@ CREATE INDEX idx_result_run_profit ON backtest_results(run_id_fk, pnl);
 ## 🔌 Environment Variables
 
 ### Backend (.env)
+
 ```bash
 # Database
 DB_TYPE=postgresql              # or sqlite
@@ -253,6 +259,7 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
 ### Frontend (.env)
+
 ```bash
 REACT_APP_API_URL=http://localhost:8000/api/v1
 VITE_API_URL=http://localhost:8000/api/v1
@@ -439,16 +446,19 @@ kubectl apply -f k8s/frontend-service.yaml -n dydx-backtest
 ## 📈 Performance Optimization
 
 ### Database Optimization
+
 - Add indexes on frequently queried columns
 - Use connection pooling (SQLAlchemy)
 - Archive old backtest results periodically
 
 ### API Optimization
+
 - Enable Redis caching for user data
 - Use pagination for large result sets
 - Implement rate limiting on endpoints
 
 ### Frontend Optimization
+
 - Code splitting with React.lazy()
 - Image optimization
 - Bundle size analysis: `npm run build --analyze`
@@ -506,7 +516,8 @@ docker-compose -f docker-compose.full-stack.yml exec backend \
 ## 📞 Support
 
 For issues or questions:
+
 1. Check the troubleshooting section above
 2. Review Docker logs: `docker-compose logs -f`
-3. Check API docs: http://localhost:8000/docs
+3. Check API docs: <http://localhost:8000/docs>
 4. Review source code comments

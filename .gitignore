@@ -179,4 +179,35 @@ app/config.yaml
 app/cointegrated_pairs.json
 app/pair_history/pairs_20251012_092707.json
 .github/copilot-instructions.md
-.github/copilot-instructions.md
+
+# Backtest Results & Data
+app/backtest_results/
+app/backtest_results/**/*.json
+app/*.db
+app/*.sqlite
+app/*.sqlite3
+
+# Database & Logs
+*.db
+*.sqlite
+*.sqlite3
+database.db
+app/logs/
+logs/
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Node modules (for React frontend if applicable)
+node_modules/
+dist/
+build/
+.next/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

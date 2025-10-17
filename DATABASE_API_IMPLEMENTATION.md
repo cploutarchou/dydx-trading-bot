@@ -18,6 +18,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 ### 1. Backend System (`backend/`)
 
 #### Database Layer (`backend/database.py`)
+
 - **SQLAlchemy ORM Models:**
   - `BacktestRun` - Main backtest execution records
   - `BacktestResult` - Individual trading pair results
@@ -33,6 +34,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
   - JSON fields for flexible data storage
 
 #### Authentication Module (`backend/auth.py`)
+
 - **JWT Token Management:**
   - Access tokens (30-minute expiration)
   - Refresh tokens (7-day expiration)
@@ -45,6 +47,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
   - `TokenData` for JWT payload
 
 #### Business Logic (`backend/services.py`)
+
 - **UserService:** Registration, login, authentication
 - **BacktestRunService:** CRUD for backtest executions
 - **BacktestResultService:** Individual pair results management
@@ -52,7 +55,9 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 - **AuditLogService:** System action auditing
 
 #### REST API Server (`backend/main.py`)
+
 - **13 Endpoints:**
+
   ```
   POST   /api/v1/auth/register       - User registration
   POST   /api/v1/auth/login          - User login
@@ -76,6 +81,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 ### 2. Frontend System (`frontend/`)
 
 #### API Client (`frontend/src/api.ts`)
+
 - Axios-based REST client
 - Automatic token management
 - WebSocket factory
@@ -83,16 +89,19 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 - Type-safe API calls
 
 #### Authentication Store (`frontend/src/store/auth.ts`)
+
 - Zustand state management
 - Login/register/logout functions
 - User profile caching
 - Loading and error states
 
 #### Pages
+
 - **Login.tsx** - User authentication UI
 - **BacktestDetails.tsx** - Backtest metrics visualization
 
 #### Configuration
+
 - **Vite Config** - Development server and build setup
 - **TailwindCSS** - Utility-first styling
 - **TypeScript** - Full type safety
@@ -100,6 +109,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 ### 3. Docker & Deployment
 
 #### Docker Compose (`docker-compose.full-stack.yml`)
+
 - **5 Services:**
   1. PostgreSQL database (persistent volume)
   2. FastAPI backend (with hot reload)
@@ -108,6 +118,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
   5. Automatic health checks
 
 #### Dockerfiles
+
 - `backend.Dockerfile` - Production backend image
 - `frontend/Dockerfile` - Production frontend image  
 - `frontend/Dockerfile.dev` - Development frontend with hot reload
@@ -115,6 +126,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 ### 4. Documentation
 
 #### Database & API Integration Guide
+
 - Complete architecture overview
 - Quick start instructions
 - API endpoint reference
@@ -125,6 +137,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 - Performance optimization tips
 
 #### Setup Automation (`scripts/setup_full_stack.sh`)
+
 - One-command full-stack setup
 - Docker prerequisite checking
 - Environment file generation
@@ -154,6 +167,7 @@ A complete production-ready backend system for the dYdX Backtest Bot with:
 ## 📊 Database Schema Summary
 
 ### BacktestRun Table (Main Backtest Records)
+
 ```sql
 - id (PK)
 - run_id (Unique)
@@ -174,6 +188,7 @@ Indexes:
 ```
 
 ### BacktestResult Table (Per-Pair Results)
+
 ```sql
 - id (PK)
 - run_id_fk (FK to backtest_runs)
@@ -191,6 +206,7 @@ Indexes:
 ```
 
 ### TradeLog Table (Individual Trades)
+
 ```sql
 - id (PK)
 - result_id_fk (FK to backtest_results)
@@ -205,6 +221,7 @@ Index:
 ```
 
 ### User Table (Authentication)
+
 ```sql
 - id (PK)
 - username (Unique), email (Unique)
@@ -218,6 +235,7 @@ Index:
 ```
 
 ### AuditLog Table (System Tracking)
+
 ```sql
 - id (PK)
 - user_id (FK)
@@ -274,6 +292,7 @@ POST /api/v1/auth/refresh
 ## 🚀 Deployment Options
 
 ### Option 1: Docker Compose (Single Machine)
+
 ```bash
 ./scripts/setup_full_stack.sh
 # Starts all services on local machine
@@ -281,6 +300,7 @@ POST /api/v1/auth/refresh
 ```
 
 ### Option 2: Kubernetes (Distributed)
+
 ```bash
 # Helm charts or YAML manifests
 # Horizontal scaling
@@ -289,6 +309,7 @@ POST /api/v1/auth/refresh
 ```
 
 ### Option 3: Cloud Platforms
+
 - **AWS:** ECS, RDS, Cognito
 - **Google Cloud:** Cloud Run, Cloud SQL
 - **Azure:** Container Instances, Database
@@ -299,18 +320,21 @@ POST /api/v1/auth/refresh
 ## 📈 Performance Considerations
 
 ### Database Optimization
+
 - ✅ Indexes on frequently queried columns
 - ✅ Connection pooling (SQLAlchemy)
 - ✅ Foreign key relationships
 - ✅ JSONB fields for flexible data
 
 ### API Optimization
+
 - ✅ JWT token caching
 - ✅ Pagination for large datasets
 - ✅ CORS whitelist
 - ✅ Gzip compression
 
 ### Frontend Optimization
+
 - ✅ Code splitting (React.lazy)
 - ✅ Image optimization
 - ✅ CSS purging (Tailwind)
@@ -441,18 +465,21 @@ dydx-trading-bot/
 ## ✅ Next Steps
 
 ### Phase 1: Immediate (Ready Now)
+
 1. ✅ Review architecture and database schema
 2. ✅ Run setup script: `./scripts/setup_full_stack.sh`
 3. ✅ Test API endpoints with provided examples
 4. ✅ Connect frontend to running backend
 
 ### Phase 2: Integration (Next)
+
 1. Integrate backtest system with database save
 2. Add WebSocket progress broadcasting
 3. Create dashboard pages for results visualization
 4. Add additional chart types and filters
 
 ### Phase 3: Production (Optional)
+
 1. Set up monitoring and logging (ELK/Prometheus)
 2. Configure CI/CD pipeline (GitHub Actions)
 3. Deploy to cloud platform
@@ -493,6 +520,7 @@ All code includes inline documentation and type hints. For questions:
 **Status:** ✅ **Complete and Ready for Use**
 
 All components are fully functional and documented. You can immediately:
+
 - Start the full stack with one command
 - Register and login users
 - Query backtest results

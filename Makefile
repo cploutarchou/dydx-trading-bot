@@ -260,6 +260,17 @@ config:
 			echo '    labels:' >> $$CONFIG_DIR/config.yaml; \
 			echo '      app: "dydx-trading-bot"' >> $$CONFIG_DIR/config.yaml; \
 			echo '      environment: "development"' >> $$CONFIG_DIR/config.yaml; \
+			echo 'backtesting:' >> $$CONFIG_DIR/config.yaml; \
+			echo '  # Historical data settings' >> $$CONFIG_DIR/config.yaml; \
+			echo '  candleResolution: "1HOUR"' >> $$CONFIG_DIR/config.yaml; \
+			echo '  maxHistoryDays: 90' >> $$CONFIG_DIR/config.yaml; \
+			echo '  # Simulation parameters' >> $$CONFIG_DIR/config.yaml; \
+			echo '  startingBalance: 1000.0' >> $$CONFIG_DIR/config.yaml; \
+			echo '  transactionFee: 0.0005  # 0.05% per trade (dYdX maker fee)' >> $$CONFIG_DIR/config.yaml; \
+			echo '  slippage: 0.001  # 0.1% estimated slippage' >> $$CONFIG_DIR/config.yaml; \
+			echo '  # Analysis settings' >> $$CONFIG_DIR/config.yaml; \
+			echo '  benchmarkSymbol: "BTC-USD"' >> $$CONFIG_DIR/config.yaml; \
+			echo '  riskFreeRate: 0.02  # Annual risk-free rate (2%)' >> $$CONFIG_DIR/config.yaml; \
 			echo "config.yaml file created successfully in $$CONFIG_DIR."; \
 		else \
 			echo "Operation cancelled."; \
@@ -303,6 +314,17 @@ config:
 		echo '    labels:' >> $$CONFIG_DIR/config.yaml; \
 		echo '      app: "dydx-trading-bot"' >> $$CONFIG_DIR/config.yaml; \
 		echo '      environment: "development"' >> $$CONFIG_DIR/config.yaml; \
+		echo 'backtesting:' >> $$CONFIG_DIR/config.yaml; \
+		echo '  # Historical data settings' >> $$CONFIG_DIR/config.yaml; \
+		echo '  candleResolution: "1HOUR"' >> $$CONFIG_DIR/config.yaml; \
+		echo '  maxHistoryDays: 90' >> $$CONFIG_DIR/config.yaml; \
+		echo '  # Simulation parameters' >> $$CONFIG_DIR/config.yaml; \
+		echo '  startingBalance: 1000.0' >> $$CONFIG_DIR/config.yaml; \
+		echo '  transactionFee: 0.0005  # 0.05% per trade (dYdX maker fee)' >> $$CONFIG_DIR/config.yaml; \
+		echo '  slippage: 0.001  # 0.1% estimated slippage' >> $$CONFIG_DIR/config.yaml; \
+		echo '  # Analysis settings' >> $$CONFIG_DIR/config.yaml; \
+		echo '  benchmarkSymbol: "BTC-USD"' >> $$CONFIG_DIR/config.yaml; \
+		echo '  riskFreeRate: 0.02  # Annual risk-free rate (2%)' >> $$CONFIG_DIR/config.yaml; \
 		echo "config.yaml file created successfully in $$CONFIG_DIR."; \
 	fi
 
@@ -506,3 +528,78 @@ devcontainer-status: ## Show development container status
 	@echo ""
 	@echo "Development images:"
 	@docker images --filter "reference=*dydx*dev*" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"
+
+# ============================================================================
+# Backtesting Commands
+# ============================================================================
+
+backtest: ## Run backtest for specified period (START=YYYY-MM-DD END=YYYY-MM-DD PAIRS=N or ALL)
+	@if [ -z "$(START)" ] || [ -z "$(END)" ]; then \
+		echo "❌ Please provide START and END dates"; \
+		echo "Usage: make backtest START=2024-01-01 END=2024-03-31 PAIRS=10"; \
+		echo "       make backtest START=2024-09-01 END=2024-10-15 PAIRS=ALL"; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "🔬 Running backtest: $(START) to $(END) ($(or $(PAIRS),5) pairs)..."
+	.venv/bin/python scripts/run_backtest.py --start $(START) --end $(END) --pairs $(or $(PAIRS),5)
+
+backtest-quick: ## Run quick 1-month backtest with 3 pairs
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "⚡ Running quick backtest (1 month, 3 pairs)..."
+	.venv/bin/python scripts/run_backtest.py --start 2024-01-01 --end 2024-01-31 --pairs 3
+
+backtest-3month: ## Run comprehensive 3-month backtest with 10 pairs
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "📊 Running 3-month backtest (10 pairs)..."
+	.venv/bin/python scripts/run_backtest.py --start 2024-01-01 --end 2024-03-31 --pairs 10
+
+backtest-all: ## Run backtest with ALL available pairs (START=YYYY-MM-DD END=YYYY-MM-DD)
+	@if [ -z "$(START)" ] || [ -z "$(END)" ]; then \
+		echo "❌ Please provide START and END dates"; \
+		echo "Usage: make backtest-all START=2024-09-01 END=2024-10-15"; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "🚀 Running backtest with ALL pairs: $(START) to $(END)..."
+	.venv/bin/python scripts/run_backtest.py --start $(START) --end $(END) --pairs ALL
+
+backtest-all-recent: ## Run backtest with ALL pairs for recent 1 month period
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "🌟 Running recent ALL-pairs backtest (1 month)..."
+	.venv/bin/python scripts/run_backtest.py --start 2024-09-15 --end 2024-10-15 --pairs ALL
+
+backtest-analysis: ## Analyze all saved backtest results
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@if [ ! -d "app/backtest_results" ]; then \
+		echo "❌ No backtest results directory found. Run a backtest first."; \
+		exit 1; \
+	fi
+	@echo "📈 Analyzing backtest results..."
+	.venv/bin/python scripts/analyze_backtest_results.py
+
+backtest-clean: ## Clean up old backtest results (keeps 20 most recent)
+	@echo "🧹 Cleaning up old backtest results..."
+	@if [ -d "app/backtest_results" ]; then \
+		.venv/bin/python -c "from app.models.backtest_storage import backtest_storage; print(f'Cleaned up {backtest_storage.cleanup_old_results(20)} old results')"; \
+	else \
+		echo "No backtest results directory found."; \
+	fi

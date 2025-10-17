@@ -21,6 +21,17 @@
 - 📈 **Comprehensive Monitoring** - Grafana Loki integration for observability
 - ⚙️ **YAML Configuration** - Type-safe, validated configuration system
 
+### 🆕 NEW: Database & Interactive Dashboard
+
+- 💾 **PostgreSQL Storage** - Store all backtest results in database
+- 🌐 **REST API** - Full-featured FastAPI backend with JWT authentication
+- 🔌 **WebSocket Real-Time** - Live backtest progress updates
+- ⚛️ **React Dashboard** - Beautiful interactive UI for backtest management
+- 🔐 **User Authentication** - Secure multi-user system with role-based access
+- 🐳 **Full-Stack Docker** - One-command deployment of frontend, backend, and database
+
+**See [DATABASE_API_IMPLEMENTATION.md](./DATABASE_API_IMPLEMENTATION.md) for full details.**
+
 ## 🚀 Quick Start
 
 ### Prerequisites

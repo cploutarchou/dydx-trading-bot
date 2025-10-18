@@ -13,6 +13,8 @@ interface User {
     is_active: boolean;
     is_admin: boolean;
     created_at: string;
+    avatar?: string; // Base64 or URL to avatar image
+    full_name?: string;
 }
 
 interface AuthStore {
@@ -71,8 +73,12 @@ export const useAuthStore = create<AuthStore>()(
             getCurrentUser: async () => {
                 try {
                     const response = await api.getCurrentUser();
-                    set({ user: response.data || response });
+                    // API returns UserResponse directly
+                    const userData = response.data || response;
+                    console.log('🔐 auth.ts: getCurrentUser response:', userData);
+                    set({ user: userData });
                 } catch (error) {
+                    console.error('❌ auth.ts: getCurrentUser failed:', error);
                     set({ user: null });
                 }
             },

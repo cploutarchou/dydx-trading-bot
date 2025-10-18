@@ -18,6 +18,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     create_engine,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -243,6 +244,10 @@ class User(Base):
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
+
+    # Profile information
+    full_name = Column(String(100), nullable=True)
+    avatar = Column(Text, nullable=True)  # Base64 encoded image data
 
     # Account status
     is_active = Column(Boolean, default=True, index=True)

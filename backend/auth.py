@@ -15,16 +15,11 @@ logger = logging.getLogger(__name__)
 
 # JWT Configuration
 SECRET_KEY = os.getenv(
-    "JWT_SECRET_KEY",
-    "your-secret-key-change-in-production-use-strong-key-32-chars"
+    "JWT_SECRET_KEY", "your-secret-key-change-in-production-use-strong-key-32-chars"
 )
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(
-    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
-)
-REFRESH_TOKEN_EXPIRE_DAYS = int(
-    os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")
-)
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -33,6 +28,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Pydantic models
 class TokenData(BaseModel):
     """JWT token payload data."""
+
     sub: str  # user_id or username
     exp: datetime
     type: str = "access"  # access or refresh
@@ -40,6 +36,7 @@ class TokenData(BaseModel):
 
 class Token(BaseModel):
     """Token response model."""
+
     access_token: str
     refresh_token: Optional[str] = None
     token_type: str = "bearer"
@@ -48,6 +45,7 @@ class Token(BaseModel):
 
 class UserCreate(BaseModel):
     """User creation schema."""
+
     username: str
     email: EmailStr
     password: str
@@ -57,22 +55,26 @@ class UserCreate(BaseModel):
             "example": {
                 "username": "user@example.com",
                 "email": "user@example.com",
-                "password": "securepassword123"
+                "password": "securepassword123",
             }
         }
 
 
 class UserLogin(BaseModel):
     """User login schema."""
+
     username: str
     password: str
 
 
 class UserResponse(BaseModel):
     """User response schema (no password)."""
+
     id: int
     username: str
     email: str
+    full_name: Optional[str] = None
+    avatar: Optional[str] = None
     is_active: bool
     is_admin: bool
     created_at: datetime
@@ -92,9 +94,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(
-    subject: str, expires_delta: Optional[timedelta] = None
-) -> str:
+def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
     """
     Create JWT access token.
 
@@ -108,9 +108,8 @@ def create_access_token(
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = (
-            datetime.now(timezone.utc) +
-            timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
     to_encode = {"sub": subject, "exp": expire, "type": "access"}
@@ -128,10 +127,7 @@ def create_refresh_token(subject: str) -> str:
     Returns:
         Encoded JWT refresh token
     """
-    expire = (
-        datetime.now(timezone.utc) +
-        timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    )
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode = {"sub": subject, "exp": expire, "type": "refresh"}
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -159,7 +155,7 @@ def decode_token(token: str) -> Optional[TokenData]:
         return TokenData(
             sub=subject,
             exp=datetime.fromtimestamp(exp, tz=timezone.utc),
-            type=token_type
+            type=token_type,
         )
     except JWTError as e:
         logger.debug(f"JWT decode error: {e}")

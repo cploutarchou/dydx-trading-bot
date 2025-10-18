@@ -3,7 +3,8 @@
  */
 
 import create from 'zustand';
-import api from './api';
+import { persist } from 'zustand/middleware';
+import api from '../api';
 
 interface User {
     id: number;
@@ -25,50 +26,66 @@ interface AuthStore {
     isAuthenticated: () => boolean;
 }
 
-export const useAuthStore = create<AuthStore>((set, get) => ({
-    user: null,
-    loading: false,
-    error: null,
+export const useAuthStore = create<AuthStore>()(
+    persist(
+        (set, get) => ({
+            user: null,
+            loading: false,
+            error: null,
 
-    login: async (username: string, password: string) => {
-        set({ loading: true, error: null });
-        try {
-            await api.login({ username, password });
-            await get().getCurrentUser();
-        } catch (error: any) {
-            set({ error: error.message || 'Login failed' });
-        } finally {
-            set({ loading: false });
+            login: async (username: string, password: string) => {
+                console.log('🔐 auth.ts: login() called with username:', username);
+                set({ loading: true, error: null });
+                try {
+                    console.log('🔐 auth.ts: Calling api.login()');
+                    const loginResult = await api.login({ username, password });
+                    console.log('🔐 auth.ts: api.login() succeeded:', loginResult);
+                    console.log('🔐 auth.ts: Calling getCurrentUser()');
+                    await get().getCurrentUser();
+                    console.log('🔐 auth.ts: getCurrentUser() succeeded');
+                } catch (error: any) {
+                    console.error('❌ auth.ts: Login error:', error);
+                    set({ error: error.message || 'Login failed' });
+                } finally {
+                    set({ loading: false });
+                }
+            },
+
+            register: async (username: string, email: string, password: string) => {
+                set({ loading: true, error: null });
+                try {
+                    await api.register({ username, email, password });
+                    await get().login(username, password);
+                } catch (error: any) {
+                    set({ error: error.message || 'Registration failed' });
+                } finally {
+                    set({ loading: false });
+                }
+            },
+
+            logout: () => {
+                api.logout();
+                set({ user: null });
+            },
+
+            getCurrentUser: async () => {
+                try {
+                    const response = await api.getCurrentUser();
+                    set({ user: response.data || response });
+                } catch (error) {
+                    set({ user: null });
+                }
+            },
+
+            isAuthenticated: () => {
+                return get().user !== null;
+            },
+        }),
+        {
+            name: 'auth-store', // localStorage key
+            partialize: (state) => ({
+                user: state.user, // Only persist user, not loading/error
+            }),
         }
-    },
-
-    register: async (username: string, email: string, password: string) => {
-        set({ loading: true, error: null });
-        try {
-            await api.register({ username, email, password });
-            await get().login(username, password);
-        } catch (error: any) {
-            set({ error: error.message || 'Registration failed' });
-        } finally {
-            set({ loading: false });
-        }
-    },
-
-    logout: () => {
-        api.logout();
-        set({ user: null });
-    },
-
-    getCurrentUser: async () => {
-        try {
-            const response = await api.getCurrentUser();
-            set({ user: response.data || response });
-        } catch (error) {
-            set({ user: null });
-        }
-    },
-
-    isAuthenticated: () => {
-        return get().user !== null;
-    },
-}));
+    )
+);

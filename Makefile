@@ -605,7 +605,50 @@ backtest-clean: ## Clean up old backtest results (keeps 20 most recent)
 	fi
 
 # ============================================================================
-# Task Queue/Worker Commands
+# Backend/Frontend Commands
+# ============================================================================
+
+backend-run: ## Run FastAPI backend server (API on port 8000)
+	@if [ ! -f "backend/main.py" ]; then \
+		echo "❌ Backend not found at backend/main.py"; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "🚀 Starting FastAPI backend server..."
+	@echo "📊 API running on http://localhost:8000"
+	@echo "📚 Swagger docs on http://localhost:8000/docs"
+	@echo "📖 ReDoc docs on http://localhost:8000/redoc"
+	@echo "⚠️  Press Ctrl+C to stop"
+	PYTHONPATH=. .venv/bin/python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+
+frontend-run: ## Run React frontend (dev server on port 5173)
+	@if [ ! -f "frontend/package.json" ]; then \
+		echo "❌ Frontend not found at frontend/package.json"; \
+		exit 1; \
+	fi
+	@if ! command -v npm >/dev/null 2>&1; then \
+		echo "❌ npm not found. Install Node.js 18+ first."; \
+		exit 1; \
+	fi
+	@echo "🚀 Starting React frontend development server..."
+	@echo "🌐 Frontend running on http://localhost:5173"
+	@echo "⚠️  Press Ctrl+C to stop"
+	cd frontend && npm run dev
+
+run-all: ## Run backend and frontend simultaneously (requires 2 terminals or use make backend-run & make frontend-run)
+	@echo "⚠️  This command requires running in separate terminals:"
+	@echo ""
+	@echo "Terminal 1: make backend-run"
+	@echo "Terminal 2: make frontend-run"
+	@echo ""
+	@echo "Or use: make backend-run & make frontend-run"
+	@echo ""
+
+# ============================================================================
+# Task Queue/Worker Commands (Legacy)
 # ============================================================================
 
 worker-run: ## Run the task queue worker (processes background jobs)
@@ -617,5 +660,12 @@ worker-run: ## Run the task queue worker (processes background jobs)
 		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
 		exit 1; \
 	fi
-	@echo "🚀 Starting task queue worker..."
+	@if [ ! -d "backend" ] || [ ! -f "backend/requirements.txt" ]; then \
+		echo "❌ Backend dependencies not found. Run 'make install' first."; \
+		exit 1; \
+	fi
+	@echo "🚀 Starting FastAPI backend server..."
+	@echo "📊 API running on http://localhost:8000"
+	@echo "📚 Swagger docs on http://localhost:8000/docs"
+	@echo "📖 ReDoc docs on http://localhost:8000/redoc"
 	PYTHONPATH=. .venv/bin/python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000

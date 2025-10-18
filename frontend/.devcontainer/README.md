@@ -45,7 +45,7 @@ npm run dev
 ```
 
 - Dev server starts on `http://localhost:5173`
-- Backend API available at `http://localhost:8000` (if running locally)
+- Backend API available at `http://localhost:8888` (if running locally)
 - HMR (Hot Module Reload) enabled - changes auto-refresh
 
 ## 🐳 Docker Services (Optional Local Development)
@@ -68,7 +68,7 @@ docker-compose down
 | Service | Port | URL |
 |---------|------|-----|
 | Frontend (Vite) | 5173 | <http://localhost:5173> |
-| Backend API | 8000 | <http://localhost:8000> |
+| Backend API | 8888 | <http://localhost:8888> |
 | PostgreSQL | 5432 | postgresql://postgres:postgres@localhost:5432/dydx_trading |
 | Redis | 6379 | redis://localhost:6379 |
 
@@ -147,7 +147,7 @@ The following extensions are automatically installed:
 
 ```bash
 # Automatically set
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8888
 ```
 
 ### Create `.env.local` for additional variables

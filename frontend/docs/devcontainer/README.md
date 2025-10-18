@@ -171,7 +171,7 @@ Included in `docker-compose.yml`:
 |---------|------|---------|
 | PostgreSQL | 5432 | Database |
 | Redis | 6379 | Cache |
-| Backend API | 8000 | REST API |
+| Backend API | 8888 | REST API |
 | Frontend | 5173 | Dev server |
 
 Start them:

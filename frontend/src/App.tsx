@@ -4,9 +4,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { MainLayout } from './components/MainLayout';
 import { BacktestDetailsPage } from './pages/BacktestDetails';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
+import SettingsPage from './pages/Settings';
 import { useAuthStore } from './store/auth';
 
 interface ErrorBoundaryState {
@@ -25,7 +27,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
         return { hasError: true, error };
     }
 
-    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    componentDidCatch(_error: Error, errorInfo: React.ErrorInfo) {
         console.error('Error details:', errorInfo);
     }
 
@@ -52,7 +54,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
         return <Navigate to="/login" replace />;
     }
 
-    return <>{children}</>;
+    return <MainLayout>{children}</MainLayout>;
 };
 
 export const App: React.FC = () => {
@@ -86,6 +88,14 @@ export const App: React.FC = () => {
                         element={
                             <ProtectedRoute>
                                 <BacktestDetailsPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/settings"
+                        element={
+                            <ProtectedRoute>
+                                <SettingsPage />
                             </ProtectedRoute>
                         }
                     />

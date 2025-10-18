@@ -11,102 +11,82 @@
 
 **dYdX Trading Bot** is a sophisticated automated trading system that implements statistical arbitrage through cointegration analysis on the dYdX v4 decentralized exchange. The bot identifies pairs of cryptocurrency assets with long-term statistical relationships and profits from temporary deviations that tend to revert to the mean.
 
-### Key Features
+### ✨ Key Features
 
-- 🔬 **Statistical Cointegration Analysis** - Uses Engle-Granger methodology to identify tradeable pairs
-- 📊 **Z-Score Based Signals** - Enters trades when deviations exceed statistical thresholds
-- 🤖 **Automated Execution** - Handles paired trades with atomic order management
-- 🛡️ **Risk Management** - Built-in position limits and failsafe mechanisms
-- 🐳 **Docker Ready** - Complete containerization with production deployment support
-- 📈 **Comprehensive Monitoring** - Grafana Loki integration for observability
-- ⚙️ **YAML Configuration** - Type-safe, validated configuration system
-
-### 🆕 NEW: Database & Interactive Dashboard
-
-- 💾 **PostgreSQL Storage** - Store all backtest results in database
-- 🌐 **REST API** - Full-featured FastAPI backend with JWT authentication
-- 🔌 **WebSocket Real-Time** - Live backtest progress updates
-- ⚛️ **React Dashboard** - Beautiful interactive UI for backtest management
-- 🔐 **User Authentication** - Secure multi-user system with role-based access
-- 🐳 **Full-Stack Docker** - One-command deployment of frontend, backend, and database
-
-**See [DATABASE_API_IMPLEMENTATION.md](./DATABASE_API_IMPLEMENTATION.md) for full details.**
+- 🔬 **Cointegration Analysis** - Engle-Granger methodology for identifying tradeable pairs
+- 📊 **Z-Score Signals** - Automated entry/exit triggered by statistical deviations
+- 🤖 **Atomic Execution** - Paired trades with atomic order management
+- 🛡️ **Risk Management** - Position limits and failsafe mechanisms
+- **PostgreSQL Backend** - Store backtest results and trading history
+- 🌐 **REST API** - FastAPI with JWT authentication
+- ⚛️ **React Dashboard** - Interactive UI for backtest analysis
+- � **Docker Ready** - Production-ready containerization
+- � **Grafana Integration** - Real-time monitoring with Loki
+- ⚙️ **YAML Config** - Type-safe configuration system
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- Python 3.12+
-- dYdX v4 account (testnet or mainnet)
-- Telegram bot (for notifications)
-
-### 🐳 Dev Container Setup (Recommended for Development)
-
-**Fastest way to get started with backend + frontend running simultaneously!**
-
-#### Step-by-Step Instructions
+**Get up and running in 5 minutes:**
 
 ```bash
-# 1. Open project in VS Code
-code /home/chris/workspace/dydx-trading-bot
+# 1. Setup (1 min)
+make setup && make install
 
-# 2. Open in Dev Container
-# Cmd/Ctrl + Shift + P → "Dev Containers: Reopen in Container"
-# Wait 2-3 minutes for Docker image build and container startup...
-
-# 3. Install dependencies (in container terminal)
-pip install -r backend/requirements.txt
-cd frontend && npm install && cd ..
-
-# 4. Start Backend (Terminal 1)
-cd backend && python -m uvicorn main:app --reload --port 8000
-
-# 5. Start Frontend (Terminal 2 - Ctrl + Shift + `)
-cd frontend && npm run dev
-
-# 6. Access services
-# Frontend: http://localhost:5173
-# Backend API Docs: http://localhost:8000/docs
-# Backend ReDoc: http://localhost:8000/redoc
-```
-
-**✅ Both services support hot reload on file changes!**
-
-**Why Dev Containers?**
-
-- ✅ Isolated, reproducible development environment
-- ✅ No "works on my machine" issues
-- ✅ Pre-configured Python 3.12, Node.js 18, Docker-in-Docker
-- ✅ 25+ VS Code extensions pre-installed
-- ✅ Automatic port forwarding (5173, 8000, 9000, 3100)
-- ✅ Hot reload for backend (uvicorn) and frontend (Vite HMR)
-- ✅ Git SSH keys auto-mounted
-- ✅ Full IDE integration with debugging (F5 breakpoints)
-
-**📖 [Complete Dev Container Guide →](./DEV_CONTAINER_GUIDE.md)**
-
-### Installation (Local Development Alternative)
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd dydx-trading-bot
-
-# Set up development environment
-make setup install
-
-# Create configuration
+# 2. Configure (1 min)
 make config
 # Edit app/config.yaml with your credentials
 
-# Run tests
-make test
+# 3. Run Backend (1 min - Terminal 1)
+make backend-run
+# API available at http://localhost:8000/docs
 
-# Start the bot
+# 4. Run Bot (1 min - Terminal 2)
 make run
+
+# 5. Verify (1 min)
+curl http://localhost:8000/docs
 ```
 
-## 📋 Usage Examples
+**[👉 Complete Getting Started Guide →](./docs/getting-started.md)**
+
+---
+
+## 📚 Complete Documentation
+
+All documentation has been consolidated into the **[`docs/`](./docs/)** directory for easy navigation:
+
+### 🎯 **Start Here**
+
+| Goal | Link |
+|------|------|
+| **Get Started Quickly** | [Getting Started (5 min)](./docs/getting-started.md) |
+| **Full Setup Guide** | [Installation & Setup](./docs/guides/quick-start.md) |
+| **Configure the Bot** | [Configuration Guide](./docs/guides/configuration.md) |
+| **Understand the Strategy** | [Trading Strategy](./docs/trading/strategy.md) |
+| **See System Design** | [Architecture Overview](./docs/architecture/system-overview.md) |
+
+### 🔧 **Development**
+
+| Topic | Link |
+|-------|------|
+| **Local Development** | [Development Guide](./docs/development.md) |
+| **Backend Setup** | [Backend Package Configuration](./docs/backend-setup.md) |
+| **API Reference** | [API Documentation](./docs/api/core-modules.md) |
+| **Database Integration** | [Database & API Design](./docs/DATABASE_API_INTEGRATION.md) |
+
+### 🚀 **Deployment & Operations**
+
+| Topic | Link |
+|-------|------|
+| **Docker Setup** | [Docker Deployment](./docs/deployment/docker-setup.md) |
+| **Troubleshooting** | [Troubleshooting Guide](./docs/guides/troubleshooting.md) |
+| **Monitoring** | [System Architecture & Flow Diagrams](./docs/architecture/flow-diagrams.md) |
+
+### 📖 **[Complete Documentation Index](./docs/index.md)**
+
+---
+
+## Usage Examples
 
 ### Basic Bot Operations
 

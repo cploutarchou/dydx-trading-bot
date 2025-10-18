@@ -1,0 +1,104 @@
+{
+  "name": "dYdX Trading Bot Frontend",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "args": {
+      "BASE_IMAGE": "node:20-alpine",
+      "NODE_VERSION": "20"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss",
+        "dsznajder.es7-react-js-snippets",
+        "xabikos.ReactSnippets",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg",
+        "GitHub.copilot",
+        "eamodio.gitlens",
+        "ms-vscode.makefile-tools",
+        "streetsidesoftware.code-spell-checker",
+        "ms-vscode-remote.remote-containers",
+        "ms-vscode-remote.remote-ssh",
+        "vscode-icons-team.vscode-icons",
+        "ms-azuretools.vscode-docker",
+        "chrisdias.vscode-open-in-github",
+        "mhutchie.git-graph",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "[javascript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.enablePromptUseWorkspaceTsdk": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true
+        },
+        "python.linting.enabled": false,
+        "tailwindCSS.experimental.classRegex": [
+          ["clsx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+        ]
+      }
+    }
+  },
+  "mounts": [
+    "type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/root/.ssh,readonly",
+    "type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/root/.gitconfig,readonly",
+    "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock"
+  ],
+  "forwardPorts": [5173, 3000, 5432, 6379],
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite Dev Server",
+      "onAutoForward": "notify"
+    },
+    "3000": {
+      "label": "Preview Server",
+      "onAutoForward": "notify"
+    },
+
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    },
+    "6379": {
+      "label": "Redis",
+      "onAutoForward": "silent"
+    }
+  },
+
+  "remoteUser": "node",
+  "updateContentCommand": "npm install",
+  "postCreateCommand": "npm run build && echo '✅ DevContainer setup complete!'",
+  "postStartCommand": "echo '🚀 Container started. Run: npm run dev'",
+  "runArgs": ["--gpus=all"],
+  "privileged": false,
+  "init": true
+}

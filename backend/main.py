@@ -440,11 +440,13 @@ async def websocket_backtest_updates(
 
     if not token:
         logger.error("WebSocket connection rejected: no token provided")
+        await websocket.accept()  # Must accept before closing
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     if not verify_token(token, token_type="access"):
         logger.error("WebSocket connection rejected: token verification failed")
+        await websocket.accept()  # Must accept before closing
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

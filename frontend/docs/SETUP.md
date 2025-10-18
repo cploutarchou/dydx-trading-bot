@@ -129,7 +129,7 @@ docker-compose ps           # List running services
 ### Development (.env.local)
 
 ```bash
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8888
 NODE_ENV=development
 ```
 
@@ -178,7 +178,7 @@ docker-compose up -d
 | Service | Port | URL |
 |---------|------|-----|
 | Frontend (Vite) | 5173 | <http://localhost:5173> |
-| Backend API | 8000 | <http://localhost:8000> |
+| Backend API | 8888 | <http://localhost:8888> |
 | PostgreSQL | 5432 | postgresql://postgres:postgres@localhost:5432/dydx_trading |
 | Redis | 6379 | redis://localhost:6379 |
 
@@ -207,7 +207,7 @@ docker-compose down
 docker-compose down
 
 # Option 2: Use different port in devcontainer.json
-"forwardPorts": [5174, 3000, 8000, 5432, 6379]
+"forwardPorts": [5174, 3000, 8888, 5432, 6379]
 ```
 
 ### npm Dependencies Not Installing

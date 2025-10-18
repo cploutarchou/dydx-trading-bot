@@ -73,7 +73,7 @@
     "type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/root/.gitconfig,readonly",
     "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock"
   ],
-  "forwardPorts": [5173, 3000, 8000, 5432, 6379],
+  "forwardPorts": [5173, 3000, 5432, 6379],
   "portsAttributes": {
     "5173": {
       "label": "Vite Dev Server",
@@ -83,10 +83,7 @@
       "label": "Preview Server",
       "onAutoForward": "notify"
     },
-    "8000": {
-      "label": "Backend API",
-      "onAutoForward": "notify"
-    },
+
     "5432": {
       "label": "PostgreSQL",
       "onAutoForward": "silent"
@@ -96,9 +93,7 @@
       "onAutoForward": "silent"
     }
   },
-  "remoteEnv": {
-    "VITE_API_URL": "http://localhost:8000"
-  },
+
   "remoteUser": "node",
   "updateContentCommand": "npm install",
   "postCreateCommand": "npm run build && echo '✅ DevContainer setup complete!'",

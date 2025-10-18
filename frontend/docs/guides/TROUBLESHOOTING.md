@@ -110,6 +110,28 @@ npm install
 npm install --legacy-peer-deps
 ```
 
+### Global npm packages fail in DevContainer build
+
+**Problem:** DevContainer build fails with `exit code: 243` during npm global install.
+
+**Error Message:** `npm install -g ... did not complete successfully: exit code: 243`
+
+**Solutions:**
+
+```bash
+# Option 1: Rebuild without cache (usually fixes it)
+Ctrl+Shift+P → "Dev Containers: Rebuild Container (No Cache)"
+
+# Option 2: Check if fixed in latest Dockerfile
+# The Dockerfile now installs global packages as root before switching users
+
+# Option 3: If still failing, check network/registry
+docker build --no-cache --progress=plain .devcontainer/
+
+# Option 4: Alternative registry
+npm config set registry https://registry.npmjs.org/
+```
+
 ### Missing dependencies
 
 **Problem:** Module not found errors after installing.

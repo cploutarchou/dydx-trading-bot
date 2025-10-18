@@ -1125,6 +1125,245 @@ async def get_backtest_positions(
     )
 
 
+# ==================== TASK 17: ANALYTICS ENDPOINTS ====================
+
+
+@app.get("/api/v1/backtests/{run_id}/performance")
+async def get_backtest_performance(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get comprehensive performance metrics for a backtest."""
+    from backend.database import BacktestTrade
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Query all trades for this run
+    trades = db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run.id).all()
+
+    if not trades:
+        return ApiResponse(
+            success=True,
+            message="Performance metrics retrieved",
+            data={
+                "run_id": run_id,
+                "total_trades": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "win_rate": 0.0,
+                "total_pnl": 0.0,
+                "average_pnl": 0.0,
+                "max_win": 0.0,
+                "max_loss": 0.0,
+                "sharpe_ratio": 0.0,
+                "max_drawdown": 0.0,
+                "average_duration": 0.0,
+            },
+        )
+
+    # Extract numeric values from trades
+    pnl_values = []
+    for t in trades:
+        pnl = getattr(t, "pnl", None)
+        if pnl is not None:
+            pnl_values.append(float(pnl))  # type: ignore
+        else:
+            pnl_values.append(0.0)
+
+    # Calculate metrics
+    import statistics
+
+    total_trades = len(trades)
+    winning_trades = sum(1 for p in pnl_values if p > 0)
+    losing_trades = sum(1 for p in pnl_values if p < 0)
+    total_pnl = sum(pnl_values)
+    avg_pnl = total_pnl / total_trades if total_trades > 0 else 0.0
+    max_win = max(pnl_values) if pnl_values else 0.0
+    max_loss = min(pnl_values) if pnl_values else 0.0
+    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+    # Calculate Sharpe ratio
+    if len(pnl_values) > 1:
+        std_dev = statistics.stdev(pnl_values)
+        sharpe_ratio = (avg_pnl / std_dev) if std_dev > 0 else 0.0
+    else:
+        sharpe_ratio = 0.0
+
+    # Calculate max drawdown
+    cumulative_pnl = 0
+    peak = 0
+    max_dd = 0
+    for pnl in pnl_values:
+        cumulative_pnl += pnl
+        if cumulative_pnl > peak:
+            peak = cumulative_pnl
+        drawdown = peak - cumulative_pnl
+        if drawdown > max_dd:
+            max_dd = drawdown
+
+    max_drawdown = max_dd
+
+    # Average trade duration
+    durations = []
+    for t in trades:
+        duration = getattr(t, "duration_hours", None)
+        if duration is not None:
+            durations.append(float(duration))  # type: ignore
+    avg_duration = sum(durations) / len(durations) if durations else 0.0
+
+    return ApiResponse(
+        success=True,
+        message="Performance metrics retrieved",
+        data={
+            "run_id": run_id,
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "win_rate": float(round(win_rate, 2)),
+            "total_pnl": float(round(total_pnl, 2)),
+            "average_pnl": float(round(avg_pnl, 2)),
+            "max_win": float(round(max_win, 2)),
+            "max_loss": float(round(max_loss, 2)),
+            "sharpe_ratio": float(round(sharpe_ratio, 4)),
+            "max_drawdown": float(round(max_drawdown, 2)),
+            "average_duration": float(round(avg_duration, 2)),
+        },
+    )
+
+
+@app.get("/api/v1/backtests/{run_id}/trades/{trade_id}")
+async def get_backtest_trade_detail(
+    run_id: str,
+    trade_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get detailed information about a specific trade."""
+    from backend.database import BacktestTrade
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get trade
+    trade = (
+        db.query(BacktestTrade)
+        .filter(BacktestTrade.run_id_fk == run.id, BacktestTrade.id == trade_id)
+        .first()
+    )
+
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+        return ApiResponse(
+            success=True,
+            message="Trade details retrieved",
+            data={
+                "id": trade.id,
+                "trade_id": trade.trade_id,
+                "run_id": run_id,
+                "market_1": trade.market_1,
+                "market_2": trade.market_2,
+                "entry_timestamp": trade.entry_timestamp.isoformat(),
+                "exit_timestamp": trade.exit_timestamp.isoformat()
+                if trade.exit_timestamp is not None
+                else None,  # type: ignore
+                "entry_price_1": trade.entry_price_1,
+                "entry_price_2": trade.entry_price_2,
+                "exit_price_1": trade.exit_price_1,
+                "exit_price_2": trade.exit_price_2,
+                "entry_z_score": trade.entry_z_score,
+                "exit_z_score": trade.exit_z_score,
+                "side_1": trade.side_1,
+                "side_2": trade.side_2,
+                "size_1": trade.size_1,
+                "size_2": trade.size_2,
+                "hedge_ratio": trade.hedge_ratio,
+                "pnl": trade.pnl,
+                "pnl_pct": trade.pnl_pct,
+                "duration_hours": trade.duration_hours,
+                "transaction_fee": trade.transaction_fee,
+                "slippage": trade.slippage,
+            },
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/summary")
+async def get_backtest_summary(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get summary statistics for a backtest run."""
+    from backend.database import BacktestTrade
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Count trades
+    total_trades = (
+        db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run.id).count()
+    )
+
+    # Get date range
+    trades = db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run.id).all()
+
+    if trades:
+        earliest_date = min(t.entry_timestamp for t in trades)
+        latest_date = max(t.exit_timestamp or t.entry_timestamp for t in trades)
+    else:
+        earliest_date = None
+        latest_date = None
+
+    return ApiResponse(
+        success=True,
+        message="Backtest summary retrieved",
+        data={
+            "run_id": run_id,
+            "status": run.status,
+            "created_at": run.created_at.isoformat(),
+            "started_at": run.started_at.isoformat()
+            if run.started_at is not None
+            else None,  # type: ignore
+            "completed_at": run.completed_at.isoformat()
+            if run.completed_at is not None
+            else None,  # type: ignore
+            "total_trades": total_trades,
+            "earliest_trade_date": earliest_date.isoformat()
+            if earliest_date is not None
+            else None,  # type: ignore
+            "latest_trade_date": latest_date.isoformat()
+            if latest_date is not None
+            else None,  # type: ignore
+            "configuration": {
+                "num_pairs": getattr(run, "num_pairs", None),
+                "zscore_threshold": getattr(run, "zscore_threshold", None),
+                "stats_window": getattr(run, "stats_window", None),
+                "usd_per_trade": getattr(run, "usd_per_trade", None),
+            },
+        },
+    )
+
+
 # ==================== WEBSOCKET ENDPOINTS ====================
 
 

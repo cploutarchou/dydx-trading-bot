@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+  # Backend API service (dYdX Trading Bot)
+  backend:
+    container_name: dydx-backend-api
+    build:
+      context: ../
+      dockerfile: Dockerfile.backend
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/dydx_trading
+      - REDIS_URL=redis://redis:6379
+      - DEBUG=True
+      - ENVIRONMENT=development
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../:/app
+    depends_on:
+      - db
+      - redis
+    networks:
+      - dydx-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL Database
+  db:
+    container_name: dydx-postgres
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=dydx_trading
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dydx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    container_name: dydx-redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - dydx-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Frontend (optional - use npm run dev inside devcontainer instead)
+  frontend:
+    container_name: dydx-frontend
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      - VITE_API_URL=http://backend:8000
+      - NODE_ENV=development
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - dydx-network
+    command: npm run dev
+    profiles:
+      - frontend-standalone
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  dydx-network:
+    driver: bridge

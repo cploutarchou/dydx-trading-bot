@@ -4,7 +4,12 @@
 
 Automated cointegration pairs trading bot for dYdX v4 decentralized exchange. Uses statistical analysis to identify mean-reverting cryptocurrency pairs, opens paired positions when Z-scores exceed thresholds (±1.5), and closes when correlations revert to the mean (Z-score crosses zero).
 
-**Key fact**: This is a **paired trading bot** - all trades consist of TWO positions (base + quote markets) executed atomically via `BotAgent`. Single position failures trigger emergency cleanup of the paired position.
+**Key facts**:
+
+- **Paired trading bot**: All trades consist of TWO positions (base + quote markets) executed **atomically** via `BotAgent`
+- **Atomic execution**: Single position failures trigger emergency cleanup to prevent orphaned positions
+- **State-driven**: All persistent state (positions, pairs, analysis results) stored in JSON files - survives bot restarts
+- **Configuration-first**: All bot behavior controlled via YAML flags - **no code changes needed for workflow variations**
 
 ## Architecture & Data Flow
 
@@ -22,16 +27,18 @@ setup_logging() → validate config → connect_dydx()
 
 ### Core Components (`app/`)
 
-| File                     | Purpose                                                                      | Input                                   | Output                                  |
-| ------------------------ | ---------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------- |
-| `func_cointegration.py`  | Statistical analysis (ADF, Johansen tests, Z-score calc)                     | Market prices DataFrame                 | `cointegrated_pairs.json` + CSV         |
-| `func_entry_pairs.py`    | Load pairs, find Z-score triggers, spawn `BotAgent` instances                | `cointegrated_pairs.json` + market data | Trades written to `bot_agents.json`     |
-| `func_exit_pairs.py`     | Monitor `bot_agents.json`, recalculate Z-scores, close on mean reversion     | `bot_agents.json` + market data         | Position state updates                  |
-| `func_bot_agent.py`      | Atomic paired order executor - BOTH orders must succeed or entire pair fails | BotAgent init params                    | Order state dict in JSON                |
-| `func_connections.py`    | dYdX client wrapper managing indexer/node/wallet lifecycle                   | Config credentials                      | `Client` object (indexer, node, wallet) |
-| `func_private.py`        | Account queries, order placement, cancellations                              | Client + order params                   | Order confirmations, filled status      |
-| `func_public.py`         | Market data API (candles, markets list, prices)                              | Client + market symbols                 | Price series, market metadata           |
-| `models/pair_storage.py` | JSON-first persistence with CSV backward compatibility                       | `CointegrationResult` dataclass list    | JSON + CSV files + timestamped backups  |
+| File                     | Purpose                                                                          | Key Patterns                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `func_cointegration.py`  | Statistical analysis (ADF, Johansen tests, Z-score calc)                         | Heavy libs (scipy/statsmodels) imported on-demand, saves to JSON via pair_storage                        |
+| `func_entry_pairs.py`    | Load pairs, find Z-score triggers, spawn `BotAgent` instances                    | Read cointegrated_pairs.json, calculate current Z-scores, create BotAgent for atomic execution           |
+| `func_exit_pairs.py`     | Monitor `bot_agents.json`, recalculate Z-scores, close on mean reversion         | Poll bot_agents.json for LIVE positions, check Z-score crosses zero, use reduce_only=True                |
+| `func_bot_agent.py`      | Atomic paired order executor - **BOTH orders must succeed or entire pair fails** | `BotAgent.open_trades()` places market_1, then market_2; if m2 fails, emergency-close m1                 |
+| `func_connections.py`    | dYdX client wrapper managing indexer/node/wallet lifecycle                       | Client has 4 components: indexer, indexer_account, node, wallet. Testnet wallet optional for backtesting |
+| `func_private.py`        | Account queries, order placement, cancellations, position closure                | All functions use format_number() before placing orders. 0.2s API rate limiting delays                   |
+| `func_public.py`         | Market data API (candles, markets list, prices). Always uses MAINNET indexer     | get_candles_recent() returns chronological price series. Rate limiting built-in                          |
+| `models/pair_storage.py` | JSON-first persistence with CSV backward compatibility + timestamped backups     | Singleton pattern. Auto-creates pair_history/ dir. See CointegrationResult dataclass                     |
+| `logging_setup.py`       | Custom logging with optional Loki integration. Direct HTTP (not logging_loki)    | Call setup_logging() FIRST in any new script. Auto-detects environment from config                       |
+| `constants.py`           | Single source of truth for all config values extracted from config.yaml          | **Always import from here, never call config() in functions**. Parse once at module load                 |
 
 ### Configuration System (YAML-first with Type-Safe Constants)
 
@@ -330,18 +337,153 @@ botSettings:
 
 ## Critical Developer Patterns
 
-### Logging Initialization
+### Market Data Always Uses MAINNET Indexer
 
-**Always call `setup_logging()` first in any script**:
+**Important**: Even when `is_testnet: true`, market data comes from MAINNET indexer for better liquidity data:
+
+```python
+from constants import MARKET_DATA_MODE, INDEXER_ENDPOINT_MAINNET
+
+# Market data ALWAYS uses mainnet indexer
+indexer = IndexerClient(INDEXER_ENDPOINT_MAINNET)
+
+# Account queries use testnet/mainnet based on config
+indexer_account = IndexerClient(INDEXER_ACCOUNT_ENDPOINT)  # Testnet if is_testnet=true
+```
+
+### Format Numbers BEFORE Every Exchange Call
+
+**All numeric values sent to dYdX must match exchange tick_size/stepSize precision**:
+
+```python
+from func_utils import format_number
+
+# ✅ CORRECT: Format with market metadata
+base_size = format_number(USD_PER_TRADE / base_price, base_step_size)
+quote_size = format_number(hedge_ratio * base_size, quote_step_size)
+
+# Get tick sizes from markets metadata
+markets = await get_markets(client)
+tick_size = markets["markets"]["BTC-USD"]["tickSize"]
+accept_price = format_number(45123.456789, tick_size)
+
+# Place order with formatted values
+await place_market_order(client, "BTC-USD", "BUY", base_size, accept_price, reduce_only=False)
+```
+
+**Why**: Exchange rejects orders with incorrect precision. `format_number(value, reference)` matches decimal places of reference number.
+
+### API Rate Limiting Pattern
+
+**All API calls have built-in 0.2-0.5s delays. Never remove them**:
+
+```python
+import time
+
+# func_public.py pattern - automatic delay
+async def get_candles_recent(client, market):
+    # ... fetch data ...
+    time.sleep(0.2)  # Protect API - REQUIRED
+    return candles
+
+# func_private.py pattern - manual delay between critical calls
+order_m1 = await place_market_order(...)
+time.sleep(0.5)  # MUST wait before market_2 order
+order_m2 = await place_market_order(...)
+```
+
+### Atomic Paired Execution Pattern (BotAgent)
+
+**Critical**: If market_2 order fails, emergency-close market_1 with failsafe price:
+
+```python
+class BotAgent:
+    async def open_trades(self):
+        # 1. Place and verify market_1
+        order_m1 = await place_market_order(client, market_1, side_1, size_1, price_1, False)
+
+        # 2. Verify market_1 filled
+        m1_status = await check_order_status(client, order_m1)
+        if not m1_status.get("FILLED"):
+            logger.error("Market 1 order not filled")
+            return {"pair_status": "FAILED"}
+
+        # 3. Place market_2
+        order_m2 = await place_market_order(client, market_2, side_2, size_2, price_2, False)
+
+        # 4. If market_2 fails → CLOSE market_1 immediately with failsafe_price
+        m2_status = await check_order_status(client, order_m2)
+        if not m2_status.get("FILLED"):
+            logger.error("Market 2 failed, emergency closing market 1")
+            await place_market_order(
+                client, market_1, opposite_side(side_1), size_1,
+                failsafe_price_m1, reduce_only=True
+            )
+            return {"pair_status": "FAILED"}
+
+        # 5. Both succeeded
+        return {"pair_status": "LIVE", "order_id_m1": order_m1, "order_id_m2": order_m2}
+```
+
+### Wallet Optional for Backtesting
+
+**Backtesting mode skips wallet creation (no signing needed)**:
+
+```python
+async def connect_dydx():
+    # ... create indexer, indexer_account, node ...
+
+    wallet = None
+    if not IS_BACKTEST_MODE:
+        try:
+            wallet = Wallet.from_mnemonic(MNEMONIC)
+        except Exception:
+            logger.warning("Failed to create wallet (backtesting mode?)")
+
+    client = Client(indexer, indexer_account, node, wallet)
+    return client
+```
+
+### Singleton Pattern for Configuration & Storage
+
+**Both config and storage follow Python singleton - instantiate once, reuse everywhere**:
+
+```python
+from config import config  # Singleton - loads YAML once
+from models.pair_storage import pair_storage  # Singleton - manages JSON/CSV
+
+# Call once at module startup in constants.py
+_CONFIG = config()
+ZSCORE_THRESH = _CONFIG.botSettings.ZScoreThreshold
+
+# Use anywhere without re-parsing
+from constants import ZSCORE_THRESH
+if abs(z_score) >= ZSCORE_THRESH:
+    # Trade
+
+# Storage singleton - automatically handles JSON + CSV + backups
+pairs = pair_storage.load_pairs()  # Try JSON first, fallback to CSV
+pair_storage.save_pairs(pairs)     # Auto-creates timestamped backup
+```
+
+### Logging Initialization (CRITICAL - Must Be First)
+
+**Always call `setup_logging()` FIRST, before any logging calls**:
 
 ```python
 from logging_setup import setup_logging
 import logging
 
-setup_logging()  # Must be first - initializes Loki, console, file handlers
+setup_logging()  # ⚠️ MUST be first line in main() - initializes Loki, console, file handlers
 logger = logging.getLogger(__name__)
 logger.info("Script started")
+
+# Bad pattern - don't do this:
+logger = logging.getLogger(__name__)
+setup_logging()  # Too late - logging already configured incorrectly
 ```
+
+**Why this matters**: Loki integration, log levels, and environment detection all depend on setup_logging() running first.
 
 ### Module Constants Pattern
 
@@ -378,7 +520,7 @@ size = format_number(amount_usd / price, tick_size)  # Format to exchange tick_s
 
 ### Error Handling Pattern
 
-**Critical errors: log, alert Telegram, then exit(1)**:
+**Critical errors: log, alert Telegram, then exit(1). Never continue with orphaned state**:
 
 ```python
 try:
@@ -387,17 +529,28 @@ except Exception as e:
     logger.error("Critical failure: %s", e)
     messenger.send_error_message("Operation Failed", str(e), is_critical=True)
     exit(1)  # Don't allow bot to continue with orphaned state
+
+# For non-critical errors, use try-except-continue:
+try:
+    position = await check_position(client, market)
+except Exception as e:
+    logger.warning("Could not check position, skipping: %s", e)
+    continue  # Move to next position
 ```
 
-### Async Pattern
+### Async Pattern - All dYdX API Calls Are Async
 
-**All dYdX API calls use async/await pattern**:
+**All dYdX API calls use async/await pattern - use await consistently**:
 
 ````python
 async def some_function(client):
-    # Use await for client calls
+    # ✅ Use await for ALL client calls
     markets = await get_markets(client)
     order = await place_market_order(client, market, side, size)
+    positions = await get_open_positions(client)
+
+    # ❌ DON'T do this - blocking calls in async function
+    # order = place_market_order(client, market, side, size)  # Missing await!
 ```## Logging & Monitoring (`logging_setup.py`)
 
 ### Custom Loki Integration

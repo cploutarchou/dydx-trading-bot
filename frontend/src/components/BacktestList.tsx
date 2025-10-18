@@ -85,6 +85,8 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                     <table className="w-full text-sm text-gray-300">
                         <thead className="border-b border-slate-700">
                             <tr>
+                                <th className="px-4 py-2 text-left">Run ID</th>
+                                <th className="px-4 py-2 text-left">Start Time</th>
                                 <th className="px-4 py-2 text-left">Period</th>
                                 <th className="px-4 py-2 text-center">Trades</th>
                                 <th className="px-4 py-2 text-right">P&L</th>
@@ -98,13 +100,19 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                         <tbody>
                             {Array.isArray(runs) && runs.map(run => (
                                 <tr key={run.run_id} className="border-b border-slate-700 hover:bg-slate-700">
+                                    <td className="px-4 py-2 font-mono text-xs text-blue-400">
+                                        {run.run_id.substring(0, 8)}...
+                                    </td>
+                                    <td className="px-4 py-2 text-sm">
+                                        {new Date(run.created_at).toLocaleString()}
+                                    </td>
                                     <td className="px-4 py-2">
                                         {run.start_date && run.end_date ? (
                                             <>
                                                 {new Date(run.start_date).toLocaleDateString()} - {new Date(run.end_date).toLocaleDateString()}
                                             </>
                                         ) : (
-                                            new Date(run.created_at).toLocaleDateString()
+                                            '-'
                                         )}
                                     </td>
                                     <td className="px-4 py-2 text-center">{run.total_trades}</td>

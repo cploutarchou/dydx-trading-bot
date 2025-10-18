@@ -264,6 +264,177 @@ class User(Base):
         return f"<User {self.username}>"
 
 
+class BacktestLog(Base):
+    """Stores logs from backtest execution for real-time display."""
+
+    __tablename__ = "backtest_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id_fk = Column(
+        Integer, ForeignKey("backtest_runs.id"), index=True, nullable=False
+    )
+
+    # Log content
+    message = Column(String, nullable=False)
+    level = Column(String(20), default="info")  # debug, info, warning, error
+
+    # Timestamp when log was created
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    run = relationship("BacktestRun", backref="logs")
+
+    __table_args__ = (Index("idx_backtest_log_run_created", "run_id_fk", "created_at"),)
+
+    def __repr__(self):
+        return f"<BacktestLog {self.level}: {self.message[:50]}>"
+
+
+class BacktestTrade(Base):
+    """Stores individual trades from backtest execution for detailed analysis."""
+
+    __tablename__ = "backtest_trades"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id_fk = Column(
+        Integer, ForeignKey("backtest_runs.id"), index=True, nullable=False
+    )
+
+    # Trade identification
+    trade_id = Column(String(100), unique=True, index=True, nullable=False)
+    market_1 = Column(String(50), nullable=False, index=True)
+    market_2 = Column(String(50), nullable=False, index=True)
+
+    # Entry details
+    entry_timestamp = Column(DateTime, nullable=False, index=True)
+    entry_price_1 = Column(Float, nullable=False)
+    entry_price_2 = Column(Float, nullable=False)
+    entry_z_score = Column(Float, nullable=False)
+    side_1 = Column(String(10), nullable=False)  # BUY or SELL
+    side_2 = Column(String(10), nullable=False)
+    size_1 = Column(Float, nullable=False)
+    size_2 = Column(Float, nullable=False)
+
+    # Exit details
+    exit_timestamp = Column(DateTime, nullable=True, index=True)
+    exit_price_1 = Column(Float, nullable=True)
+    exit_price_2 = Column(Float, nullable=True)
+    exit_z_score = Column(Float, nullable=True)
+
+    # Performance
+    pnl = Column(Float, nullable=True)
+    pnl_pct = Column(Float, nullable=True)
+    duration_hours = Column(Float, nullable=True)
+
+    # Configuration
+    hedge_ratio = Column(Float, nullable=False)
+    transaction_fee = Column(Float, nullable=False)
+    slippage = Column(Float, nullable=False)
+
+    # Relationships
+    run = relationship("BacktestRun", backref="trades")
+
+    __table_args__ = (
+        Index("idx_backtest_trade_run_entry", "run_id_fk", "entry_timestamp"),
+        Index("idx_backtest_trade_market", "market_1", "market_2"),
+    )
+
+    def __repr__(self):
+        return f"<BacktestTrade {self.trade_id}>"
+
+
+class BacktestPosition(Base):
+    """Tracks open/closed positions during backtest for detailed analysis."""
+
+    __tablename__ = "backtest_positions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id_fk = Column(
+        Integer, ForeignKey("backtest_runs.id"), index=True, nullable=False
+    )
+
+    # Position identification
+    position_id = Column(String(100), unique=True, index=True, nullable=False)
+    market_1 = Column(String(50), nullable=False)
+    market_2 = Column(String(50), nullable=False)
+
+    # Status
+    status = Column(String(20), nullable=False)  # OPEN, CLOSED, FAILED
+    entry_timestamp = Column(DateTime, nullable=False)
+    close_timestamp = Column(DateTime, nullable=True)
+
+    # Position details
+    entry_price_1 = Column(Float, nullable=False)
+    entry_price_2 = Column(Float, nullable=False)
+    entry_z_score = Column(Float, nullable=False)
+    current_price_1 = Column(Float, nullable=True)
+    current_price_2 = Column(Float, nullable=True)
+    current_z_score = Column(Float, nullable=True)
+
+    # Sizes and sides
+    size_1 = Column(Float, nullable=False)
+    size_2 = Column(Float, nullable=False)
+    side_1 = Column(String(10), nullable=False)
+    side_2 = Column(String(10), nullable=False)
+    hedge_ratio = Column(Float, nullable=False)
+
+    # Performance
+    unrealized_pnl = Column(Float, nullable=True)
+    realized_pnl = Column(Float, nullable=True)
+
+    # Relationships
+    run = relationship("BacktestRun", backref="positions")
+
+    __table_args__ = (
+        Index("idx_backtest_position_run_time", "run_id_fk", "entry_timestamp"),
+        Index("idx_backtest_position_status", "run_id_fk", "status"),
+    )
+
+    def __repr__(self):
+        return f"<BacktestPosition {self.position_id} - {self.status}>"
+
+
+class BotSetting(Base):
+    """Stores bot configuration settings securely in database instead of YAML."""
+
+    __tablename__ = "bot_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Setting identification
+    section = Column(
+        String(50), nullable=False, index=True
+    )  # botSettings, backtesting, etc.
+    key = Column(String(100), nullable=False, index=True)
+
+    # Value storage
+    value = Column(String, nullable=False)  # JSON serialized
+    value_type = Column(String(20), nullable=False)  # string, float, int, boolean, json
+
+    # Metadata
+    description = Column(String, nullable=True)
+    default_value = Column(String, nullable=True)
+
+    # Active version tracking
+    is_active = Column(Boolean, default=True, index=True)
+    version = Column(Integer, default=1)  # For change tracking
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # User who made the change
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    __table_args__ = (
+        Index("idx_bot_setting_section_key", "section", "key"),
+        Index("idx_bot_setting_active", "is_active"),
+    )
+
+    def __repr__(self):
+        return f"<BotSetting {self.section}.{self.key}>"
+
+
 class AuditLog(Base):
     """Track system actions for audit trail."""
 

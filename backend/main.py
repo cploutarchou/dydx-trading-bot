@@ -33,7 +33,14 @@ from backend.auth import (
     extract_user_from_token,
     verify_token,
 )
-from backend.database import BacktestResult, TradeLog, get_db, init_db
+from backend.database import (
+    BacktestLog,
+    BacktestResult,
+    BacktestRun,
+    TradeLog,
+    get_db,
+    init_db,
+)
 from backend.services import AuditLogService, BacktestRunService, UserService
 from backend.ws_broadcaster import BacktestProgressUpdate, get_broadcaster
 
@@ -399,6 +406,11 @@ async def run_backtest(
 
         logger.info(f"Backtest {run_id} queued for user {current_user['user_id']}")
 
+        # Execute backtest in background
+        import asyncio
+
+        asyncio.create_task(_execute_backtest_task(run_id, request, db))
+
         return ApiResponse(
             success=True,
             message="Backtest started",
@@ -416,6 +428,68 @@ async def run_backtest(
         )
 
 
+async def _execute_backtest_task(
+    run_id: str, request: BacktestStartRequest, db: Session
+):
+    """Background task to execute backtest and create logs."""
+    import os
+    import sys
+    from datetime import datetime
+
+    from config import config
+    from func_backtest_logging import log_backtest_error, log_backtest_info
+    from func_backtesting import BacktestEngine
+    from func_connections import connect_dydx
+
+    # Add app directory to path
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
+
+    try:
+        log_backtest_info(run_id, "Backtest execution started", db)
+
+        # Get the integer ID from the database
+        run_record = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        if not run_record:
+            log_backtest_error(run_id, "BacktestRun record not found in database", db)
+            raise ValueError(f"BacktestRun with run_id {run_id} not found")
+
+        run_id_int = run_record.id  # Direct integer value
+        log_backtest_info(
+            run_id, f"Backtest execution started (DB ID: {run_id_int})", db
+        )
+
+        # Load configuration
+        cfg = config()
+        log_backtest_info(run_id, "Configuration loaded", db)
+
+        # Connect to dYdX client
+        try:
+            client = await connect_dydx()
+            log_backtest_info(run_id, "Connected to dYdX API", db)
+        except Exception as e:
+            log_backtest_error(run_id, f"Failed to connect to dYdX: {str(e)}", db)
+            raise
+
+        # Create backtest engine with logging (pass integer ID for database operations)
+        engine = BacktestEngine(
+            client, cfg, run_id=run_id, run_id_int=run_id_int, db=db
+        )  # type: ignore
+        log_backtest_info(run_id, "Backtest engine initialized", db)
+
+        # Run backtest
+        start_date = datetime.fromisoformat(request.start_date)
+        end_date = datetime.fromisoformat(request.end_date)
+        num_pairs = request.num_pairs or 10
+
+        await engine.run_backtest(start_date, end_date, num_pairs)
+
+        log_backtest_info(run_id, "Backtest execution completed successfully", db)
+
+    except Exception as e:
+        logger.error(f"Backtest execution failed: {e}")
+        log_backtest_error(run_id, f"Backtest execution failed: {str(e)}", db)
+
+
 @app.get("/api/v1/stats")
 async def get_stats(
     current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
@@ -423,6 +497,632 @@ async def get_stats(
     """Get backtest statistics."""
     stats = BacktestRunService.get_run_stats(db)
     return ApiResponse(success=True, message="Statistics retrieved", data=stats)
+
+
+@app.get("/api/v1/backtests/{run_id}/logs")
+async def get_backtest_logs(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get logs for a specific backtest run."""
+    try:
+        # Find the backtest run
+        run = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        if not run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Backtest run {run_id} not found",
+            )
+
+        # Get logs for this run, ordered by creation time
+        logs = (
+            db.query(BacktestLog)
+            .filter(BacktestLog.run_id_fk == run.id)
+            .order_by(BacktestLog.created_at.asc())
+            .all()
+        )
+
+        formatted_logs = [
+            {
+                "id": log.id,
+                "message": log.message,
+                "level": log.level,
+                "created_at": log.created_at.isoformat(),
+            }
+            for log in logs
+        ]
+
+        return ApiResponse(
+            success=True,
+            message="Logs retrieved",
+            data={
+                "run_id": run_id,
+                "logs": formatted_logs,
+                "count": len(formatted_logs),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching backtest logs: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch logs: {str(e)}",
+        )
+
+
+# ==================== SETTINGS ENDPOINTS ====================
+
+
+@app.get("/api/v1/settings/schema")
+async def get_settings_schema(
+    current_user: dict = Depends(get_current_user),
+):
+    """Get settings schema for UI generation."""
+    # Define complete settings schema matching config.yaml structure
+    schema = {
+        "sections": [
+            {
+                "section": "botSettings",
+                "title": "Bot Settings",
+                "description": "Core trading bot configuration",
+                "fields": [
+                    {
+                        "key": "ZScoreThreshold",
+                        "label": "Z-Score Threshold",
+                        "description": "Entry trigger when |Z-score| exceeds this value",
+                        "value_type": "float",
+                        "default_value": 1.5,
+                        "required": True,
+                        "min_value": 0.5,
+                        "max_value": 3.0,
+                    },
+                    {
+                        "key": "statsWindow",
+                        "label": "Stats Window (days)",
+                        "description": "Rolling window for Z-score calculation",
+                        "value_type": "int",
+                        "default_value": 21,
+                        "required": True,
+                        "min_value": 5,
+                        "max_value": 100,
+                    },
+                    {
+                        "key": "maxHalfLife",
+                        "label": "Max Half-Life (hours)",
+                        "description": "Maximum half-life for cointegration pairs",
+                        "value_type": "int",
+                        "default_value": 24,
+                        "required": True,
+                        "min_value": 1,
+                        "max_value": 168,
+                    },
+                    {
+                        "key": "usdPerTrade",
+                        "label": "USD Per Trade",
+                        "description": "Position size per trade in USD",
+                        "value_type": "float",
+                        "default_value": 10.0,
+                        "required": True,
+                        "min_value": 1.0,
+                        "max_value": 10000.0,
+                    },
+                    {
+                        "key": "usdMinCollateral",
+                        "label": "Min Collateral (USD)",
+                        "description": "Minimum account balance required",
+                        "value_type": "float",
+                        "default_value": 100.0,
+                        "required": True,
+                        "min_value": 50.0,
+                        "max_value": 100000.0,
+                    },
+                    {
+                        "key": "closeAtZscoreCross",
+                        "label": "Close at Z-Score Cross",
+                        "description": "Exit positions when Z-score crosses zero",
+                        "value_type": "boolean",
+                        "default_value": True,
+                        "required": True,
+                    },
+                    {
+                        "key": "abortAllPositions",
+                        "label": "Abort All Positions",
+                        "description": "Close all positions on startup",
+                        "value_type": "boolean",
+                        "default_value": False,
+                        "required": False,
+                    },
+                    {
+                        "key": "findCointegratedPairs",
+                        "label": "Find Cointegrated Pairs",
+                        "description": "Run statistical analysis for cointegration",
+                        "value_type": "boolean",
+                        "default_value": True,
+                        "required": True,
+                    },
+                    {
+                        "key": "placeTrades",
+                        "label": "Place Trades",
+                        "description": "Execute new trade orders",
+                        "value_type": "boolean",
+                        "default_value": True,
+                        "required": True,
+                    },
+                    {
+                        "key": "manageExits",
+                        "label": "Manage Exits",
+                        "description": "Monitor and close existing positions",
+                        "value_type": "boolean",
+                        "default_value": True,
+                        "required": True,
+                    },
+                ],
+            },
+            {
+                "section": "backtesting",
+                "title": "Backtesting",
+                "description": "Historical simulation parameters",
+                "fields": [
+                    {
+                        "key": "candleResolution",
+                        "label": "Candle Resolution",
+                        "description": "Candle timeframe for analysis",
+                        "value_type": "string",
+                        "default_value": "1HOUR",
+                        "required": True,
+                        "options": [
+                            "1MIN",
+                            "5MINS",
+                            "15MINS",
+                            "1HOUR",
+                            "4HOURS",
+                            "1DAY",
+                        ],
+                    },
+                    {
+                        "key": "maxHistoryDays",
+                        "label": "Max History (days)",
+                        "description": "Maximum lookback period",
+                        "value_type": "int",
+                        "default_value": 90,
+                        "required": True,
+                        "min_value": 7,
+                        "max_value": 365,
+                    },
+                    {
+                        "key": "startingBalance",
+                        "label": "Starting Balance (USD)",
+                        "description": "Initial capital for simulation",
+                        "value_type": "float",
+                        "default_value": 1000.0,
+                        "required": True,
+                        "min_value": 100.0,
+                        "max_value": 1000000.0,
+                    },
+                    {
+                        "key": "transactionFee",
+                        "label": "Transaction Fee",
+                        "description": "Fee per transaction (0.0005 = 0.05%)",
+                        "value_type": "float",
+                        "default_value": 0.0005,
+                        "required": True,
+                        "min_value": 0.0,
+                        "max_value": 0.01,
+                    },
+                    {
+                        "key": "slippage",
+                        "label": "Slippage",
+                        "description": "Estimated slippage per trade",
+                        "value_type": "float",
+                        "default_value": 0.001,
+                        "required": True,
+                        "min_value": 0.0,
+                        "max_value": 0.1,
+                    },
+                    {
+                        "key": "benchmarkSymbol",
+                        "label": "Benchmark Symbol",
+                        "description": "Market for Sharpe ratio calculation",
+                        "value_type": "string",
+                        "default_value": "BTC-USD",
+                        "required": False,
+                    },
+                    {
+                        "key": "riskFreeRate",
+                        "label": "Risk-Free Rate",
+                        "description": "Annual risk-free rate (0.02 = 2%)",
+                        "value_type": "float",
+                        "default_value": 0.02,
+                        "required": True,
+                        "min_value": 0.0,
+                        "max_value": 0.1,
+                    },
+                ],
+            },
+            {
+                "section": "logging",
+                "title": "Logging",
+                "description": "Log level and Loki integration",
+                "fields": [
+                    {
+                        "key": "level",
+                        "label": "Log Level",
+                        "description": "Logging verbosity",
+                        "value_type": "string",
+                        "default_value": "INFO",
+                        "required": True,
+                        "options": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                    },
+                    {
+                        "key": "lokiEnabled",
+                        "label": "Enable Loki",
+                        "description": "Send logs to Loki server",
+                        "value_type": "boolean",
+                        "default_value": False,
+                        "required": False,
+                    },
+                    {
+                        "key": "lokiUrl",
+                        "label": "Loki URL",
+                        "description": "Loki server endpoint",
+                        "value_type": "string",
+                        "default_value": "http://localhost:3100",
+                        "required": False,
+                        "placeholder": "http://localhost:3100",
+                    },
+                ],
+            },
+            {
+                "section": "telegram",
+                "title": "Telegram Notifications",
+                "description": "Real-time trade and error alerts",
+                "fields": [
+                    {
+                        "key": "enabled",
+                        "label": "Enable Telegram",
+                        "description": "Send notifications to Telegram",
+                        "value_type": "boolean",
+                        "default_value": False,
+                        "required": False,
+                    },
+                    {
+                        "key": "chatId",
+                        "label": "Chat ID",
+                        "description": "Telegram chat ID for messages",
+                        "value_type": "string",
+                        "required": False,
+                        "placeholder": "123456789",
+                    },
+                    {
+                        "key": "token",
+                        "label": "Bot Token",
+                        "description": "Telegram bot token",
+                        "value_type": "string",
+                        "required": False,
+                        "placeholder": "Your bot token",
+                    },
+                ],
+            },
+            {
+                "section": "dydx",
+                "title": "dYdX Connection",
+                "description": "Blockchain and exchange configuration",
+                "fields": [
+                    {
+                        "key": "isTestnet",
+                        "label": "Use Testnet",
+                        "description": "Connect to testnet or mainnet",
+                        "value_type": "boolean",
+                        "default_value": True,
+                        "required": True,
+                    },
+                    {
+                        "key": "chainId",
+                        "label": "Chain ID",
+                        "description": "dYdX chain identifier",
+                        "value_type": "string",
+                        "default_value": "dydx-testnet-1",
+                        "required": True,
+                        "options": ["dydx-testnet-1", "dydx-mainnet-1"],
+                    },
+                    {
+                        "key": "mnemonicSecretKey",
+                        "label": "Secret Phrase (Mnemonic)",
+                        "description": "BIP39 mnemonic seed phrase",
+                        "value_type": "string",
+                        "required": False,
+                        "placeholder": "Your 12 or 24-word mnemonic...",
+                    },
+                ],
+            },
+        ]
+    }
+    return schema
+
+
+@app.get("/api/v1/settings")
+async def get_settings(
+    section: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get bot settings from database, grouped by section."""
+    from backend.database import BotSetting
+
+    query = db.query(BotSetting).filter(BotSetting.is_active)
+
+    if section:
+        query = query.filter(BotSetting.section == section)
+
+    settings = query.all()
+
+    # Group by section
+    grouped = {}
+    for setting in settings:
+        if setting.section not in grouped:
+            grouped[setting.section] = []
+        grouped[setting.section].append(
+            {
+                "id": setting.id,
+                "key": setting.key,
+                "value": setting.value,
+                "value_type": setting.value_type,
+                "description": setting.description,
+                "default_value": setting.default_value,
+                "is_active": setting.is_active,
+                "version": setting.version,
+                "updated_at": setting.updated_at.isoformat(),
+            }
+        )
+
+    sections = [
+        {"section": section_name, "settings": section_settings}
+        for section_name, section_settings in grouped.items()
+    ]
+
+    return ApiResponse(
+        success=True,
+        message="Settings retrieved",
+        data={"sections": sections},
+    )
+
+
+@app.post("/api/v1/settings")
+async def update_settings(
+    updates: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update bot settings (batch update)."""
+    import json
+
+    from backend.database import BotSetting
+
+    updated_count = 0
+    errors: List[str] = []
+
+    # Parse updates: can be {section.key: value} or {section: {key: value}}
+    flat_updates = {}
+
+    for key, value in updates.items():
+        if "." in key:
+            flat_updates[key] = value
+        else:
+            # Nested format
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    flat_updates[f"{key}.{k}"] = v
+            else:
+                flat_updates[key] = value
+
+    for key_path, value in flat_updates.items():
+        try:
+            section, key = key_path.rsplit(".", 1)
+
+            # Find existing setting
+            setting = (
+                db.query(BotSetting)
+                .filter(
+                    BotSetting.section == section,
+                    BotSetting.key == key,
+                    BotSetting.is_active,
+                )
+                .first()
+            )
+
+            if not setting:
+                errors.append(f"Setting {key_path} not found")
+                continue
+
+            # Validate type conversion
+            if setting.value_type == "float":
+                value = float(value)
+            elif setting.value_type == "int":
+                value = int(value)
+            elif setting.value_type == "boolean":
+                value = str(value).lower() in ["true", "1", "yes"]
+
+            # Update setting (type is stored as string)
+            setting.value = (
+                json.dumps(value) if setting.value_type == "json" else str(value)
+            )
+            setting.updated_by = current_user["user_id"]
+            setting.version = setting.version + 1
+            setting.updated_at = datetime.utcnow()
+            updated_count += 1
+        except Exception as e:
+            errors.append(f"Error updating {key_path}: {str(e)}")
+
+    db.commit()
+
+    response_data: dict = {
+        "updated": updated_count,
+        "total": len(flat_updates),
+    }
+
+    if errors:
+        response_data["errors"] = errors  # type: ignore
+
+    return ApiResponse(
+        success=len(errors) == 0,
+        message=f"Updated {updated_count} settings"
+        if updated_count > 0
+        else "No settings updated",
+        data=response_data,
+    )
+
+
+# ==================== ANALYSIS ENDPOINTS ====================
+
+
+@app.get("/api/v1/backtests/{run_id}/trades")
+async def get_backtest_trades(
+    run_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get detailed trades from a backtest."""
+    from backend.database import BacktestTrade
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get trades
+    trades = (
+        db.query(BacktestTrade)
+        .filter(BacktestTrade.run_id_fk == run.id)
+        .order_by(BacktestTrade.entry_timestamp.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    total = db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run.id).count()
+
+    formatted_trades = []
+    for trade in trades:
+        formatted_trades.append(
+            {
+                "id": trade.id,
+                "trade_id": trade.trade_id,
+                "market_1": trade.market_1,
+                "market_2": trade.market_2,
+                "entry_timestamp": trade.entry_timestamp.isoformat(),
+                "exit_timestamp": trade.exit_timestamp.isoformat()
+                if trade.exit_timestamp is not None
+                else None,
+                "entry_price_1": trade.entry_price_1,
+                "entry_price_2": trade.entry_price_2,
+                "exit_price_1": trade.exit_price_1,
+                "exit_price_2": trade.exit_price_2,
+                "entry_z_score": trade.entry_z_score,
+                "exit_z_score": trade.exit_z_score,
+                "side_1": trade.side_1,
+                "side_2": trade.side_2,
+                "size_1": trade.size_1,
+                "size_2": trade.size_2,
+                "pnl": trade.pnl,
+                "pnl_pct": trade.pnl_pct,
+                "duration_hours": trade.duration_hours,
+            }
+        )
+
+    return ApiResponse(
+        success=True,
+        message="Trades retrieved",
+        data={
+            "run_id": run_id,
+            "trades": formatted_trades,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+
+@app.get("/api/v1/backtests/{run_id}/positions")
+async def get_backtest_positions(
+    run_id: str,
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get position history from a backtest."""
+    from backend.database import BacktestPosition
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get positions
+    query = db.query(BacktestPosition).filter(BacktestPosition.run_id_fk == run.id)
+
+    if status:
+        query = query.filter(BacktestPosition.status == status)
+
+    positions = (
+        query.order_by(BacktestPosition.entry_timestamp.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    total = query.count()
+
+    formatted_positions = []
+    for position in positions:
+        formatted_positions.append(
+            {
+                "id": position.id,
+                "position_id": position.position_id,
+                "market_1": position.market_1,
+                "market_2": position.market_2,
+                "status": position.status,
+                "entry_timestamp": position.entry_timestamp.isoformat(),
+                "close_timestamp": position.close_timestamp.isoformat()
+                if position.close_timestamp is not None
+                else None,
+                "entry_price_1": position.entry_price_1,
+                "entry_price_2": position.entry_price_2,
+                "current_price_1": position.current_price_1,
+                "current_price_2": position.current_price_2,
+                "size_1": position.size_1,
+                "size_2": position.size_2,
+                "side_1": position.side_1,
+                "side_2": position.side_2,
+                "unrealized_pnl": position.unrealized_pnl,
+                "realized_pnl": position.realized_pnl,
+            }
+        )
+
+    return ApiResponse(
+        success=True,
+        message="Positions retrieved",
+        data={
+            "run_id": run_id,
+            "positions": formatted_positions,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
 
 
 # ==================== WEBSOCKET ENDPOINTS ====================
@@ -440,11 +1140,13 @@ async def websocket_backtest_updates(
 
     if not token:
         logger.error("WebSocket connection rejected: no token provided")
+        await websocket.accept()  # Must accept before closing
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     if not verify_token(token, token_type="access"):
         logger.error("WebSocket connection rejected: token verification failed")
+        await websocket.accept()  # Must accept before closing
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

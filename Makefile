@@ -603,3 +603,19 @@ backtest-clean: ## Clean up old backtest results (keeps 20 most recent)
 	else \
 		echo "No backtest results directory found."; \
 	fi
+
+# ============================================================================
+# Task Queue/Worker Commands
+# ============================================================================
+
+worker-run: ## Run the task queue worker (processes background jobs)
+	@if [ ! -f "backend/main.py" ]; then \
+		echo "❌ Backend worker not found at backend/main.py"; \
+		exit 1; \
+	fi
+	@if [ ! -d ".venv" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup install' first."; \
+		exit 1; \
+	fi
+	@echo "🚀 Starting task queue worker..."
+	PYTHONPATH=. .venv/bin/python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000

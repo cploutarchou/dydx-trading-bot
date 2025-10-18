@@ -839,7 +839,117 @@ async def get_settings_schema(
             },
         ]
     }
-    return schema
+    return ApiResponse(success=True, message="Settings schema retrieved", data=schema)
+
+
+@app.post("/api/v1/settings/initialize")
+async def initialize_settings(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Initialize default settings in database if not already present."""
+    import json
+
+    from backend.database import BotSetting
+
+    # Define default settings matching the schema
+    default_settings = [
+        # Bot Settings section
+        (
+            "botSettings",
+            "ZScoreThreshold",
+            1.5,
+            "float",
+            "Entry trigger when |Z-score| exceeds this value",
+        ),
+        (
+            "botSettings",
+            "statsWindow",
+            21,
+            "int",
+            "Rolling window for Z-score calculation",
+        ),
+        (
+            "botSettings",
+            "maxHalfLife",
+            24,
+            "int",
+            "Maximum half-life for cointegration pairs",
+        ),
+        ("botSettings", "usdPerTrade", 10.0, "float", "Position size per trade in USD"),
+        (
+            "botSettings",
+            "usdMinCollateral",
+            100.0,
+            "float",
+            "Minimum account balance required",
+        ),
+        (
+            "botSettings",
+            "closeAtZscoreCross",
+            True,
+            "boolean",
+            "Exit positions when Z-score crosses zero",
+        ),
+        (
+            "botSettings",
+            "abortAllPositions",
+            False,
+            "boolean",
+            "Close all positions on startup",
+        ),
+        (
+            "botSettings",
+            "findCointegratedPairs",
+            True,
+            "boolean",
+            "Run statistical analysis for cointegration",
+        ),
+        ("botSettings", "placeTrades", True, "boolean", "Execute new trade orders"),
+        (
+            "botSettings",
+            "manageExits",
+            True,
+            "boolean",
+            "Monitor and close existing positions",
+        ),
+    ]
+
+    created_count = 0
+    for section, key, default_value, value_type, description in default_settings:
+        # Check if setting already exists
+        existing = (
+            db.query(BotSetting)
+            .filter(
+                BotSetting.section == section,
+                BotSetting.key == key,
+            )
+            .first()
+        )
+
+        if not existing:
+            # Create new setting with default value
+            new_setting = BotSetting(
+                section=section,
+                key=key,
+                value=json.dumps(default_value)
+                if value_type == "json"
+                else str(default_value),
+                value_type=value_type,
+                description=description,
+                default_value=str(default_value),
+                is_active=True,
+            )
+            db.add(new_setting)
+            created_count += 1
+
+    db.commit()
+
+    return ApiResponse(
+        success=True,
+        message=f"Settings initialized. Created {created_count} new settings.",
+        data={"created_count": created_count},
+    )
 
 
 @app.get("/api/v1/settings")
@@ -857,6 +967,98 @@ async def get_settings(
         query = query.filter(BotSetting.section == section)
 
     settings = query.all()
+
+    # If database is empty, return schema defaults
+    if not settings:
+        # Get schema defaults
+        schema = {
+            "sections": [
+                {
+                    "section": "botSettings",
+                    "title": "Bot Settings",
+                    "description": "Core trading bot configuration",
+                    "fields": [
+                        {
+                            "key": "ZScoreThreshold",
+                            "default_value": 1.5,
+                            "value_type": "float",
+                        },
+                        {
+                            "key": "statsWindow",
+                            "default_value": 21,
+                            "value_type": "int",
+                        },
+                        {
+                            "key": "maxHalfLife",
+                            "default_value": 24,
+                            "value_type": "int",
+                        },
+                        {
+                            "key": "usdPerTrade",
+                            "default_value": 10.0,
+                            "value_type": "float",
+                        },
+                        {
+                            "key": "usdMinCollateral",
+                            "default_value": 100.0,
+                            "value_type": "float",
+                        },
+                        {
+                            "key": "closeAtZscoreCross",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "abortAllPositions",
+                            "default_value": False,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "findCointegratedPairs",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "placeTrades",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "manageExits",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        sections_response = []
+        for schema_section in schema["sections"]:
+            section_data = {
+                "section": schema_section["section"],
+                "settings": [
+                    {
+                        "id": 0,
+                        "key": field["key"],
+                        "value": field["default_value"],
+                        "value_type": field["value_type"],
+                        "description": "",
+                        "default_value": field["default_value"],
+                        "is_active": True,
+                        "version": 1,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    }
+                    for field in schema_section["fields"]
+                ],
+            }
+            sections_response.append(section_data)
+
+        return ApiResponse(
+            success=True,
+            message="Settings retrieved (using defaults)",
+            data={"sections": sections_response},
+        )
 
     # Group by section
     grouped = {}
@@ -932,25 +1134,50 @@ async def update_settings(
                 .first()
             )
 
-            if not setting:
-                errors.append(f"Setting {key_path} not found")
-                continue
+            # Determine value type (from existing setting or infer from value)
+            if setting:
+                value_type = setting.value_type
+            else:
+                # Infer type from value
+                if isinstance(value, bool):
+                    value_type = "boolean"
+                elif isinstance(value, int):
+                    value_type = "int"
+                elif isinstance(value, float):
+                    value_type = "float"
+                else:
+                    value_type = "string"
 
             # Validate type conversion
-            if setting.value_type == "float":
+            if value_type == "float":
                 value = float(value)
-            elif setting.value_type == "int":
+            elif value_type == "int":
                 value = int(value)
-            elif setting.value_type == "boolean":
+            elif value_type == "boolean":
                 value = str(value).lower() in ["true", "1", "yes"]
 
-            # Update setting (type is stored as string)
-            setting.value = (
-                json.dumps(value) if setting.value_type == "json" else str(value)
-            )
-            setting.updated_by = current_user["user_id"]
-            setting.version = setting.version + 1
-            setting.updated_at = datetime.utcnow()
+            # Update existing or create new setting
+            if setting:
+                setting.value = (
+                    json.dumps(value) if value_type == "json" else str(value)
+                )
+                setting.updated_by = current_user["user_id"]
+                setting.version += 1
+                setting.updated_at = datetime.utcnow()
+            else:
+                # Create new setting
+                setting = BotSetting(
+                    section=section,
+                    key=key,
+                    value=json.dumps(value) if value_type == "json" else str(value),
+                    value_type=value_type,
+                    description="",
+                    default_value=str(value),
+                    is_active=True,
+                    updated_by=current_user["user_id"],
+                )
+                db.add(setting)
+
             updated_count += 1
         except Exception as e:
             errors.append(f"Error updating {key_path}: {str(e)}")
@@ -1121,6 +1348,245 @@ async def get_backtest_positions(
             "total": total,
             "limit": limit,
             "offset": offset,
+        },
+    )
+
+
+# ==================== TASK 17: ANALYTICS ENDPOINTS ====================
+
+
+@app.get("/api/v1/backtests/{run_id}/performance")
+async def get_backtest_performance(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get comprehensive performance metrics for a backtest."""
+    from backend.database import BacktestTrade
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Query all trades for this run
+    trades = db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run.id).all()
+
+    if not trades:
+        return ApiResponse(
+            success=True,
+            message="Performance metrics retrieved",
+            data={
+                "run_id": run_id,
+                "total_trades": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "win_rate": 0.0,
+                "total_pnl": 0.0,
+                "average_pnl": 0.0,
+                "max_win": 0.0,
+                "max_loss": 0.0,
+                "sharpe_ratio": 0.0,
+                "max_drawdown": 0.0,
+                "average_duration": 0.0,
+            },
+        )
+
+    # Extract numeric values from trades
+    pnl_values = []
+    for t in trades:
+        pnl = getattr(t, "pnl", None)
+        if pnl is not None:
+            pnl_values.append(float(pnl))  # type: ignore
+        else:
+            pnl_values.append(0.0)
+
+    # Calculate metrics
+    import statistics
+
+    total_trades = len(trades)
+    winning_trades = sum(1 for p in pnl_values if p > 0)
+    losing_trades = sum(1 for p in pnl_values if p < 0)
+    total_pnl = sum(pnl_values)
+    avg_pnl = total_pnl / total_trades if total_trades > 0 else 0.0
+    max_win = max(pnl_values) if pnl_values else 0.0
+    max_loss = min(pnl_values) if pnl_values else 0.0
+    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+    # Calculate Sharpe ratio
+    if len(pnl_values) > 1:
+        std_dev = statistics.stdev(pnl_values)
+        sharpe_ratio = (avg_pnl / std_dev) if std_dev > 0 else 0.0
+    else:
+        sharpe_ratio = 0.0
+
+    # Calculate max drawdown
+    cumulative_pnl = 0
+    peak = 0
+    max_dd = 0
+    for pnl in pnl_values:
+        cumulative_pnl += pnl
+        if cumulative_pnl > peak:
+            peak = cumulative_pnl
+        drawdown = peak - cumulative_pnl
+        if drawdown > max_dd:
+            max_dd = drawdown
+
+    max_drawdown = max_dd
+
+    # Average trade duration
+    durations = []
+    for t in trades:
+        duration = getattr(t, "duration_hours", None)
+        if duration is not None:
+            durations.append(float(duration))  # type: ignore
+    avg_duration = sum(durations) / len(durations) if durations else 0.0
+
+    return ApiResponse(
+        success=True,
+        message="Performance metrics retrieved",
+        data={
+            "run_id": run_id,
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "win_rate": float(round(win_rate, 2)),
+            "total_pnl": float(round(total_pnl, 2)),
+            "average_pnl": float(round(avg_pnl, 2)),
+            "max_win": float(round(max_win, 2)),
+            "max_loss": float(round(max_loss, 2)),
+            "sharpe_ratio": float(round(sharpe_ratio, 4)),
+            "max_drawdown": float(round(max_drawdown, 2)),
+            "average_duration": float(round(avg_duration, 2)),
+        },
+    )
+
+
+@app.get("/api/v1/backtests/{run_id}/trades/{trade_id}")
+async def get_backtest_trade_detail(
+    run_id: str,
+    trade_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get detailed information about a specific trade."""
+    from backend.database import BacktestTrade
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get trade
+    trade = (
+        db.query(BacktestTrade)
+        .filter(BacktestTrade.run_id_fk == run.id, BacktestTrade.id == trade_id)
+        .first()
+    )
+
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+        return ApiResponse(
+            success=True,
+            message="Trade details retrieved",
+            data={
+                "id": trade.id,
+                "trade_id": trade.trade_id,
+                "run_id": run_id,
+                "market_1": trade.market_1,
+                "market_2": trade.market_2,
+                "entry_timestamp": trade.entry_timestamp.isoformat(),
+                "exit_timestamp": trade.exit_timestamp.isoformat()
+                if trade.exit_timestamp is not None
+                else None,  # type: ignore
+                "entry_price_1": trade.entry_price_1,
+                "entry_price_2": trade.entry_price_2,
+                "exit_price_1": trade.exit_price_1,
+                "exit_price_2": trade.exit_price_2,
+                "entry_z_score": trade.entry_z_score,
+                "exit_z_score": trade.exit_z_score,
+                "side_1": trade.side_1,
+                "side_2": trade.side_2,
+                "size_1": trade.size_1,
+                "size_2": trade.size_2,
+                "hedge_ratio": trade.hedge_ratio,
+                "pnl": trade.pnl,
+                "pnl_pct": trade.pnl_pct,
+                "duration_hours": trade.duration_hours,
+                "transaction_fee": trade.transaction_fee,
+                "slippage": trade.slippage,
+            },
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/summary")
+async def get_backtest_summary(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get summary statistics for a backtest run."""
+    from backend.database import BacktestTrade
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Count trades
+    total_trades = (
+        db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run.id).count()
+    )
+
+    # Get date range
+    trades = db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run.id).all()
+
+    if trades:
+        earliest_date = min(t.entry_timestamp for t in trades)
+        latest_date = max(t.exit_timestamp or t.entry_timestamp for t in trades)
+    else:
+        earliest_date = None
+        latest_date = None
+
+    return ApiResponse(
+        success=True,
+        message="Backtest summary retrieved",
+        data={
+            "run_id": run_id,
+            "status": run.status,
+            "created_at": run.created_at.isoformat(),
+            "started_at": run.started_at.isoformat()
+            if run.started_at is not None
+            else None,  # type: ignore
+            "completed_at": run.completed_at.isoformat()
+            if run.completed_at is not None
+            else None,  # type: ignore
+            "total_trades": total_trades,
+            "earliest_trade_date": earliest_date.isoformat()
+            if earliest_date is not None
+            else None,  # type: ignore
+            "latest_trade_date": latest_date.isoformat()
+            if latest_date is not None
+            else None,  # type: ignore
+            "configuration": {
+                "num_pairs": getattr(run, "num_pairs", None),
+                "zscore_threshold": getattr(run, "zscore_threshold", None),
+                "stats_window": getattr(run, "stats_window", None),
+                "usd_per_trade": getattr(run, "usd_per_trade", None),
+            },
         },
     )
 

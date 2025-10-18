@@ -839,7 +839,117 @@ async def get_settings_schema(
             },
         ]
     }
-    return schema
+    return ApiResponse(success=True, message="Settings schema retrieved", data=schema)
+
+
+@app.post("/api/v1/settings/initialize")
+async def initialize_settings(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Initialize default settings in database if not already present."""
+    import json
+
+    from backend.database import BotSetting
+
+    # Define default settings matching the schema
+    default_settings = [
+        # Bot Settings section
+        (
+            "botSettings",
+            "ZScoreThreshold",
+            1.5,
+            "float",
+            "Entry trigger when |Z-score| exceeds this value",
+        ),
+        (
+            "botSettings",
+            "statsWindow",
+            21,
+            "int",
+            "Rolling window for Z-score calculation",
+        ),
+        (
+            "botSettings",
+            "maxHalfLife",
+            24,
+            "int",
+            "Maximum half-life for cointegration pairs",
+        ),
+        ("botSettings", "usdPerTrade", 10.0, "float", "Position size per trade in USD"),
+        (
+            "botSettings",
+            "usdMinCollateral",
+            100.0,
+            "float",
+            "Minimum account balance required",
+        ),
+        (
+            "botSettings",
+            "closeAtZscoreCross",
+            True,
+            "boolean",
+            "Exit positions when Z-score crosses zero",
+        ),
+        (
+            "botSettings",
+            "abortAllPositions",
+            False,
+            "boolean",
+            "Close all positions on startup",
+        ),
+        (
+            "botSettings",
+            "findCointegratedPairs",
+            True,
+            "boolean",
+            "Run statistical analysis for cointegration",
+        ),
+        ("botSettings", "placeTrades", True, "boolean", "Execute new trade orders"),
+        (
+            "botSettings",
+            "manageExits",
+            True,
+            "boolean",
+            "Monitor and close existing positions",
+        ),
+    ]
+
+    created_count = 0
+    for section, key, default_value, value_type, description in default_settings:
+        # Check if setting already exists
+        existing = (
+            db.query(BotSetting)
+            .filter(
+                BotSetting.section == section,
+                BotSetting.key == key,
+            )
+            .first()
+        )
+
+        if not existing:
+            # Create new setting with default value
+            new_setting = BotSetting(
+                section=section,
+                key=key,
+                value=json.dumps(default_value)
+                if value_type == "json"
+                else str(default_value),
+                value_type=value_type,
+                description=description,
+                default_value=str(default_value),
+                is_active=True,
+            )
+            db.add(new_setting)
+            created_count += 1
+
+    db.commit()
+
+    return ApiResponse(
+        success=True,
+        message=f"Settings initialized. Created {created_count} new settings.",
+        data={"created_count": created_count},
+    )
 
 
 @app.get("/api/v1/settings")
@@ -857,6 +967,98 @@ async def get_settings(
         query = query.filter(BotSetting.section == section)
 
     settings = query.all()
+
+    # If database is empty, return schema defaults
+    if not settings:
+        # Get schema defaults
+        schema = {
+            "sections": [
+                {
+                    "section": "botSettings",
+                    "title": "Bot Settings",
+                    "description": "Core trading bot configuration",
+                    "fields": [
+                        {
+                            "key": "ZScoreThreshold",
+                            "default_value": 1.5,
+                            "value_type": "float",
+                        },
+                        {
+                            "key": "statsWindow",
+                            "default_value": 21,
+                            "value_type": "int",
+                        },
+                        {
+                            "key": "maxHalfLife",
+                            "default_value": 24,
+                            "value_type": "int",
+                        },
+                        {
+                            "key": "usdPerTrade",
+                            "default_value": 10.0,
+                            "value_type": "float",
+                        },
+                        {
+                            "key": "usdMinCollateral",
+                            "default_value": 100.0,
+                            "value_type": "float",
+                        },
+                        {
+                            "key": "closeAtZscoreCross",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "abortAllPositions",
+                            "default_value": False,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "findCointegratedPairs",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "placeTrades",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                        {
+                            "key": "manageExits",
+                            "default_value": True,
+                            "value_type": "boolean",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        sections_response = []
+        for schema_section in schema["sections"]:
+            section_data = {
+                "section": schema_section["section"],
+                "settings": [
+                    {
+                        "id": 0,
+                        "key": field["key"],
+                        "value": field["default_value"],
+                        "value_type": field["value_type"],
+                        "description": "",
+                        "default_value": field["default_value"],
+                        "is_active": True,
+                        "version": 1,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    }
+                    for field in schema_section["fields"]
+                ],
+            }
+            sections_response.append(section_data)
+
+        return ApiResponse(
+            success=True,
+            message="Settings retrieved (using defaults)",
+            data={"sections": sections_response},
+        )
 
     # Group by section
     grouped = {}
@@ -932,25 +1134,50 @@ async def update_settings(
                 .first()
             )
 
-            if not setting:
-                errors.append(f"Setting {key_path} not found")
-                continue
+            # Determine value type (from existing setting or infer from value)
+            if setting:
+                value_type = setting.value_type
+            else:
+                # Infer type from value
+                if isinstance(value, bool):
+                    value_type = "boolean"
+                elif isinstance(value, int):
+                    value_type = "int"
+                elif isinstance(value, float):
+                    value_type = "float"
+                else:
+                    value_type = "string"
 
             # Validate type conversion
-            if setting.value_type == "float":
+            if value_type == "float":
                 value = float(value)
-            elif setting.value_type == "int":
+            elif value_type == "int":
                 value = int(value)
-            elif setting.value_type == "boolean":
+            elif value_type == "boolean":
                 value = str(value).lower() in ["true", "1", "yes"]
 
-            # Update setting (type is stored as string)
-            setting.value = (
-                json.dumps(value) if setting.value_type == "json" else str(value)
-            )
-            setting.updated_by = current_user["user_id"]
-            setting.version = setting.version + 1
-            setting.updated_at = datetime.utcnow()
+            # Update existing or create new setting
+            if setting:
+                setting.value = (
+                    json.dumps(value) if value_type == "json" else str(value)
+                )
+                setting.updated_by = current_user["user_id"]
+                setting.version += 1
+                setting.updated_at = datetime.utcnow()
+            else:
+                # Create new setting
+                setting = BotSetting(
+                    section=section,
+                    key=key,
+                    value=json.dumps(value) if value_type == "json" else str(value),
+                    value_type=value_type,
+                    description="",
+                    default_value=str(value),
+                    is_active=True,
+                    updated_by=current_user["user_id"],
+                )
+                db.add(setting)
+
             updated_count += 1
         except Exception as e:
             errors.append(f"Error updating {key_path}: {str(e)}")

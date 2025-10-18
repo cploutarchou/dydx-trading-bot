@@ -149,6 +149,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getBacktestLogs(runId: string): Promise<ApiResponse> {
+    const response = await this.client.get<ApiResponse>(`/api/v1/backtests/${runId}/logs`);
+    return response.data;
+  }
+
   // WebSocket connection for real-time updates
   connectBacktestSocket(runId: string, token: string): WebSocket {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

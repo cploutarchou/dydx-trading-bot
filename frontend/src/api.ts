@@ -154,6 +154,56 @@ class ApiClient {
     return response.data;
   }
 
+  // Settings endpoints
+  async getSettingsSchema(): Promise<ApiResponse> {
+    const response = await this.client.get<ApiResponse>('/api/v1/settings/schema');
+    return response.data;
+  }
+
+  async getSettings(section?: string): Promise<ApiResponse> {
+    const url = section ? `/api/v1/settings?section=${section}` : '/api/v1/settings';
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
+  async updateSettings(updates: Record<string, any>): Promise<ApiResponse> {
+    const response = await this.client.post<ApiResponse>('/api/v1/settings', updates);
+    return response.data;
+  }
+
+  async initializeSettings(): Promise<ApiResponse> {
+    const response = await this.client.post<ApiResponse>('/api/v1/settings/initialize', {});
+    return response.data;
+  }
+
+  async getBacktestPerformance(runId: string): Promise<ApiResponse> {
+    const response = await this.client.get<ApiResponse>(
+      `/api/v1/backtests/${runId}/performance`
+    );
+    return response.data;
+  }
+
+  async getBacktestTrades(runId: string, limit: number = 100, offset: number = 0): Promise<ApiResponse> {
+    const response = await this.client.get<ApiResponse>(
+      `/api/v1/backtests/${runId}/trades?limit=${limit}&offset=${offset}`
+    );
+    return response.data;
+  }
+
+  async getBacktestTrade(runId: string, tradeId: string): Promise<ApiResponse> {
+    const response = await this.client.get<ApiResponse>(
+      `/api/v1/backtests/${runId}/trades/${tradeId}`
+    );
+    return response.data;
+  }
+
+  async getBacktestSummary(runId: string): Promise<ApiResponse> {
+    const response = await this.client.get<ApiResponse>(
+      `/api/v1/backtests/${runId}/summary`
+    );
+    return response.data;
+  }
+
   // WebSocket connection for real-time updates
   connectBacktestSocket(runId: string, token: string): WebSocket {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

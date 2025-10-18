@@ -54,7 +54,7 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
              │
         ┌────▼─────────────────────┐
         │   Backend API            │
-        │   http://localhost:8000  │
+        │   http://localhost:8888  │
         └─────────────────────────┘
              │
         ┌────▼────┬──────────┬────────────┐
@@ -296,7 +296,7 @@ class ApiClient {
 - **JWT Interceptor**: Automatically attaches token to every request
 - **Error Handling**: Extracts error messages, handles 401 (logout + redirect)
 - **Debug Logging**: Emoji-prefixed logs (🔐, 📊, 🔌, ❌) for filtering
-- **Base URL**: Automatically set from environment: `http://localhost:8000/api/v1/`
+- **Base URL**: Automatically set from environment: `http://localhost:8888/api/v1/`
 
 ### Error Handling
 
@@ -374,7 +374,7 @@ if (error) return <div className="bg-red-900 border-red-700 p-4">Error: {error}<
 ### Development (.env.local)
 
 ```bash
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8888
 ```
 
 ### Production (.env.production)

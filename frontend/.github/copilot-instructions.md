@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-React 19 + TypeScript + Vite frontend for **dYdX pairs trading backtest system** - a statistical arbitrage backtesting UI for cryptocurrency pairs trading. This is the complete frontend implementation; the backend API runs separately on `localhost:8000`.
+React 19 + TypeScript + Vite frontend for **dYdX pairs trading backtest system** - a statistical arbitrage backtesting UI for cryptocurrency pairs trading. This is the complete frontend implementation; the backend API runs separately on `localhost:8888`.
 
 ## Architecture & Tech Stack
 
@@ -220,7 +220,7 @@ All Recharts visualizations follow this structure - responsive containers with d
 
 ```bash
 # .env.local (development)
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8888
 
 # Production uses VITE_API_URL from environment at build time
 ```

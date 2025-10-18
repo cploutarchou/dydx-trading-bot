@@ -178,7 +178,7 @@ docker-compose down         # Stop services
 Create `.env.local`:
 
 ```bash
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8888
 ```
 
 ### Ports
@@ -187,7 +187,7 @@ VITE_API_URL=http://localhost:8000
 |------|---------|
 | 5173 | Dev server |
 | 3000 | Production server |
-| 8000 | Backend API |
+| 8888 | Backend API |
 | 5432 | PostgreSQL |
 | 6379 | Redis |
 

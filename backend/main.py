@@ -38,6 +38,7 @@ from backend.database import (
     BacktestResult,
     BacktestRun,
     TradeLog,
+    User,
     get_db,
     init_db,
 )
@@ -73,6 +74,14 @@ class BacktestStatusUpdate(BaseModel):
     progress: Optional[float] = None  # 0-100
     message: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProfileUpdate(BaseModel):
+    """Profile update request."""
+
+    full_name: Optional[str] = Field(None, description="Full name (max 100 chars)")
+    email: Optional[str] = Field(None, description="Email address")
+    avatar: Optional[str] = Field(None, description="Base64 encoded image")
 
 
 class ApiResponse(BaseModel):
@@ -233,6 +242,85 @@ async def get_current_user_info(
     """Get current user profile."""
     user = UserService.get_user_by_id(db, current_user["user_id"])
     return user
+
+
+@app.put("/api/v1/profile", response_model=ApiResponse)
+async def update_profile(
+    profile_data: ProfileUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update current user profile (full_name, email, avatar)."""
+    try:
+        user = UserService.get_user_by_id(db, current_user["user_id"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
+
+        # Update fields if provided
+        if profile_data.full_name is not None:
+            user.full_name = profile_data.full_name.strip()[:100]  # Max 100 chars
+
+        if profile_data.email is not None:
+            # Check if email is already taken by another user
+            existing_user = (
+                db.query(User)
+                .filter(User.email == profile_data.email, User.id != user.id)
+                .first()
+            )
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already in use",
+                )
+            user.email = profile_data.email
+
+        if profile_data.avatar is not None:
+            user.avatar = profile_data.avatar
+
+        user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+
+        # Log the action
+        AuditLogService.log_action(
+            db,
+            action="profile_update",
+            resource_type="user",
+            user_id=user.id,
+            details="Profile updated (full_name, email, avatar)",
+        )
+
+        return ApiResponse(
+            success=True,
+            message="Profile updated successfully",
+            data={
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "avatar": user.avatar,
+                    "is_active": user.is_active,
+                    "is_admin": user.is_admin,
+                    "created_at": user.created_at.isoformat()
+                    if user.created_at is not None
+                    else None,
+                    "last_login": user.last_login.isoformat()
+                    if user.last_login is not None
+                    else None,
+                }
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating profile: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ==================== BACKTEST ENDPOINTS ====================

@@ -1,7 +1,8 @@
 /**
  * Settings Page - Bot Configuration Management
  * 
- * Allows users to view and modify bot settings:
+ * Allows users to view and modify:
+ * - Profile Settings (avatar, name, email)
  * - Bot Settings (Z-score threshold, stats window, USD per trade, etc.)
  * - Backtesting (candle resolution, history days, starting balance, etc.)
  * - Logging (log level, Loki integration)
@@ -11,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import apiClient from '../api';
+import { ProfileSettings } from '../components/ProfileSettings';
 
 interface SettingField {
   key: string;
@@ -51,7 +53,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
-  const [activeSection, setActiveSection] = useState<string>('botSettings');
+  const [activeSection, setActiveSection] = useState<string>('profile');
 
   useEffect(() => {
     fetchSettingsData();
@@ -169,6 +171,24 @@ export default function Settings() {
     setFormValues(formVals);
   };
 
+  const handleSaveProfile = async () => {
+    try {
+      setMessage(null);
+      // TODO: Implement API call to save profile
+      // const response = await apiClient.updateProfile(profileData);
+      // For now, just show success message
+      setMessage({
+        type: 'success',
+        text: 'Profile would be saved (API endpoint pending)',
+      });
+    } catch (error: any) {
+      setMessage({
+        type: 'error',
+        text: error.message || 'Failed to save profile',
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -221,6 +241,20 @@ export default function Settings() {
         <div className="lg:col-span-1">
           <div className="bg-slate-800 rounded-lg shadow border border-slate-700">
             <nav className="space-y-1">
+              {/* Profile Section (Always First) */}
+              <button
+                onClick={() => setActiveSection('profile')}
+                className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${
+                  activeSection === 'profile'
+                    ? 'bg-blue-600 text-white border-l-4 border-blue-400'
+                    : 'text-gray-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <div className="font-semibold">👤 Profile</div>
+                <div className="text-xs opacity-75">Account & Avatar</div>
+              </button>
+
+              {/* Bot Settings Sections */}
               {schema.sections.map((section) => (
                 <button
                   key={section.section}
@@ -241,6 +275,12 @@ export default function Settings() {
 
         {/* Settings Form */}
         <div className="lg:col-span-3">
+          {/* Profile Settings Panel */}
+          {activeSection === 'profile' && (
+            <ProfileSettings onSave={handleSaveProfile} />
+          )}
+
+          {/* Bot Settings Panel */}
           {currentSection && (
             <div className="bg-slate-800 rounded-lg shadow p-6 border border-slate-700">
               {/* Section Header */}

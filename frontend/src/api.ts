@@ -119,6 +119,11 @@ class ApiClient {
     return response.data;
   }
 
+  async updateProfile(data: any): Promise<ApiResponse> {
+    const response = await this.client.put<ApiResponse>('/api/v1/profile', data);
+    return response.data;
+  }
+
   // Backtest endpoints
   async listBacktests(skip: number = 0, limit: number = 50): Promise<ApiResponse> {
     const response = await this.client.get<ApiResponse>(

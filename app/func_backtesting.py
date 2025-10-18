@@ -11,6 +11,11 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import pandas as pd
+from func_backtest_logging import (
+    log_backtest_debug,
+    log_backtest_info,
+    log_backtest_warning,
+)
 
 # func_public import removed - using direct API calls for backtesting
 from models.backtest_models import (
@@ -19,6 +24,19 @@ from models.backtest_models import (
     BacktestTrade,
     calculate_backtest_metrics,
 )
+from sqlalchemy.orm import Session
+
+# Database helpers for persistence
+try:
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from backend.backtest_helpers import save_backtest_position, save_backtest_trade
+except ImportError:
+    # Helpers not available (e.g., in standalone testing)
+    save_backtest_position = None
+    save_backtest_trade = None
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +49,20 @@ class BacktestEngine:
     but simulates execution on historical data instead of placing real trades.
     """
 
-    def __init__(self, client, config):
+    def __init__(
+        self,
+        client,
+        config,
+        run_id: Optional[str] = None,
+        run_id_int: Optional[int] = None,
+        db: Optional[Session] = None,
+    ):
         self.client = client
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.run_id = run_id  # For logging to database (string UUID)
+        self.run_id_int = run_id_int  # Integer database ID for helper function calls
+        self.db = db  # Database session for storing logs
 
         # Initialize simulation state
         self.starting_balance = config.backtesting.startingBalance
@@ -53,22 +81,35 @@ class BacktestEngine:
         self.completed_trades = []
         self.price_data = {}  # Cache for historical prices
 
-    async def run_backtest(self, start_date: datetime, end_date: datetime,
-                           max_pairs: Optional[int] = None) -> BacktestResult:
+    async def run_backtest(
+        self, start_date: datetime, end_date: datetime, max_pairs: Optional[int] = None
+    ) -> BacktestResult:
         """
         Run complete backtesting simulation.
 
         Args:
             start_date: Start date for backtesting
-            end_date: End date for backtesting  
+            end_date: End date for backtesting
             max_pairs: Maximum number of pairs to trade
 
         Returns:
             BacktestResult with performance metrics and trade history
         """
         pairs_info = "ALL" if max_pairs is None else str(max_pairs)
-        self.logger.info("Starting backtest: %s to %s (%s max pairs)",
-                         start_date.date(), end_date.date(), pairs_info)
+        self.logger.info(
+            "Starting backtest: %s to %s (%s max pairs)",
+            start_date.date(),
+            end_date.date(),
+            pairs_info,
+        )
+
+        # Log to database
+        if self.run_id and self.db:
+            log_backtest_info(
+                self.run_id,
+                f"Backtest started: {start_date.date()} to {end_date.date()} ({pairs_info} max pairs)",
+                self.db,
+            )
 
         # Store dates for use in data loading
         self.start_date = start_date
@@ -76,20 +117,36 @@ class BacktestEngine:
 
         try:
             # Step 1: Load historical market data
+            if self.run_id and self.db:
+                log_backtest_info(
+                    self.run_id, "Loading historical price data...", self.db
+                )
             await self._load_historical_data()
 
             # Step 2: Find cointegrated pairs (using existing logic)
+            if self.run_id and self.db:
+                log_backtest_info(self.run_id, "Finding cointegrated pairs...", self.db)
             cointegrated_pairs = await self._find_cointegrated_pairs(
                 start_date, max_pairs
             )
 
             if not cointegrated_pairs:
-                self.logger.warning(
-                    "No cointegrated pairs found for backtesting")
+                self.logger.warning("No cointegrated pairs found for backtesting")
+                if self.run_id and self.db:
+                    log_backtest_warning(
+                        self.run_id, "No cointegrated pairs found", self.db
+                    )
                 return self._create_empty_result(start_date, end_date)
 
-            self.logger.info("Found %d cointegrated pairs for backtesting",
-                             len(cointegrated_pairs))
+            self.logger.info(
+                "Found %d cointegrated pairs for backtesting", len(cointegrated_pairs)
+            )
+            if self.run_id and self.db:
+                log_backtest_info(
+                    self.run_id,
+                    f"Found {len(cointegrated_pairs)} cointegrated pairs",
+                    self.db,
+                )
 
             # Step 3: Simulate trading day by day
             current_date = start_date
@@ -102,10 +159,25 @@ class BacktestEngine:
 
                 # Progress logging every 10 days
                 if simulation_days % 10 == 0:
-                    self.logger.info("Backtest progress: %d days, %d open positions",
-                                     simulation_days, len(self.open_positions))
+                    self.logger.info(
+                        "Backtest progress: %d days, %d open positions",
+                        simulation_days,
+                        len(self.open_positions),
+                    )
+                    if self.run_id and self.db:
+                        log_backtest_debug(
+                            self.run_id,
+                            f"Progress: {simulation_days} days, {len(self.open_positions)} open positions",
+                            self.db,
+                        )
 
             # Step 4: Close any remaining open positions at end date
+            if self.run_id and self.db:
+                log_backtest_info(
+                    self.run_id,
+                    f"Closing remaining {len(self.open_positions)} positions at backtest end",
+                    self.db,
+                )
             await self._close_remaining_positions(end_date)
 
             # Step 5: Calculate performance metrics
@@ -124,11 +196,22 @@ class BacktestEngine:
                 metrics=metrics,
                 trades=self.completed_trades,
                 config_snapshot=self._get_config_snapshot(),
-                analysis_timestamp=datetime.now().isoformat()
+                analysis_timestamp=datetime.now().isoformat(),
             )
 
-            self.logger.info("Backtest completed: $%.2f PnL, %d trades, %.1f%% win rate",
-                             metrics.total_pnl, metrics.total_trades, metrics.win_rate)
+            self.logger.info(
+                "Backtest completed: $%.2f PnL, %d trades, %.1f%% win rate",
+                metrics.total_pnl,
+                metrics.total_trades,
+                metrics.win_rate,
+            )
+
+            if self.run_id and self.db:
+                log_backtest_info(
+                    self.run_id,
+                    f"Backtest completed successfully: ${metrics.total_pnl:.2f} PnL, {metrics.total_trades} trades, {metrics.win_rate:.1f}% win rate",
+                    self.db,
+                )
 
             return result
 
@@ -143,7 +226,8 @@ class BacktestEngine:
         # Get available markets directly for backtesting
         markets_response = await self.client.indexer.markets.get_perpetual_markets()
         market_symbols = [
-            market for market, info in markets_response["markets"].items()
+            market
+            for market, info in markets_response["markets"].items()
             if info["status"] == "ACTIVE"
         ]
 
@@ -152,45 +236,52 @@ class BacktestEngine:
         # Load extra data for statistical analysis (need window before start)
         data_start = self.start_date - timedelta(days=30)
 
-        self.logger.debug("Loading data from %s to %s",
-                          data_start.date(), end_date.date())
+        self.logger.debug(
+            "Loading data from %s to %s", data_start.date(), end_date.date()
+        )
 
         # Load data for each market using direct API
         for symbol in market_symbols:
             try:
                 # Make direct API call to get candle data
-                response = await self.client.indexer.markets.get_perpetual_market_candles(
-                    market=symbol,
-                    resolution=self.config.backtesting.candleResolution,
-                    from_iso=data_start.isoformat() + ".000Z",
-                    to_iso=end_date.isoformat() + ".000Z",
-                    limit=1000
+                response = (
+                    await self.client.indexer.markets.get_perpetual_market_candles(
+                        market=symbol,
+                        resolution=self.config.backtesting.candleResolution,
+                        from_iso=data_start.isoformat() + ".000Z",
+                        to_iso=end_date.isoformat() + ".000Z",
+                        limit=1000,
+                    )
                 )
 
-                if (response and "candles" in response and
-                        len(response["candles"]) > 0):
+                if response and "candles" in response and len(response["candles"]) > 0:
                     candles_data = []
 
                     # Process each candle
                     for candle in response["candles"]:
-                        candles_data.append({
-                            'timestamp': candle.get('startedAt'),
-                            'open': float(candle.get('open', candle.get('close', 0))),
-                            'high': float(candle.get('high', candle.get('close', 0))),
-                            'low': float(candle.get('low', candle.get('close', 0))),
-                            'close': float(candle.get('close', 0)),
-                            'volume': float(candle.get('baseTokenVolume', 0))
-                        })
+                        candles_data.append(
+                            {
+                                "timestamp": candle.get("startedAt"),
+                                "open": float(
+                                    candle.get("open", candle.get("close", 0))
+                                ),
+                                "high": float(
+                                    candle.get("high", candle.get("close", 0))
+                                ),
+                                "low": float(candle.get("low", candle.get("close", 0))),
+                                "close": float(candle.get("close", 0)),
+                                "volume": float(candle.get("baseTokenVolume", 0)),
+                            }
+                        )
 
                     # Convert to DataFrame
                     df = pd.DataFrame(candles_data)
-                    df['timestamp'] = pd.to_datetime(df['timestamp'])
-                    df.set_index('timestamp', inplace=True)
+                    df["timestamp"] = pd.to_datetime(df["timestamp"])
+                    df.set_index("timestamp", inplace=True)
                     df.sort_index(inplace=True)
 
                     self.price_data[symbol] = df
-                    self.logger.debug("Loaded %d candles for %s",
-                                      len(df), symbol)
+                    self.logger.debug("Loaded %d candles for %s", len(df), symbol)
                 else:
                     self.logger.warning("No candle data for %s", symbol)
 
@@ -201,26 +292,29 @@ class BacktestEngine:
                 error_msg = str(e)
                 if "429" in error_msg:
                     self.logger.warning(
-                        "Rate limited for %s, sleeping longer...", symbol)
+                        "Rate limited for %s, sleeping longer...", symbol
+                    )
                     time.sleep(2.0)  # Longer sleep for rate limits
                 else:
                     self.logger.warning(
-                        "Failed to load data for %s: %s", symbol, error_msg)
+                        "Failed to load data for %s: %s", symbol, error_msg
+                    )
 
-        self.logger.info("Loaded historical data for %d markets",
-                         len(self.price_data))
+        self.logger.info("Loaded historical data for %d markets", len(self.price_data))
 
     async def _load_historical_data(self):
         """Load historical data using the improved direct method."""
         return await self._load_historical_data_direct()
 
-    async def _find_cointegrated_pairs(self, analysis_date: datetime,
-                                       max_pairs: Optional[int]) -> List[Dict]:
+    async def _find_cointegrated_pairs(
+        self, analysis_date: datetime, max_pairs: Optional[int]
+    ) -> List[Dict]:
         """Find cointegrated pairs using existing analysis logic."""
         try:
             # Use existing cointegration analysis (simulate running at analysis_date)
-            self.logger.info("Running cointegration analysis for %s",
-                             analysis_date.date())
+            self.logger.info(
+                "Running cointegration analysis for %s", analysis_date.date()
+            )
 
             # Get subset of price data up to analysis date for pair finding
             analysis_data = {}
@@ -231,24 +325,29 @@ class BacktestEngine:
 
             if len(analysis_data) < 2:
                 self.logger.warning(
-                    "Insufficient market data for cointegration analysis")
+                    "Insufficient market data for cointegration analysis"
+                )
                 return []
 
             # Run cointegration analysis (following existing logic)
             # Perform analysis and save to storage
             from func_cointegration import store_cointegration_results
+
             store_cointegration_results(analysis_data)
 
             # Load the results from storage
             from models.pair_storage import pair_storage
+
             cointegration_results = pair_storage.load_pairs()
 
             # Filter and sort by strength (same logic as live trading)
             valid_pairs = []
             for result in cointegration_results:
                 # Apply same filters as live trading
-                if (result.p_value <= 0.05 and
-                        result.half_life <= self.config.botSettings.maxHalfLife):
+                if (
+                    result.p_value <= 0.05
+                    and result.half_life <= self.config.botSettings.maxHalfLife
+                ):
                     valid_pairs.append(result)
 
             # Sort by p-value (strongest cointegration first)
@@ -260,8 +359,11 @@ class BacktestEngine:
             else:
                 selected_pairs = valid_pairs
 
-            self.logger.info("Selected %d cointegrated pairs from %d candidates",
-                             len(selected_pairs), len(valid_pairs))
+            self.logger.info(
+                "Selected %d cointegrated pairs from %d candidates",
+                len(selected_pairs),
+                len(valid_pairs),
+            )
 
             return selected_pairs
 
@@ -269,8 +371,9 @@ class BacktestEngine:
             self.logger.error("Cointegration analysis failed: %s", e)
             return []
 
-    async def _simulate_trading_day(self, trading_date: datetime,
-                                    pairs: List[Dict]) -> None:
+    async def _simulate_trading_day(
+        self, trading_date: datetime, pairs: List[Dict]
+    ) -> None:
         """Simulate trading logic for a specific day."""
         # Get price data for this day
         day_prices = self._get_day_prices(trading_date)
@@ -294,17 +397,18 @@ class BacktestEngine:
 
             if mask.any():
                 # Use closing price of the day
-                day_prices[symbol] = float(df[mask]['close'].iloc[-1])
+                day_prices[symbol] = float(df[mask]["close"].iloc[-1])
             elif len(df) > 0:
                 # Use last available price if exact date not found
                 closest_data = df[df.index <= trading_date]
                 if len(closest_data) > 0:
-                    day_prices[symbol] = float(closest_data['close'].iloc[-1])
+                    day_prices[symbol] = float(closest_data["close"].iloc[-1])
 
         return day_prices
 
-    async def _check_entry_signals(self, trading_date: datetime,
-                                   pairs: List[Dict], prices: Dict[str, float]) -> None:
+    async def _check_entry_signals(
+        self, trading_date: datetime, pairs: List[Dict], prices: Dict[str, float]
+    ) -> None:
         """Check for trade entry signals (following existing entry logic)."""
         for pair in pairs:
             market_1 = pair.base_market
@@ -325,22 +429,22 @@ class BacktestEngine:
 
                 # Check if Z-score exceeds threshold
                 if abs(z_score) >= self.zscore_threshold:
-                    await self._enter_position(
-                        trading_date, pair, z_score, prices
-                    )
+                    await self._enter_position(trading_date, pair, z_score, prices)
 
             except Exception as e:
-                self.logger.warning("Failed to calculate Z-score for %s/%s: %s",
-                                    market_1, market_2, e)
+                self.logger.warning(
+                    "Failed to calculate Z-score for %s/%s: %s", market_1, market_2, e
+                )
 
-    async def _check_exit_signals(self, trading_date: datetime,
-                                  prices: Dict[str, float]) -> None:
+    async def _check_exit_signals(
+        self, trading_date: datetime, prices: Dict[str, float]
+    ) -> None:
         """Check for trade exit signals (following existing exit logic)."""
         positions_to_close = []
 
         for pair_key, position in self.open_positions.items():
-            market_1 = position['market_1']
-            market_2 = position['market_2']
+            market_1 = position["market_1"]
+            market_2 = position["market_2"]
 
             # Skip if either market price not available
             if market_1 not in prices or market_2 not in prices:
@@ -357,25 +461,27 @@ class BacktestEngine:
 
                 if self.close_at_zscore_cross:
                     # Close on Z-score crossing zero (mean reversion)
-                    entry_z_score = position['z_score_entry']
-                    if (entry_z_score > 0 and z_score <= 0) or \
-                       (entry_z_score < 0 and z_score >= 0):
+                    entry_z_score = position["z_score_entry"]
+                    if (entry_z_score > 0 and z_score <= 0) or (
+                        entry_z_score < 0 and z_score >= 0
+                    ):
                         should_close = True
 
                 if should_close:
                     positions_to_close.append((pair_key, position, z_score))
 
             except Exception as e:
-                self.logger.warning(
-                    "Failed to check exit for %s: %s", pair_key, e)
+                self.logger.warning("Failed to check exit for %s: %s", pair_key, e)
 
         # Close positions
         for pair_key, position, exit_z_score in positions_to_close:
-            await self._exit_position(trading_date, pair_key, position,
-                                      exit_z_score, prices)
+            await self._exit_position(
+                trading_date, pair_key, position, exit_z_score, prices
+            )
 
-    def _calculate_zscore(self, pair: Dict, current_prices: Dict[str, float],
-                          current_date: datetime) -> float:
+    def _calculate_zscore(
+        self, pair: Dict, current_prices: Dict[str, float], current_date: datetime
+    ) -> float:
         """Calculate Z-score for pair (simplified version of existing logic)."""
         market_1 = pair.base_market
         market_2 = pair.quote_market
@@ -386,19 +492,18 @@ class BacktestEngine:
         df2 = self.price_data.get(market_2)
 
         if df1 is None or df2 is None:
-            raise ValueError(
-                f"Missing price data for {market_1} or {market_2}")
+            raise ValueError(f"Missing price data for {market_1} or {market_2}")
 
         # Get data up to current date
         mask = (df1.index <= current_date) & (df2.index <= current_date)
-        recent_data1 = df1[df1.index <= current_date]['close'].tail(
-            self.stats_window)
-        recent_data2 = df2[df2.index <= current_date]['close'].tail(
-            self.stats_window)
+        recent_data1 = df1[df1.index <= current_date]["close"].tail(self.stats_window)
+        recent_data2 = df2[df2.index <= current_date]["close"].tail(self.stats_window)
 
-        if len(recent_data1) < self.stats_window or len(recent_data2) < self.stats_window:
-            raise ValueError(
-                "Insufficient historical data for Z-score calculation")
+        if (
+            len(recent_data1) < self.stats_window
+            or len(recent_data2) < self.stats_window
+        ):
+            raise ValueError("Insufficient historical data for Z-score calculation")
 
         # Calculate spread series
         spread_series = recent_data1 - (hedge_ratio * recent_data2)
@@ -411,29 +516,35 @@ class BacktestEngine:
             return 0.0
 
         # Current spread
-        current_spread = current_prices[market_1] - \
-            (hedge_ratio * current_prices[market_2])
+        current_spread = current_prices[market_1] - (
+            hedge_ratio * current_prices[market_2]
+        )
 
         # Z-score
         z_score = (current_spread - spread_mean) / spread_std
 
         return z_score
 
-    def _calculate_zscore_for_position(self, position: Dict,
-                                       current_prices: Dict[str, float],
-                                       current_date: datetime) -> float:
+    def _calculate_zscore_for_position(
+        self, position: Dict, current_prices: Dict[str, float], current_date: datetime
+    ) -> float:
         """Calculate Z-score for existing position."""
         # Reconstruct pair info from position
         fake_pair = {
-            'base_market': position['market_1'],
-            'quote_market': position['market_2'],
-            'hedge_ratio': position['hedge_ratio']
+            "base_market": position["market_1"],
+            "quote_market": position["market_2"],
+            "hedge_ratio": position["hedge_ratio"],
         }
 
         return self._calculate_zscore(fake_pair, current_prices, current_date)
 
-    async def _enter_position(self, trading_date: datetime, pair: Dict,
-                              z_score: float, prices: Dict[str, float]) -> None:
+    async def _enter_position(
+        self,
+        trading_date: datetime,
+        pair: Dict,
+        z_score: float,
+        prices: Dict[str, float],
+    ) -> None:
         """Enter new position (simulate trade execution)."""
         market_1 = pair.base_market
         market_2 = pair.quote_market
@@ -478,78 +589,122 @@ class BacktestEngine:
             entry_price_2=effective_price_2,
             z_score_entry=z_score,
             hedge_ratio=hedge_ratio,
-            trade_id=trade_id
+            trade_id=trade_id,
         )
 
         # Add to open positions (following bot_agents.json structure)
         pair_key = f"{market_1}_{market_2}"
         self.open_positions[pair_key] = {
-            'market_1': market_1,
-            'market_2': market_2,
-            'side_1': side_1,
-            'side_2': side_2,
-            'size_1': base_size,
-            'size_2': quote_size,
-            'entry_price_1': effective_price_1,
-            'entry_price_2': effective_price_2,
-            'z_score_entry': z_score,
-            'hedge_ratio': hedge_ratio,
-            'trade_id': trade_id,
-            'entry_timestamp': trading_date.isoformat()
+            "market_1": market_1,
+            "market_2": market_2,
+            "side_1": side_1,
+            "side_2": side_2,
+            "size_1": base_size,
+            "size_2": quote_size,
+            "entry_price_1": effective_price_1,
+            "entry_price_2": effective_price_2,
+            "z_score_entry": z_score,
+            "hedge_ratio": hedge_ratio,
+            "trade_id": trade_id,
+            "entry_timestamp": trading_date.isoformat(),
         }
 
         # Calculate transaction costs
-        transaction_cost_1 = (
-            base_size * effective_price_1) * self.transaction_fee
-        transaction_cost_2 = (
-            quote_size * effective_price_2) * self.transaction_fee
+        transaction_cost_1 = (base_size * effective_price_1) * self.transaction_fee
+        transaction_cost_2 = (quote_size * effective_price_2) * self.transaction_fee
         total_transaction_cost = transaction_cost_1 + transaction_cost_2
 
         # Update balance (reserve for margin)
         self.current_balance -= total_transaction_cost
 
-        self.logger.debug("Opened position: %s/%s, Z-score: %.2f, Size: %.4f/%.4f",
-                          market_1, market_2, z_score, base_size, quote_size)
+        self.logger.debug(
+            "Opened position: %s/%s, Z-score: %.2f, Size: %.4f/%.4f",
+            market_1,
+            market_2,
+            z_score,
+            base_size,
+            quote_size,
+        )
 
-    async def _exit_position(self, trading_date: datetime, pair_key: str,
-                             position: Dict, exit_z_score: float,
-                             prices: Dict[str, float]) -> None:
+        # Log to database
+        if self.run_id and self.db:
+            log_backtest_debug(
+                self.run_id,
+                f"Entry signal: {market_1}/{market_2}, Z={z_score:.2f}, {side_1} {base_size:.4f}/{side_2} {quote_size:.4f}",
+                self.db,
+            )
+
+        # Save position to database (if database helpers are available)
+        if self.run_id_int and self.db and save_backtest_position:
+            try:
+                save_backtest_position(
+                    db=self.db,
+                    run_id=self.run_id_int,
+                    market_1=market_1,
+                    market_2=market_2,
+                    status="OPEN",
+                    entry_timestamp=trading_date,
+                    entry_price_1=effective_price_1,
+                    entry_price_2=effective_price_2,
+                    entry_z_score=z_score,
+                    size_1=base_size,
+                    size_2=quote_size,
+                    side_1=side_1,
+                    side_2=side_2,
+                    hedge_ratio=hedge_ratio,
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to save position to database: {e}")
+                if self.run_id and self.db:
+                    log_backtest_warning(
+                        self.run_id,
+                        f"Failed to save position: {str(e)}",
+                        self.db,
+                    )
+
+    async def _exit_position(
+        self,
+        trading_date: datetime,
+        pair_key: str,
+        position: Dict,
+        exit_z_score: float,
+        prices: Dict[str, float],
+    ) -> None:
         """Exit existing position (simulate trade closure)."""
-        market_1 = position['market_1']
-        market_2 = position['market_2']
+        market_1 = position["market_1"]
+        market_2 = position["market_2"]
 
         # Get exit prices
         exit_price_1 = prices[market_1] * (1 + self.slippage)
         exit_price_2 = prices[market_2] * (1 + self.slippage)
 
         # Calculate PnL (following existing calculation patterns)
-        pnl = self._calculate_position_pnl(
-            position, exit_price_1, exit_price_2)
+        pnl = self._calculate_position_pnl(position, exit_price_1, exit_price_2)
 
         # Calculate duration
-        entry_time = datetime.fromisoformat(position['entry_timestamp'])
+        entry_time = datetime.fromisoformat(position["entry_timestamp"])
         duration = (trading_date - entry_time).total_seconds() / 3600  # hours
 
         # Create completed trade record
         trade = BacktestTrade(
-            timestamp=position['entry_timestamp'],
+            timestamp=position["entry_timestamp"],
             market_1=market_1,
-            market_2=position['market_2'],
-            side_1=position['side_1'],
-            side_2=position['side_2'],
-            size_1=position['size_1'],
-            size_2=position['size_2'],
-            entry_price_1=position['entry_price_1'],
-            entry_price_2=position['entry_price_2'],
-            z_score_entry=position['z_score_entry'],
-            hedge_ratio=position['hedge_ratio'],
-            trade_id=position['trade_id'],
+            market_2=position["market_2"],
+            side_1=position["side_1"],
+            side_2=position["side_2"],
+            size_1=position["size_1"],
+            size_2=position["size_2"],
+            entry_price_1=position["entry_price_1"],
+            entry_price_2=position["entry_price_2"],
+            z_score_entry=position["z_score_entry"],
+            hedge_ratio=position["hedge_ratio"],
+            trade_id=position["trade_id"],
             exit_timestamp=trading_date.isoformat(),
             exit_price_1=exit_price_1,
             exit_price_2=exit_price_2,
             z_score_exit=exit_z_score,
             pnl=pnl,
-            duration_hours=duration
+            duration_hours=duration,
         )
 
         # Update balance with PnL
@@ -561,18 +716,74 @@ class BacktestEngine:
         # Remove from open positions
         del self.open_positions[pair_key]
 
-        self.logger.debug("Closed position: %s, Duration: %.1fh, PnL: $%.2f",
-                          pair_key, duration, pnl)
+        self.logger.debug(
+            "Closed position: %s, Duration: %.1fh, PnL: $%.2f", pair_key, duration, pnl
+        )
 
-    def _calculate_position_pnl(self, position: Dict, exit_price_1: float,
-                                exit_price_2: float) -> float:
+        # Log to database
+        if self.run_id and self.db:
+            if pnl > 0:
+                log_backtest_info(
+                    self.run_id,
+                    f"Exit signal: {market_1}/{market_2}, Z={exit_z_score:.2f}, Duration: {duration:.1f}h, Profit: ${pnl:.2f}",
+                    self.db,
+                )
+            else:
+                log_backtest_warning(
+                    self.run_id,
+                    f"Exit signal: {market_1}/{market_2}, Z={exit_z_score:.2f}, Duration: {duration:.1f}h, Loss: ${pnl:.2f}",
+                    self.db,
+                )
+
+        # Save trade to database (if database helpers are available)
+        if self.run_id_int and self.db and save_backtest_trade:
+            try:
+                pnl_pct = (
+                    (pnl / self.usd_per_trade * 100) if self.usd_per_trade > 0 else 0
+                )
+                save_backtest_trade(
+                    db=self.db,
+                    run_id=self.run_id_int,
+                    market_1=market_1,
+                    market_2=market_2,
+                    entry_timestamp=entry_time,
+                    entry_price_1=position["entry_price_1"],
+                    entry_price_2=position["entry_price_2"],
+                    entry_z_score=position["z_score_entry"],
+                    side_1=position["side_1"],
+                    side_2=position["side_2"],
+                    size_1=position["size_1"],
+                    size_2=position["size_2"],
+                    hedge_ratio=position["hedge_ratio"],
+                    transaction_fee=self.transaction_fee,
+                    slippage=self.slippage,
+                    exit_timestamp=trading_date,
+                    exit_price_1=exit_price_1,
+                    exit_price_2=exit_price_2,
+                    exit_z_score=exit_z_score,
+                    pnl=pnl,
+                    pnl_pct=pnl_pct,
+                    duration_hours=duration,
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to save trade to database: {e}")
+                if self.run_id and self.db:
+                    log_backtest_warning(
+                        self.run_id,
+                        f"Failed to save trade: {str(e)}",
+                        self.db,
+                    )
+
+    def _calculate_position_pnl(
+        self, position: Dict, exit_price_1: float, exit_price_2: float
+    ) -> float:
         """Calculate PnL for position closure."""
-        side_1 = position['side_1']
-        side_2 = position['side_2']
-        size_1 = position['size_1']
-        size_2 = position['size_2']
-        entry_price_1 = position['entry_price_1']
-        entry_price_2 = position['entry_price_2']
+        side_1 = position["side_1"]
+        side_2 = position["side_2"]
+        size_1 = position["size_1"]
+        size_2 = position["size_2"]
+        entry_price_1 = position["entry_price_1"]
+        entry_price_2 = position["entry_price_2"]
 
         # Calculate PnL for each leg
         if side_1 == "BUY":
@@ -600,20 +811,23 @@ class BacktestEngine:
         if not self.open_positions:
             return
 
-        self.logger.info("Closing %d remaining positions at backtest end",
-                         len(self.open_positions))
+        self.logger.info(
+            "Closing %d remaining positions at backtest end", len(self.open_positions)
+        )
 
         # Get final prices
         final_prices = self._get_day_prices(end_date)
 
         positions_to_close = list(self.open_positions.items())
         for pair_key, position in positions_to_close:
-            market_1 = position['market_1']
-            market_2 = position['market_2']
+            market_1 = position["market_1"]
+            market_2 = position["market_2"]
 
             if market_1 in final_prices and market_2 in final_prices:
                 # Force close with final Z-score of 0 (assumed mean reversion)
-                await self._exit_position(end_date, pair_key, position, 0.0, final_prices)
+                await self._exit_position(
+                    end_date, pair_key, position, 0.0, final_prices
+                )
 
     def _get_config_snapshot(self) -> Dict:
         """Get configuration snapshot for backtest record."""
@@ -624,19 +838,29 @@ class BacktestEngine:
             "close_at_zscore_cross": self.close_at_zscore_cross,
             "transaction_fee": self.transaction_fee,
             "slippage": self.slippage,
-            "starting_balance": self.starting_balance
+            "starting_balance": self.starting_balance,
         }
 
-    def _create_empty_result(self, start_date: datetime,
-                             end_date: datetime) -> BacktestResult:
+    def _create_empty_result(
+        self, start_date: datetime, end_date: datetime
+    ) -> BacktestResult:
         """Create empty result when no pairs found."""
         empty_metrics = BacktestMetrics(
-            total_pnl=0.0, total_return_pct=0.0, total_trades=0,
-            winning_trades=0, losing_trades=0, win_rate=0.0,
-            avg_win=0.0, avg_loss=0.0, profit_factor=0.0,
-            max_drawdown=0.0, max_drawdown_pct=0.0,
-            sharpe_ratio=0.0, calmar_ratio=0.0,
-            max_consecutive_losses=0, avg_trade_duration_hours=0.0
+            total_pnl=0.0,
+            total_return_pct=0.0,
+            total_trades=0,
+            winning_trades=0,
+            losing_trades=0,
+            win_rate=0.0,
+            avg_win=0.0,
+            avg_loss=0.0,
+            profit_factor=0.0,
+            max_drawdown=0.0,
+            max_drawdown_pct=0.0,
+            sharpe_ratio=0.0,
+            calmar_ratio=0.0,
+            max_consecutive_losses=0,
+            avg_trade_duration_hours=0.0,
         )
 
         return BacktestResult(
@@ -648,5 +872,5 @@ class BacktestEngine:
             metrics=empty_metrics,
             trades=[],
             config_snapshot=self._get_config_snapshot(),
-            analysis_timestamp=datetime.now().isoformat()
+            analysis_timestamp=datetime.now().isoformat(),
         )

@@ -36,10 +36,7 @@ DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 
 if DB_TYPE == "postgresql":
-    db_url = (
-        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/"
-        f"{DB_NAME}"
-    )
+    db_url = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     DATABASE_URL = db_url
 else:
     # SQLite - create file in app directory
@@ -55,6 +52,7 @@ logger.info(log_msg)
 
 class BacktestRun(Base):
     """Represents a single backtest execution run."""
+
     __tablename__ = "backtest_runs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -101,14 +99,11 @@ class BacktestRun(Base):
     error_message = Column(String, nullable=True)
 
     # User tracking
-    user_id = Column(
-        Integer, ForeignKey("users.id"), nullable=True, index=True
-    )
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     # Relationships
     results = relationship(
-        "BacktestResult", back_populates="run",
-        cascade="all, delete-orphan"
+        "BacktestResult", back_populates="run", cascade="all, delete-orphan"
     )
     user = relationship("User", back_populates="backtest_runs")
 
@@ -125,6 +120,7 @@ class BacktestRun(Base):
 
 class BacktestResult(Base):
     """Individual trading pair result from a backtest run."""
+
     __tablename__ = "backtest_results"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -191,14 +187,14 @@ class BacktestResult(Base):
 
 class TradeLog(Base):
     """Individual trade executed during backtesting."""
+
     __tablename__ = "trade_logs"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Foreign key
     result_id_fk = Column(
-        Integer, ForeignKey("backtest_results.id"), index=True,
-        nullable=False
+        Integer, ForeignKey("backtest_results.id"), index=True, nullable=False
     )
 
     # Trade details
@@ -232,9 +228,7 @@ class TradeLog(Base):
     # Relationships
     result = relationship("BacktestResult", back_populates="trades")
 
-    __table_args__ = (
-        Index("idx_trade_result", "result_id_fk", "entry_timestamp"),
-    )
+    __table_args__ = (Index("idx_trade_result", "result_id_fk", "entry_timestamp"),)
 
     def __repr__(self):
         return f"<TradeLog #{self.trade_number}>"
@@ -242,6 +236,7 @@ class TradeLog(Base):
 
 class User(Base):
     """User account for authentication and access control."""
+
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -255,9 +250,7 @@ class User(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
 
     # Relationships
@@ -265,9 +258,7 @@ class User(Base):
         "BacktestRun", back_populates="user", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (
-        Index("idx_user_active", "is_active"),
-    )
+    __table_args__ = (Index("idx_user_active", "is_active"),)
 
     def __repr__(self):
         return f"<User {self.username}>"
@@ -275,12 +266,11 @@ class User(Base):
 
 class AuditLog(Base):
     """Track system actions for audit trail."""
+
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(
-        Integer, ForeignKey("users.id"), nullable=True, index=True
-    )
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     action = Column(String(100), nullable=False, index=True)
     resource_type = Column(String(50), nullable=False)
     resource_id = Column(String(100), nullable=True)
@@ -304,16 +294,54 @@ engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DB_TYPE == "sqlite" else {},
     pool_pre_ping=True,
-    echo=os.getenv("SQL_ECHO", "false").lower() == "true"
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db():
-    """Initialize database - create all tables."""
+    """Initialize database - create all tables and seed default admin user."""
     Base.metadata.create_all(bind=engine)
     logger.info("Database initialized successfully")
+
+    # Seed default admin user on first run
+    _seed_admin_user()
+
+
+def _seed_admin_user():
+    """Create default admin user if it doesn't exist."""
+    from backend.auth import hash_password
+
+    db = SessionLocal()
+    try:
+        # Check if admin user already exists
+        admin_exists = db.query(User).filter(User.username == "admin").first()
+
+        if not admin_exists:
+            # Create default admin user
+            hashed_password = hash_password("admin123")
+            admin_user = User(
+                username="admin",
+                email="admin@dydx-backtest.local",
+                hashed_password=hashed_password,
+                is_active=True,
+                is_admin=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(admin_user)
+            db.commit()
+            logger.info(
+                "✅ Default admin user created: username=admin, password=admin123"
+            )
+        else:
+            logger.info("ℹ️  Admin user already exists, skipping creation")
+    except Exception as e:
+        logger.error(f"❌ Error seeding admin user: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def get_db():

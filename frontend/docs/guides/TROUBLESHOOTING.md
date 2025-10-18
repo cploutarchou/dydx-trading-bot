@@ -31,7 +31,7 @@ docker-compose down
 
 # Option 2: Use different port
 # Edit: .devcontainer/devcontainer.json
-# Change: "forwardPorts": [5174, 3000, 8000, 5432, 6379]
+# Change: "forwardPorts": [5174, 3000, 8888, 5432, 6379]
 ```
 
 ### SSH not working
@@ -387,7 +387,7 @@ const apiUrl = process.env.VITE_API_URL
 cp .env.local.example .env.local
 
 # Add variables
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8888
 
 # Restart dev server for changes to take effect
 npm run dev
@@ -401,20 +401,20 @@ npm run dev
 
 ```bash
 # Check backend is running
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8888/api/v1/health
 
 # Verify API URL in environment
 echo $VITE_API_URL  # Inside container
-# Should be: http://localhost:8000
+# Should be: http://localhost:8888
 
 # Check backend logs
 docker-compose logs -f backend
 
 # Verify network connectivity
-docker-compose exec frontend curl http://backend:8000/api/v1/health
+docker-compose exec frontend curl http://backend:8888/api/v1/health
 
 # Check firewall rules
-# Ensure ports 8000, 5432, 6379 are accessible
+# Ensure ports 8888, 5432, 6379 are accessible
 ```
 
 ## Other Issues

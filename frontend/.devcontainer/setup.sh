@@ -27,7 +27,7 @@ npm run build
 if [ ! -f ".env.local" ]; then
     echo -e "${BLUE}📝 Creating .env.local...${NC}"
     cat > .env.local << EOF
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8888
 NODE_ENV=development
 EOF
     echo -e "${GREEN}✅ .env.local created${NC}"
@@ -50,7 +50,7 @@ echo ""
 echo -e "${YELLOW}📚 Next steps:${NC}"
 echo "1. Start the development server: npm run dev"
 echo "2. Access the app at: http://localhost:5173"
-echo "3. Backend API is at: http://localhost:8000"
+echo "3. Backend API is at: http://localhost:8888"
 echo ""
 echo -e "${YELLOW}💡 Available commands:${NC}"
 echo "  - npm run dev      : Start dev server"

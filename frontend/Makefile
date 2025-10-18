@@ -21,7 +21,7 @@ DOCKER_PROD_IMAGE ?= $(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)
 DOCKER_DEV_TAG ?= dev
 PORT_DEV ?= 5173
 PORT_PROD ?= 3000
-API_URL ?= http://localhost:8000
+API_URL ?= http://localhost:8888
 
 # ============================================================================
 # HELP COMMAND

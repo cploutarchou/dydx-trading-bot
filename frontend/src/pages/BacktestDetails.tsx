@@ -80,7 +80,9 @@ export const BacktestDetailsPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedResult, setSelectedResult] = useState<BacktestResult | null>(null);
     const [logs, setLogs] = useState<Array<{ id: number; message: string; level: string; created_at: string }>>([]);
-    const [logsLoading, setLogsLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState<'summary' | 'performance' | 'trades' | 'logs' | 'results'>('summary');
+    const [selectedTradeId, setSelectedTradeId] = useState<number | null>(null);
+    const [showTradeModal, setShowTradeModal] = useState(false);
 
     useEffect(() => {
         const fetchBacktest = async () => {
@@ -109,7 +111,6 @@ export const BacktestDetailsPage: React.FC = () => {
     useEffect(() => {
         const fetchLogs = async () => {
             if (!runId) return;
-            setLogsLoading(true);
             try {
                 const response = await api.getBacktestLogs(runId);
                 if (response.success && response.data?.logs) {
@@ -117,8 +118,6 @@ export const BacktestDetailsPage: React.FC = () => {
                 }
             } catch (err: any) {
                 console.error('Failed to fetch backtest logs:', err);
-            } finally {
-                setLogsLoading(false);
             }
         };
 

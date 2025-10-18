@@ -2,8 +2,9 @@
   "name": "dYdX Trading Bot Frontend",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "..",
+    "context": ".",
     "args": {
+      "BASE_IMAGE": "node:20-alpine",
       "NODE_VERSION": "20"
     }
   },
@@ -55,12 +56,7 @@
         "editor.codeActionsOnSave": {
           "source.fixAll.eslint": "explicit"
         },
-        "eslint.validate": [
-          "javascript",
-          "javascriptreact",
-          "typescript",
-          "typescriptreact"
-        ],
+        "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
         "files.exclude": {
           "**/__pycache__": true,
           "**/*.pyc": true
@@ -73,9 +69,9 @@
     }
   },
   "mounts": [
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/root/.ssh,readonly",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/root/.gitconfig,readonly",
-    "source=/var/run/docker.sock,target=/var/run/docker.sock"
+    "type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/root/.ssh,readonly",
+    "type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/root/.gitconfig,readonly",
+    "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock"
   ],
   "forwardPorts": [5173, 3000, 8000, 5432, 6379],
   "portsAttributes": {
@@ -107,5 +103,7 @@
   "updateContentCommand": "npm install",
   "postCreateCommand": "npm run build && echo '✅ DevContainer setup complete!'",
   "postStartCommand": "echo '🚀 Container started. Run: npm run dev'",
-  "runArgs": ["--gpus=all"]
+  "runArgs": ["--gpus=all"],
+  "privileged": false,
+  "init": true
 }

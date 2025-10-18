@@ -77,8 +77,8 @@ run: ## Run bot in foreground
 
 backend-run: worker-run ## Start backend server (alias for worker-run)
 
-worker-run: ## Start backend worker (FastAPI server)
-	.venv/bin/python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+worker-run: ## Start backend worker (FastAPI server on port 8888)
+	.venv/bin/python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8888
 
 start: ## Start bot in background
 	@if [ ! -f scripts/manage_bot.sh ]; then \

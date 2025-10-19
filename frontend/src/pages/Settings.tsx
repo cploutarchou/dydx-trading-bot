@@ -3,6 +3,7 @@
  * 
  * Allows users to view and modify:
  * - Profile Settings (avatar, name, email)
+ * - dYdX Key Management (testnet/mainnet keys)
  * - Bot Settings (Z-score threshold, stats window, USD per trade, etc.)
  * - Backtesting (candle resolution, history days, starting balance, etc.)
  * - Logging (log level, Loki integration)
@@ -12,6 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import apiClient from '../api';
+import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { ProfileSettings } from '../components/ProfileSettings';
 
 interface SettingField {
@@ -254,6 +256,19 @@ export default function Settings() {
                 <div className="text-xs opacity-75">Account & Avatar</div>
               </button>
 
+              {/* dYdX Key Management Section */}
+              <button
+                onClick={() => setActiveSection('dydx_keys')}
+                className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${
+                  activeSection === 'dydx_keys'
+                    ? 'bg-blue-600 text-white border-l-4 border-blue-400'
+                    : 'text-gray-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <div className="font-semibold">🔑 dYdX Keys</div>
+                <div className="text-xs opacity-75">Testnet & Mainnet</div>
+              </button>
+
               {/* Bot Settings Sections */}
               {schema.sections.map((section) => (
                 <button
@@ -278,6 +293,11 @@ export default function Settings() {
           {/* Profile Settings Panel */}
           {activeSection === 'profile' && (
             <ProfileSettings onSave={handleSaveProfile} />
+          )}
+
+          {/* dYdX Key Management Panel */}
+          {activeSection === 'dydx_keys' && (
+            <DYDXKeyManager />
           )}
 
           {/* Bot Settings Panel */}

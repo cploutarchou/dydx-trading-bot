@@ -32,6 +32,43 @@ class BotSettings:
     )
     # WalletSettings is optional in the YAML; if present add parsing logic later
 
+    @classmethod
+    def from_env(cls) -> "BotSettings":
+        """Load bot settings from environment variables with defaults."""
+        import os
+
+        return cls(
+            abortAllPositions=cls._parse_bool(
+                os.getenv("BOT_ABORT_ALL_POSITIONS", "false")
+            ),
+            findCointegratedPairs=cls._parse_bool(
+                os.getenv("BOT_FIND_COINTEGRATED_PAIRS", "true")
+            ),
+            manageExits=cls._parse_bool(os.getenv("BOT_MANAGE_EXITS", "true")),
+            placeTrades=cls._parse_bool(os.getenv("BOT_PLACE_TRADES", "true")),
+            resolutionTimeframe=os.getenv("BOT_RESOLUTION_TIMEFRAME", "1HOUR"),
+            strategy=os.getenv("BOT_STRATEGY", "cointegration"),
+            statsWindow=int(os.getenv("BOT_STATS_WINDOW", "21")),
+            maxHalfLife=int(os.getenv("BOT_MAX_HALF_LIFE", "24")),
+            ZScoreThreshold=float(os.getenv("BOT_ZSCORE_THRESHOLD", "1.5")),
+            usdPerTrade=float(os.getenv("BOT_USD_PER_TRADE", "10.0")),
+            usdMinCollateral=float(os.getenv("BOT_USDC_MIN_COLLATERAL", "100.0")),
+            closeAtZscoreCross=cls._parse_bool(
+                os.getenv("BOT_CLOSE_AT_ZSCORE_CROSS", "true")
+            ),
+            indexer_endpoint=IndexerEndpoint(
+                testnet=os.getenv(
+                    "INDEXER_TESTNET", "https://indexer.v4testnet.dydx.exchange"
+                ),
+                mainnet=os.getenv("INDEXER_MAINNET", "https://indexer.dydx.trade"),
+            ),
+        )
+
+    @staticmethod
+    def _parse_bool(value: str) -> bool:
+        """Parse string to boolean."""
+        return value.lower() in ("true", "1", "yes", "on")
+
 
 @dataclass
 class EthereumSettings:
@@ -95,6 +132,47 @@ class BacktestSettings:
     benchmarkSymbol: str = "BTC-USD"
     riskFreeRate: float = 0.02  # Annual risk-free rate (2%)
 
+    @classmethod
+    def from_env(cls) -> "BacktestSettings":
+        """Load backtest settings from environment variables with defaults."""
+        import os
+
+        return cls(
+            candleResolution=os.getenv("BACKTEST_CANDLE_RESOLUTION", "1HOUR"),
+            maxHistoryDays=int(os.getenv("BACKTEST_MAX_HISTORY_DAYS", "90")),
+            startingBalance=float(os.getenv("BACKTEST_STARTING_BALANCE", "1000.0")),
+            transactionFee=float(os.getenv("BACKTEST_TRANSACTION_FEE", "0.0005")),
+            slippage=float(os.getenv("BACKTEST_SLIPPAGE", "0.001")),
+            benchmarkSymbol=os.getenv("BACKTEST_BENCHMARK_SYMBOL", "BTC-USD"),
+            riskFreeRate=float(os.getenv("BACKTEST_RISK_FREE_RATE", "0.02")),
+        )
+
+
+@dataclass
+class DatabaseSettings:
+    type: str = "sqlite"  # sqlite or postgresql
+    name: str = "dydx_backtest.db"
+    user: str = "postgres"
+    password: str = ""
+    host: str = "localhost"
+    port: str = "5432"
+    pool_size: int = 5
+    max_overflow: int = 10
+    timeout: int = 30
+
+
+@dataclass
+class RedisSettings:
+    enabled: bool = True
+    host: str = "localhost"
+    port: int = 6379
+    db: int = 0
+    password: Optional[str] = None
+    ssl: bool = False
+    timeout: int = 5
+    cache_ttl_seconds: int = 86400  # 24 hours
+    max_connections: int = 10
+
 
 @dataclass
 class DydxConfig:
@@ -102,12 +180,12 @@ class DydxConfig:
     environment: str = "development"
     telegram: TelegramSettings = field(default_factory=TelegramSettings)
     botSettings: BotSettings = field(default_factory=BotSettings)
-    dydx_testnet: DYDXTestnetSettings = field(
-        default_factory=DYDXTestnetSettings)
-    dydx_mainnet: DYDXMainnetSettings = field(
-        default_factory=DYDXMainnetSettings)
+    dydx_testnet: DYDXTestnetSettings = field(default_factory=DYDXTestnetSettings)
+    dydx_mainnet: DYDXMainnetSettings = field(default_factory=DYDXMainnetSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     backtesting: BacktestSettings = field(default_factory=BacktestSettings)
+    database: DatabaseSettings = field(default_factory=DatabaseSettings)
+    redis: RedisSettings = field(default_factory=RedisSettings)
 
 
 class ConfigurationManager:
@@ -128,12 +206,13 @@ class ConfigurationManager:
         return cls._instance._config
 
     def load_config(self, config_path: Optional[str | Path] = None) -> None:
-        """Load configuration from the YAML file."""
+        """Load configuration from the YAML file and environment variables."""
         if config_path is None:
             # Default to looking for config.yaml in the same directory as this file
             app_config_path = Path(__file__).parent / "config.yaml"
-            scripts_config_path = Path(
-                __file__).parent.parent / "scripts" / "config.yaml"
+            scripts_config_path = (
+                Path(__file__).parent.parent / "scripts" / "config.yaml"
+            )
 
             # Try app directory first, then scripts directory
             if app_config_path.exists():
@@ -162,14 +241,49 @@ class ConfigurationManager:
                 is_testnet = data.get("is_testnet", False)
 
             # Parse nested structures
-            indexer = data["botSettings"]["indexer_endpoint"]
-            indexer_endpoint = IndexerEndpoint(**indexer)
+            indexer = data.get("botSettings", {}).get("indexer_endpoint", {})
+            indexer_endpoint = IndexerEndpoint(**indexer) if indexer else None
 
-            bot_settings = BotSettings(
-                **{**data["botSettings"], "indexer_endpoint": indexer_endpoint}
-            )
+            # Load BotSettings from environment variables first, then fallback to YAML
+            try:
+                bot_settings = BotSettings.from_env()
+                # Override with YAML values if present (for backward compatibility)
+                if "botSettings" in data:
+                    yaml_bot_settings = data["botSettings"]
+                    if not indexer:  # Use YAML indexer if env vars not set
+                        bot_settings.indexer_endpoint = IndexerEndpoint(
+                            testnet=yaml_bot_settings.get("indexer_endpoint", {}).get(
+                                "testnet", bot_settings.indexer_endpoint.testnet
+                            ),
+                            mainnet=yaml_bot_settings.get("indexer_endpoint", {}).get(
+                                "mainnet", bot_settings.indexer_endpoint.mainnet
+                            ),
+                        )
+            except Exception:
+                # Fallback to YAML-only parsing if env loading fails
+                bot_settings = BotSettings(
+                    **{
+                        **data.get("botSettings", {}),
+                        "indexer_endpoint": indexer_endpoint
+                        or IndexerEndpoint(testnet="", mainnet=""),
+                    }
+                )
 
-            telegram_settings = TelegramSettings(**data["telegram"])
+            telegram_settings = TelegramSettings(**data.get("telegram", {}))
+
+            # Load BacktestSettings from environment variables first, then fallback to YAML
+            try:
+                backtest_settings = BacktestSettings.from_env()
+                # Override with YAML values if present (for backward compatibility)
+                if "backtesting" in data:
+                    yaml_backtest = data["backtesting"]
+                    # Update with YAML values if they differ from defaults
+                    for key, value in yaml_backtest.items():
+                        if hasattr(backtest_settings, key):
+                            setattr(backtest_settings, key, value)
+            except Exception:
+                # Fallback to YAML-only parsing if env loading fails
+                backtest_settings = BacktestSettings(**data.get("backtesting", {}))
 
             # Build DYDX network settings. Support either a top-level `dydx` block
             # or explicit `dydx_testnet`/`dydx_mainnet` keys.
@@ -191,6 +305,10 @@ class ConfigurationManager:
 
             logging_settings = self._build_logging_settings(data)
 
+            # Parse database and redis settings from YAML
+            database_settings = DatabaseSettings(**(data.get("database", {})))
+            redis_settings = RedisSettings(**(data.get("redis", {})))
+
             # Create DydxConfig instance
             self._config = DydxConfig(
                 is_testnet=is_testnet,
@@ -200,10 +318,12 @@ class ConfigurationManager:
                 dydx_testnet=dydx_testnet,
                 dydx_mainnet=dydx_mainnet,
                 logging=logging_settings,
+                backtesting=backtest_settings,
+                database=database_settings,
+                redis=redis_settings,
             )
         except FileNotFoundError:
-            raise FileNotFoundError(
-                f"Configuration file not found at: {config_path}")
+            raise FileNotFoundError(f"Configuration file not found at: {config_path}")
         except yaml.YAMLError as e:
             raise ValueError(f"Error parsing YAML configuration: {e}")
         except KeyError as e:

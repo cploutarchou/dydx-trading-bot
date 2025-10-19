@@ -17,6 +17,7 @@ from backend.database import (
     BacktestRun,
     BacktestStrategy,
     RedisSetting,
+    StrategyVersionHistory,
     TradeLog,
     User,
 )
@@ -1028,4 +1029,105 @@ class RedisSettingsService:
         db.refresh(settings)
 
         logger.info(f"Redis caching {'enabled' if enabled else 'disabled'}")
+
+
+class StrategyVersionHistoryService:
+    """Service for managing strategy version history and version control."""
+
+    @staticmethod
+    def create_version(
+        db: Session,
+        strategy_id: int,
+        config_snapshot: dict,
+        version_number: int,
+        created_by_user_id: Optional[int] = None,
+        change_description: Optional[str] = None,
+        changes: Optional[dict] = None,
+    ):
+        """Create a new strategy version with configuration snapshot."""
+        version = StrategyVersionHistory(
+            strategy_id=strategy_id,
+            version_number=version_number,
+            config_snapshot=config_snapshot,
+            change_description=change_description,
+            changes=changes,
+            created_by_user_id=created_by_user_id,
+            created_at=datetime.utcnow(),
+        )
+        db.add(version)
+        db.commit()
+        db.refresh(version)
+        logger.info(
+            f"Strategy version created: Strategy {strategy_id} v{version_number}"
+        )
+        return version
+
+    @staticmethod
+    def get_version_by_id(db: Session, version_id: int):
+        """Get strategy version by ID."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.id == version_id)
+            .first()
+        )
+
+    @staticmethod
+    def get_strategy_versions(
+        db: Session, strategy_id: int, skip: int = 0, limit: int = 50
+    ) -> list:
+        """Get all versions for a strategy, ordered by version number descending."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(desc(StrategyVersionHistory.version_number))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def get_latest_version(db: Session, strategy_id: int):
+        """Get the latest version of a strategy."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(desc(StrategyVersionHistory.version_number))
+            .first()
+        )
+
+    @staticmethod
+    def get_version_by_number(db: Session, strategy_id: int, version_number: int):
+        """Get specific version by strategy and version number."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(
+                and_(
+                    StrategyVersionHistory.strategy_id == strategy_id,
+                    StrategyVersionHistory.version_number == version_number,
+                )
+            )
+            .first()
+        )
+
+    @staticmethod
+    def get_next_version_number(db: Session, strategy_id: int) -> int:
+        """Get the next version number for a strategy."""
+        latest = (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(desc(StrategyVersionHistory.version_number))
+            .first()
+        )
+        return (latest.version_number + 1) if latest else 1
+
+    @staticmethod
+    def track_config_changes(old_config: dict, new_config: dict) -> dict:
+        """Track which configuration fields changed between versions."""
+        changes = {}
+        for key in set(list(old_config.keys()) + list(new_config.keys())):
+            old_value = old_config.get(key)
+            new_value = new_config.get(key)
+            if old_value != new_value:
+                changes[key] = {"old": old_value, "new": new_value}
+        return changes if changes else None
         return RedisSettingsService.get_redis_settings(db)

@@ -494,6 +494,9 @@ async def get_backtest(
             "profit_factor": run.profit_factor,
             "starting_balance": run.starting_balance,
             "ending_balance": run.ending_balance,
+            "strategy_snapshot": run.strategy_snapshot,
+            "strategy_version_id": run.strategy_version_id,
+            "strategy_id": run.strategy_id,
             "results": formatted_results,
             "all_trades": all_trades,
         },
@@ -2671,6 +2674,414 @@ async def websocket_strategy_updates(websocket: WebSocket, token: Optional[str] 
         logger.error(f"Strategy WebSocket error: {e}")
         if websocket in WS_ACTIVE_CONNECTIONS:
             WS_ACTIVE_CONNECTIONS.remove(websocket)
+
+
+# ==================== STRATEGY VERSION HISTORY ENDPOINTS ====================
+
+
+@app.post("/api/v1/strategies/{strategy_id}/versions", response_model=ApiResponse)
+async def create_strategy_version(
+    strategy_id: int,
+    change_description: str = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save current strategy state as a new version in history."""
+    from backend.database import BacktestStrategy, StrategyVersionHistory
+
+    try:
+        # Get strategy
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if strategy.user_id != current_user["user_id"] and not current_user["is_admin"]:
+            return ApiResponse(
+                success=False,
+                message="Not authorized to version this strategy",
+                data=None,
+            )
+
+        # Get next version number
+        latest_version = (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(StrategyVersionHistory.version_number.desc())
+            .first()
+        )
+        next_version = (latest_version.version_number + 1) if latest_version else 1
+
+        # Create version entry
+        version_entry = StrategyVersionHistory(
+            strategy_id=strategy_id,
+            version_number=next_version,
+            change_description=change_description,
+            config_snapshot=strategy.to_dict(),
+            created_by_user_id=current_user["user_id"],
+        )
+
+        db.add(version_entry)
+        db.commit()
+        db.refresh(version_entry)
+
+        logger.info(
+            f"Strategy {strategy_id} versioned as v{next_version} by user {current_user['user_id']}"
+        )
+
+        return ApiResponse(
+            success=True,
+            message=f"Strategy version {next_version} saved successfully",
+            data=version_entry.to_dict(),
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating strategy version: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error creating version: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/api/v1/strategies/{strategy_id}/versions", response_model=ApiResponse)
+async def get_strategy_versions(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all versions of a strategy."""
+    from backend.database import BacktestStrategy, StrategyVersionHistory
+
+    try:
+        # Check strategy exists and user has access
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        if strategy.user_id != current_user["user_id"] and not current_user["is_admin"]:
+            return ApiResponse(
+                success=False,
+                message="Not authorized to view this strategy",
+                data=None,
+            )
+
+        # Get all versions
+        versions = (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(StrategyVersionHistory.version_number.desc())
+            .all()
+        )
+
+        versions_data = [v.to_dict() for v in versions]
+
+        return ApiResponse(
+            success=True,
+            message="Strategy versions retrieved successfully",
+            data={
+                "strategy_id": strategy_id,
+                "versions": versions_data,
+                "total": len(versions_data),
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching strategy versions: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching versions: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/versions/{version_id}/apply",
+    response_model=ApiResponse,
+)
+async def apply_strategy_version(
+    strategy_id: int,
+    version_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revert strategy to a specific version."""
+    from backend.database import BacktestStrategy, StrategyVersionHistory
+
+    try:
+        # Get strategy
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if strategy.user_id != current_user["user_id"] and not current_user["is_admin"]:
+            return ApiResponse(
+                success=False,
+                message="Not authorized to modify this strategy",
+                data=None,
+            )
+
+        # Get version
+        version = (
+            db.query(StrategyVersionHistory)
+            .filter(
+                StrategyVersionHistory.id == version_id,
+                StrategyVersionHistory.strategy_id == strategy_id,
+            )
+            .first()
+        )
+
+        if not version:
+            return ApiResponse(
+                success=False,
+                message=f"Version {version_id} not found",
+                data=None,
+            )
+
+        # Apply config from version to current strategy
+        config = version.config_snapshot
+        strategy.zscore_threshold = config.get("zscore_threshold", 1.5)
+        strategy.stats_window = config.get("stats_window", 21)
+        strategy.max_half_life = config.get("max_half_life", 24.0)
+        strategy.usd_per_trade = config.get("usd_per_trade", 10.0)
+        strategy.usd_min_collateral = config.get("usd_min_collateral", 100.0)
+        strategy.close_at_zscore_cross = config.get("close_at_zscore_cross", True)
+        strategy.find_cointegrated_pairs = config.get("find_cointegrated_pairs", True)
+        strategy.manage_exits = config.get("manage_exits", True)
+        strategy.place_trades = config.get("place_trades", True)
+        strategy.abort_all_positions = config.get("abort_all_positions", False)
+        strategy.max_positions = config.get("max_positions", 5)
+        strategy.max_drawdown_pct = config.get("max_drawdown_pct", 15.0)
+        strategy.stop_loss_pct = config.get("stop_loss_pct", 2.0)
+        strategy.take_profit_pct = config.get("take_profit_pct", 5.0)
+        strategy.trailing_stop_pct = config.get("trailing_stop_pct", 1.0)
+        strategy.rebalance_interval_hours = config.get("rebalance_interval_hours", 24)
+        strategy.position_timeout_hours = config.get("position_timeout_hours", 72)
+        strategy.transaction_fee = config.get("transaction_fee", 0.0005)
+        strategy.slippage = config.get("slippage", 0.001)
+        strategy.starting_balance = config.get("starting_balance", 1000.0)
+        strategy.candle_resolution = config.get("candle_resolution", "1HOUR")
+        strategy.max_history_days = config.get("max_history_days", 90)
+
+        db.commit()
+        db.refresh(strategy)
+
+        logger.info(
+            f"Strategy {strategy_id} reverted to version {version.version_number} by user {current_user['user_id']}"
+        )
+
+        return ApiResponse(
+            success=True,
+            message=f"Strategy reverted to version {version.version_number}",
+            data=strategy.to_dict(),
+        )
+
+    except Exception as e:
+        logger.error(f"Error applying strategy version: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error applying version: {str(e)}",
+            data=None,
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/create-strategy", response_model=ApiResponse)
+async def create_strategy_from_backtest(
+    run_id: str,
+    strategy_name: str,
+    strategy_description: str = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new strategy from a backtest result's configuration."""
+    from backend.database import (
+        BacktestRun,
+        BacktestStrategy,
+        StrategyVersionHistory,
+    )
+
+    try:
+        # Get backtest run
+        backtest_run = (
+            db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        )
+
+        if not backtest_run:
+            return ApiResponse(
+                success=False,
+                message=f"Backtest {run_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if (
+            backtest_run.user_id != current_user["user_id"]
+            and not current_user["is_admin"]
+        ):
+            return ApiResponse(
+                success=False,
+                message="Not authorized to access this backtest",
+                data=None,
+            )
+
+        # Get config from backtest strategy_snapshot
+        config = backtest_run.strategy_snapshot or {}
+
+        # Create new strategy
+        new_strategy = BacktestStrategy(
+            name=strategy_name,
+            description=strategy_description
+            or f"Created from backtest {run_id} with PnL: ${backtest_run.total_pnl_usd:.2f}",
+            user_id=current_user["user_id"],
+            zscore_threshold=config.get("zscore_threshold", 1.5),
+            stats_window=config.get("stats_window", 21),
+            max_half_life=config.get("max_half_life", 24.0),
+            usd_per_trade=config.get("usd_per_trade", 10.0),
+            usd_min_collateral=config.get("usd_min_collateral", 100.0),
+            close_at_zscore_cross=config.get("close_at_zscore_cross", True),
+            find_cointegrated_pairs=config.get("find_cointegrated_pairs", True),
+            manage_exits=config.get("manage_exits", True),
+            place_trades=config.get("place_trades", True),
+            abort_all_positions=config.get("abort_all_positions", False),
+            max_positions=config.get("max_positions", 5),
+            max_drawdown_pct=config.get("max_drawdown_pct", 15.0),
+            stop_loss_pct=config.get("stop_loss_pct", 2.0),
+            take_profit_pct=config.get("take_profit_pct", 5.0),
+            trailing_stop_pct=config.get("trailing_stop_pct", 1.0),
+            rebalance_interval_hours=config.get("rebalance_interval_hours", 24),
+            position_timeout_hours=config.get("position_timeout_hours", 72),
+            transaction_fee=config.get("transaction_fee", 0.0005),
+            slippage=config.get("slippage", 0.001),
+            starting_balance=config.get("starting_balance", 1000.0),
+            candle_resolution=config.get("candle_resolution", "1HOUR"),
+            max_history_days=config.get("max_history_days", 90),
+        )
+
+        db.add(new_strategy)
+        db.flush()  # Get strategy ID
+
+        # Create initial version history entry
+        version_entry = StrategyVersionHistory(
+            strategy_id=new_strategy.id,
+            version_number=1,
+            change_description=f"Initial version created from backtest {run_id} (PnL: ${backtest_run.total_pnl_usd:.2f}, Win Rate: {backtest_run.win_rate:.1f}%)",
+            config_snapshot=new_strategy.to_dict(),
+            created_by_user_id=current_user["user_id"],
+            backtest_count=1,
+            best_backtest_pnl=backtest_run.total_pnl_usd,
+            average_backtest_pnl=backtest_run.total_pnl_usd,
+        )
+
+        db.add(version_entry)
+        db.commit()
+        db.refresh(new_strategy)
+
+        logger.info(
+            f"Strategy '{strategy_name}' created from backtest {run_id} by user {current_user['user_id']}"
+        )
+
+        return ApiResponse(
+            success=True,
+            message=f"Strategy '{strategy_name}' created successfully from backtest result",
+            data={
+                "strategy": new_strategy.to_dict(),
+                "version": version_entry.to_dict(),
+                "backtest_config": config,
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating strategy from backtest: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error creating strategy: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/config", response_model=ApiResponse)
+async def get_backtest_config(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the strategy configuration used for a specific backtest."""
+    from backend.database import BacktestRun
+
+    try:
+        # Get backtest run
+        backtest_run = (
+            db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        )
+
+        if not backtest_run:
+            return ApiResponse(
+                success=False,
+                message=f"Backtest {run_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if (
+            backtest_run.user_id != current_user["user_id"]
+            and not current_user["is_admin"]
+        ):
+            return ApiResponse(
+                success=False,
+                message="Not authorized to access this backtest",
+                data=None,
+            )
+
+        return ApiResponse(
+            success=True,
+            message="Backtest configuration retrieved successfully",
+            data={
+                "run_id": run_id,
+                "strategy_snapshot": backtest_run.strategy_snapshot,
+                "config": backtest_run.config,
+                "strategy_id": backtest_run.strategy_id,
+                "strategy_version_id": backtest_run.strategy_version_id,
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching backtest config: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching config: {str(e)}",
+            data=None,
+        )
 
 
 # ==================== STRATEGY EXECUTION STATE ENDPOINTS ====================

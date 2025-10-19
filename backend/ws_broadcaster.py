@@ -2,13 +2,16 @@
 WebSocket broadcaster for real-time backtest progress updates.
 
 Provides a singleton manager for WebSocket connections and broadcasting
-progress messages to subscribed clients.
+progress messages to subscribed clients. Includes strategy metadata in
+real-time progress broadcasts.
 """
 
 import json
 import logging
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
+
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,8 @@ class BacktestProgressUpdate:
         progress: Optional[float] = None,
         message: Optional[str] = None,
         details: Optional[dict] = None,
+        strategy_id: Optional[int] = None,
+        strategy_name: Optional[str] = None,
     ):
         """
         Initialize progress update.
@@ -33,12 +38,16 @@ class BacktestProgressUpdate:
             progress: Progress percentage (0-100)
             message: Human-readable message
             details: Additional details (pairs processed, trades, etc.)
+            strategy_id: ID of the strategy being used (optional)
+            strategy_name: Name of the strategy for UI display (optional)
         """
         self.run_id = run_id
         self.status = status
         self.progress = progress
         self.message = message
         self.details = details or {}
+        self.strategy_id = strategy_id
+        self.strategy_name = strategy_name
         self.timestamp = datetime.utcnow().isoformat()
 
     def to_dict(self) -> dict:
@@ -49,6 +58,8 @@ class BacktestProgressUpdate:
             "progress": self.progress,
             "message": self.message,
             "details": self.details,
+            "strategy_id": self.strategy_id,
+            "strategy_name": self.strategy_name,
             "timestamp": self.timestamp,
         }
 
@@ -123,6 +134,9 @@ class WebSocketBroadcaster:
         """
         Broadcast an update to subscribed clients.
 
+        Enriches the update with strategy information if strategy_id is provided
+        and database session is available.
+
         Args:
             update: BacktestProgressUpdate to broadcast
         """
@@ -143,8 +157,44 @@ class WebSocketBroadcaster:
 
         logger.debug(
             f"Broadcasted update for run {update.run_id}: {update.status} "
-            f"({update.progress or 0}%)"
+            f"({update.progress or 0}%) - Strategy: {update.strategy_name or 'N/A'}"
         )
+
+    def enrich_with_strategy(
+        self, update: BacktestProgressUpdate, db: Optional[Session] = None
+    ) -> BacktestProgressUpdate:
+        """
+        Enrich progress update with strategy information from database.
+
+        Args:
+            update: BacktestProgressUpdate to enrich
+            db: Database session for querying strategy info
+
+        Returns:
+            Enriched BacktestProgressUpdate with strategy_name populated
+        """
+        if db is not None and update.strategy_id is not None:
+            try:
+                # Import here to avoid circular imports
+                from backend.database import BacktestStrategy
+
+                strategy = (
+                    db.query(BacktestStrategy)
+                    .filter(BacktestStrategy.id == update.strategy_id)
+                    .first()
+                )
+
+                if strategy:
+                    update.strategy_name = strategy.name
+                    logger.debug(
+                        f"Enriched update with strategy: {strategy.name} (ID: {strategy.id})"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to enrich update with strategy info: {e}. Continuing without strategy_name."
+                )
+
+        return update
 
     def has_subscribers(self, run_id: Optional[str] = None) -> bool:
         """

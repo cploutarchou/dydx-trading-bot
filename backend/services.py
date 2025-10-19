@@ -11,7 +11,14 @@ from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
 from backend.auth import hash_password, verify_password
-from backend.database import AuditLog, BacktestResult, BacktestRun, TradeLog, User
+from backend.database import (
+    AuditLog,
+    BacktestResult,
+    BacktestRun,
+    BacktestStrategy,
+    TradeLog,
+    User,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +95,8 @@ class BacktestRunService:
         total_markets: int,
         user_id: Optional[int] = None,
         config: Optional[dict] = None,
+        strategy_id: Optional[int] = None,
+        strategy_snapshot: Optional[dict] = None,
     ) -> BacktestRun:
         """Create new backtest run."""
         run = BacktestRun(
@@ -99,6 +108,8 @@ class BacktestRunService:
             total_markets=total_markets,
             user_id=user_id,
             config=config,
+            strategy_id=strategy_id,
+            strategy_snapshot=strategy_snapshot,
             created_at=datetime.utcnow(),
             started_at=datetime.utcnow(),
         )
@@ -253,6 +264,85 @@ class BacktestResultService:
         column = getattr(BacktestResult, metric, BacktestResult.pnl)
         return db.query(BacktestResult).order_by(desc(column)).limit(limit).all()
 
+    @staticmethod
+    def get_results_by_strategy(
+        db: Session, strategy_id: int, skip: int = 0, limit: int = 100
+    ) -> List[BacktestResult]:
+        """Get all backtest results for a specific strategy.
+
+        Args:
+            db: Database session
+            strategy_id: Strategy ID to filter by
+            skip: Number of results to skip (pagination)
+            limit: Maximum results to return
+
+        Returns:
+            List of BacktestResult records for the strategy
+        """
+        return (
+            db.query(BacktestResult)
+            .join(BacktestRun, BacktestResult.run_id_fk == BacktestRun.id)
+            .filter(BacktestRun.strategy_id == strategy_id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def get_strategy_performance_summary(db: Session, strategy_id: int) -> dict:
+        """Get aggregate performance metrics for a strategy across all runs.
+
+        Args:
+            db: Database session
+            strategy_id: Strategy ID to aggregate
+
+        Returns:
+            Dictionary with aggregated metrics:
+            - total_trades: Sum of all trades
+            - total_pnl: Sum of all P&L
+            - avg_win_rate: Average win rate across pairs
+            - profitable_pairs: Count of pairs with positive P&L
+            - best_pair: Pair with highest P&L
+            - worst_pair: Pair with lowest P&L
+        """
+        results = (
+            db.query(BacktestResult)
+            .join(BacktestRun, BacktestResult.run_id_fk == BacktestRun.id)
+            .filter(BacktestRun.strategy_id == strategy_id)
+            .all()
+        )
+
+        if not results:
+            return {
+                "total_trades": 0,
+                "total_pnl": 0.0,
+                "avg_win_rate": 0.0,
+                "profitable_pairs": 0,
+                "best_pair": None,
+                "worst_pair": None,
+            }
+
+        total_trades = sum(r.total_trades or 0 for r in results)
+        total_pnl = sum(r.pnl or 0.0 for r in results)
+        win_rates = [r.win_rate for r in results if r.win_rate is not None]
+        profitable = [r for r in results if (r.pnl or 0.0) > 0.0]
+        best = None
+        worst = None
+        if results:
+            pnl_values = [(r, r.pnl or 0.0) for r in results]
+            best = max(pnl_values, key=lambda x: x[1])[0]
+            worst = min(pnl_values, key=lambda x: x[1])[0]
+
+        return {
+            "total_trades": total_trades,
+            "total_pnl": total_pnl,
+            "avg_win_rate": sum(win_rates) / len(win_rates) if win_rates else 0.0,
+            "profitable_pairs": len(profitable),
+            "best_pair": f"{best.market_1}/{best.market_2}" if best else None,
+            "worst_pair": f"{worst.market_1}/{worst.market_2}" if worst else None,
+            "num_pairs_tested": len(results),
+        }
+
 
 class TradeLogService:
     """Service for trade logs."""
@@ -319,3 +409,278 @@ class AuditLogService:
             .limit(limit)
             .all()
         )
+
+
+class BacktestStrategyService:
+    """Service for backtest strategy management and CRUD operations."""
+
+    @staticmethod
+    def create_strategy(
+        db: Session,
+        user_id: int,
+        name: str,
+        description: str,
+        category: str = "custom",
+        is_public: bool = False,
+        zscore_threshold: float = 1.5,
+        stats_window: int = 21,
+        max_half_life: float = 24.0,
+        usd_per_trade: float = 10.0,
+        usd_min_collateral: float = 100.0,
+        close_at_zscore_cross: bool = True,
+        transaction_fee: float = 0.0005,
+        slippage: float = 0.001,
+        starting_balance: float = 1000.0,
+        candle_resolution: str = "1HOUR",
+        max_history_days: int = 90,
+        benchmark_symbol: str = "BTC-USD",
+        risk_free_rate: float = 0.02,
+    ) -> BacktestStrategy:
+        """Create a new backtest strategy with all parameters."""
+        strategy = BacktestStrategy(
+            user_id=user_id,
+            name=name,
+            description=description,
+            category=category,
+            is_public=is_public,
+            is_default=False,
+            zscore_threshold=zscore_threshold,
+            stats_window=stats_window,
+            max_half_life=max_half_life,
+            usd_per_trade=usd_per_trade,
+            usd_min_collateral=usd_min_collateral,
+            close_at_zscore_cross=close_at_zscore_cross,
+            transaction_fee=transaction_fee,
+            slippage=slippage,
+            starting_balance=starting_balance,
+            candle_resolution=candle_resolution,
+            max_history_days=max_history_days,
+            benchmark_symbol=benchmark_symbol,
+            risk_free_rate=risk_free_rate,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(strategy)
+        db.commit()
+        db.refresh(strategy)
+        logger.info(f"Strategy created: {name} by user {user_id}")
+        return strategy
+
+    @staticmethod
+    def get_strategy_by_id(db: Session, strategy_id: int) -> Optional[BacktestStrategy]:
+        """Get strategy by ID."""
+        return (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+
+    @staticmethod
+    def get_user_strategies(
+        db: Session, user_id: int, skip: int = 0, limit: int = 50
+    ) -> List[BacktestStrategy]:
+        """Get all strategies for a user."""
+        return (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.user_id == user_id)
+            .order_by(desc(BacktestStrategy.created_at))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def get_public_strategies(
+        db: Session, skip: int = 0, limit: int = 50
+    ) -> List[BacktestStrategy]:
+        """Get all public strategies available to all users."""
+        return (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.is_public == True)
+            .order_by(desc(BacktestStrategy.created_at))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def get_strategies_by_category(
+        db: Session, category: str, skip: int = 0, limit: int = 50
+    ) -> List[BacktestStrategy]:
+        """Get strategies by category."""
+        return (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.category == category)
+            .order_by(desc(BacktestStrategy.created_at))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def update_strategy(
+        db: Session, strategy_id: int, update_data: dict
+    ) -> Optional[BacktestStrategy]:
+        """Update strategy with new data."""
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+        if not strategy:
+            return None
+
+        # Update allowed fields
+        allowed_fields = {
+            "name",
+            "description",
+            "category",
+            "is_public",
+            "is_default",
+            "zscore_threshold",
+            "stats_window",
+            "max_half_life",
+            "usd_per_trade",
+            "usd_min_collateral",
+            "close_at_zscore_cross",
+            "find_cointegrated_pairs",
+            "manage_exits",
+            "place_trades",
+            "abort_all_positions",
+            "max_positions",
+            "max_drawdown_pct",
+            "stop_loss_pct",
+            "take_profit_pct",
+            "trailing_stop_pct",
+            "rebalance_interval_hours",
+            "position_timeout_hours",
+        }
+
+        for key, value in update_data.items():
+            if key in allowed_fields:
+                setattr(strategy, key, value)
+
+        strategy.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(strategy)
+        logger.info(f"Strategy updated: {strategy.name} (ID: {strategy_id})")
+        return strategy
+
+    @staticmethod
+    def delete_strategy(db: Session, strategy_id: int) -> bool:
+        """Delete strategy by ID."""
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+        if not strategy:
+            return False
+
+        db.delete(strategy)
+        db.commit()
+        logger.info(f"Strategy deleted: {strategy.name} (ID: {strategy_id})")
+        return True
+
+    @staticmethod
+    def set_default_strategy(
+        db: Session, user_id: int, strategy_id: int
+    ) -> Optional[BacktestStrategy]:
+        """Set a strategy as the default for a user."""
+        # Clear previous default
+        db.query(BacktestStrategy).filter(
+            and_(
+                BacktestStrategy.user_id == user_id, BacktestStrategy.is_default == True
+            )
+        ).update({"is_default": False})
+
+        # Set new default
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(
+                and_(
+                    BacktestStrategy.id == strategy_id,
+                    BacktestStrategy.user_id == user_id,
+                )
+            )
+            .first()
+        )
+
+        if strategy:
+            strategy.is_default = True
+            db.commit()
+            db.refresh(strategy)
+            logger.info(f"Default strategy set: {strategy.name} for user {user_id}")
+
+        return strategy
+
+    @staticmethod
+    def get_default_strategy(db: Session, user_id: int) -> Optional[BacktestStrategy]:
+        """Get the default strategy for a user."""
+        return (
+            db.query(BacktestStrategy)
+            .filter(
+                and_(
+                    BacktestStrategy.user_id == user_id,
+                    BacktestStrategy.is_default == True,
+                )
+            )
+            .first()
+        )
+
+    @staticmethod
+    def update_last_used(db: Session, strategy_id: int) -> Optional[BacktestStrategy]:
+        """Update the last_used_at timestamp for a strategy."""
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+        if not strategy:
+            return None
+
+        strategy.last_used_at = datetime.utcnow()
+        db.commit()
+        db.refresh(strategy)
+        return strategy
+
+    @staticmethod
+    def get_strategy_usage_stats(db: Session, strategy_id: int) -> dict:
+        """Get usage statistics for a strategy (how many backtests used it)."""
+        total_runs = (
+            db.query(func.count(BacktestRun.id))
+            .filter(BacktestRun.strategy_id == strategy_id)
+            .scalar()
+        ) or 0
+
+        completed_runs = (
+            db.query(func.count(BacktestRun.id))
+            .filter(
+                and_(
+                    BacktestRun.strategy_id == strategy_id,
+                    BacktestRun.status == "completed",
+                )
+            )
+            .scalar()
+        ) or 0
+
+        avg_pnl = (
+            db.query(func.avg(BacktestRun.total_pnl))
+            .filter(
+                and_(
+                    BacktestRun.strategy_id == strategy_id,
+                    BacktestRun.status == "completed",
+                )
+            )
+            .scalar()
+        ) or 0.0
+
+        return {
+            "total_runs": total_runs,
+            "completed_runs": completed_runs,
+            "failed_runs": total_runs - completed_runs,
+            "avg_pnl": float(avg_pnl),
+            "success_rate": (completed_runs / total_runs * 100)
+            if total_runs > 0
+            else 0.0,
+        }

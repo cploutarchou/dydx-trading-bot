@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -40,6 +40,20 @@ config: ## Create configuration file from template
 		cp app/config.yaml.example app/config.yaml 2>/dev/null || echo "⚠️  config.yaml.example not found. Please create app/config.yaml manually."; \
 	fi
 	@echo "✅ Configuration file ready at app/config.yaml"
+
+env-setup: ## Set up environment variables from .env.example
+	@if [ -f .env ]; then \
+		echo "⚠️  .env already exists. Backing up to .env.bak"; \
+		cp .env .env.bak; \
+	fi
+	@echo "Creating .env from template..."
+	@cp .env.example.new .env 2>/dev/null || cp .env.example .env
+	@echo "✅ Environment file created at .env"
+	@echo "📌 Edit .env with your specific settings (keys, addresses, etc.)"
+	@echo ""
+	@echo "🔐 Generate encryption key with:"
+	@echo "  python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+	@echo ""
 
 env: ## Show deprecation warning for .env
 	@echo "⚠️  WARNING: .env configuration is DEPRECATED!"

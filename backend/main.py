@@ -781,12 +781,29 @@ async def _execute_backtest_task(
         )  # type: ignore
         log_backtest_info(run_id, "Backtest engine initialized", db)
 
-        # Run backtest
+        # Run backtest in a thread pool to avoid blocking the event loop
         start_date = datetime.fromisoformat(request.start_date)
         end_date = datetime.fromisoformat(request.end_date)
         num_pairs = request.num_pairs or 10
 
-        await engine.run_backtest(start_date, end_date, num_pairs)
+        # FIX: Use asyncio.to_thread() to run synchronous backtest in background thread
+        # This prevents the UI from freezing while backtest runs
+        import asyncio
+
+        def run_backtest_sync():
+            """Synchronous wrapper to run backtest in thread pool."""
+            # Run the async backtest engine in the background
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(
+                    engine.run_backtest(start_date, end_date, num_pairs)
+                )
+            finally:
+                loop.close()
+
+        # Execute in thread pool (non-blocking)
+        await asyncio.to_thread(run_backtest_sync)
 
         log_backtest_info(run_id, "Backtest execution completed successfully", db)
 
@@ -2577,6 +2594,374 @@ async def websocket_backtest_updates(
         if websocket in WS_ACTIVE_CONNECTIONS:
             WS_ACTIVE_CONNECTIONS.remove(websocket)
         broadcaster.unsubscribe(run_id, send_update)
+
+
+@app.websocket("/ws/strategies")
+async def websocket_strategy_updates(websocket: WebSocket, token: Optional[str] = None):
+    """WebSocket endpoint for real-time strategy execution status updates.
+
+    Expected client message: None (connection just maintains live status)
+    Server broadcasts every 5 seconds:
+    {
+        "timestamp": "2025-10-20T00:46:57Z",
+        "strategies": [
+            {
+                "strategyId": 1,
+                "status": "running|stopped|paused|error",
+                "tradesExecuted": 5,
+                "pnl": 123.45,
+                "lastError": null,
+                "updatedAt": "2025-10-20T00:46:57Z"
+            }
+        ]
+    }
+    """
+    # Verify token
+    logger.info(f"Strategy WebSocket connection attempt: token_received={bool(token)}")
+
+    if not token:
+        logger.error("Strategy WebSocket rejected: no token provided")
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    if not verify_token(token, token_type="access"):
+        logger.error("Strategy WebSocket rejected: token verification failed")
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    logger.info("Strategy WebSocket connection accepted")
+    await websocket.accept()
+    WS_ACTIVE_CONNECTIONS.append(websocket)
+
+    try:
+        # Broadcast strategy status every 5 seconds
+        import asyncio
+
+        from backend.database import SessionLocal, StrategyExecutionState
+
+        while True:
+            try:
+                # Fetch all strategy execution states from database
+                db = SessionLocal()
+                try:
+                    execution_states = db.query(StrategyExecutionState).all()
+                    strategies_data = [state.to_dict() for state in execution_states]
+                finally:
+                    db.close()
+
+                # Send current strategy statuses to client
+                status_update = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "strategies": strategies_data,
+                }
+
+                await websocket.send_json(status_update)
+                await asyncio.sleep(5)  # Broadcast every 5 seconds
+
+            except Exception as send_error:
+                logger.error(f"Error sending strategy status: {send_error}")
+                break
+
+    except WebSocketDisconnect:
+        WS_ACTIVE_CONNECTIONS.remove(websocket)
+        logger.info("Strategy WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"Strategy WebSocket error: {e}")
+        if websocket in WS_ACTIVE_CONNECTIONS:
+            WS_ACTIVE_CONNECTIONS.remove(websocket)
+
+
+# ==================== STRATEGY EXECUTION STATE ENDPOINTS ====================
+
+
+@app.get("/api/v1/strategies/{strategy_id}/execution-state", response_model=ApiResponse)
+async def get_strategy_execution_state(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get current execution state of a specific strategy."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=True,
+                message="Strategy execution state not found",
+                data=None,
+            )
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution state retrieved successfully",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error fetching strategy execution state: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching execution state: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/api/v1/strategies/execution-state/all", response_model=ApiResponse)
+async def get_all_strategy_execution_states(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get execution states for all strategies."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_states = db.query(StrategyExecutionState).all()
+        states_data = [state.to_dict() for state in execution_states]
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution states retrieved successfully",
+            data={"strategies": states_data, "total": len(states_data)},
+        )
+    except Exception as e:
+        logger.error(f"Error fetching strategy execution states: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching execution states: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/execution-state/initialize",
+    response_model=ApiResponse,
+)
+async def initialize_strategy_execution_state(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Initialize execution state for a strategy."""
+    from backend.database import BacktestStrategy, StrategyExecutionState
+
+    try:
+        # Check if strategy exists
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Check if execution state already exists
+        existing_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if existing_state:
+            return ApiResponse(
+                success=True,
+                message="Execution state already exists",
+                data=existing_state.to_dict(),
+            )
+
+        # Create new execution state
+        new_state = StrategyExecutionState(
+            strategy_id=strategy_id,
+            enabled=False,
+            status="stopped",
+            trades_executed=0,
+            pnl=0.0,
+            pnl_pct=0.0,
+            config_snapshot=strategy.to_dict(),
+        )
+        db.add(new_state)
+        db.commit()
+        db.refresh(new_state)
+
+        logger.info(f"Initialized execution state for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Execution state initialized successfully",
+            data=new_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error initializing strategy execution state: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error initializing execution state: {str(e)}",
+            data=None,
+        )
+
+
+@app.put("/api/v1/strategies/{strategy_id}/execution-state", response_model=ApiResponse)
+async def update_strategy_execution_state(
+    strategy_id: int,
+    updates: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update execution state for a strategy (used by strategy executor threads)."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=False,
+                message=f"Execution state for strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Update fields from request
+        for field, value in updates.items():
+            if hasattr(execution_state, field) and not field.startswith("_"):
+                setattr(execution_state, field, value)
+
+        execution_state.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(execution_state)
+
+        logger.info(f"Updated execution state for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Execution state updated successfully",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error updating strategy execution state: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error updating execution state: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/execution-state/enable",
+    response_model=ApiResponse,
+)
+async def enable_strategy_execution(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enable strategy execution (start trading)."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=False,
+                message=f"Execution state for strategy {strategy_id} not found",
+                data=None,
+            )
+
+        execution_state.enabled = True
+        execution_state.status = "running"
+        execution_state.last_started = datetime.now(timezone.utc)
+        execution_state.error_count = 0
+        execution_state.last_error = None
+        execution_state.updated_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(execution_state)
+
+        logger.info(f"Enabled strategy execution for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution enabled",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error enabling strategy execution: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error enabling strategy: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/execution-state/disable",
+    response_model=ApiResponse,
+)
+async def disable_strategy_execution(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Disable strategy execution (stop trading)."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=False,
+                message=f"Execution state for strategy {strategy_id} not found",
+                data=None,
+            )
+
+        execution_state.enabled = False
+        execution_state.status = "stopped"
+        execution_state.last_stopped = datetime.now(timezone.utc)
+        execution_state.updated_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(execution_state)
+
+        logger.info(f"Disabled strategy execution for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution disabled",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error disabling strategy execution: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error disabling strategy: {str(e)}",
+            data=None,
+        )
 
 
 # ==================== HEALTH CHECK ====================

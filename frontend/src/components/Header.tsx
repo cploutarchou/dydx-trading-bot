@@ -22,10 +22,19 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
     if (paths.includes('settings')) {
       breadcrumbs.push({ label: 'Settings', path: '/settings' });
     } else if (paths.includes('backtest')) {
-      breadcrumbs.push({ label: 'Backtests', path: '/dashboard' });
+      // Don't add duplicate dashboard - just show the specific backtest
       const runId = paths[paths.indexOf('backtest') + 1];
       if (runId) {
+        breadcrumbs.push({ label: 'Backtests', path: '/backtest/' });
         breadcrumbs.push({ label: `Run ${runId}`, path: `/backtest/${runId}` });
+      }
+    } else if (paths.includes('strategies')) {
+      breadcrumbs.push({ label: 'Strategies', path: '/strategies' });
+      if (paths.includes('new')) {
+        breadcrumbs.push({ label: 'New Strategy', path: '/strategies/new' });
+      } else if (paths.includes('edit')) {
+        const strategyId = paths[paths.indexOf('edit') - 1];
+        breadcrumbs.push({ label: `Edit Strategy ${strategyId}`, path: `/strategies/${strategyId}/edit` });
       }
     }
 
@@ -50,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
           {/* Breadcrumbs */}
           <nav className="hidden md:flex items-center gap-2 text-sm">
             {breadcrumbs.map((crumb, index) => (
-              <React.Fragment key={crumb.path}>
+              <React.Fragment key={`breadcrumb-${index}-${crumb.path}`}>
                 {index > 0 && <ChevronRight className="w-4 h-4 text-gray-500" />}
                 <span
                   className={

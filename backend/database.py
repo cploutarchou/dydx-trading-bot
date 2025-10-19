@@ -658,10 +658,124 @@ class BacktestStrategy(Base):
             "position_timeout_hours": self.position_timeout_hours,
             "usage_count": self.usage_count,
             "last_used_at": self.last_used_at.isoformat()
-            if self.last_used_at
+            if self.last_used_at is not None
             else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat()
+            if self.created_at is not None
+            else None,
+            "updated_at": self.updated_at.isoformat()
+            if self.updated_at is not None
+            else None,
+        }
+
+
+class StrategyExecutionState(Base):
+    """Stores runtime execution state of strategies for persistent tracking and real-time updates.
+
+    Updated by strategy executor threads and queried by WebSocket broadcasts.
+    Survives bot restarts via database persistence.
+    """
+
+    __tablename__ = "strategy_execution_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Strategy reference
+    strategy_id = Column(
+        Integer, ForeignKey("backtest_strategies.id"), nullable=False, index=True
+    )
+
+    # Execution state
+    enabled = Column(
+        Boolean, default=False, index=True
+    )  # Is strategy currently active?
+    status = Column(
+        String(20), default="stopped", index=True
+    )  # stopped, running, paused, error
+
+    # Execution statistics
+    trades_executed = Column(Integer, default=0)  # Total trades from this strategy
+    pnl = Column(Float, default=0.0)  # Cumulative profit/loss in USD
+    pnl_pct = Column(Float, default=0.0)  # PnL as percentage
+
+    # Error tracking
+    last_error = Column(String(500), nullable=True)  # Latest error message
+    error_count = Column(Integer, default=0)  # Total errors encountered
+    last_error_at = Column(DateTime, nullable=True)  # When last error occurred
+
+    # Configuration snapshot
+    config_snapshot = Column(JSON, nullable=True)  # Full strategy config at runtime
+
+    # Timing information
+    last_started = Column(DateTime, nullable=True)  # When strategy was last started
+    last_stopped = Column(DateTime, nullable=True)  # When strategy was last stopped
+    last_trade_at = Column(DateTime, nullable=True)  # Timestamp of last executed trade
+    uptime_seconds = Column(Integer, default=0)  # How long strategy has been running
+
+    # Market data state
+    last_cointegration_check = Column(
+        DateTime, nullable=True
+    )  # When pairs were last analyzed
+    active_pairs_count = Column(
+        Integer, default=0
+    )  # Number of active cointegrated pairs
+    open_positions_count = Column(Integer, default=0)  # Number of open positions
+
+    # Performance metrics (updated in real-time)
+    max_drawdown = Column(Float, nullable=True)  # Maximum drawdown reached
+    sharpe_ratio = Column(Float, nullable=True)  # Calculated Sharpe ratio
+    win_rate = Column(Float, nullable=True)  # Win rate percentage
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+
+    # Relationships
+    strategy = relationship("BacktestStrategy", backref="execution_state")
+
+    __table_args__ = (
+        Index("idx_execution_state_strategy_enabled", "strategy_id", "enabled"),
+        Index("idx_execution_state_status", "strategy_id", "status"),
+        Index("idx_execution_state_updated", "updated_at"),
+    )
+
+    def __repr__(self):
+        return f"<StrategyExecutionState strategy_id={self.strategy_id} status={self.status}>"
+
+    def to_dict(self):
+        """Convert execution state to dictionary for WebSocket broadcasts and API responses."""
+        return {
+            "strategyId": self.strategy_id,
+            "enabled": self.enabled,
+            "status": self.status,
+            "tradesExecuted": self.trades_executed,
+            "pnl": self.pnl,
+            "pnlPct": self.pnl_pct,
+            "lastError": self.last_error,
+            "errorCount": self.error_count,
+            "lastErrorAt": self.last_error_at.isoformat()
+            if self.last_error_at is not None
+            else None,
+            "lastStarted": self.last_started.isoformat()
+            if self.last_started is not None
+            else None,
+            "lastStopped": self.last_stopped.isoformat()
+            if self.last_stopped is not None
+            else None,
+            "lastTradeAt": self.last_trade_at.isoformat()
+            if self.last_trade_at is not None
+            else None,
+            "uptimeSeconds": self.uptime_seconds,
+            "activePairsCount": self.active_pairs_count,
+            "openPositionsCount": self.open_positions_count,
+            "maxDrawdown": self.max_drawdown,
+            "sharpeRatio": self.sharpe_ratio,
+            "winRate": self.win_rate,
+            "updatedAt": self.updated_at.isoformat()
+            if self.updated_at is not None
+            else None,
         }
 
 
@@ -744,8 +858,12 @@ class BacktestComparison(Base):
                 "win_rate_difference": self.win_rate_difference,
                 "drawdown_difference": self.drawdown_difference,
             },
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat()
+            if self.created_at is not None
+            else None,
+            "updated_at": self.updated_at.isoformat()
+            if self.updated_at is not None
+            else None,
         }
 
 

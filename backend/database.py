@@ -102,11 +102,22 @@ class BacktestRun(Base):
     # User tracking
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
+    # Strategy tracking (Phase 1 enhancement)
+    strategy_id = Column(
+        Integer, ForeignKey("backtest_strategies.id"), nullable=True, index=True
+    )
+    strategy_snapshot = Column(
+        JSON, nullable=True
+    )  # Store strategy config at runtime for reproducibility
+
     # Relationships
     results = relationship(
         "BacktestResult", back_populates="run", cascade="all, delete-orphan"
     )
     user = relationship("User", back_populates="backtest_runs")
+    strategy = relationship(
+        "BacktestStrategy", back_populates="runs", foreign_keys=[strategy_id]
+    )
 
     # Indexes for common queries
     __table_args__ = (
@@ -463,6 +474,189 @@ class AuditLog(Base):
 
     def __repr__(self):
         return f"<AuditLog {self.action} on {self.resource_type}>"
+
+
+class BacktestStrategy(Base):
+    """Stores reusable backtest strategy configurations for quick testing and comparison."""
+
+    __tablename__ = "backtest_strategies"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Strategy identification
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(String(500), nullable=True)
+    category = Column(
+        String(50), default="custom"
+    )  # custom, conservative, balanced, aggressive
+
+    # Owner and visibility
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    is_public = Column(Boolean, default=False)
+    is_default = Column(Boolean, default=False)
+
+    # Strategy parameters - all configurable values from config.yaml
+    zscore_threshold = Column(Float, nullable=False, default=1.5)
+    stats_window = Column(Integer, nullable=False, default=21)
+    max_half_life = Column(Float, nullable=False, default=24.0)
+    usd_per_trade = Column(Float, nullable=False, default=10.0)
+    usd_min_collateral = Column(Float, nullable=False, default=100.0)
+    close_at_zscore_cross = Column(Boolean, nullable=False, default=True)
+
+    # Backtesting parameters
+    transaction_fee = Column(Float, nullable=False, default=0.0005)
+    slippage = Column(Float, nullable=False, default=0.001)
+    starting_balance = Column(Float, nullable=False, default=1000.0)
+    candle_resolution = Column(String(20), nullable=False, default="1HOUR")
+    max_history_days = Column(Integer, nullable=False, default=90)
+
+    # Additional strategy metadata
+    benchmark_symbol = Column(String(20), default="BTC-USD")
+    risk_free_rate = Column(Float, nullable=False, default=0.02)
+
+    # Usage statistics
+    usage_count = Column(Integer, default=0)
+    last_used_at = Column(DateTime, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)  # Soft delete support
+
+    # Relationships
+    user = relationship("User", backref="strategies")
+    runs = relationship(
+        "BacktestRun",
+        back_populates="strategy",
+        foreign_keys="BacktestRun.strategy_id",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("idx_strategy_user_name", "user_id", "name"),
+        Index("idx_strategy_public", "is_public"),
+        Index("idx_strategy_default", "is_default"),
+        Index("idx_strategy_category", "category"),
+    )
+
+    def __repr__(self):
+        return f"<BacktestStrategy {self.name} (User: {self.user_id})>"
+
+    def to_dict(self):
+        """Convert strategy to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "category": self.category,
+            "is_public": self.is_public,
+            "is_default": self.is_default,
+            "parameters": {
+                "zscore_threshold": self.zscore_threshold,
+                "stats_window": self.stats_window,
+                "max_half_life": self.max_half_life,
+                "usd_per_trade": self.usd_per_trade,
+                "usd_min_collateral": self.usd_min_collateral,
+                "close_at_zscore_cross": self.close_at_zscore_cross,
+                "transaction_fee": self.transaction_fee,
+                "slippage": self.slippage,
+                "starting_balance": self.starting_balance,
+                "candle_resolution": self.candle_resolution,
+                "max_history_days": self.max_history_days,
+                "benchmark_symbol": self.benchmark_symbol,
+                "risk_free_rate": self.risk_free_rate,
+            },
+            "usage_count": self.usage_count,
+            "last_used_at": self.last_used_at.isoformat()
+            if self.last_used_at
+            else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class BacktestComparison(Base):
+    """Stores comparisons between multiple backtest runs for strategy analysis."""
+
+    __tablename__ = "backtest_comparisons"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Comparison identification
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(String(500), nullable=True)
+
+    # Owner
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Strategies being compared
+    strategy_id_1 = Column(
+        Integer, ForeignKey("backtest_strategies.id"), nullable=False
+    )
+    strategy_id_2 = Column(
+        Integer, ForeignKey("backtest_strategies.id"), nullable=False
+    )
+
+    # Backtest runs to compare
+    run_id_1 = Column(Integer, ForeignKey("backtest_runs.id"), nullable=False)
+    run_id_2 = Column(Integer, ForeignKey("backtest_runs.id"), nullable=False)
+
+    # Comparison results (pre-calculated for performance)
+    winner_run_id = Column(Integer, nullable=True)  # Which run performed better
+    pnl_difference = Column(Float, nullable=True)  # Run1 PnL - Run2 PnL
+    sharpe_difference = Column(Float, nullable=True)  # Run1 Sharpe - Run2 Sharpe
+    win_rate_difference = Column(Float, nullable=True)  # Run1 Win Rate - Run2 Win Rate
+    drawdown_difference = Column(Float, nullable=True)  # Run1 Drawdown - Run2 Drawdown
+
+    # Detailed metrics JSON for UI display
+    comparison_metrics = Column(JSON, nullable=True)  # Store detailed metric comparison
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", backref="comparisons")
+    strategy_1 = relationship(
+        "BacktestStrategy",
+        foreign_keys=[strategy_id_1],
+    )
+    strategy_2 = relationship(
+        "BacktestStrategy",
+        foreign_keys=[strategy_id_2],
+    )
+    run_1 = relationship("BacktestRun", foreign_keys=[run_id_1])
+    run_2 = relationship("BacktestRun", foreign_keys=[run_id_2])
+
+    __table_args__ = (
+        Index("idx_comparison_user_created", "user_id", "created_at"),
+        Index("idx_comparison_strategies", "strategy_id_1", "strategy_id_2"),
+        Index("idx_comparison_runs", "run_id_1", "run_id_2"),
+    )
+
+    def __repr__(self):
+        return f"<BacktestComparison {self.name}>"
+
+    def to_dict(self):
+        """Convert comparison to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "strategy_1": {"id": self.strategy_id_1, "name": self.strategy_1.name},
+            "strategy_2": {"id": self.strategy_id_2, "name": self.strategy_2.name},
+            "run_1": {"id": self.run_id_1},
+            "run_2": {"id": self.run_id_2},
+            "winner_run_id": self.winner_run_id,
+            "metrics": {
+                "pnl_difference": self.pnl_difference,
+                "sharpe_difference": self.sharpe_difference,
+                "win_rate_difference": self.win_rate_difference,
+                "drawdown_difference": self.drawdown_difference,
+            },
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 # Database engine and session factory

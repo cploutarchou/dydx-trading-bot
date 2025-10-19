@@ -315,31 +315,45 @@ _redis_service: Optional[RedisService] = None
 def get_redis_service() -> RedisService:
     """Get or create Redis service instance.
 
+    Loads configuration from config.yaml or environment variables with this priority:
+    1. config.yaml (redis section)
+    2. Environment variables (REDIS_*)
+    3. Built-in defaults
+
     Returns:
         RedisService: Singleton Redis service instance
     """
     global _redis_service
 
     if _redis_service is None:
-        # Load Redis config from environment or use defaults
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        redis_db = int(os.getenv("REDIS_DB", "0"))
-        redis_password = os.getenv("REDIS_PASSWORD", "redis_password")
-        redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
-        redis_timeout = int(os.getenv("REDIS_TIMEOUT", "5"))
-        redis_max_connections = int(os.getenv("REDIS_MAX_CONNECTIONS", "10"))
-        redis_enabled = os.getenv("REDIS_ENABLED", "true").lower() == "true"
+        try:
+            # Try to load from config.yaml first
+            from backend.config_loader import get_config_loader
+
+            config_loader = get_config_loader()
+            redis_config = config_loader.get_redis_config()
+        except ImportError:
+            # Fallback to direct environment variables
+            redis_config = {
+                "enabled": os.getenv("REDIS_ENABLED", "true").lower() == "true",
+                "host": os.getenv("REDIS_HOST", "localhost"),
+                "port": int(os.getenv("REDIS_PORT", "6379")),
+                "db": int(os.getenv("REDIS_DB", "0")),
+                "password": os.getenv("REDIS_PASSWORD", None),
+                "ssl": os.getenv("REDIS_SSL", "false").lower() == "true",
+                "timeout": int(os.getenv("REDIS_TIMEOUT", "5")),
+                "max_connections": int(os.getenv("REDIS_MAX_CONNECTIONS", "10")),
+            }
 
         _redis_service = RedisService(
-            host=redis_host,
-            port=redis_port,
-            db=redis_db,
-            password=redis_password,
-            ssl=redis_ssl,
-            timeout=redis_timeout,
-            max_connections=redis_max_connections,
-            enabled=redis_enabled,
+            host=redis_config["host"],
+            port=redis_config["port"],
+            db=redis_config["db"],
+            password=redis_config["password"],
+            ssl=redis_config["ssl"],
+            timeout=redis_config["timeout"],
+            max_connections=redis_config["max_connections"],
+            enabled=redis_config["enabled"],
         )
 
     return _redis_service

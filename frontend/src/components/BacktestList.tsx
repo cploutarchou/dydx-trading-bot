@@ -134,7 +134,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                                     <td className="px-4 py-2 text-center">
                                         <button
                                             onClick={() => navigate(`/backtest/${run.run_id}`)}
-                                            className="text-blue-400 hover:text-blue-300 underline"
+                                            className="text-blue-400 hover:text-blue-300 underline font-semibold"
                                         >
                                             View Details
                                         </button>

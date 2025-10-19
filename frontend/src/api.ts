@@ -330,6 +330,60 @@ class ApiClient {
     return response.data;
   }
 
+  // Strategy version control
+  async getStrategyVersionHistory(strategyId: number): Promise<ApiResponse> {
+    console.log('🔌 api.ts: getStrategyVersionHistory() called for strategy:', strategyId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/strategies/${strategyId}/versions`
+      );
+      console.log('🔌 api.ts: getStrategyVersionHistory response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getStrategyVersionHistory failed:', error);
+      throw error;
+    }
+  }
+
+  async revertStrategyToVersion(strategyId: number, versionId: number): Promise<ApiResponse> {
+    console.log('🔌 api.ts: revertStrategyToVersion() called for strategy:', strategyId, 'version:', versionId);
+    try {
+      const response = await this.client.post<ApiResponse>(
+        `/api/v1/strategies/${strategyId}/versions/${versionId}/revert`
+      );
+      console.log('🔌 api.ts: revertStrategyToVersion response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: revertStrategyToVersion failed:', error);
+      throw error;
+    }
+  }
+
+  // Backtest to strategy
+  async createStrategyFromBacktest(data: {
+    name: string;
+    description: string;
+    config: any;
+    backtest_run_id: string;
+  }): Promise<ApiResponse> {
+    console.log('🔌 api.ts: createStrategyFromBacktest() called with:', data);
+    try {
+      const response = await this.client.post<ApiResponse>(
+        `/api/v1/backtests/${data.backtest_run_id}/create-strategy`,
+        {
+          name: data.name,
+          description: data.description,
+          config: data.config,
+        }
+      );
+      console.log('🔌 api.ts: createStrategyFromBacktest response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: createStrategyFromBacktest failed:', error);
+      throw error;
+    }
+  }
+
   // WebSocket connection for real-time updates
   connectBacktestSocket(runId: string, token: string): WebSocket {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

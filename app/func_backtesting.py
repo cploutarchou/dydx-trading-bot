@@ -556,10 +556,14 @@ class BacktestEngine:
         # Calculate date range for backtesting
         end_date = self.end_date
         # Load extra data for statistical analysis (need window before start)
+        # This extra data is used for cointegration analysis, not included in trading period
         data_start = self.start_date - timedelta(days=30)
 
-        self.logger.debug(
-            "Loading data from %s to %s", data_start.date(), end_date.date()
+        self.logger.info(
+            "Backtesting period: %s to %s | Loading data from %s (includes 30-day pre-window for analysis)",
+            self.start_date.date(),
+            end_date.date(),
+            data_start.date(),
         )
 
         # Load data for each market using direct API
@@ -640,10 +644,13 @@ class BacktestEngine:
 
             # Get subset of price data up to analysis date for pair finding
             analysis_data = {}
+            # Convert analysis_date to pandas Timestamp for proper comparison with datetime64[ns, UTC]
+            # Ensure the timestamp is timezone-aware (UTC)
+            analysis_timestamp = pd.Timestamp(analysis_date, tz="UTC")
             for symbol, df in self.price_data.items():
-                mask = df.index <= analysis_date
+                mask = df.index <= analysis_timestamp
                 if mask.any():
-                    analysis_data[symbol] = df[mask]
+                    analysis_data[symbol] = df[mask]["close"]
 
             if len(analysis_data) < 2:
                 self.logger.warning(
@@ -652,10 +659,11 @@ class BacktestEngine:
                 return []
 
             # Run cointegration analysis (following existing logic)
-            # Perform analysis and save to storage
+            # Convert dict of Series to DataFrame for store_cointegration_results
             from func_cointegration import store_cointegration_results
 
-            store_cointegration_results(analysis_data)
+            analysis_df = pd.DataFrame(analysis_data)
+            store_cointegration_results(analysis_df)
 
             # Load the results from storage
             from models.pair_storage import pair_storage
@@ -722,7 +730,9 @@ class BacktestEngine:
                 day_prices[symbol] = float(df[mask]["close"].iloc[-1])
             elif len(df) > 0:
                 # Use last available price if exact date not found
-                closest_data = df[df.index <= trading_date]
+                # Ensure timestamp is timezone-aware (UTC) for comparison
+                trading_timestamp = pd.Timestamp(trading_date, tz="UTC")
+                closest_data = df[df.index <= trading_timestamp]
                 if len(closest_data) > 0:
                     day_prices[symbol] = float(closest_data["close"].iloc[-1])
 
@@ -805,9 +815,22 @@ class BacktestEngine:
         self, pair: Dict, current_prices: Dict[str, float], current_date: datetime
     ) -> float:
         """Calculate Z-score for pair (simplified version of existing logic)."""
-        market_1 = pair.base_market
-        market_2 = pair.quote_market
-        hedge_ratio = pair.hedge_ratio
+        # Handle both dict and object formats (for compatibility with CointegrationResult and position dicts)
+        if isinstance(pair, dict):
+            market_1 = pair.get("base_market") or pair.get("market_1")
+            market_2 = pair.get("quote_market") or pair.get("market_2")
+            hedge_ratio = pair.get("hedge_ratio")
+        else:
+            # CointegrationResult object with attributes
+            market_1 = pair.base_market
+            market_2 = pair.quote_market
+            hedge_ratio = pair.hedge_ratio
+
+        # Validate required fields
+        if not market_1 or not market_2 or hedge_ratio is None:
+            raise ValueError(
+                f"Invalid pair data: m1={market_1}, m2={market_2}, hr={hedge_ratio}"
+            )
 
         # Get historical price series for Z-score calculation
         df1 = self.price_data.get(market_1)
@@ -817,9 +840,14 @@ class BacktestEngine:
             raise ValueError(f"Missing price data for {market_1} or {market_2}")
 
         # Get data up to current date
-        mask = (df1.index <= current_date) & (df2.index <= current_date)
-        recent_data1 = df1[df1.index <= current_date]["close"].tail(self.stats_window)
-        recent_data2 = df2[df2.index <= current_date]["close"].tail(self.stats_window)
+        # Ensure timestamp is timezone-aware (UTC) for comparison
+        current_timestamp = pd.Timestamp(current_date, tz="UTC")
+        recent_data1 = df1[df1.index <= current_timestamp]["close"].tail(
+            self.stats_window
+        )
+        recent_data2 = df2[df2.index <= current_timestamp]["close"].tail(
+            self.stats_window
+        )
 
         if (
             len(recent_data1) < self.stats_window
@@ -896,26 +924,8 @@ class BacktestEngine:
         effective_price_1 = price_1 * (1 + self.slippage)
         effective_price_2 = price_2 * (1 + self.slippage)
 
-        # Create trade record
+        # Create trade record ID
         trade_id = f"{market_1}_{market_2}_{int(trading_date.timestamp())}"
-
-        trade = BacktestTrade(
-            timestamp=trading_date.isoformat(),
-            market_1=market_1,
-            market_2=market_2,
-            side_1=side_1,
-            side_2=side_2,
-            size_1=base_size,
-            size_2=quote_size,
-            entry_price_1=effective_price_1,
-            entry_price_2=effective_price_2,
-            z_score_entry=z_score,
-            hedge_ratio=hedge_ratio,
-            trade_id=trade_id,
-            strategy_id=self.strategy_id,
-            strategy_name=None,  # Will be populated if strategy is loaded from DB
-            strategy_zscore_threshold=self.zscore_threshold,
-        )
 
         # Add to open positions (following bot_agents.json structure)
         pair_key = f"{market_1}_{market_2}"

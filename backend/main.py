@@ -43,6 +43,7 @@ from backend.database import (
     get_db,
     init_db,
 )
+from backend.schemas import BacktestStrategyCreate, BacktestStrategyUpdate
 from backend.services import (
     AuditLogService,
     BacktestResultService,
@@ -87,6 +88,20 @@ class BacktestStartRequest(BaseModel):
     manage_exits: Optional[bool] = Field(True)
     place_trades: Optional[bool] = Field(True)
     abort_all_positions: Optional[bool] = Field(False)
+
+    # Additional strategy parameters (sent from frontend but may not be used)
+    max_half_life: Optional[int] = Field(None)
+    max_positions: Optional[int] = Field(None)
+    max_drawdown_pct: Optional[float] = Field(None)
+    stop_loss_pct: Optional[float] = Field(None)
+    take_profit_pct: Optional[float] = Field(None)
+    trailing_stop_pct: Optional[float] = Field(None)
+    rebalance_interval_hours: Optional[int] = Field(None)
+    position_timeout_hours: Optional[int] = Field(None)
+
+    class Config:
+        # Allow extra fields from frontend (they'll be ignored if not used)
+        extra = "allow"
 
 
 class BacktestStatusUpdate(BaseModel):
@@ -631,17 +646,33 @@ async def _execute_backtest_task(
         db: Database session
         strategy_params: Optional strategy parameters to override config
     """
+    import logging
     import os
     import sys
     from datetime import datetime
+
+    # Add app directory to path BEFORE importing app modules
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
     from config import config
     from func_backtest_logging import log_backtest_error, log_backtest_info
     from func_backtesting import BacktestEngine
     from func_connections import connect_dydx
+    from logging_setup import setup_logging
 
-    # Add app directory to path
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
+    # Initialize logging for this background task
+    setup_logging()
+    task_logger = logging.getLogger(__name__)
+    task_logger.info(f"Background task started for backtest {run_id}")
+
+    # ========== FIX: Force reimport of services module to access new methods ==========
+    # This ensures BacktestRunService has the latest methods (find_cached_backtest, aggregate_run_metrics)
+    import importlib
+
+    import backend.services
+
+    importlib.reload(backend.services)
+    from backend.services import BacktestResultService
 
     try:
         log_backtest_info(run_id, "Backtest execution started", db)
@@ -673,6 +704,69 @@ async def _execute_backtest_task(
                 db,
             )
 
+        # ========== CACHE-FIRST CHECK: Look for matching completed backtest ==========
+        log_backtest_info(run_id, "Checking for cached backtest results...", db)
+
+        # Build strategy snapshot for comparison
+        strategy_snapshot = {}
+        if strategy_params:
+            strategy_snapshot = strategy_params.copy()
+
+        # Create hashable strategy representation for comparison
+        strategy_snapshot_for_query = strategy_snapshot if strategy_snapshot else None
+
+        # Look for cached backtest with identical parameters
+        cached_run = BacktestResultService.find_cached_backtest(
+            db,
+            request.start_date,
+            request.end_date,
+            request.num_pairs or 10,
+            strategy_snapshot_for_query,
+        )
+
+        if cached_run and cached_run.status == "completed":
+            log_backtest_info(
+                run_id,
+                f"Found cached backtest result from {cached_run.created_at}. Using cached data...",
+                db,
+            )
+
+            # Copy all result fields from cached run to current run
+            run_record = (
+                db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+            )
+            if run_record:
+                # Copy metrics (only fields that exist in BacktestRun model)
+                run_record.total_trades = cached_run.total_trades
+                run_record.profitable_trades = cached_run.profitable_trades
+                run_record.losing_trades = cached_run.losing_trades
+                run_record.total_pnl = cached_run.total_pnl
+                run_record.total_pnl_usd = cached_run.total_pnl_usd
+                run_record.sharpe_ratio = cached_run.sharpe_ratio
+                run_record.sortino_ratio = cached_run.sortino_ratio
+                run_record.max_drawdown = cached_run.max_drawdown
+                run_record.win_rate = cached_run.win_rate
+                run_record.profit_factor = cached_run.profit_factor
+                run_record.ending_balance = cached_run.ending_balance
+
+                db.commit()
+
+                log_backtest_info(
+                    run_id,
+                    f"Cache hit! Results copied: {run_record.total_trades} trades, ${run_record.total_pnl:.2f} PnL",
+                    db,
+                )
+
+                # Mark as completed and return early
+                run_record.status = "completed"
+                run_record.completed_at = datetime.now(timezone.utc)
+                db.commit()
+
+                log_backtest_info(run_id, "Backtest completed using cached results", db)
+                return  # Exit early - no need to run backtest
+
+        # ========== NO CACHE: Proceed with regular backtest execution ==========
+
         # Connect to dYdX client
         try:
             client = await connect_dydx()
@@ -696,9 +790,42 @@ async def _execute_backtest_task(
 
         log_backtest_info(run_id, "Backtest execution completed successfully", db)
 
+        # ========== AGGREGATE METRICS FROM TRADES ==========
+        run_record = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        if run_record:
+            BacktestResultService.aggregate_run_metrics(db, run_record.id)
+            log_backtest_info(
+                run_id,
+                f"Metrics aggregated - {run_record.total_trades} trades, "
+                f"${run_record.total_pnl:.2f} PnL, {run_record.win_rate:.1f}% win rate",
+                db,
+            )
+
+        # ========== UPDATE STATUS TO COMPLETED ==========
+        run_record = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        if run_record:
+            run_record.status = "completed"
+            run_record.completed_at = datetime.now(timezone.utc)
+            db.commit()
+            logger.info(f"Backtest {run_id} marked as completed in database")
+
     except Exception as e:
         logger.error(f"Backtest execution failed: {e}")
         log_backtest_error(run_id, f"Backtest execution failed: {str(e)}", db)
+
+        # ========== UPDATE STATUS TO FAILED ==========
+        try:
+            run_record = (
+                db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+            )
+            if run_record:
+                run_record.status = "failed"
+                run_record.error_message = str(e)
+                run_record.completed_at = datetime.now(timezone.utc)
+                db.commit()
+                logger.error(f"Backtest {run_id} marked as failed in database")
+        except Exception as db_error:
+            logger.error(f"Failed to update backtest status to failed: {db_error}")
 
 
 @app.get("/api/v1/stats")
@@ -2104,27 +2231,7 @@ async def get_strategy_all_results(
 
 @app.post("/api/v1/strategies", response_model=ApiResponse)
 async def create_strategy(
-    name: str,
-    description: str = "",
-    category: str = "custom",
-    is_public: bool = False,
-    zscore_threshold: float = 1.5,
-    stats_window: int = 21,
-    max_half_life: int = 24,
-    usd_per_trade: float = 10.0,
-    usd_min_collateral: float = 100.0,
-    close_at_zscore_cross: bool = True,
-    find_cointegrated_pairs: bool = True,
-    manage_exits: bool = True,
-    place_trades: bool = True,
-    abort_all_positions: bool = False,
-    max_positions: int = 5,
-    max_drawdown_pct: float = 15.0,
-    stop_loss_pct: float = 2.0,
-    take_profit_pct: float = 5.0,
-    trailing_stop_pct: float = 1.0,
-    rebalance_interval_hours: int = 24,
-    position_timeout_hours: int = 72,
+    request: BacktestStrategyCreate,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2135,27 +2242,27 @@ async def create_strategy(
         strategy = BacktestStrategyService.create_strategy(
             db=db,
             user_id=current_user["user_id"],
-            name=name,
-            description=description,
-            category=category,
-            is_public=is_public,
-            zscore_threshold=zscore_threshold,
-            stats_window=stats_window,
-            max_half_life=max_half_life,
-            usd_per_trade=usd_per_trade,
-            usd_min_collateral=usd_min_collateral,
-            close_at_zscore_cross=close_at_zscore_cross,
-            find_cointegrated_pairs=find_cointegrated_pairs,
-            manage_exits=manage_exits,
-            place_trades=place_trades,
-            abort_all_positions=abort_all_positions,
-            max_positions=max_positions,
-            max_drawdown_pct=max_drawdown_pct,
-            stop_loss_pct=stop_loss_pct,
-            take_profit_pct=take_profit_pct,
-            trailing_stop_pct=trailing_stop_pct,
-            rebalance_interval_hours=rebalance_interval_hours,
-            position_timeout_hours=position_timeout_hours,
+            name=request.name,
+            description=request.description,
+            category=request.category,
+            is_public=request.is_public,
+            zscore_threshold=request.zscore_threshold,
+            stats_window=request.stats_window,
+            max_half_life=request.max_half_life,
+            usd_per_trade=request.usd_per_trade,
+            usd_min_collateral=request.usd_min_collateral,
+            close_at_zscore_cross=request.close_at_zscore_cross,
+            find_cointegrated_pairs=request.find_cointegrated_pairs,
+            manage_exits=request.manage_exits,
+            place_trades=request.place_trades,
+            abort_all_positions=request.abort_all_positions,
+            max_positions=request.max_positions,
+            max_drawdown_pct=request.max_drawdown_pct,
+            stop_loss_pct=request.stop_loss_pct,
+            take_profit_pct=request.take_profit_pct,
+            trailing_stop_pct=request.trailing_stop_pct,
+            rebalance_interval_hours=request.rebalance_interval_hours,
+            position_timeout_hours=request.position_timeout_hours,
         )
 
         AuditLogService.log_action(
@@ -2296,7 +2403,7 @@ async def get_strategy(
 @app.put("/api/v1/strategies/{strategy_id}", response_model=ApiResponse)
 async def update_strategy(
     strategy_id: int,
-    updates: dict,
+    updates: BacktestStrategyUpdate,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2317,8 +2424,11 @@ async def update_strategy(
                 status_code=403, detail="Not authorized to update this strategy"
             )
 
+        # Convert to dict, removing None values
+        update_data = updates.dict(exclude_unset=True)
+
         updated = BacktestStrategyService.update_strategy(
-            db=db, strategy_id=strategy_id, update_data=updates
+            db=db, strategy_id=strategy_id, update_data=update_data
         )
 
         AuditLogService.log_action(
@@ -2327,7 +2437,7 @@ async def update_strategy(
             resource_type="BacktestStrategy",
             user_id=current_user["user_id"],
             resource_id=str(strategy_id),
-            details={"updates": updates},
+            details={"updates": update_data},
             status="success",
         )
 
@@ -2480,6 +2590,166 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
     }
+
+
+# ==================== REDIS CACHE MANAGEMENT ====================
+
+
+@app.get("/api/v1/redis/status")
+async def get_redis_status(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get Redis connection status and cache statistics."""
+    from backend.services import RedisSettingsService
+
+    connection_status = RedisSettingsService.test_redis_connection(db)
+    cache_stats = RedisSettingsService.get_cache_stats(db)
+    redis_settings = RedisSettingsService.get_redis_settings(db)
+
+    return {
+        "success": True,
+        "data": {
+            "connection": connection_status,
+            "cache_stats": cache_stats,
+            "settings": redis_settings,
+        },
+    }
+
+
+@app.get("/api/v1/redis/settings")
+async def get_redis_settings_endpoint(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get current Redis settings."""
+    from backend.services import RedisSettingsService
+
+    settings = RedisSettingsService.get_redis_settings(db)
+    if not settings:
+        return {
+            "success": False,
+            "message": "Redis settings not found",
+        }
+
+    return {
+        "success": True,
+        "data": settings,
+    }
+
+
+@app.post("/api/v1/redis/settings")
+async def update_redis_settings_endpoint(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update Redis settings."""
+    from backend.services import RedisSettingsService
+
+    try:
+        settings = RedisSettingsService.update_redis_settings(
+            db,
+            enabled=body.get("enabled"),
+            host=body.get("host"),
+            port=body.get("port"),
+            database=body.get("database"),
+            password=body.get("password"),
+            ssl=body.get("ssl"),
+            timeout=body.get("timeout"),
+            max_connections=body.get("max_connections"),
+            cache_ttl_seconds=body.get("cache_ttl_seconds"),
+            cache_backtest_results=body.get("cache_backtest_results"),
+            cache_market_data=body.get("cache_market_data"),
+            cache_analysis_results=body.get("cache_analysis_results"),
+        )
+
+        return {
+            "success": True,
+            "message": "Redis settings updated",
+            "data": settings,
+        }
+    except Exception as e:
+        logger.error(f"Failed to update Redis settings: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+        }
+
+
+@app.post("/api/v1/redis/test-connection")
+async def test_redis_connection(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Test Redis connection."""
+    from backend.services import RedisSettingsService
+
+    try:
+        status = RedisSettingsService.test_redis_connection(db)
+        return {
+            "success": status.get("connected", False),
+            "message": "Connected" if status.get("connected") else "Connection failed",
+            "data": status,
+        }
+    except Exception as e:
+        logger.error(f"Redis connection test failed: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+        }
+
+
+@app.post("/api/v1/redis/toggle")
+async def toggle_redis(
+    enabled: bool,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enable or disable Redis caching."""
+    from backend.services import RedisSettingsService
+
+    try:
+        settings = RedisSettingsService.toggle_redis_enabled(db, enabled)
+        return {
+            "success": True,
+            "message": f"Redis {'enabled' if enabled else 'disabled'}",
+            "data": settings,
+        }
+    except Exception as e:
+        logger.error(f"Failed to toggle Redis: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+        }
+
+
+@app.post("/api/v1/redis/flush")
+async def flush_redis_cache(
+    current_user: dict = Depends(get_current_user),
+):
+    """Flush Redis cache (admin only)."""
+    from backend.redis_service import get_redis_service
+
+    try:
+        redis_service = get_redis_service()
+        if not redis_service.enabled:
+            return {
+                "success": False,
+                "message": "Redis is not enabled",
+            }
+
+        redis_service.flush_all()
+        return {
+            "success": True,
+            "message": "Redis cache flushed",
+        }
+    except Exception as e:
+        logger.error(f"Failed to flush Redis: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+        }
 
 
 # ==================== ROOT ====================

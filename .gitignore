@@ -186,7 +186,8 @@ app/backtest_results/**/*.json
 app/*.db
 app/*.sqlite
 app/*.sqlite3
-
+*shm
+*wal
 # Database & Logs
 *.db
 *.sqlite

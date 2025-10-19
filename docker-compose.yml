@@ -1,7 +1,7 @@
 # Docker Compose configuration for dYdX Trading Bot
 # Supports both development and production deployments
 
-version: '3.8'
+version: "3.8"
 
 services:
   # Main trading bot service
@@ -14,44 +14,50 @@ services:
         BUILD_TARGET: production
     container_name: dydx-trading-bot
     restart: unless-stopped
-    
+
     # Mount configuration and state files
     volumes:
       - ./app/config.yaml:/app/app/config.yaml:ro
       - ./app/bot_agents.json:/app/app/bot_agents.json
       - ./app/cointegrated_pairs.csv:/app/app/cointegrated_pairs.csv
       - bot_logs:/app/logs
-    
+
     # Environment variables (can be overridden)
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
-    
+
     # Resource limits for production
     deploy:
       resources:
         limits:
           memory: 512M
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 256M
-          cpus: '0.25'
-    
+          cpus: "0.25"
+
     # Health check
     healthcheck:
-      test: ["CMD", "python", "-c", "from app.config import ConfigurationManager; print('OK')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.config import ConfigurationManager; print('OK')",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
-    
+
     # Logging configuration
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    
+
     # Network configuration
     networks:
       - dydx-network
@@ -66,25 +72,25 @@ services:
         BUILD_TARGET: development
     container_name: dydx-trading-bot-dev
     restart: "no"
-    
+
     # Development mounts (live code reload)
     volumes:
       - .:/app
       - dev_venv:/home/dydx/.local
       - bot_logs:/app/logs
-    
+
     # Development environment
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - DEVELOPMENT=1
-    
+
     # Keep container running for development
     command: tail -f /dev/null
-    
+
     networks:
       - dydx-network
-    
+
     profiles:
       - dev
 
@@ -100,7 +106,7 @@ services:
     profiles:
       - logging
 
-  # Optional: Log viewer for development  
+  # Optional: Log viewer for development
   grafana:
     image: grafana/grafana:latest
     container_name: dydx-grafana
@@ -115,6 +121,24 @@ services:
     profiles:
       - logging
 
+  # Redis cache for backtest results and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: dydx-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass redis_password
+    networks:
+      - dydx-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 networks:
   dydx-network:
     driver: bridge
@@ -125,4 +149,6 @@ volumes:
   dev_venv:
     driver: local
   grafana_data:
+    driver: local
+  redis_data:
     driver: local

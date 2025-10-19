@@ -2,17 +2,17 @@ import { ArrowDown, ArrowUp, Loader } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    Line,
-    LineChart,
-    ResponsiveContainer,
-    Scatter,
-    ScatterChart,
-    Tooltip,
-    XAxis,
-    YAxis,
+	Bar,
+	BarChart,
+	CartesianGrid,
+	Line,
+	LineChart,
+	ResponsiveContainer,
+	Scatter,
+	ScatterChart,
+	Tooltip,
+	XAxis,
+	YAxis,
 } from 'recharts';
 import api from '../api';
 import BacktestProgress from '../components/BacktestProgress';
@@ -79,6 +79,10 @@ export const BacktestDetailsPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedResult, setSelectedResult] = useState<BacktestResult | null>(null);
+    const [logs, setLogs] = useState<Array<{ id: number; message: string; level: string; created_at: string }>>([]);
+    const [activeTab, setActiveTab] = useState<'summary' | 'performance' | 'trades' | 'logs' | 'results'>('summary');
+    const [selectedTradeId, setSelectedTradeId] = useState<number | null>(null);
+    const [showTradeModal, setShowTradeModal] = useState(false);
 
     useEffect(() => {
         const fetchBacktest = async () => {
@@ -101,6 +105,27 @@ export const BacktestDetailsPage: React.FC = () => {
         };
 
         fetchBacktest();
+    }, [runId]);
+
+    // Fetch logs for the backtest
+    useEffect(() => {
+        const fetchLogs = async () => {
+            if (!runId) return;
+            try {
+                const response = await api.getBacktestLogs(runId);
+                if (response.success && response.data?.logs) {
+                    setLogs(response.data.logs);
+                }
+            } catch (err: any) {
+                console.error('Failed to fetch backtest logs:', err);
+            }
+        };
+
+        // Fetch logs immediately and then every 5 seconds if backtest is running
+        fetchLogs();
+        const interval = setInterval(fetchLogs, 5000);
+
+        return () => clearInterval(interval);
     }, [runId]);
 
     // Generate equity curve data from trades
@@ -455,6 +480,43 @@ export const BacktestDetailsPage: React.FC = () => {
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+
+                        {/* Backtest Logs Section */}
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h2 className="text-xl font-bold mb-4 text-slate-900">
+                                Backtest Logs
+                            </h2>
+                            {logs.length === 0 ? (
+                                <p className="text-slate-600">No logs available</p>
+                            ) : (
+                                <div className="bg-slate-900 rounded p-4 font-mono text-sm text-slate-100 max-h-96 overflow-y-auto">
+                                    {logs.map((log, idx) => (
+                                        <div
+                                            key={idx}
+                                            className={`py-1 ${
+                                                log.level === 'error'
+                                                    ? 'text-red-400'
+                                                    : log.level === 'warning'
+                                                    ? 'text-yellow-400'
+                                                    : log.level === 'debug'
+                                                    ? 'text-blue-400'
+                                                    : 'text-green-400'
+                                            }`}
+                                        >
+                                            <span className="text-slate-500">
+                                                {new Date(log.created_at).toLocaleTimeString()}
+                                            </span>
+                                            {' '}
+                                            <span className="text-slate-400">
+                                                [{log.level.toUpperCase()}]
+                                            </span>
+                                            {' '}
+                                            {log.message}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </>
                 )}

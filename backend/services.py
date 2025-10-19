@@ -16,6 +16,7 @@ from backend.database import (
     BacktestResult,
     BacktestRun,
     BacktestStrategy,
+    RedisSetting,
     TradeLog,
     User,
 )
@@ -257,6 +258,195 @@ class BacktestResultService:
         )
 
     @staticmethod
+    def aggregate_run_metrics(db: Session, run_id_pk: int) -> Optional[BacktestRun]:
+        """Aggregate metrics from all BacktestResult and TradeLog records into BacktestRun.
+
+        This function computes overall performance metrics from individual trades and results,
+        and updates the BacktestRun record with aggregated statistics.
+
+        Args:
+            db: Database session
+            run_id_pk: Primary key of BacktestRun record
+
+        Returns:
+            Updated BacktestRun object with aggregated metrics
+        """
+        run = db.query(BacktestRun).filter(BacktestRun.id == run_id_pk).first()
+        if not run:
+            return None
+
+        # Get all trades for this run
+        from backend.database import BacktestTrade
+
+        trades = (
+            db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run_id_pk).all()
+        )
+
+        if not trades:
+            # No trades, backtest had zero trading activity
+            run.total_trades = 0
+            run.profitable_trades = 0
+            run.losing_trades = 0
+            run.win_rate = 0.0
+            run.total_pnl = 0.0
+            run.total_pnl_usd = 0.0
+            run.ending_balance = run.starting_balance
+            db.commit()
+            return run
+
+        # Aggregate trade metrics
+        total_trades = len(trades)
+        profitable_trades = len([t for t in trades if t.pnl and t.pnl > 0])
+        losing_trades = len([t for t in trades if t.pnl and t.pnl < 0])
+        total_pnl = sum([t.pnl for t in trades if t.pnl is not None])
+
+        win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+        # Calculate advanced metrics
+        pnls = [t.pnl for t in trades if t.pnl is not None]
+
+        # Sharpe Ratio calculation
+        sharpe_ratio = None
+        sortino_ratio = None
+        profit_factor = None
+        max_drawdown = None
+
+        if len(pnls) > 1:
+            import numpy as np
+
+            returns = np.array(pnls)
+            daily_returns = (
+                returns / run.starting_balance
+            )  # Normalize by starting balance
+
+            # Sharpe Ratio: (mean return - risk_free_rate) / std_dev
+            mean_return = np.mean(daily_returns)
+            std_dev = np.std(daily_returns)
+            risk_free_rate = 0.02 / 252  # Annualized 2% risk-free rate
+
+            if std_dev > 0:
+                sharpe_ratio = (mean_return - risk_free_rate) / std_dev * np.sqrt(252)
+
+            # Sortino Ratio: (mean return - risk_free_rate) / downside_std_dev
+            downside_returns = np.minimum(daily_returns, 0)
+            downside_std = np.std(downside_returns)
+            if downside_std > 0:
+                sortino_ratio = (
+                    (mean_return - risk_free_rate) / downside_std * np.sqrt(252)
+                )
+
+            # Profit Factor: gross_profit / gross_loss
+            gross_profit = sum([t.pnl for t in trades if t.pnl and t.pnl > 0])
+            gross_loss = abs(sum([t.pnl for t in trades if t.pnl and t.pnl < 0]))
+            if gross_loss > 0:
+                profit_factor = gross_profit / gross_loss
+
+            # Max Drawdown calculation
+            cumulative_pnl = np.cumsum(returns)
+            running_max = np.maximum.accumulate(cumulative_pnl)
+            drawdown = (cumulative_pnl - running_max) / (running_max + 1e-9)
+            max_drawdown = float(np.min(drawdown)) * 100 if len(drawdown) > 0 else 0.0
+
+        # Update BacktestRun with aggregated metrics
+        run.total_trades = total_trades
+        run.profitable_trades = profitable_trades
+        run.losing_trades = losing_trades
+        run.win_rate = win_rate
+        run.total_pnl = total_pnl
+        run.total_pnl_usd = total_pnl
+        run.sharpe_ratio = sharpe_ratio
+        run.sortino_ratio = sortino_ratio
+        run.profit_factor = profit_factor
+        run.max_drawdown = max_drawdown
+        run.ending_balance = run.starting_balance + total_pnl
+
+        db.commit()
+        db.refresh(run)
+        logger.info(
+            f"Aggregated metrics for run {run.run_id}: {total_trades} trades, "
+            f"${total_pnl:.2f} PnL, {win_rate:.1f}% win rate, "
+            f"Sharpe: {sharpe_ratio or 'N/A'}"
+        )
+        return run
+
+    @staticmethod
+    def find_cached_backtest(
+        db: Session,
+        start_date: str,
+        end_date: str,
+        num_pairs: int,
+        strategy_snapshot: Optional[dict] = None,
+    ) -> Optional[BacktestRun]:
+        """Find an existing completed backtest with identical parameters (cache-first lookup).
+
+        Searches for a backtest run with the same date range, pair count, and strategy parameters.
+        Returns the most recent completed matching run if found.
+
+        Args:
+            db: Database session
+            start_date: Backtest start date (YYYY-MM-DD format)
+            end_date: Backtest end date (YYYY-MM-DD format)
+            num_pairs: Number of pairs analyzed
+            strategy_snapshot: Strategy parameters dict (optional, compared if provided)
+
+        Returns:
+            BacktestRun object if matching completed backtest found, None otherwise
+        """
+        import json
+
+        # Build query for matching backtests
+        query = (
+            db.query(BacktestRun)
+            .filter(
+                and_(
+                    BacktestRun.status == "completed",  # Only completed runs
+                    BacktestRun.start_date == start_date,
+                    BacktestRun.end_date == end_date,
+                    BacktestRun.num_pairs == num_pairs,
+                )
+            )
+            .order_by(desc(BacktestRun.created_at))  # Most recent first
+        )
+
+        # Find matching runs
+        candidates = query.all()
+
+        if not candidates:
+            return None
+
+        # If no strategy snapshot provided, return most recent matching by dates/pairs
+        if strategy_snapshot is None:
+            logger.info(
+                f"Found cached backtest: {candidates[0].run_id} "
+                f"({candidates[0].start_date} to {candidates[0].end_date})"
+            )
+            return candidates[0]
+
+        # Compare strategy parameters - find exact match
+        for run in candidates:
+            if run.strategy_snapshot is None:
+                continue
+
+            # Strategy snapshots might be JSON strings or dicts
+            cached_strategy = run.strategy_snapshot
+            if isinstance(cached_strategy, str):
+                cached_strategy = json.loads(cached_strategy)
+
+            # Compare all strategy parameters
+            if cached_strategy == strategy_snapshot:
+                logger.info(
+                    f"Found cached backtest with matching strategy: {run.run_id} "
+                    f"({run.start_date} to {run.end_date})"
+                )
+                return run
+
+        logger.info(
+            f"No cached backtest with matching strategy found for "
+            f"{start_date} to {end_date} ({num_pairs} pairs)"
+        )
+        return None
+
+    @staticmethod
     def get_top_pairs(
         db: Session, limit: int = 10, metric: str = "pnl"
     ) -> List[BacktestResult]:
@@ -415,6 +605,7 @@ class BacktestStrategyService:
     """Service for backtest strategy management and CRUD operations."""
 
     @staticmethod
+    @staticmethod
     def create_strategy(
         db: Session,
         user_id: int,
@@ -424,17 +615,21 @@ class BacktestStrategyService:
         is_public: bool = False,
         zscore_threshold: float = 1.5,
         stats_window: int = 21,
-        max_half_life: float = 24.0,
+        max_half_life: int = 24,
         usd_per_trade: float = 10.0,
         usd_min_collateral: float = 100.0,
         close_at_zscore_cross: bool = True,
-        transaction_fee: float = 0.0005,
-        slippage: float = 0.001,
-        starting_balance: float = 1000.0,
-        candle_resolution: str = "1HOUR",
-        max_history_days: int = 90,
-        benchmark_symbol: str = "BTC-USD",
-        risk_free_rate: float = 0.02,
+        find_cointegrated_pairs: bool = True,
+        manage_exits: bool = True,
+        place_trades: bool = True,
+        abort_all_positions: bool = False,
+        max_positions: int = 5,
+        max_drawdown_pct: float = 15.0,
+        stop_loss_pct: float = 2.0,
+        take_profit_pct: float = 5.0,
+        trailing_stop_pct: float = 1.0,
+        rebalance_interval_hours: int = 24,
+        position_timeout_hours: int = 72,
     ) -> BacktestStrategy:
         """Create a new backtest strategy with all parameters."""
         strategy = BacktestStrategy(
@@ -450,13 +645,17 @@ class BacktestStrategyService:
             usd_per_trade=usd_per_trade,
             usd_min_collateral=usd_min_collateral,
             close_at_zscore_cross=close_at_zscore_cross,
-            transaction_fee=transaction_fee,
-            slippage=slippage,
-            starting_balance=starting_balance,
-            candle_resolution=candle_resolution,
-            max_history_days=max_history_days,
-            benchmark_symbol=benchmark_symbol,
-            risk_free_rate=risk_free_rate,
+            find_cointegrated_pairs=find_cointegrated_pairs,
+            manage_exits=manage_exits,
+            place_trades=place_trades,
+            abort_all_positions=abort_all_positions,
+            max_positions=max_positions,
+            max_drawdown_pct=max_drawdown_pct,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            trailing_stop_pct=trailing_stop_pct,
+            rebalance_interval_hours=rebalance_interval_hours,
+            position_timeout_hours=position_timeout_hours,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -684,3 +883,149 @@ class BacktestStrategyService:
             if total_runs > 0
             else 0.0,
         }
+
+
+class RedisSettingsService:
+    """Service for Redis configuration and settings management."""
+
+    @staticmethod
+    def get_redis_settings(db: Session) -> Optional[dict]:
+        """Get current Redis settings from database."""
+        from backend.database import RedisSetting
+
+        settings = db.query(RedisSetting).first()
+        if not settings:
+            return None
+
+        return {
+            "id": settings.id,
+            "enabled": settings.enabled,
+            "host": settings.host,
+            "port": settings.port,
+            "db": settings.db,
+            "password": "***" if settings.password else None,  # Don't expose password
+            "ssl": settings.ssl,
+            "timeout": settings.timeout,
+            "max_connections": settings.max_connections,
+            "cache_ttl_seconds": settings.cache_ttl_seconds,
+            "cache_backtest_results": settings.cache_backtest_results,
+            "cache_market_data": settings.cache_market_data,
+            "cache_analysis_results": settings.cache_analysis_results,
+            "last_connection_test": settings.last_connection_test,
+            "last_connection_status": settings.last_connection_status,
+            "total_cache_hits": settings.total_cache_hits,
+            "total_cache_misses": settings.total_cache_misses,
+        }
+
+    @staticmethod
+    def update_redis_settings(
+        db: Session,
+        enabled: Optional[bool] = None,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        database: Optional[int] = None,
+        password: Optional[str] = None,
+        ssl: Optional[bool] = None,
+        timeout: Optional[int] = None,
+        max_connections: Optional[int] = None,
+        cache_ttl_seconds: Optional[int] = None,
+        cache_backtest_results: Optional[bool] = None,
+        cache_market_data: Optional[bool] = None,
+        cache_analysis_results: Optional[bool] = None,
+    ) -> Optional[dict]:
+        """Update Redis settings."""
+        from backend.database import RedisSetting
+
+        settings = db.query(RedisSetting).first()
+        if not settings:
+            # Create default settings
+            settings = RedisSetting()
+            db.add(settings)
+
+        # Update only provided fields
+        if enabled is not None:
+            settings.enabled = enabled
+        if host is not None:
+            settings.host = host
+        if port is not None:
+            settings.port = port
+        if database is not None:
+            settings.db = database
+        if password is not None:
+            settings.password = password
+        if ssl is not None:
+            settings.ssl = ssl
+        if timeout is not None:
+            settings.timeout = timeout
+        if max_connections is not None:
+            settings.max_connections = max_connections
+        if cache_ttl_seconds is not None:
+            settings.cache_ttl_seconds = cache_ttl_seconds
+        if cache_backtest_results is not None:
+            settings.cache_backtest_results = cache_backtest_results
+        if cache_market_data is not None:
+            settings.cache_market_data = cache_market_data
+        if cache_analysis_results is not None:
+            settings.cache_analysis_results = cache_analysis_results
+
+        settings.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(settings)
+
+        logger.info("Redis settings updated")
+        return RedisSettingsService.get_redis_settings(db)
+
+    @staticmethod
+    def test_redis_connection(db: Session) -> dict:
+        """Test Redis connection and update status in database."""
+        from backend.database import RedisSetting
+        from backend.redis_service import get_redis_service
+
+        redis_service = get_redis_service()
+        status = redis_service.check_connection()
+
+        settings = db.query(RedisSetting).first()
+        if settings:
+            settings.last_connection_test = datetime.utcnow()
+            settings.last_connection_status = (
+                "connected" if status.get("connected") else "failed"
+            )
+            db.commit()
+
+        return status
+
+    @staticmethod
+    def get_cache_stats(db: Session) -> dict:
+        """Get cache statistics."""
+        from backend.redis_service import get_redis_service
+
+        redis_service = get_redis_service()
+        stats = redis_service.get_cache_stats()
+
+        settings = db.query(RedisSetting).first()
+        if settings:
+            stats["cache_ttl_seconds"] = settings.cache_ttl_seconds
+            stats["cache_backtest_results"] = settings.cache_backtest_results
+            stats["cache_market_data"] = settings.cache_market_data
+            stats["cache_analysis_results"] = settings.cache_analysis_results
+
+        return stats
+
+    @staticmethod
+    def toggle_redis_enabled(db: Session, enabled: bool) -> dict:
+        """Toggle Redis caching on/off."""
+        from backend.database import RedisSetting
+
+        settings = db.query(RedisSetting).first()
+        if not settings:
+            settings = RedisSetting(enabled=enabled)
+            db.add(settings)
+        else:
+            settings.enabled = enabled
+
+        settings.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(settings)
+
+        logger.info(f"Redis caching {'enabled' if enabled else 'disabled'}")
+        return RedisSettingsService.get_redis_settings(db)

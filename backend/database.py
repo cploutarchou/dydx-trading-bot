@@ -476,6 +476,49 @@ class AuditLog(Base):
         return f"<AuditLog {self.action} on {self.resource_type}>"
 
 
+class RedisSetting(Base):
+    """Stores Redis configuration and connection settings."""
+
+    __tablename__ = "redis_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Redis connection parameters
+    enabled = Column(Boolean, default=True, index=True)
+    host = Column(String(255), default="localhost")
+    port = Column(Integer, default=6379)
+    db = Column(Integer, default=0)
+    password = Column(String(255), nullable=True)  # Encrypted in production
+    ssl = Column(Boolean, default=False)
+
+    # Connection and performance settings
+    timeout = Column(Integer, default=5)  # seconds
+    max_connections = Column(Integer, default=10)
+    cache_ttl_seconds = Column(Integer, default=86400)  # 24 hours
+
+    # Feature flags
+    cache_backtest_results = Column(Boolean, default=True)
+    cache_market_data = Column(Boolean, default=True)
+    cache_analysis_results = Column(Boolean, default=True)
+
+    # Statistics and monitoring
+    last_connection_test = Column(DateTime, nullable=True)
+    last_connection_status = Column(
+        String(20), default="unknown"
+    )  # connected, failed, disabled
+    total_cache_hits = Column(Integer, default=0)
+    total_cache_misses = Column(Integer, default=0)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index("idx_redis_enabled", "enabled"),)
+
+    def __repr__(self):
+        return f"<RedisSetting {self.host}:{self.port}/{self.db}>"
+
+
 class BacktestStrategy(Base):
     """Stores reusable backtest strategy configurations for quick testing and comparison."""
 
@@ -502,6 +545,19 @@ class BacktestStrategy(Base):
     usd_per_trade = Column(Float, nullable=False, default=10.0)
     usd_min_collateral = Column(Float, nullable=False, default=100.0)
     close_at_zscore_cross = Column(Boolean, nullable=False, default=True)
+    find_cointegrated_pairs = Column(Boolean, nullable=False, default=True)
+    manage_exits = Column(Boolean, nullable=False, default=True)
+    place_trades = Column(Boolean, nullable=False, default=True)
+    abort_all_positions = Column(Boolean, nullable=False, default=False)
+
+    # Risk management parameters
+    max_positions = Column(Integer, nullable=False, default=5)
+    max_drawdown_pct = Column(Float, nullable=False, default=15.0)
+    stop_loss_pct = Column(Float, nullable=False, default=2.0)
+    take_profit_pct = Column(Float, nullable=False, default=5.0)
+    trailing_stop_pct = Column(Float, nullable=False, default=1.0)
+    rebalance_interval_hours = Column(Integer, nullable=False, default=24)
+    position_timeout_hours = Column(Integer, nullable=False, default=72)
 
     # Backtesting parameters
     transaction_fee = Column(Float, nullable=False, default=0.0005)
@@ -549,23 +605,26 @@ class BacktestStrategy(Base):
             "name": self.name,
             "description": self.description,
             "category": self.category,
+            "user_id": self.user_id,
             "is_public": self.is_public,
             "is_default": self.is_default,
-            "parameters": {
-                "zscore_threshold": self.zscore_threshold,
-                "stats_window": self.stats_window,
-                "max_half_life": self.max_half_life,
-                "usd_per_trade": self.usd_per_trade,
-                "usd_min_collateral": self.usd_min_collateral,
-                "close_at_zscore_cross": self.close_at_zscore_cross,
-                "transaction_fee": self.transaction_fee,
-                "slippage": self.slippage,
-                "starting_balance": self.starting_balance,
-                "candle_resolution": self.candle_resolution,
-                "max_history_days": self.max_history_days,
-                "benchmark_symbol": self.benchmark_symbol,
-                "risk_free_rate": self.risk_free_rate,
-            },
+            "zscore_threshold": self.zscore_threshold,
+            "stats_window": self.stats_window,
+            "max_half_life": self.max_half_life,
+            "usd_per_trade": self.usd_per_trade,
+            "usd_min_collateral": self.usd_min_collateral,
+            "close_at_zscore_cross": self.close_at_zscore_cross,
+            "find_cointegrated_pairs": self.find_cointegrated_pairs,
+            "manage_exits": self.manage_exits,
+            "place_trades": self.place_trades,
+            "abort_all_positions": self.abort_all_positions,
+            "max_positions": self.max_positions,
+            "max_drawdown_pct": self.max_drawdown_pct,
+            "stop_loss_pct": self.stop_loss_pct,
+            "take_profit_pct": self.take_profit_pct,
+            "trailing_stop_pct": self.trailing_stop_pct,
+            "rebalance_interval_hours": self.rebalance_interval_hours,
+            "position_timeout_hours": self.position_timeout_hours,
             "usage_count": self.usage_count,
             "last_used_at": self.last_used_at.isoformat()
             if self.last_used_at

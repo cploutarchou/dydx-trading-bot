@@ -4,7 +4,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { BacktestComparator } from './components/BacktestComparator';
 import { MainLayout } from './components/MainLayout';
+import StrategyBuilder from './components/StrategyBuilder';
+import StrategyLibrary from './components/StrategyLibrary';
 import { BacktestDetailsPage } from './pages/BacktestDetails';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
@@ -96,6 +99,38 @@ export const App: React.FC = () => {
                         element={
                             <ProtectedRoute>
                                 <SettingsPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/strategies"
+                        element={
+                            <ProtectedRoute>
+                                <StrategyLibrary />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/strategies/new"
+                        element={
+                            <ProtectedRoute>
+                                <StrategyBuilder />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/strategies/:id/edit"
+                        element={
+                            <ProtectedRoute>
+                                <StrategyBuilder />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/backtests/compare"
+                        element={
+                            <ProtectedRoute>
+                                <BacktestComparator />
                             </ProtectedRoute>
                         }
                     />

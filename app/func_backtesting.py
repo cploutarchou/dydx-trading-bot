@@ -8,7 +8,7 @@ and dYdX client patterns from func_entry_pairs.py and func_exit_pairs.py.
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 from func_backtest_logging import (
@@ -47,6 +47,9 @@ class BacktestEngine:
 
     Uses the same statistical analysis and trading logic as the live bot,
     but simulates execution on historical data instead of placing real trades.
+
+    Supports strategy-driven parameter injection for flexible testing of different
+    trading configurations without modifying the base config.yaml.
     """
 
     def __init__(
@@ -56,30 +59,320 @@ class BacktestEngine:
         run_id: Optional[str] = None,
         run_id_int: Optional[int] = None,
         db: Optional[Session] = None,
+        strategy_id: Optional[int] = None,
+        strategy_params: Optional[Dict] = None,
+        progress_callback: Optional[Callable] = None,
     ):
+        """
+        Initialize BacktestEngine with optional strategy parameters and progress tracking.
+
+        Args:
+            client: dYdX client instance
+            config: Configuration object from config.yaml
+            run_id: UUID string for logging
+            run_id_int: Integer database ID for persistence
+            db: SQLAlchemy session for storing logs
+            strategy_id: Optional strategy ID from database (for reference)
+            strategy_params: Optional dict of strategy parameters to override config
+                Example: {'zscore_threshold': 2.0, 'usd_per_trade': 20.0}
+            progress_callback: Optional async callback for progress updates
+                Signature: async def callback(progress: float, current_pair: str, eta_seconds: int)
+                - progress: 0-100 percentage
+                - current_pair: market symbol being analyzed (e.g., "BTC-USD")
+                - eta_seconds: estimated seconds remaining
+
+        Parameter Precedence:
+            1. strategy_params (highest priority - injected parameters)
+            2. config.yaml (fallback)
+
+        Type Hints:
+            strategy_params keys should match config field names:
+            - zscore_threshold (float)
+            - usd_per_trade (float)
+            - close_at_zscore_cross (bool)
+            - stats_window (int)
+            - transaction_fee (float)
+            - slippage (float)
+        """
         self.client = client
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.run_id = run_id  # For logging to database (string UUID)
         self.run_id_int = run_id_int  # Integer database ID for helper function calls
         self.db = db  # Database session for storing logs
+        self.strategy_id = strategy_id  # Optional strategy reference
+        self.strategy_params = strategy_params or {}  # Store for reference
+        self.progress_callback = progress_callback  # Progress tracking callback
 
         # Initialize simulation state
         self.starting_balance = config.backtesting.startingBalance
         self.current_balance = self.starting_balance
-        self.transaction_fee = config.backtesting.transactionFee
-        self.slippage = config.backtesting.slippage
+        self.transaction_fee = self._get_param(
+            "transaction_fee", config.backtesting.transactionFee
+        )
+        self.slippage = self._get_param("slippage", config.backtesting.slippage)
 
-        # Trading parameters (from existing config)
-        self.zscore_threshold = config.botSettings.ZScoreThreshold
-        self.usd_per_trade = config.botSettings.usdPerTrade
-        self.close_at_zscore_cross = config.botSettings.closeAtZscoreCross
-        self.stats_window = config.botSettings.statsWindow
+        # Trading parameters (from strategy_params or fallback to config)
+        self.zscore_threshold = self._get_param(
+            "zscore_threshold", config.botSettings.ZScoreThreshold
+        )
+        self.usd_per_trade = self._get_param(
+            "usd_per_trade", config.botSettings.usdPerTrade
+        )
+        self.close_at_zscore_cross = self._get_param(
+            "close_at_zscore_cross", config.botSettings.closeAtZscoreCross
+        )
+        self.stats_window = self._get_param(
+            "stats_window", config.botSettings.statsWindow
+        )
+
+        # Log strategy parameters if provided
+        if strategy_id or strategy_params:
+            self.logger.info(
+                "BacktestEngine initialized with strategy_id=%s, params=%s",
+                strategy_id,
+                self.strategy_params,
+            )
 
         # Simulation tracking
         self.open_positions = {}  # Similar to bot_agents.json structure
         self.completed_trades = []
         self.price_data = {}  # Cache for historical prices
+
+        # Progress tracking state
+        self._backtest_start_time: Optional[float] = None
+        self._total_simulation_days: Optional[int] = None
+        self._current_simulation_day = 0
+        self._total_pairs_count = 0
+        self._current_pair_index = 0
+
+    def _get_param(self, key: str, default):
+        """
+        Get parameter from strategy_params or use default.
+
+        Args:
+            key: Parameter name
+            default: Default value from config
+
+        Returns:
+            Parameter value from strategy_params if present, otherwise default
+        """
+        if key in self.strategy_params:
+            value = self.strategy_params[key]
+            self.logger.debug(
+                "Using strategy parameter: %s=%s (default was %s)", key, value, default
+            )
+            return value
+        return default
+
+    def validate_strategy_params(self) -> bool:
+        """
+        Validate all strategy parameters for type correctness and value ranges.
+
+        Returns:
+            True if all parameters are valid, False otherwise
+
+        Raises:
+            ValueError: If any parameter is invalid
+        """
+        validation_rules = {
+            "zscore_threshold": {"type": (int, float), "min": 0.1, "max": 10.0},
+            "usd_per_trade": {"type": (int, float), "min": 0.01, "max": 10000.0},
+            "close_at_zscore_cross": {"type": bool},
+            "stats_window": {"type": int, "min": 5, "max": 365},
+            "transaction_fee": {"type": (int, float), "min": 0.0, "max": 1.0},
+            "slippage": {"type": (int, float), "min": 0.0, "max": 1.0},
+        }
+
+        for param_key, param_value in self.strategy_params.items():
+            if param_key not in validation_rules:
+                self.logger.warning(
+                    "Unknown parameter: %s (will be ignored)", param_key
+                )
+                continue
+
+            rule = validation_rules[param_key]
+
+            # Type validation
+            if not isinstance(param_value, rule["type"]):
+                raise ValueError(
+                    f"Parameter '{param_key}' must be {rule['type']}, "
+                    f"got {type(param_value).__name__}: {param_value}"
+                )
+
+            # Range validation for numeric types
+            if "min" in rule:
+                if param_value < rule["min"]:
+                    raise ValueError(
+                        f"Parameter '{param_key}' must be >= {rule['min']}, "
+                        f"got {param_value}"
+                    )
+
+            if "max" in rule:
+                if param_value > rule["max"]:
+                    raise ValueError(
+                        f"Parameter '{param_key}' must be <= {rule['max']}, "
+                        f"got {param_value}"
+                    )
+
+            self.logger.debug(
+                "Validated parameter: %s=%s (type=%s)",
+                param_key,
+                param_value,
+                type(param_value).__name__,
+            )
+
+        return True
+
+    def get_parameter_summary(self) -> Dict:
+        """
+        Get summary of all active parameters (injected + defaults).
+
+        Returns:
+            Dictionary with all parameter values in use
+        """
+        return {
+            "zscore_threshold": self.zscore_threshold,
+            "usd_per_trade": self.usd_per_trade,
+            "close_at_zscore_cross": self.close_at_zscore_cross,
+            "stats_window": self.stats_window,
+            "transaction_fee": self.transaction_fee,
+            "slippage": self.slippage,
+            "starting_balance": self.starting_balance,
+            "strategy_id": self.strategy_id,
+            "strategy_params_provided": len(self.strategy_params) > 0,
+        }
+
+    def update_trade_strategy_metadata(
+        self, strategy_name: Optional[str] = None
+    ) -> None:
+        """
+        Update strategy metadata in all completed trades.
+
+        Called after backtest completion to enrich trade records with strategy
+        information (typically retrieved from database).
+
+        Args:
+            strategy_name: Optional name of the strategy (for UI display)
+
+        Returns:
+            None (updates trades in-place)
+
+        Example:
+            >>> engine = BacktestEngine(..., strategy_id=10)
+            >>> result = await engine.run_backtest(start_date, end_date)
+            >>> # Later, after retrieving strategy name from database:
+            >>> engine.update_trade_strategy_metadata(strategy_name="Conservative Cointegration")
+            >>> # Now all trades have strategy_name populated
+        """
+        if not self.completed_trades:
+            return
+
+        # Count how many trades were updated
+        trades_updated = 0
+
+        for trade in self.completed_trades:
+            # Update strategy metadata if not already set
+            if trade.strategy_id is None and self.strategy_id is not None:
+                trade.strategy_id = self.strategy_id
+
+            if trade.strategy_name is None and strategy_name is not None:
+                trade.strategy_name = strategy_name
+                trades_updated += 1
+
+        if trades_updated > 0:
+            self.logger.debug(
+                "Updated %d completed trades with strategy name: %s",
+                trades_updated,
+                strategy_name,
+            )
+
+    async def _emit_progress(
+        self, progress_pct: float, current_pair: str = "", eta_seconds: int = 0
+    ) -> None:
+        """
+        Emit progress update via callback if registered.
+
+        Args:
+            progress_pct: Progress percentage (0-100)
+            current_pair: Market symbol being analyzed (e.g., "BTC-USD")
+            eta_seconds: Estimated seconds remaining
+
+        Returns:
+            None (silently continues if callback unavailable)
+        """
+        if not self.progress_callback:
+            return
+
+        try:
+            # Call async callback if available
+            if self.progress_callback:
+                await self.progress_callback(
+                    progress=progress_pct,
+                    current_pair=current_pair,
+                    eta_seconds=eta_seconds,
+                )
+                self.logger.debug(
+                    "Progress update sent: %.1f%% (%s), ETA: %ds",
+                    progress_pct,
+                    current_pair,
+                    eta_seconds,
+                )
+        except Exception as e:
+            # Don't fail the backtest if progress tracking fails
+            self.logger.warning("Progress callback failed: %s", e)
+
+    def _calculate_eta_seconds(self) -> int:
+        """
+        Calculate estimated seconds remaining based on progress.
+
+        Uses elapsed time and current progress percentage to extrapolate
+        total time and calculate remaining seconds.
+
+        Returns:
+            Estimated seconds remaining (0 if unable to calculate)
+        """
+        if not self._backtest_start_time or self._current_simulation_day == 0:
+            return 0
+
+        elapsed_seconds = time.time() - self._backtest_start_time
+        if elapsed_seconds < 1:
+            # Not enough data for accurate estimate
+            return 0
+
+        if not self._total_simulation_days:
+            return 0
+
+        # Calculate days per second
+        days_per_second = self._current_simulation_day / elapsed_seconds
+        if days_per_second <= 0:
+            return 0
+
+        # Estimate total seconds needed
+        total_estimated_seconds = self._total_simulation_days / days_per_second
+        remaining_seconds = max(0, int(total_estimated_seconds - elapsed_seconds))
+
+        return remaining_seconds
+
+    def _calculate_progress_percentage(self) -> float:
+        """
+        Calculate current progress as percentage.
+
+        Returns:
+            Progress percentage (0-100)
+        """
+        if not self._total_simulation_days or self._total_simulation_days == 0:
+            return 0.0
+
+        # Weight simulation days at 70%, pair processing at 30%
+        days_progress = (
+            self._current_simulation_day / self._total_simulation_days
+        ) * 70
+        pairs_progress = (
+            self._current_pair_index / max(1, self._total_pairs_count)
+        ) * 30
+
+        return min(99.0, days_progress + pairs_progress)  # Cap at 99% until complete
 
     async def run_backtest(
         self, start_date: datetime, end_date: datetime, max_pairs: Optional[int] = None
@@ -115,17 +408,26 @@ class BacktestEngine:
         self.start_date = start_date
         self.end_date = end_date
 
+        # Initialize progress tracking
+        self._total_simulation_days = (end_date - start_date).days
+        self._current_simulation_day = 0
+        self._total_pairs_count = 0
+        self._current_pair_index = 0
+        self._backtest_start_time = time.time()
+
         try:
             # Step 1: Load historical market data
             if self.run_id and self.db:
                 log_backtest_info(
                     self.run_id, "Loading historical price data...", self.db
                 )
+            await self._emit_progress(5.0, "Loading market data...")
             await self._load_historical_data()
 
             # Step 2: Find cointegrated pairs (using existing logic)
             if self.run_id and self.db:
                 log_backtest_info(self.run_id, "Finding cointegrated pairs...", self.db)
+            await self._emit_progress(10.0, "Finding cointegrated pairs...")
             cointegrated_pairs = await self._find_cointegrated_pairs(
                 start_date, max_pairs
             )
@@ -136,6 +438,7 @@ class BacktestEngine:
                     log_backtest_warning(
                         self.run_id, "No cointegrated pairs found", self.db
                     )
+                await self._emit_progress(100.0, "Completed (no pairs)")
                 return self._create_empty_result(start_date, end_date)
 
             self.logger.info(
@@ -149,6 +452,7 @@ class BacktestEngine:
                 )
 
             # Step 3: Simulate trading day by day
+            self._total_pairs_count = len(cointegrated_pairs)
             current_date = start_date
             simulation_days = 0
 
@@ -156,6 +460,7 @@ class BacktestEngine:
                 await self._simulate_trading_day(current_date, cointegrated_pairs)
                 current_date += timedelta(days=1)
                 simulation_days += 1
+                self._current_simulation_day = simulation_days
 
                 # Progress logging every 10 days
                 if simulation_days % 10 == 0:
@@ -171,6 +476,12 @@ class BacktestEngine:
                             self.db,
                         )
 
+                    # Emit progress update
+                    progress = self._calculate_progress_percentage()
+                    eta = self._calculate_eta_seconds()
+                    date_str = current_date.strftime("%Y-%m-%d")
+                    await self._emit_progress(progress, date_str, eta)
+
             # Step 4: Close any remaining open positions at end date
             if self.run_id and self.db:
                 log_backtest_info(
@@ -178,9 +489,11 @@ class BacktestEngine:
                     f"Closing remaining {len(self.open_positions)} positions at backtest end",
                     self.db,
                 )
+            await self._emit_progress(95.0, "Closing positions...")
             await self._close_remaining_positions(end_date)
 
             # Step 5: Calculate performance metrics
+            await self._emit_progress(98.0, "Calculating metrics...")
             total_days = (end_date - start_date).days
             metrics = calculate_backtest_metrics(
                 self.completed_trades, self.starting_balance, total_days
@@ -213,10 +526,19 @@ class BacktestEngine:
                     self.db,
                 )
 
+            # Emit completion progress update
+            await self._emit_progress(
+                100.0,
+                "Completed",
+                0,
+            )
+
             return result
 
         except Exception as e:
             self.logger.error("Backtest failed: %s", e)
+            # Emit error progress update
+            await self._emit_progress(0.0, f"Error: {str(e)}", 0)
             raise
 
     async def _load_historical_data_direct(self):
@@ -590,6 +912,9 @@ class BacktestEngine:
             z_score_entry=z_score,
             hedge_ratio=hedge_ratio,
             trade_id=trade_id,
+            strategy_id=self.strategy_id,
+            strategy_name=None,  # Will be populated if strategy is loaded from DB
+            strategy_zscore_threshold=self.zscore_threshold,
         )
 
         # Add to open positions (following bot_agents.json structure)
@@ -705,6 +1030,9 @@ class BacktestEngine:
             z_score_exit=exit_z_score,
             pnl=pnl,
             duration_hours=duration,
+            strategy_id=self.strategy_id,
+            strategy_name=None,  # Will be populated if strategy is loaded from DB
+            strategy_zscore_threshold=self.zscore_threshold,
         )
 
         # Update balance with PnL

@@ -37,12 +37,19 @@ from backend.database import (
     BacktestLog,
     BacktestResult,
     BacktestRun,
+    BacktestStrategy,
     TradeLog,
     User,
     get_db,
     init_db,
 )
-from backend.services import AuditLogService, BacktestRunService, UserService
+from backend.services import (
+    AuditLogService,
+    BacktestResultService,
+    BacktestRunService,
+    BacktestStrategyService,
+    UserService,
+)
 from backend.ws_broadcaster import BacktestProgressUpdate, get_broadcaster
 
 logger = logging.getLogger(__name__)
@@ -56,14 +63,30 @@ WS_ACTIVE_CONNECTIONS: List[WebSocket] = []
 
 # Request/Response models
 class BacktestStartRequest(BaseModel):
-    """Request to start a backtest."""
+    """Request to start a backtest.
+
+    Can use either:
+    - strategy_id (load from database)
+    - inline parameters (custom configuration)
+    """
 
     start_date: str = Field(..., description="Start date YYYY-MM-DD")
     end_date: str = Field(..., description="End date YYYY-MM-DD")
     num_pairs: Optional[int] = Field(None, description="Number of pairs")
+
+    # Strategy selection (mutually exclusive with inline params)
+    strategy_id: Optional[int] = Field(None, description="Strategy ID from database")
+
+    # Existing inline parameters (used if strategy_id not provided)
     zscore_threshold: Optional[float] = Field(1.2)
     stats_window: Optional[int] = Field(14)
     usd_per_trade: Optional[float] = Field(25.0)
+    usd_min_collateral: Optional[float] = Field(100.0)
+    close_at_zscore_cross: Optional[bool] = Field(True)
+    find_cointegrated_pairs: Optional[bool] = Field(True)
+    manage_exits: Optional[bool] = Field(True)
+    place_trades: Optional[bool] = Field(True)
+    abort_all_positions: Optional[bool] = Field(False)
 
 
 class BacktestStatusUpdate(BaseModel):
@@ -468,14 +491,87 @@ async def run_backtest(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Start a new backtest run."""
+    """Start a new backtest run.
+
+    Supports two modes:
+    1. With strategy_id: Load strategy from database and use its parameters
+    2. With inline parameters: Use custom configuration
+    """
     try:
         logger.info(f"Starting backtest for user {current_user['user_id']}: {request}")
 
-        # Create new backtest run record
+        # ========== STRATEGY SELECTION ==========
+        strategy = None
+        strategy_params = {}
+
+        if request.strategy_id is not None:
+            # Load strategy from database
+            strategy = (
+                db.query(BacktestStrategy)
+                .filter(BacktestStrategy.id == request.strategy_id)
+                .first()
+            )
+
+            if not strategy:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Strategy {request.strategy_id} not found",
+                )
+
+            # Check ownership or public access
+            if strategy.user_id != current_user["user_id"] and not strategy.is_public:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized to use this strategy",
+                )
+
+            # Extract all strategy parameters for engine
+            strategy_params = {
+                "zscore_threshold": strategy.zscore_threshold,
+                "stats_window": strategy.stats_window,
+                "usd_per_trade": strategy.usd_per_trade,
+                "usd_min_collateral": strategy.usd_min_collateral,
+                "close_at_zscore_cross": strategy.close_at_zscore_cross,
+                "find_cointegrated_pairs": strategy.find_cointegrated_pairs,
+                "manage_exits": strategy.manage_exits,
+                "place_trades": strategy.place_trades,
+                "abort_all_positions": strategy.abort_all_positions,
+                "max_positions": strategy.max_positions,
+                "max_drawdown_pct": strategy.max_drawdown_pct,
+                "stop_loss_pct": strategy.stop_loss_pct,
+                "take_profit_pct": strategy.take_profit_pct,
+                "trailing_stop_pct": strategy.trailing_stop_pct,
+                "rebalance_interval_hours": strategy.rebalance_interval_hours,
+                "position_timeout_hours": strategy.position_timeout_hours,
+            }
+
+            logger.info(f"Using strategy {strategy.id} ({strategy.name})")
+
+            # Update last_used_at timestamp
+            strategy.last_used_at = datetime.utcnow()
+            db.commit()
+        else:
+            # Use inline parameters
+            strategy_params = {
+                "zscore_threshold": request.zscore_threshold,
+                "stats_window": request.stats_window,
+                "usd_per_trade": request.usd_per_trade,
+                "usd_min_collateral": request.usd_min_collateral,
+                "close_at_zscore_cross": request.close_at_zscore_cross,
+                "find_cointegrated_pairs": request.find_cointegrated_pairs,
+                "manage_exits": request.manage_exits,
+                "place_trades": request.place_trades,
+                "abort_all_positions": request.abort_all_positions,
+            }
+            logger.info("Using inline parameters")
+
+        # ========== CREATE BACKTEST RUN RECORD ==========
         import uuid
 
         run_id = str(uuid.uuid4())
+
+        # Create strategy_snapshot (for reproducibility)
+        strategy_snapshot = strategy_params.copy() if strategy_params else None
 
         BacktestRunService.create_run(
             db,
@@ -485,19 +581,19 @@ async def run_backtest(
             num_pairs=request.num_pairs or 10,
             total_markets=0,  # Will be updated when backtest runs
             user_id=current_user["user_id"],
-            config={
-                "zscore_threshold": request.zscore_threshold,
-                "stats_window": request.stats_window,
-                "usd_per_trade": request.usd_per_trade,
-            },
+            config=strategy_snapshot,  # Store parameters used
+            strategy_id=strategy.id if strategy else None,  # Link to strategy
+            strategy_snapshot=strategy_snapshot,  # Store full snapshot in JSON
         )
 
         logger.info(f"Backtest {run_id} queued for user {current_user['user_id']}")
 
-        # Execute backtest in background
+        # ========== EXECUTE BACKTEST IN BACKGROUND ==========
         import asyncio
 
-        asyncio.create_task(_execute_backtest_task(run_id, request, db))
+        asyncio.create_task(
+            _execute_backtest_task(run_id, request, db, strategy_params)
+        )
 
         return ApiResponse(
             success=True,
@@ -505,9 +601,14 @@ async def run_backtest(
             data={
                 "run_id": run_id,
                 "status": "queued",
-                "message": "Your backtest has been queued. It will start shortly.",
+                "strategy_id": strategy.id if strategy else None,
+                "strategy_name": strategy.name if strategy else None,
+                "message": f"Your backtest has been queued. "
+                f"{'Using strategy: ' + strategy.name if strategy else 'Using custom parameters.'}",
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error starting backtest: {e}")
         raise HTTPException(
@@ -517,9 +618,19 @@ async def run_backtest(
 
 
 async def _execute_backtest_task(
-    run_id: str, request: BacktestStartRequest, db: Session
+    run_id: str,
+    request: BacktestStartRequest,
+    db: Session,
+    strategy_params: Optional[dict] = None,
 ):
-    """Background task to execute backtest and create logs."""
+    """Background task to execute backtest and create logs.
+
+    Args:
+        run_id: UUID of the backtest run
+        request: Backtest start request parameters
+        db: Database session
+        strategy_params: Optional strategy parameters to override config
+    """
     import os
     import sys
     from datetime import datetime
@@ -549,6 +660,18 @@ async def _execute_backtest_task(
         # Load configuration
         cfg = config()
         log_backtest_info(run_id, "Configuration loaded", db)
+
+        # ========== NEW: Apply Strategy Parameters ==========
+        if strategy_params:
+            # Override config.botSettings with strategy parameters
+            for param, value in strategy_params.items():
+                if hasattr(cfg.botSettings, param):
+                    setattr(cfg.botSettings, param, value)
+            log_backtest_info(
+                run_id,
+                f"Strategy parameters applied ({len(strategy_params)} overrides)",
+                db,
+            )
 
         # Connect to dYdX client
         try:
@@ -1677,6 +1800,615 @@ async def get_backtest_summary(
             },
         },
     )
+
+
+# ==================== BACKTEST RESULTS ENDPOINTS ====================
+
+
+@app.get("/api/v1/backtests/{run_id}/results")
+async def get_backtest_results(
+    run_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get detailed results for each pair tested in a backtest.
+
+    Args:
+        run_id: UUID of the backtest run
+        limit: Maximum results to return (default 100)
+        offset: Number of results to skip for pagination (default 0)
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ApiResponse with paginated list of pair results including metrics
+    """
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get results
+    results = (
+        db.query(BacktestResult)
+        .filter(BacktestResult.run_id_fk == run.id)
+        .order_by(BacktestResult.pnl.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    total = db.query(BacktestResult).filter(BacktestResult.run_id_fk == run.id).count()
+
+    formatted_results = []
+    for result in results:
+        formatted_results.append(
+            {
+                "id": result.id,
+                "market_1": result.market_1,
+                "market_2": result.market_2,
+                "total_trades": result.total_trades,
+                "profitable_trades": result.profitable_trades,
+                "losing_trades": result.losing_trades,
+                "win_rate": result.win_rate,
+                "pnl": result.pnl,
+                "pnl_usd": result.pnl_usd,
+                "avg_win": result.avg_win,
+                "avg_loss": result.avg_loss,
+                "profit_factor": result.profit_factor,
+                "max_drawdown": result.max_drawdown,
+                "sharpe_ratio": result.sharpe_ratio,
+                "sortino_ratio": result.sortino_ratio,
+                "calmar_ratio": result.calmar_ratio,
+                "avg_trade_duration_hours": result.avg_trade_duration_hours,
+                "cointegration_score": result.cointegration_score,
+                "correlation": result.correlation,
+                "zscore_mean": result.zscore_mean,
+                "zscore_std": result.zscore_std,
+                "created_at": result.created_at.isoformat(),
+            }
+        )
+
+    return ApiResponse(
+        success=True,
+        message="Backtest results retrieved",
+        data={
+            "results": formatted_results,
+            "pagination": {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "returned": len(formatted_results),
+            },
+        },
+    )
+
+
+@app.get("/api/v1/backtests/{run_id}/results/by-strategy")
+async def get_results_by_strategy(
+    run_id: str,
+    strategy_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get results filtered by strategy.
+
+    Args:
+        run_id: UUID of the backtest run
+        strategy_id: Filter results by strategy ID (optional)
+        limit: Maximum results to return
+        offset: Number of results to skip
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ApiResponse with strategy-filtered results
+    """
+
+    # Get run
+    run = BacktestRunService.get_run_by_run_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Check authorization
+    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Use strategy from run if not provided
+    effective_strategy_id = strategy_id or run.strategy_id
+    if not effective_strategy_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No strategy associated with this backtest. Provide strategy_id parameter.",
+        )
+
+    # Get results using service helper
+    results = BacktestResultService.get_results_by_strategy(
+        db, effective_strategy_id, skip=offset, limit=limit
+    )
+
+    total = len(
+        BacktestResultService.get_results_by_strategy(
+            db, effective_strategy_id, skip=0, limit=999999
+        )
+    )
+
+    formatted_results = []
+    for result in results:
+        formatted_results.append(
+            {
+                "id": result.id,
+                "market_1": result.market_1,
+                "market_2": result.market_2,
+                "total_trades": result.total_trades,
+                "pnl": result.pnl,
+                "win_rate": result.win_rate,
+                "sharpe_ratio": result.sharpe_ratio,
+                "profit_factor": result.profit_factor,
+            }
+        )
+
+    return ApiResponse(
+        success=True,
+        message="Strategy results retrieved",
+        data={
+            "strategy_id": effective_strategy_id,
+            "results": formatted_results,
+            "pagination": {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "returned": len(formatted_results),
+            },
+        },
+    )
+
+
+@app.get("/api/v1/strategies/{strategy_id}/performance")
+async def get_strategy_performance(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get aggregate performance metrics for a strategy across all backtests.
+
+    Args:
+        strategy_id: ID of the strategy
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ApiResponse with aggregated performance summary
+    """
+    # Verify strategy exists and user has access
+    strategy = BacktestStrategyService.get_strategy_by_id(db, strategy_id)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    # Check authorization (public strategies visible to all, private only to owner)
+    if (
+        not strategy.is_public
+        and strategy.user_id != current_user["user_id"]
+        and not current_user["is_admin"]
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to view this strategy"
+        )
+
+    # Get performance summary
+    summary = BacktestResultService.get_strategy_performance_summary(db, strategy_id)
+
+    return ApiResponse(
+        success=True,
+        message="Strategy performance retrieved",
+        data={
+            "strategy_id": strategy_id,
+            "strategy_name": strategy.name,
+            "performance": summary,
+            "description": strategy.description,
+            "category": strategy.category,
+        },
+    )
+
+
+@app.get("/api/v1/strategies/{strategy_id}/results")
+async def get_strategy_all_results(
+    strategy_id: int,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all backtest results for a strategy.
+
+    Args:
+        strategy_id: ID of the strategy
+        limit: Maximum results to return
+        offset: Number of results to skip
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ApiResponse with paginated list of results for the strategy
+    """
+    # Verify strategy exists and user has access
+    strategy = BacktestStrategyService.get_strategy_by_id(db, strategy_id)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    # Check authorization
+    if (
+        not strategy.is_public
+        and strategy.user_id != current_user["user_id"]
+        and not current_user["is_admin"]
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to view this strategy"
+        )
+
+    # Get results
+    results = BacktestResultService.get_results_by_strategy(
+        db, strategy_id, skip=offset, limit=limit
+    )
+
+    # Get total count (simple but not optimal - can be optimized with query count)
+    all_results = BacktestResultService.get_results_by_strategy(
+        db, strategy_id, skip=0, limit=999999
+    )
+    total = len(all_results)
+
+    formatted_results = []
+    for result in results:
+        formatted_results.append(
+            {
+                "id": result.id,
+                "market_1": result.market_1,
+                "market_2": result.market_2,
+                "total_trades": result.total_trades,
+                "pnl": result.pnl,
+                "win_rate": result.win_rate,
+                "sharpe_ratio": result.sharpe_ratio,
+                "profit_factor": result.profit_factor,
+                "max_drawdown": result.max_drawdown,
+                "created_at": result.created_at.isoformat(),
+            }
+        )
+
+    return ApiResponse(
+        success=True,
+        message="Strategy results retrieved",
+        data={
+            "strategy_id": strategy_id,
+            "strategy_name": strategy.name,
+            "results": formatted_results,
+            "pagination": {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "returned": len(formatted_results),
+            },
+        },
+    )
+
+
+# ==================== STRATEGY MANAGEMENT ENDPOINTS ====================
+
+
+@app.post("/api/v1/strategies", response_model=ApiResponse)
+async def create_strategy(
+    name: str,
+    description: str = "",
+    category: str = "custom",
+    is_public: bool = False,
+    zscore_threshold: float = 1.5,
+    stats_window: int = 21,
+    max_half_life: int = 24,
+    usd_per_trade: float = 10.0,
+    usd_min_collateral: float = 100.0,
+    close_at_zscore_cross: bool = True,
+    find_cointegrated_pairs: bool = True,
+    manage_exits: bool = True,
+    place_trades: bool = True,
+    abort_all_positions: bool = False,
+    max_positions: int = 5,
+    max_drawdown_pct: float = 15.0,
+    stop_loss_pct: float = 2.0,
+    take_profit_pct: float = 5.0,
+    trailing_stop_pct: float = 1.0,
+    rebalance_interval_hours: int = 24,
+    position_timeout_hours: int = 72,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new backtest strategy."""
+    try:
+        from backend.services import BacktestStrategyService
+
+        strategy = BacktestStrategyService.create_strategy(
+            db=db,
+            user_id=current_user["user_id"],
+            name=name,
+            description=description,
+            category=category,
+            is_public=is_public,
+            zscore_threshold=zscore_threshold,
+            stats_window=stats_window,
+            max_half_life=max_half_life,
+            usd_per_trade=usd_per_trade,
+            usd_min_collateral=usd_min_collateral,
+            close_at_zscore_cross=close_at_zscore_cross,
+            find_cointegrated_pairs=find_cointegrated_pairs,
+            manage_exits=manage_exits,
+            place_trades=place_trades,
+            abort_all_positions=abort_all_positions,
+            max_positions=max_positions,
+            max_drawdown_pct=max_drawdown_pct,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            trailing_stop_pct=trailing_stop_pct,
+            rebalance_interval_hours=rebalance_interval_hours,
+            position_timeout_hours=position_timeout_hours,
+        )
+
+        AuditLogService.log_action(
+            db=db,
+            action="create_strategy",
+            resource_type="BacktestStrategy",
+            user_id=current_user["user_id"],
+            resource_id=str(strategy.id),
+            status="success",
+        )
+
+        return ApiResponse(
+            success=True,
+            message="Strategy created successfully",
+            data=strategy.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error creating strategy: {e}")
+        AuditLogService.log_action(
+            db=db,
+            action="create_strategy",
+            resource_type="BacktestStrategy",
+            user_id=current_user["user_id"],
+            status="failed",
+            details={"error": str(e)},
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/v1/strategies", response_model=ApiResponse)
+async def list_user_strategies(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all strategies for the current user."""
+    try:
+        from backend.services import BacktestStrategyService
+
+        strategies = BacktestStrategyService.get_user_strategies(
+            db=db, user_id=current_user["user_id"], skip=skip, limit=limit
+        )
+
+        return ApiResponse(
+            success=True,
+            message="Strategies retrieved",
+            data={
+                "total": len(strategies),
+                "skip": skip,
+                "limit": limit,
+                "strategies": [s.to_dict() for s in strategies],
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error listing strategies: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@app.get("/api/v1/strategies/public", response_model=ApiResponse)
+async def list_public_strategies(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Get all public strategies available to all users."""
+    try:
+        from backend.services import BacktestStrategyService
+
+        strategies = BacktestStrategyService.get_public_strategies(
+            db=db, skip=skip, limit=limit
+        )
+
+        return ApiResponse(
+            success=True,
+            message="Public strategies retrieved",
+            data={
+                "total": len(strategies),
+                "skip": skip,
+                "limit": limit,
+                "strategies": [s.to_dict() for s in strategies],
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error listing public strategies: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@app.get("/api/v1/strategies/{strategy_id}", response_model=ApiResponse)
+async def get_strategy(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a specific strategy by ID."""
+    try:
+        from backend.services import BacktestStrategyService
+
+        strategy = BacktestStrategyService.get_strategy_by_id(
+            db=db, strategy_id=strategy_id
+        )
+
+        if not strategy:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+
+        # Check authorization (owner or public)
+        if strategy.user_id != current_user["user_id"] and not strategy.is_public:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to view this strategy"
+            )
+
+        # Get usage stats
+        stats = BacktestStrategyService.get_strategy_usage_stats(
+            db=db, strategy_id=strategy_id
+        )
+
+        strategy_data = strategy.to_dict()
+        strategy_data["usage_stats"] = stats
+
+        return ApiResponse(
+            success=True,
+            message="Strategy retrieved",
+            data=strategy_data,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving strategy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@app.put("/api/v1/strategies/{strategy_id}", response_model=ApiResponse)
+async def update_strategy(
+    strategy_id: int,
+    updates: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a strategy."""
+    try:
+        from backend.services import BacktestStrategyService
+
+        strategy = BacktestStrategyService.get_strategy_by_id(
+            db=db, strategy_id=strategy_id
+        )
+
+        if not strategy:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+
+        # Check authorization
+        if strategy.user_id != current_user["user_id"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to update this strategy"
+            )
+
+        updated = BacktestStrategyService.update_strategy(
+            db=db, strategy_id=strategy_id, update_data=updates
+        )
+
+        AuditLogService.log_action(
+            db=db,
+            action="update_strategy",
+            resource_type="BacktestStrategy",
+            user_id=current_user["user_id"],
+            resource_id=str(strategy_id),
+            details={"updates": updates},
+            status="success",
+        )
+
+        return ApiResponse(
+            success=True,
+            message="Strategy updated successfully",
+            data=updated.to_dict() if updated else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating strategy: {e}")
+        AuditLogService.log_action(
+            db=db,
+            action="update_strategy",
+            resource_type="BacktestStrategy",
+            user_id=current_user["user_id"],
+            resource_id=str(strategy_id),
+            status="failed",
+            details={"error": str(e)},
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.delete("/api/v1/strategies/{strategy_id}", response_model=ApiResponse)
+async def delete_strategy(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a strategy."""
+    try:
+        from backend.services import BacktestStrategyService
+
+        strategy = BacktestStrategyService.get_strategy_by_id(
+            db=db, strategy_id=strategy_id
+        )
+
+        if not strategy:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+
+        # Check authorization
+        if strategy.user_id != current_user["user_id"]:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to delete this strategy"
+            )
+
+        success = BacktestStrategyService.delete_strategy(
+            db=db, strategy_id=strategy_id
+        )
+
+        AuditLogService.log_action(
+            db=db,
+            action="delete_strategy",
+            resource_type="BacktestStrategy",
+            user_id=current_user["user_id"],
+            resource_id=str(strategy_id),
+            status="success",
+        )
+
+        return ApiResponse(
+            success=True,
+            message="Strategy deleted successfully",
+            data={"deleted": success},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting strategy: {e}")
+        AuditLogService.log_action(
+            db=db,
+            action="delete_strategy",
+            resource_type="BacktestStrategy",
+            user_id=current_user["user_id"],
+            resource_id=str(strategy_id),
+            status="failed",
+            details={"error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ==================== WEBSOCKET ENDPOINTS ====================

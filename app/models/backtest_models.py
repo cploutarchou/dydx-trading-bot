@@ -37,7 +37,11 @@ class BacktestTrade:
         duration_hours: Trade duration in hours (None if still open)
         hedge_ratio: Hedge ratio used for the pair
         trade_id: Unique identifier for the trade
+        strategy_id: Optional ID linking to BacktestStrategy (for result filtering)
+        strategy_name: Optional name of the strategy used (for display)
+        strategy_zscore_threshold: Z-score threshold used for entry (for analysis)
     """
+
     timestamp: str
     market_1: str
     market_2: str
@@ -56,13 +60,16 @@ class BacktestTrade:
     z_score_exit: Optional[float] = None
     pnl: Optional[float] = None
     duration_hours: Optional[float] = None
+    strategy_id: Optional[int] = None
+    strategy_name: Optional[str] = None
+    strategy_zscore_threshold: Optional[float] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'BacktestTrade':
+    def from_dict(cls, data: Dict) -> "BacktestTrade":
         """Create instance from dictionary (JSON deserialization)."""
         return cls(**data)
 
@@ -84,6 +91,7 @@ class BacktestMetrics:
 
     Following project analytical approach like confidence scoring.
     """
+
     total_pnl: float
     total_return_pct: float
     total_trades: int
@@ -105,7 +113,7 @@ class BacktestMetrics:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'BacktestMetrics':
+    def from_dict(cls, data: Dict) -> "BacktestMetrics":
         """Create instance from dictionary."""
         return cls(**data)
 
@@ -127,6 +135,7 @@ class BacktestResult:
         analysis_timestamp: When backtest was run
         version: Backtest format version
     """
+
     start_date: str
     end_date: str
     total_days: int
@@ -142,22 +151,21 @@ class BacktestResult:
         """Convert to dictionary for JSON serialization."""
         data = asdict(self)
         # Convert nested dataclasses
-        data['metrics'] = self.metrics.to_dict()
-        data['trades'] = [trade.to_dict() for trade in self.trades]
+        data["metrics"] = self.metrics.to_dict()
+        data["trades"] = [trade.to_dict() for trade in self.trades]
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'BacktestResult':
+    def from_dict(cls, data: Dict) -> "BacktestResult":
         """Create instance from dictionary."""
         # Convert nested structures
-        metrics = BacktestMetrics.from_dict(data['metrics'])
-        trades = [BacktestTrade.from_dict(trade_data)
-                  for trade_data in data['trades']]
+        metrics = BacktestMetrics.from_dict(data["metrics"])
+        trades = [BacktestTrade.from_dict(trade_data) for trade_data in data["trades"]]
 
         # Create instance with converted nested objects
         result_data = data.copy()
-        result_data['metrics'] = metrics
-        result_data['trades'] = trades
+        result_data["metrics"] = metrics
+        result_data["trades"] = trades
 
         return cls(**result_data)
 
@@ -171,13 +179,13 @@ class BacktestResult:
             "total_trades": self.metrics.total_trades,
             "win_rate": f"{self.metrics.win_rate:.1f}%",
             "sharpe_ratio": f"{self.metrics.sharpe_ratio:.2f}",
-            "max_drawdown": f"{self.metrics.max_drawdown_pct:.1f}%"
+            "max_drawdown": f"{self.metrics.max_drawdown_pct:.1f}%",
         }
 
 
-def calculate_backtest_metrics(trades: List[BacktestTrade],
-                               starting_balance: float,
-                               total_days: int) -> BacktestMetrics:
+def calculate_backtest_metrics(
+    trades: List[BacktestTrade], starting_balance: float, total_days: int
+) -> BacktestMetrics:
     """
     Calculate comprehensive performance metrics from trade list.
 
@@ -193,26 +201,45 @@ def calculate_backtest_metrics(trades: List[BacktestTrade],
     """
     if not trades:
         return BacktestMetrics(
-            total_pnl=0.0, total_return_pct=0.0, total_trades=0,
-            winning_trades=0, losing_trades=0, win_rate=0.0,
-            avg_win=0.0, avg_loss=0.0, profit_factor=0.0,
-            max_drawdown=0.0, max_drawdown_pct=0.0,
-            sharpe_ratio=0.0, calmar_ratio=0.0,
-            max_consecutive_losses=0, avg_trade_duration_hours=0.0
+            total_pnl=0.0,
+            total_return_pct=0.0,
+            total_trades=0,
+            winning_trades=0,
+            losing_trades=0,
+            win_rate=0.0,
+            avg_win=0.0,
+            avg_loss=0.0,
+            profit_factor=0.0,
+            max_drawdown=0.0,
+            max_drawdown_pct=0.0,
+            sharpe_ratio=0.0,
+            calmar_ratio=0.0,
+            max_consecutive_losses=0,
+            avg_trade_duration_hours=0.0,
         )
 
     # Filter completed trades only
     completed_trades = [
-        trade for trade in trades if trade.is_closed and trade.pnl is not None]
+        trade for trade in trades if trade.is_closed and trade.pnl is not None
+    ]
 
     if not completed_trades:
         return BacktestMetrics(
-            total_pnl=0.0, total_return_pct=0.0, total_trades=len(trades),
-            winning_trades=0, losing_trades=0, win_rate=0.0,
-            avg_win=0.0, avg_loss=0.0, profit_factor=0.0,
-            max_drawdown=0.0, max_drawdown_pct=0.0,
-            sharpe_ratio=0.0, calmar_ratio=0.0,
-            max_consecutive_losses=0, avg_trade_duration_hours=0.0
+            total_pnl=0.0,
+            total_return_pct=0.0,
+            total_trades=len(trades),
+            winning_trades=0,
+            losing_trades=0,
+            win_rate=0.0,
+            avg_win=0.0,
+            avg_loss=0.0,
+            profit_factor=0.0,
+            max_drawdown=0.0,
+            max_drawdown_pct=0.0,
+            sharpe_ratio=0.0,
+            calmar_ratio=0.0,
+            max_consecutive_losses=0,
+            avg_trade_duration_hours=0.0,
         )
 
     # Basic PnL calculations
@@ -225,19 +252,19 @@ def calculate_backtest_metrics(trades: List[BacktestTrade],
 
     win_count = len(winning_trades)
     loss_count = len(losing_trades)
-    win_rate = (win_count / len(completed_trades)) * \
-        100 if completed_trades else 0
+    win_rate = (win_count / len(completed_trades)) * 100 if completed_trades else 0
 
-    avg_win = sum(trade.pnl for trade in winning_trades) / \
-        win_count if win_count > 0 else 0
-    avg_loss = sum(trade.pnl for trade in losing_trades) / \
-        loss_count if loss_count > 0 else 0
+    avg_win = (
+        sum(trade.pnl for trade in winning_trades) / win_count if win_count > 0 else 0
+    )
+    avg_loss = (
+        sum(trade.pnl for trade in losing_trades) / loss_count if loss_count > 0 else 0
+    )
 
     # Profit factor
     gross_profit = sum(trade.pnl for trade in winning_trades)
     gross_loss = abs(sum(trade.pnl for trade in losing_trades))
-    profit_factor = gross_profit / \
-        gross_loss if gross_loss > 0 else float('inf')
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
     # Drawdown calculation
     cumulative_pnl = 0
@@ -266,14 +293,16 @@ def calculate_backtest_metrics(trades: List[BacktestTrade],
     for trade in completed_trades:
         if trade.pnl <= 0:
             consecutive_losses += 1
-            max_consecutive_losses = max(
-                max_consecutive_losses, consecutive_losses)
+            max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
         else:
             consecutive_losses = 0
 
     # Average trade duration
     durations = [
-        trade.duration_hours for trade in completed_trades if trade.duration_hours is not None]
+        trade.duration_hours
+        for trade in completed_trades
+        if trade.duration_hours is not None
+    ]
     avg_trade_duration = sum(durations) / len(durations) if durations else 0
 
     # Sharpe ratio (simplified - using daily returns)
@@ -285,18 +314,23 @@ def calculate_backtest_metrics(trades: List[BacktestTrade],
 
         if len(daily_returns) > 1:
             import statistics
+
             avg_return = statistics.mean(daily_returns)
             std_return = statistics.stdev(daily_returns)
-            sharpe_ratio = (avg_return * 252) / (std_return *
-                                                 (252 ** 0.5)) if std_return > 0 else 0
+            sharpe_ratio = (
+                (avg_return * 252) / (std_return * (252**0.5)) if std_return > 0 else 0
+            )
         else:
             sharpe_ratio = 0
     else:
         sharpe_ratio = 0
 
     # Calmar ratio
-    calmar_ratio = (total_return_pct * (365 / total_days)) / \
-        max_drawdown_pct if max_drawdown_pct > 0 else 0
+    calmar_ratio = (
+        (total_return_pct * (365 / total_days)) / max_drawdown_pct
+        if max_drawdown_pct > 0
+        else 0
+    )
 
     return BacktestMetrics(
         total_pnl=total_pnl,
@@ -313,5 +347,5 @@ def calculate_backtest_metrics(trades: List[BacktestTrade],
         sharpe_ratio=sharpe_ratio,
         calmar_ratio=calmar_ratio,
         max_consecutive_losses=max_consecutive_losses,
-        avg_trade_duration_hours=avg_trade_duration
+        avg_trade_duration_hours=avg_trade_duration,
     )

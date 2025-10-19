@@ -28,24 +28,55 @@ logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
-# Database URL configuration
-DB_TYPE = os.getenv("DB_TYPE", "sqlite")  # sqlite or postgresql
-DB_NAME = os.getenv("DB_NAME", "dydx_backtest.db")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
 
-if DB_TYPE == "postgresql":
-    db_url = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    DATABASE_URL = db_url
-else:
-    # SQLite - create file in app directory
-    db_path = os.path.join(os.path.dirname(__file__), "..", "app", DB_NAME)
-    DATABASE_URL = f"sqlite:///{db_path}"
+def get_database_url() -> str:
+    """Get database URL from config.yaml or environment variables.
 
+    Priority:
+    1. config.yaml (database section)
+    2. Environment variables (DB_*)
+    3. Built-in defaults
+
+    Returns:
+        SQLAlchemy database URL
+    """
+    try:
+        from backend.config_loader import get_config_loader
+
+        config_loader = get_config_loader()
+        db_config = config_loader.get_database_config()
+    except ImportError:
+        # Fallback to direct environment variables
+        db_config = {
+            "type": os.getenv("DB_TYPE", "sqlite"),
+            "name": os.getenv("DB_NAME", "dydx_backtest.db"),
+            "user": os.getenv("DB_USER", "postgres"),
+            "password": os.getenv("DB_PASSWORD", ""),
+            "host": os.getenv("DB_HOST", "localhost"),
+            "port": os.getenv("DB_PORT", "5432"),
+        }
+
+    db_type = db_config.get("type", "sqlite")
+    db_name = db_config.get("name", "dydx_backtest.db")
+    db_user = db_config.get("user", "postgres")
+    db_password = db_config.get("password", "")
+    db_host = db_config.get("host", "localhost")
+    db_port = db_config.get("port", "5432")
+
+    if db_type == "postgresql":
+        db_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    else:
+        # SQLite - create file in app directory
+        db_path = os.path.join(os.path.dirname(__file__), "..", "app", db_name)
+        db_url = f"sqlite:///{db_path}"
+
+    return db_url
+
+
+# Get database configuration and log it
+DATABASE_URL = get_database_url()
 log_msg = (
-    f"Using database: {DB_TYPE} - "
+    f"Using database: {os.getenv('DB_TYPE', 'sqlite')} - "
     f"{DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}"
 )
 logger.info(log_msg)
@@ -721,7 +752,7 @@ class BacktestComparison(Base):
 # Database engine and session factory
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DB_TYPE == "sqlite" else {},
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
     pool_pre_ping=True,
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
 )

@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Loader } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
 	Bar,
 	BarChart,
@@ -69,12 +69,15 @@ interface BacktestData {
     profit_factor: number;
     starting_balance: number;
     ending_balance?: number;
+    strategy_snapshot?: any;
+    strategy_id?: number;
     results: BacktestResult[];
     all_trades: Trade[];
 }
 
 export const BacktestDetailsPage: React.FC = () => {
     const { runId } = useParams<{ runId: string }>();
+    const navigate = useNavigate();
     const [backtest, setBacktest] = useState<BacktestData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -89,11 +92,19 @@ export const BacktestDetailsPage: React.FC = () => {
             try {
                 if (runId) {
                     const response = await api.getBacktest(runId);
-                    if (response.success && response.data) {
-                        setBacktest(response.data);
+                    console.log('📊 API Response:', response);
+                    
+                    // api.getBacktest returns the ApiResponse wrapper
+                    // response.data contains the actual backtest data
+                    const backtestData = response?.data || response;
+                    console.log('📊 Backtest data:', backtestData);
+                    console.log('📊 Strategy snapshot:', backtestData?.strategy_snapshot);
+                    
+                    if (backtestData) {
+                        setBacktest(backtestData);
                         // Select first result by default
-                        if (response.data.results && response.data.results.length > 0) {
-                            setSelectedResult(response.data.results[0]);
+                        if (backtestData.results && backtestData.results.length > 0) {
+                            setSelectedResult(backtestData.results[0]);
                         }
                     }
                 }
@@ -174,6 +185,25 @@ export const BacktestDetailsPage: React.FC = () => {
     const equityData = generateEquityCurveData();
     const pnlByPairData = generatePnlByPairData();
     const tradeScatterData = generateTradeScatterData();
+
+    // Handler to create a new strategy using current settings
+    const handleCreateStrategy = () => {
+        if (!backtest.strategy_snapshot) {
+            alert('No strategy configuration available');
+            return;
+        }
+
+        // Store the strategy config in sessionStorage to pass to the strategy creation page
+        sessionStorage.setItem('strategyConfig', JSON.stringify(backtest.strategy_snapshot));
+        
+        // Navigate to strategy creation page
+        navigate('/strategies/new', {
+            state: {
+                configSnapshot: backtest.strategy_snapshot,
+                backtestRunId: backtest.run_id,
+            }
+        });
+    };
 
     if (loading) {
         return (
@@ -344,6 +374,42 @@ export const BacktestDetailsPage: React.FC = () => {
                         </div>
                     ))}
                 </div>
+
+                {/* Strategy Configuration Section */}
+                {backtest.strategy_snapshot && (
+                    <div className="bg-white p-6 rounded-lg shadow mb-8">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold text-slate-900">
+                                ⚙️ Strategy Configuration
+                            </h2>
+                            <div className="group relative">
+                                <button
+                                    onClick={handleCreateStrategy}
+                                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition flex items-center gap-2"
+                                    title="Create a new strategy using these parameters"
+                                >
+                                    ✨ Create Strategy
+                                </button>
+                                {/* Tooltip on hover */}
+                                <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block bg-slate-900 text-white text-sm rounded px-2 py-1 whitespace-nowrap z-10">
+                                    Create a new strategy with these settings
+                                </div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            {Object.entries(backtest.strategy_snapshot).map(([key, value]) => (
+                                <div key={key} className="bg-slate-50 p-3 rounded border border-slate-200">
+                                    <p className="text-xs text-slate-600 font-medium mb-1">
+                                        {key.replace(/_/g, ' ').toUpperCase()}
+                                    </p>
+                                    <p className="text-sm font-bold text-slate-900">
+                                        {typeof value === 'boolean' ? (value ? '✓' : '✗') : String(value)}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Pair Results Selection */}
                 {backtest.results && backtest.results.length > 0 && (

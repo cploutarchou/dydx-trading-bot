@@ -87,6 +87,14 @@ export const App: React.FC = () => {
                         }
                     />
                     <Route
+                        path="/backtests"
+                        element={
+                            <ProtectedRoute>
+                                <DashboardPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
                         path="/backtest/:runId"
                         element={
                             <ProtectedRoute>

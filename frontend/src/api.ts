@@ -384,6 +384,60 @@ class ApiClient {
     }
   }
 
+  // Backtest detailed data (candles, positions, trades)
+  async getBacktestCandles(
+    runId: string,
+    market?: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const params = new URLSearchParams();
+    if (market) params.append('market', market);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    
+    const url = `/api/v1/backtests/${runId}/candles${params.toString() ? `?${params}` : ''}`;
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
+  async getBacktestPositions(
+    runId: string,
+    status?: string,
+    market1?: string,
+    market2?: string
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (market1) params.append('market_1', market1);
+    if (market2) params.append('market_2', market2);
+    
+    const url = `/api/v1/backtests/${runId}/positions${params.toString() ? `?${params}` : ''}`;
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
+  async getBacktestTradesDetailed(
+    runId: string,
+    market1?: string,
+    market2?: string,
+    skip: number = 0,
+    limit: number = 50
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const params = new URLSearchParams();
+    if (market1) params.append('market_1', market1);
+    if (market2) params.append('market_2', market2);
+    params.append('skip', skip.toString());
+    params.append('limit', limit.toString());
+    
+    const url = `/api/v1/backtests/${runId}/trades?${params}`;
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
   // WebSocket connection for real-time updates
   connectBacktestSocket(runId: string, token: string): WebSocket {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

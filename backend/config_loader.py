@@ -40,43 +40,61 @@ class ConfigurationLoader:
     def get_database_config(self) -> Dict[str, str]:
         """Get database configuration from config.yaml or environment.
 
-        Priority:
-        1. config.yaml (database section)
-        2. Environment variables (DB_*)
+        Priority (IMPORTANT - Environment variables override config.yaml):
+        1. Environment variables (DB_*) ← **HIGHEST PRIORITY**
+        2. config.yaml (database section)
         3. Defaults
+
+        This allows .env files to override config.yaml settings for deployment flexibility.
 
         Returns:
             Dictionary with database settings
         """
+        # Check environment variables FIRST for highest priority
+        env_type = os.getenv("DB_TYPE")
+        env_name = os.getenv("DB_NAME")
+        env_user = os.getenv("DB_USER")
+        env_password = os.getenv("DB_PASSWORD")
+        env_host = os.getenv("DB_HOST")
+        env_port = os.getenv("DB_PORT")
+        env_pool_size = os.getenv("DB_POOL_SIZE")
+        env_max_overflow = os.getenv("DB_MAX_OVERFLOW")
+        env_timeout = os.getenv("DB_TIMEOUT")
+
+        # Get config.yaml values as fallback
+        config_type = None
+        config_name = None
+        config_user = None
+        config_password = None
+        config_host = None
+        config_port = None
+        config_pool_size = None
+        config_max_overflow = None
+        config_timeout = None
+
         if self._config and hasattr(self._config, "database"):
             cfg = self._config.database
-            return {
-                "type": getattr(cfg, "type", os.getenv("DB_TYPE", "sqlite")),
-                "name": getattr(cfg, "name", os.getenv("DB_NAME", "dydx_backtest.db")),
-                "user": getattr(cfg, "user", os.getenv("DB_USER", "postgres")),
-                "password": getattr(cfg, "password", os.getenv("DB_PASSWORD", "")),
-                "host": getattr(cfg, "host", os.getenv("DB_HOST", "localhost")),
-                "port": getattr(cfg, "port", os.getenv("DB_PORT", "5432")),
-                "pool_size": getattr(
-                    cfg, "pool_size", int(os.getenv("DB_POOL_SIZE", "5"))
-                ),
-                "max_overflow": getattr(
-                    cfg, "max_overflow", int(os.getenv("DB_MAX_OVERFLOW", "10"))
-                ),
-                "timeout": getattr(cfg, "timeout", int(os.getenv("DB_TIMEOUT", "30"))),
-            }
+            config_type = getattr(cfg, "type", None)
+            config_name = getattr(cfg, "name", None)
+            config_user = getattr(cfg, "user", None)
+            config_password = getattr(cfg, "password", None)
+            config_host = getattr(cfg, "host", None)
+            config_port = getattr(cfg, "port", None)
+            config_pool_size = getattr(cfg, "pool_size", None)
+            config_max_overflow = getattr(cfg, "max_overflow", None)
+            config_timeout = getattr(cfg, "timeout", None)
 
-        # Fallback to environment variables
+        # Environment variables override config.yaml, which override defaults
         return {
-            "type": os.getenv("DB_TYPE", "sqlite"),
-            "name": os.getenv("DB_NAME", "dydx_backtest.db"),
-            "user": os.getenv("DB_USER", "postgres"),
-            "password": os.getenv("DB_PASSWORD", ""),
-            "host": os.getenv("DB_HOST", "localhost"),
-            "port": os.getenv("DB_PORT", "5432"),
-            "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
-            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
-            "timeout": int(os.getenv("DB_TIMEOUT", "30")),
+            "type": env_type or config_type or "sqlite",
+            "name": env_name or config_name or "dydx_backtest.db",
+            "user": env_user or config_user or "postgres",
+            "password": env_password or config_password or "",
+            "host": env_host or config_host or "localhost",
+            "port": env_port or config_port or "5432",
+            "pool_size": int(env_pool_size or config_pool_size or 5),
+            "max_overflow": int(env_max_overflow or config_max_overflow or 10),
+            "timeout": int(env_timeout or config_timeout or 30),
         }
 
     def get_redis_config(self) -> Dict:

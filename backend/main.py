@@ -3,8 +3,15 @@ FastAPI backend server for dYdX Backtest System.
 Provides REST API and WebSocket for real-time backtest monitoring.
 """
 
+# ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
+# This ensures DB_* environment variables are available to database.py
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -19,6 +26,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -54,6 +62,11 @@ from backend.services import (
 from backend.ws_broadcaster import BacktestProgressUpdate, get_broadcaster
 
 logger = logging.getLogger(__name__)
+
+# Configure logging immediately at module load
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
 # Configuration
 ALLOWED_ORIGINS = os.getenv(
@@ -158,7 +171,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware (added FIRST so it wraps all other middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -166,6 +179,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Global exception handler for unhandled exceptions
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler that logs errors and returns proper response."""
+    # Log the full exception with traceback
+    logger.error(f"Unhandled exception: {type(exc).__name__}: {str(exc)}")
+    logger.error(f"Traceback: {traceback.format_exc()}")
+
+    # Return error response with proper status code and CORS headers
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": str(exc) if not isinstance(exc, HTTPException) else exc.detail,
+            "error_type": type(exc).__name__,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+    )
+
 
 # Security
 security = HTTPBearer()

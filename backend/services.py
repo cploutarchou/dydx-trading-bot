@@ -17,6 +17,7 @@ from backend.database import (
     BacktestRun,
     BacktestStrategy,
     RedisSetting,
+    StrategyVersionHistory,
     TradeLog,
     User,
 )
@@ -348,17 +349,18 @@ class BacktestResultService:
             max_drawdown = float(np.min(drawdown)) * 100 if len(drawdown) > 0 else 0.0
 
         # Update BacktestRun with aggregated metrics
+        # CRITICAL: Convert numpy types to Python floats for SQLAlchemy compatibility
         run.total_trades = total_trades
         run.profitable_trades = profitable_trades
         run.losing_trades = losing_trades
-        run.win_rate = win_rate
-        run.total_pnl = total_pnl
-        run.total_pnl_usd = total_pnl
-        run.sharpe_ratio = sharpe_ratio
-        run.sortino_ratio = sortino_ratio
-        run.profit_factor = profit_factor
-        run.max_drawdown = max_drawdown
-        run.ending_balance = run.starting_balance + total_pnl
+        run.win_rate = float(win_rate)
+        run.total_pnl = float(total_pnl)
+        run.total_pnl_usd = float(total_pnl)
+        run.sharpe_ratio = float(sharpe_ratio) if sharpe_ratio is not None else None
+        run.sortino_ratio = float(sortino_ratio) if sortino_ratio is not None else None
+        run.profit_factor = float(profit_factor) if profit_factor is not None else None
+        run.max_drawdown = float(max_drawdown) if max_drawdown is not None else None
+        run.ending_balance = float(run.starting_balance + total_pnl)
 
         db.commit()
         db.refresh(run)
@@ -1028,4 +1030,184 @@ class RedisSettingsService:
         db.refresh(settings)
 
         logger.info(f"Redis caching {'enabled' if enabled else 'disabled'}")
-        return RedisSettingsService.get_redis_settings(db)
+
+
+class StrategyVersionHistoryService:
+    """Service for managing strategy version history and version control."""
+
+    @staticmethod
+    def create_version(
+        db: Session,
+        strategy_id: int,
+        config_snapshot: dict,
+        version_number: int,
+        created_by_user_id: Optional[int] = None,
+        change_description: Optional[str] = None,
+        changes: Optional[dict] = None,
+    ):
+        """Create a new strategy version with configuration snapshot."""
+        version = StrategyVersionHistory(
+            strategy_id=strategy_id,
+            version_number=version_number,
+            config_snapshot=config_snapshot,
+            change_description=change_description,
+            changes=changes,
+            created_by_user_id=created_by_user_id,
+            created_at=datetime.utcnow(),
+        )
+        db.add(version)
+        db.commit()
+        db.refresh(version)
+        logger.info(
+            f"Strategy version created: Strategy {strategy_id} v{version_number}"
+        )
+        return version
+
+    @staticmethod
+    def get_version_by_id(db: Session, version_id: int):
+        """Get strategy version by ID."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.id == version_id)
+            .first()
+        )
+
+    @staticmethod
+    def get_strategy_versions(
+        db: Session, strategy_id: int, skip: int = 0, limit: int = 50
+    ) -> list:
+        """Get all versions for a strategy, ordered by version number descending."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(desc(StrategyVersionHistory.version_number))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def get_latest_version(db: Session, strategy_id: int):
+        """Get the latest version of a strategy."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(desc(StrategyVersionHistory.version_number))
+            .first()
+        )
+
+    @staticmethod
+    def get_version_by_number(db: Session, strategy_id: int, version_number: int):
+        """Get specific version by strategy and version number."""
+        return (
+            db.query(StrategyVersionHistory)
+            .filter(
+                and_(
+                    StrategyVersionHistory.strategy_id == strategy_id,
+                    StrategyVersionHistory.version_number == version_number,
+                )
+            )
+            .first()
+        )
+
+    @staticmethod
+    def get_next_version_number(db: Session, strategy_id: int) -> int:
+        """Get the next version number for a strategy."""
+        latest = (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(desc(StrategyVersionHistory.version_number))
+            .first()
+        )
+        return (latest.version_number + 1) if latest else 1
+
+    @staticmethod
+    def track_config_changes(old_config: dict, new_config: dict) -> dict:
+        """Track which configuration fields changed between versions."""
+        changes = {}
+        for key in set(list(old_config.keys()) + list(new_config.keys())):
+            old_value = old_config.get(key)
+            new_value = new_config.get(key)
+            if old_value != new_value:
+                changes[key] = {"old": old_value, "new": new_value}
+        return changes if changes else None
+
+
+# Module-level utility function for data validation
+def validate_results_quality(results: List[BacktestResult]) -> dict:
+    """
+    Validate backtest results for consistency issues.
+    Returns quality score and list of warnings.
+
+    Args:
+        results: List of BacktestResult objects to validate
+
+    Returns:
+        Dictionary with quality score (0-100), warnings list, and fixes applied
+    """
+    warnings = []
+
+    for result in results:
+        # Check 1: Win rate must be 0-100%
+        if result.win_rate is not None and (
+            result.win_rate < 0 or result.win_rate > 100
+        ):
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Win rate {result.win_rate}% outside valid range [0-100%]"
+            )
+
+        # Check 2: Profitable trades must be <= total trades
+        profitable = result.profitable_trades or 0
+        total = result.total_trades or 0
+        if profitable > total:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Profitable trades ({profitable}) > total trades ({total})"
+            )
+
+        # Check 3: Losing trades must be <= total trades
+        losing = result.losing_trades or 0
+        if losing > total:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Losing trades ({losing}) > total trades ({total})"
+            )
+
+        # Check 4: Profit factor must be >= 0
+        if result.profit_factor is not None and result.profit_factor < 0:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Negative profit factor {result.profit_factor}"
+            )
+
+        # Check 5: Sum of profitable + losing should not exceed total
+        total_categorized = profitable + losing
+        if total_categorized > total:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Profitable ({profitable}) + Losing ({losing}) > Total ({total})"
+            )
+
+        # Check 6: Max drawdown should not exceed -100%
+        if result.max_drawdown is not None and result.max_drawdown < -100:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Extreme max drawdown {result.max_drawdown}% (likely data error)"
+            )
+
+    # Calculate quality score
+    # Start at 100, deduct 10 points per warning (capped at 0)
+    quality_score = max(0, 100 - len(warnings) * 10)
+
+    logger.info(
+        f"Results validation: {len(results)} results, "
+        f"quality score: {quality_score}, warnings: {len(warnings)}"
+    )
+
+    return {
+        "score": quality_score,
+        "warnings": warnings[:10],  # Limit to 10 warnings for API response
+        "fixes_applied": [],
+        "total_results": len(results),
+    }

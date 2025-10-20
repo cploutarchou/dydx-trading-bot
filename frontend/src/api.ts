@@ -276,6 +276,32 @@ class ApiClient {
     return response.data;
   }
 
+  async getBacktestResults(
+    runId: string,
+    limit: number = 20,
+    offset: number = 0,
+    sortBy: string = 'pnl',
+    sortOrder: string = 'desc',
+    minWinRate?: number,
+    minTrades?: number
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+
+    let url = `/api/v1/backtests/${runId}/results?`;
+    url += `limit=${limit}&offset=${offset}`;
+    url += `&sort_by=${sortBy}&sort_order=${sortOrder}`;
+
+    if (minWinRate !== undefined) {
+      url += `&min_win_rate=${minWinRate}`;
+    }
+    if (minTrades !== undefined) {
+      url += `&min_trades=${minTrades}`;
+    }
+
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
   // Strategy endpoints
   async createStrategy(data: any): Promise<ApiResponse> {
     console.log('🔌 api.ts: createStrategy() called with:', data);
@@ -327,6 +353,114 @@ class ApiClient {
 
   async getPublicStrategies(): Promise<ApiResponse> {
     const response = await this.client.get<ApiResponse>('/api/v1/strategies/public');
+    return response.data;
+  }
+
+  // Strategy version control
+  async getStrategyVersionHistory(strategyId: number): Promise<ApiResponse> {
+    console.log('🔌 api.ts: getStrategyVersionHistory() called for strategy:', strategyId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/strategies/${strategyId}/versions`
+      );
+      console.log('🔌 api.ts: getStrategyVersionHistory response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getStrategyVersionHistory failed:', error);
+      throw error;
+    }
+  }
+
+  async revertStrategyToVersion(strategyId: number, versionId: number): Promise<ApiResponse> {
+    console.log('🔌 api.ts: revertStrategyToVersion() called for strategy:', strategyId, 'version:', versionId);
+    try {
+      const response = await this.client.post<ApiResponse>(
+        `/api/v1/strategies/${strategyId}/versions/${versionId}/revert`
+      );
+      console.log('🔌 api.ts: revertStrategyToVersion response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: revertStrategyToVersion failed:', error);
+      throw error;
+    }
+  }
+
+  // Backtest to strategy
+  async createStrategyFromBacktest(data: {
+    name: string;
+    description: string;
+    config: any;
+    backtest_run_id: string;
+  }): Promise<ApiResponse> {
+    console.log('🔌 api.ts: createStrategyFromBacktest() called with:', data);
+    try {
+      const response = await this.client.post<ApiResponse>(
+        `/api/v1/backtests/${data.backtest_run_id}/create-strategy`,
+        {
+          name: data.name,
+          description: data.description,
+          config: data.config,
+        }
+      );
+      console.log('🔌 api.ts: createStrategyFromBacktest response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: createStrategyFromBacktest failed:', error);
+      throw error;
+    }
+  }
+
+  // Backtest detailed data (candles, positions, trades)
+  async getBacktestCandles(
+    runId: string,
+    market?: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const params = new URLSearchParams();
+    if (market) params.append('market', market);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    
+    const url = `/api/v1/backtests/${runId}/candles${params.toString() ? `?${params}` : ''}`;
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
+  async getBacktestPositions(
+    runId: string,
+    status?: string,
+    market1?: string,
+    market2?: string
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (market1) params.append('market_1', market1);
+    if (market2) params.append('market_2', market2);
+    
+    const url = `/api/v1/backtests/${runId}/positions${params.toString() ? `?${params}` : ''}`;
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
+  async getBacktestTradesDetailed(
+    runId: string,
+    market1?: string,
+    market2?: string,
+    skip: number = 0,
+    limit: number = 50
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const params = new URLSearchParams();
+    if (market1) params.append('market_1', market1);
+    if (market2) params.append('market_2', market2);
+    params.append('skip', skip.toString());
+    params.append('limit', limit.toString());
+    
+    const url = `/api/v1/backtests/${runId}/trades?${params}`;
+    const response = await this.client.get<ApiResponse>(url);
     return response.data;
   }
 

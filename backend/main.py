@@ -3,8 +3,15 @@ FastAPI backend server for dYdX Backtest System.
 Provides REST API and WebSocket for real-time backtest monitoring.
 """
 
+# ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
+# This ensures DB_* environment variables are available to database.py
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -19,6 +26,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -34,6 +42,7 @@ from backend.auth import (
     verify_token,
 )
 from backend.database import (
+    BacktestCandle,
     BacktestLog,
     BacktestResult,
     BacktestRun,
@@ -54,6 +63,11 @@ from backend.services import (
 from backend.ws_broadcaster import BacktestProgressUpdate, get_broadcaster
 
 logger = logging.getLogger(__name__)
+
+# Configure logging immediately at module load
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
 # Configuration
 ALLOWED_ORIGINS = os.getenv(
@@ -158,7 +172,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware (added FIRST so it wraps all other middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -166,6 +180,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Global exception handler for unhandled exceptions
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler that logs errors and returns proper response."""
+    # Log the full exception with traceback
+    logger.error(f"Unhandled exception: {type(exc).__name__}: {str(exc)}")
+    logger.error(f"Traceback: {traceback.format_exc()}")
+
+    # Return error response with proper status code and CORS headers
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": str(exc) if not isinstance(exc, HTTPException) else exc.detail,
+            "error_type": type(exc).__name__,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+    )
+
 
 # Security
 security = HTTPBearer()
@@ -184,14 +225,23 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
         )
 
-    user_id = extract_user_from_token(token)
-    if not user_id:
+    subject = extract_user_from_token(token)
+    if not subject:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not extract user from token",
         )
 
-    user = UserService.get_user_by_id(db, int(user_id))
+    # Handle both numeric user IDs and usernames in token subject
+    user = None
+    try:
+        # Try parsing as numeric ID first
+        user_id_int = int(subject)
+        user = UserService.get_user_by_id(db, user_id_int)
+    except (ValueError, TypeError):
+        # Fall back to username lookup
+        user = UserService.get_user_by_username(db, subject)
+
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -494,6 +544,9 @@ async def get_backtest(
             "profit_factor": run.profit_factor,
             "starting_balance": run.starting_balance,
             "ending_balance": run.ending_balance,
+            "strategy_snapshot": run.strategy_snapshot,
+            "strategy_version_id": run.strategy_version_id,
+            "strategy_id": run.strategy_id,
             "results": formatted_results,
             "all_trades": all_trades,
         },
@@ -781,12 +834,29 @@ async def _execute_backtest_task(
         )  # type: ignore
         log_backtest_info(run_id, "Backtest engine initialized", db)
 
-        # Run backtest
+        # Run backtest in a thread pool to avoid blocking the event loop
         start_date = datetime.fromisoformat(request.start_date)
         end_date = datetime.fromisoformat(request.end_date)
         num_pairs = request.num_pairs or 10
 
-        await engine.run_backtest(start_date, end_date, num_pairs)
+        # FIX: Use asyncio.to_thread() to run synchronous backtest in background thread
+        # This prevents the UI from freezing while backtest runs
+        import asyncio
+
+        def run_backtest_sync():
+            """Synchronous wrapper to run backtest in thread pool."""
+            # Run the async backtest engine in the background
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(
+                    engine.run_backtest(start_date, end_date, num_pairs)
+                )
+            finally:
+                loop.close()
+
+        # Execute in thread pool (non-blocking)
+        await asyncio.to_thread(run_backtest_sync)
 
         log_backtest_info(run_id, "Backtest execution completed successfully", db)
 
@@ -887,6 +957,115 @@ async def get_backtest_logs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch logs: {str(e)}",
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/candles")
+async def get_backtest_candles(
+    run_id: str,
+    market: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ApiResponse:
+    """
+    Get historical candle data for backtest.
+
+    Query Parameters:
+    - market: Market symbol (optional - returns all if not specified)
+    - start_date: Filter from date (optional, ISO format)
+    - end_date: Filter to date (optional, ISO format)
+
+    Returns candle data with OHLCV information.
+    """
+    try:
+        # Find the backtest run
+        run = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        if not run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Backtest run {run_id} not found",
+            )
+
+        # Parse dates if provided
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date must be ISO format (YYYY-MM-DD or ISO-8601)",
+                )
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date must be ISO format (YYYY-MM-DD or ISO-8601)",
+                )
+
+        # Build query
+        query = db.query(BacktestCandle).filter(BacktestCandle.run_id_fk == run.id)
+
+        if market:
+            query = query.filter(BacktestCandle.market == market)
+
+        if start_dt:
+            query = query.filter(BacktestCandle.timestamp >= start_dt)
+
+        if end_dt:
+            query = query.filter(BacktestCandle.timestamp <= end_dt)
+
+        candles = query.order_by(BacktestCandle.timestamp).all()
+
+        # Get unique markets
+        markets_result = (
+            db.query(BacktestCandle.market)
+            .filter(BacktestCandle.run_id_fk == run.id)
+            .distinct()
+            .all()
+        )
+        markets_list = [m[0] for m in markets_result]
+
+        # Format candle data
+        candles_data = [
+            {
+                "market": c.market,
+                "timestamp": c.timestamp.isoformat() + "Z"
+                if c.timestamp and c.timestamp.tzinfo is None
+                else c.timestamp.isoformat()
+                if c.timestamp
+                else None,
+                "open": float(c.open_price),
+                "high": float(c.high_price),
+                "low": float(c.low_price),
+                "close": float(c.close_price),
+                "volume": float(c.volume),
+            }
+            for c in candles
+        ]
+
+        return ApiResponse(
+            success=True,
+            message="Candles retrieved",
+            data={
+                "run_id": run_id,
+                "candles": candles_data,
+                "count": len(candles_data),
+                "markets": markets_list,
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching backtest candles: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch candles: {str(e)}",
         )
 
 
@@ -1935,22 +2114,30 @@ async def get_backtest_summary(
 @app.get("/api/v1/backtests/{run_id}/results")
 async def get_backtest_results(
     run_id: str,
-    limit: int = 100,
+    limit: int = 20,
     offset: int = 0,
+    sort_by: str = "pnl",
+    sort_order: str = "desc",
+    min_win_rate: Optional[float] = None,
+    min_trades: Optional[int] = None,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get detailed results for each pair tested in a backtest.
+    """Get detailed results for each pair tested in a backtest with enhanced filtering and validation.
 
     Args:
         run_id: UUID of the backtest run
-        limit: Maximum results to return (default 100)
+        limit: Maximum results to return (default 20, max 100)
         offset: Number of results to skip for pagination (default 0)
+        sort_by: Field to sort by (pnl, win_rate, sharpe_ratio, total_trades, profit_factor)
+        sort_order: Sort order (desc or asc)
+        min_win_rate: Filter results with win rate >= this value (0-100)
+        min_trades: Filter results with total_trades >= this value
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        ApiResponse with paginated list of pair results including metrics
+        ApiResponse with paginated list of pair results including validation metadata
     """
     # Get run
     run = BacktestRunService.get_run_by_run_id(db, run_id)
@@ -1961,58 +2148,123 @@ async def get_backtest_results(
     if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    # Get results
-    results = (
-        db.query(BacktestResult)
-        .filter(BacktestResult.run_id_fk == run.id)
-        .order_by(BacktestResult.pnl.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    # Validate and sanitize parameters
+    limit = min(int(limit), 100)  # Cap at 100 results per page
+    offset = max(int(offset), 0)
 
-    total = db.query(BacktestResult).filter(BacktestResult.run_id_fk == run.id).count()
+    # Validate sort field
+    valid_sorts = [
+        "pnl",
+        "pnl_usd",
+        "win_rate",
+        "sharpe_ratio",
+        "total_trades",
+        "profit_factor",
+        "avg_trade_duration_hours",
+        "cointegration_score",
+    ]
+    if sort_by not in valid_sorts:
+        sort_by = "pnl"
 
+    # Build query
+    query = db.query(BacktestResult).filter(BacktestResult.run_id_fk == run.id)
+
+    # Apply filters
+    if min_win_rate is not None:
+        try:
+            min_win_rate_val = float(min_win_rate)
+            if 0 <= min_win_rate_val <= 100:
+                query = query.filter(BacktestResult.win_rate >= min_win_rate_val)
+        except (ValueError, TypeError):
+            pass
+
+    if min_trades is not None:
+        try:
+            min_trades_val = int(min_trades)
+            if min_trades_val > 0:
+                query = query.filter(BacktestResult.total_trades >= min_trades_val)
+        except (ValueError, TypeError):
+            pass
+
+    # Get total count before applying limit/offset
+    total_count = query.count()
+
+    # Apply sorting
+    sort_column = getattr(BacktestResult, sort_by, BacktestResult.pnl)
+    if sort_order.lower() == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    # Get paginated results
+    results = query.offset(offset).limit(limit).all()
+
+    # Format results
     formatted_results = []
     for result in results:
         formatted_results.append(
             {
                 "id": result.id,
+                "pair": f"{result.market_1}/{result.market_2}",
                 "market_1": result.market_1,
                 "market_2": result.market_2,
-                "total_trades": result.total_trades,
-                "profitable_trades": result.profitable_trades,
-                "losing_trades": result.losing_trades,
-                "win_rate": result.win_rate,
-                "pnl": result.pnl,
-                "pnl_usd": result.pnl_usd,
-                "avg_win": result.avg_win,
-                "avg_loss": result.avg_loss,
-                "profit_factor": result.profit_factor,
-                "max_drawdown": result.max_drawdown,
-                "sharpe_ratio": result.sharpe_ratio,
-                "sortino_ratio": result.sortino_ratio,
-                "calmar_ratio": result.calmar_ratio,
-                "avg_trade_duration_hours": result.avg_trade_duration_hours,
-                "cointegration_score": result.cointegration_score,
-                "correlation": result.correlation,
-                "zscore_mean": result.zscore_mean,
-                "zscore_std": result.zscore_std,
+                "total_trades": result.total_trades or 0,
+                "profitable_trades": result.profitable_trades or 0,
+                "losing_trades": result.losing_trades or 0,
+                "win_rate": float(result.win_rate or 0),
+                "pnl": float(result.pnl or 0),
+                "pnl_usd": float(result.pnl_usd or 0),
+                "avg_win": float(result.avg_win or 0),
+                "avg_loss": float(result.avg_loss or 0),
+                "profit_factor": float(result.profit_factor or 0),
+                "max_drawdown": float(result.max_drawdown or 0),
+                "sharpe_ratio": float(result.sharpe_ratio)
+                if result.sharpe_ratio
+                else None,
+                "sortino_ratio": float(result.sortino_ratio)
+                if result.sortino_ratio
+                else None,
+                "calmar_ratio": float(result.calmar_ratio)
+                if result.calmar_ratio
+                else None,
+                "avg_trade_duration_hours": float(result.avg_trade_duration_hours or 0),
+                "cointegration_score": float(result.cointegration_score or 0),
+                "correlation": float(result.correlation or 0),
+                "zscore_mean": float(result.zscore_mean or 0),
+                "zscore_std": float(result.zscore_std or 0),
                 "created_at": result.created_at.isoformat(),
             }
         )
 
+    # Validate results quality
+    from backend.services import validate_results_quality
+
+    data_quality = validate_results_quality(results)
+
+    # Calculate pagination metadata
+    pages_count = (total_count + limit - 1) // limit if limit > 0 else 1
+    current_page = (offset // limit) + 1 if limit > 0 else 1
+
     return ApiResponse(
         success=True,
-        message="Backtest results retrieved",
+        message=f"Retrieved {len(formatted_results)} results",
         data={
             "results": formatted_results,
             "pagination": {
-                "total": total,
+                "total": total_count,
                 "limit": limit,
                 "offset": offset,
                 "returned": len(formatted_results),
+                "pages": pages_count,
+                "current_page": current_page,
             },
+            "metadata": {
+                "run_id": run.run_id,
+                "status": run.status,
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+            },
+            "data_quality": data_quality,
         },
     )
 
@@ -2577,6 +2829,782 @@ async def websocket_backtest_updates(
         if websocket in WS_ACTIVE_CONNECTIONS:
             WS_ACTIVE_CONNECTIONS.remove(websocket)
         broadcaster.unsubscribe(run_id, send_update)
+
+
+@app.websocket("/ws/strategies")
+async def websocket_strategy_updates(websocket: WebSocket, token: Optional[str] = None):
+    """WebSocket endpoint for real-time strategy execution status updates.
+
+    Expected client message: None (connection just maintains live status)
+    Server broadcasts every 5 seconds:
+    {
+        "timestamp": "2025-10-20T00:46:57Z",
+        "strategies": [
+            {
+                "strategyId": 1,
+                "status": "running|stopped|paused|error",
+                "tradesExecuted": 5,
+                "pnl": 123.45,
+                "lastError": null,
+                "updatedAt": "2025-10-20T00:46:57Z"
+            }
+        ]
+    }
+    """
+    # Verify token
+    logger.info(f"Strategy WebSocket connection attempt: token_received={bool(token)}")
+
+    if not token:
+        logger.error("Strategy WebSocket rejected: no token provided")
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    if not verify_token(token, token_type="access"):
+        logger.error("Strategy WebSocket rejected: token verification failed")
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    logger.info("Strategy WebSocket connection accepted")
+    await websocket.accept()
+    WS_ACTIVE_CONNECTIONS.append(websocket)
+
+    try:
+        # Broadcast strategy status every 5 seconds
+        import asyncio
+
+        from backend.database import SessionLocal, StrategyExecutionState
+
+        while True:
+            try:
+                # Fetch all strategy execution states from database
+                db = SessionLocal()
+                try:
+                    execution_states = db.query(StrategyExecutionState).all()
+                    strategies_data = [state.to_dict() for state in execution_states]
+                finally:
+                    db.close()
+
+                # Send current strategy statuses to client
+                status_update = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "strategies": strategies_data,
+                }
+
+                await websocket.send_json(status_update)
+                await asyncio.sleep(5)  # Broadcast every 5 seconds
+
+            except Exception as send_error:
+                logger.error(f"Error sending strategy status: {send_error}")
+                break
+
+    except WebSocketDisconnect:
+        WS_ACTIVE_CONNECTIONS.remove(websocket)
+        logger.info("Strategy WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"Strategy WebSocket error: {e}")
+        if websocket in WS_ACTIVE_CONNECTIONS:
+            WS_ACTIVE_CONNECTIONS.remove(websocket)
+
+
+# ==================== STRATEGY VERSION HISTORY ENDPOINTS ====================
+
+
+@app.post("/api/v1/strategies/{strategy_id}/versions", response_model=ApiResponse)
+async def create_strategy_version(
+    strategy_id: int,
+    change_description: str = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save current strategy state as a new version in history."""
+    from backend.database import BacktestStrategy, StrategyVersionHistory
+
+    try:
+        # Get strategy
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if strategy.user_id != current_user["user_id"] and not current_user["is_admin"]:
+            return ApiResponse(
+                success=False,
+                message="Not authorized to version this strategy",
+                data=None,
+            )
+
+        # Get next version number
+        latest_version = (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(StrategyVersionHistory.version_number.desc())
+            .first()
+        )
+        next_version = (latest_version.version_number + 1) if latest_version else 1
+
+        # Create version entry
+        version_entry = StrategyVersionHistory(
+            strategy_id=strategy_id,
+            version_number=next_version,
+            change_description=change_description,
+            config_snapshot=strategy.to_dict(),
+            created_by_user_id=current_user["user_id"],
+        )
+
+        db.add(version_entry)
+        db.commit()
+        db.refresh(version_entry)
+
+        logger.info(
+            f"Strategy {strategy_id} versioned as v{next_version} by user {current_user['user_id']}"
+        )
+
+        return ApiResponse(
+            success=True,
+            message=f"Strategy version {next_version} saved successfully",
+            data=version_entry.to_dict(),
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating strategy version: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error creating version: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/api/v1/strategies/{strategy_id}/versions", response_model=ApiResponse)
+async def get_strategy_versions(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all versions of a strategy."""
+    from backend.database import BacktestStrategy, StrategyVersionHistory
+
+    try:
+        # Check strategy exists and user has access
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        if strategy.user_id != current_user["user_id"] and not current_user["is_admin"]:
+            return ApiResponse(
+                success=False,
+                message="Not authorized to view this strategy",
+                data=None,
+            )
+
+        # Get all versions
+        versions = (
+            db.query(StrategyVersionHistory)
+            .filter(StrategyVersionHistory.strategy_id == strategy_id)
+            .order_by(StrategyVersionHistory.version_number.desc())
+            .all()
+        )
+
+        versions_data = [v.to_dict() for v in versions]
+
+        return ApiResponse(
+            success=True,
+            message="Strategy versions retrieved successfully",
+            data={
+                "strategy_id": strategy_id,
+                "versions": versions_data,
+                "total": len(versions_data),
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching strategy versions: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching versions: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/versions/{version_id}/apply",
+    response_model=ApiResponse,
+)
+async def apply_strategy_version(
+    strategy_id: int,
+    version_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revert strategy to a specific version."""
+    from backend.database import BacktestStrategy, StrategyVersionHistory
+
+    try:
+        # Get strategy
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if strategy.user_id != current_user["user_id"] and not current_user["is_admin"]:
+            return ApiResponse(
+                success=False,
+                message="Not authorized to modify this strategy",
+                data=None,
+            )
+
+        # Get version
+        version = (
+            db.query(StrategyVersionHistory)
+            .filter(
+                StrategyVersionHistory.id == version_id,
+                StrategyVersionHistory.strategy_id == strategy_id,
+            )
+            .first()
+        )
+
+        if not version:
+            return ApiResponse(
+                success=False,
+                message=f"Version {version_id} not found",
+                data=None,
+            )
+
+        # Apply config from version to current strategy
+        config = version.config_snapshot
+        strategy.zscore_threshold = config.get("zscore_threshold", 1.5)
+        strategy.stats_window = config.get("stats_window", 21)
+        strategy.max_half_life = config.get("max_half_life", 24.0)
+        strategy.usd_per_trade = config.get("usd_per_trade", 10.0)
+        strategy.usd_min_collateral = config.get("usd_min_collateral", 100.0)
+        strategy.close_at_zscore_cross = config.get("close_at_zscore_cross", True)
+        strategy.find_cointegrated_pairs = config.get("find_cointegrated_pairs", True)
+        strategy.manage_exits = config.get("manage_exits", True)
+        strategy.place_trades = config.get("place_trades", True)
+        strategy.abort_all_positions = config.get("abort_all_positions", False)
+        strategy.max_positions = config.get("max_positions", 5)
+        strategy.max_drawdown_pct = config.get("max_drawdown_pct", 15.0)
+        strategy.stop_loss_pct = config.get("stop_loss_pct", 2.0)
+        strategy.take_profit_pct = config.get("take_profit_pct", 5.0)
+        strategy.trailing_stop_pct = config.get("trailing_stop_pct", 1.0)
+        strategy.rebalance_interval_hours = config.get("rebalance_interval_hours", 24)
+        strategy.position_timeout_hours = config.get("position_timeout_hours", 72)
+        strategy.transaction_fee = config.get("transaction_fee", 0.0005)
+        strategy.slippage = config.get("slippage", 0.001)
+        strategy.starting_balance = config.get("starting_balance", 1000.0)
+        strategy.candle_resolution = config.get("candle_resolution", "1HOUR")
+        strategy.max_history_days = config.get("max_history_days", 90)
+
+        db.commit()
+        db.refresh(strategy)
+
+        logger.info(
+            f"Strategy {strategy_id} reverted to version {version.version_number} by user {current_user['user_id']}"
+        )
+
+        return ApiResponse(
+            success=True,
+            message=f"Strategy reverted to version {version.version_number}",
+            data=strategy.to_dict(),
+        )
+
+    except Exception as e:
+        logger.error(f"Error applying strategy version: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error applying version: {str(e)}",
+            data=None,
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/create-strategy", response_model=ApiResponse)
+async def create_strategy_from_backtest(
+    run_id: str,
+    strategy_name: str,
+    strategy_description: str = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new strategy from a backtest result's configuration."""
+    from backend.database import (
+        BacktestRun,
+        BacktestStrategy,
+        StrategyVersionHistory,
+    )
+
+    try:
+        # Get backtest run
+        backtest_run = (
+            db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        )
+
+        if not backtest_run:
+            return ApiResponse(
+                success=False,
+                message=f"Backtest {run_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if (
+            backtest_run.user_id != current_user["user_id"]
+            and not current_user["is_admin"]
+        ):
+            return ApiResponse(
+                success=False,
+                message="Not authorized to access this backtest",
+                data=None,
+            )
+
+        # Get config from backtest strategy_snapshot
+        config = backtest_run.strategy_snapshot or {}
+
+        # Create new strategy
+        new_strategy = BacktestStrategy(
+            name=strategy_name,
+            description=strategy_description
+            or f"Created from backtest {run_id} with PnL: ${backtest_run.total_pnl_usd:.2f}",
+            user_id=current_user["user_id"],
+            zscore_threshold=config.get("zscore_threshold", 1.5),
+            stats_window=config.get("stats_window", 21),
+            max_half_life=config.get("max_half_life", 24.0),
+            usd_per_trade=config.get("usd_per_trade", 10.0),
+            usd_min_collateral=config.get("usd_min_collateral", 100.0),
+            close_at_zscore_cross=config.get("close_at_zscore_cross", True),
+            find_cointegrated_pairs=config.get("find_cointegrated_pairs", True),
+            manage_exits=config.get("manage_exits", True),
+            place_trades=config.get("place_trades", True),
+            abort_all_positions=config.get("abort_all_positions", False),
+            max_positions=config.get("max_positions", 5),
+            max_drawdown_pct=config.get("max_drawdown_pct", 15.0),
+            stop_loss_pct=config.get("stop_loss_pct", 2.0),
+            take_profit_pct=config.get("take_profit_pct", 5.0),
+            trailing_stop_pct=config.get("trailing_stop_pct", 1.0),
+            rebalance_interval_hours=config.get("rebalance_interval_hours", 24),
+            position_timeout_hours=config.get("position_timeout_hours", 72),
+            transaction_fee=config.get("transaction_fee", 0.0005),
+            slippage=config.get("slippage", 0.001),
+            starting_balance=config.get("starting_balance", 1000.0),
+            candle_resolution=config.get("candle_resolution", "1HOUR"),
+            max_history_days=config.get("max_history_days", 90),
+        )
+
+        db.add(new_strategy)
+        db.flush()  # Get strategy ID
+
+        # Create initial version history entry
+        version_entry = StrategyVersionHistory(
+            strategy_id=new_strategy.id,
+            version_number=1,
+            change_description=f"Initial version created from backtest {run_id} (PnL: ${backtest_run.total_pnl_usd:.2f}, Win Rate: {backtest_run.win_rate:.1f}%)",
+            config_snapshot=new_strategy.to_dict(),
+            created_by_user_id=current_user["user_id"],
+            backtest_count=1,
+            best_backtest_pnl=backtest_run.total_pnl_usd,
+            average_backtest_pnl=backtest_run.total_pnl_usd,
+        )
+
+        db.add(version_entry)
+        db.commit()
+        db.refresh(new_strategy)
+
+        logger.info(
+            f"Strategy '{strategy_name}' created from backtest {run_id} by user {current_user['user_id']}"
+        )
+
+        return ApiResponse(
+            success=True,
+            message=f"Strategy '{strategy_name}' created successfully from backtest result",
+            data={
+                "strategy": new_strategy.to_dict(),
+                "version": version_entry.to_dict(),
+                "backtest_config": config,
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating strategy from backtest: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error creating strategy: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/config", response_model=ApiResponse)
+async def get_backtest_config(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the strategy configuration used for a specific backtest."""
+    from backend.database import BacktestRun
+
+    try:
+        # Get backtest run
+        backtest_run = (
+            db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        )
+
+        if not backtest_run:
+            return ApiResponse(
+                success=False,
+                message=f"Backtest {run_id} not found",
+                data=None,
+            )
+
+        # Check authorization
+        if (
+            backtest_run.user_id != current_user["user_id"]
+            and not current_user["is_admin"]
+        ):
+            return ApiResponse(
+                success=False,
+                message="Not authorized to access this backtest",
+                data=None,
+            )
+
+        return ApiResponse(
+            success=True,
+            message="Backtest configuration retrieved successfully",
+            data={
+                "run_id": run_id,
+                "strategy_snapshot": backtest_run.strategy_snapshot,
+                "config": backtest_run.config,
+                "strategy_id": backtest_run.strategy_id,
+                "strategy_version_id": backtest_run.strategy_version_id,
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching backtest config: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching config: {str(e)}",
+            data=None,
+        )
+
+
+# ==================== STRATEGY EXECUTION STATE ENDPOINTS ====================
+
+
+@app.get("/api/v1/strategies/{strategy_id}/execution-state", response_model=ApiResponse)
+async def get_strategy_execution_state(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get current execution state of a specific strategy."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=True,
+                message="Strategy execution state not found",
+                data=None,
+            )
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution state retrieved successfully",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error fetching strategy execution state: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching execution state: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/api/v1/strategies/execution-state/all", response_model=ApiResponse)
+async def get_all_strategy_execution_states(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get execution states for all strategies."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_states = db.query(StrategyExecutionState).all()
+        states_data = [state.to_dict() for state in execution_states]
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution states retrieved successfully",
+            data={"strategies": states_data, "total": len(states_data)},
+        )
+    except Exception as e:
+        logger.error(f"Error fetching strategy execution states: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Error fetching execution states: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/execution-state/initialize",
+    response_model=ApiResponse,
+)
+async def initialize_strategy_execution_state(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Initialize execution state for a strategy."""
+    from backend.database import BacktestStrategy, StrategyExecutionState
+
+    try:
+        # Check if strategy exists
+        strategy = (
+            db.query(BacktestStrategy)
+            .filter(BacktestStrategy.id == strategy_id)
+            .first()
+        )
+        if not strategy:
+            return ApiResponse(
+                success=False,
+                message=f"Strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Check if execution state already exists
+        existing_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if existing_state:
+            return ApiResponse(
+                success=True,
+                message="Execution state already exists",
+                data=existing_state.to_dict(),
+            )
+
+        # Create new execution state
+        new_state = StrategyExecutionState(
+            strategy_id=strategy_id,
+            enabled=False,
+            status="stopped",
+            trades_executed=0,
+            pnl=0.0,
+            pnl_pct=0.0,
+            config_snapshot=strategy.to_dict(),
+        )
+        db.add(new_state)
+        db.commit()
+        db.refresh(new_state)
+
+        logger.info(f"Initialized execution state for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Execution state initialized successfully",
+            data=new_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error initializing strategy execution state: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error initializing execution state: {str(e)}",
+            data=None,
+        )
+
+
+@app.put("/api/v1/strategies/{strategy_id}/execution-state", response_model=ApiResponse)
+async def update_strategy_execution_state(
+    strategy_id: int,
+    updates: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update execution state for a strategy (used by strategy executor threads)."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=False,
+                message=f"Execution state for strategy {strategy_id} not found",
+                data=None,
+            )
+
+        # Update fields from request
+        for field, value in updates.items():
+            if hasattr(execution_state, field) and not field.startswith("_"):
+                setattr(execution_state, field, value)
+
+        execution_state.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(execution_state)
+
+        logger.info(f"Updated execution state for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Execution state updated successfully",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error updating strategy execution state: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error updating execution state: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/execution-state/enable",
+    response_model=ApiResponse,
+)
+async def enable_strategy_execution(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enable strategy execution (start trading)."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=False,
+                message=f"Execution state for strategy {strategy_id} not found",
+                data=None,
+            )
+
+        execution_state.enabled = True
+        execution_state.status = "running"
+        execution_state.last_started = datetime.now(timezone.utc)
+        execution_state.error_count = 0
+        execution_state.last_error = None
+        execution_state.updated_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(execution_state)
+
+        logger.info(f"Enabled strategy execution for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution enabled",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error enabling strategy execution: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error enabling strategy: {str(e)}",
+            data=None,
+        )
+
+
+@app.post(
+    "/api/v1/strategies/{strategy_id}/execution-state/disable",
+    response_model=ApiResponse,
+)
+async def disable_strategy_execution(
+    strategy_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Disable strategy execution (stop trading)."""
+    from backend.database import StrategyExecutionState
+
+    try:
+        execution_state = (
+            db.query(StrategyExecutionState)
+            .filter(StrategyExecutionState.strategy_id == strategy_id)
+            .first()
+        )
+
+        if not execution_state:
+            return ApiResponse(
+                success=False,
+                message=f"Execution state for strategy {strategy_id} not found",
+                data=None,
+            )
+
+        execution_state.enabled = False
+        execution_state.status = "stopped"
+        execution_state.last_stopped = datetime.now(timezone.utc)
+        execution_state.updated_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(execution_state)
+
+        logger.info(f"Disabled strategy execution for strategy {strategy_id}")
+
+        return ApiResponse(
+            success=True,
+            message="Strategy execution disabled",
+            data=execution_state.to_dict(),
+        )
+    except Exception as e:
+        logger.error(f"Error disabling strategy execution: {e}")
+        db.rollback()
+        return ApiResponse(
+            success=False,
+            message=f"Error disabling strategy: {str(e)}",
+            data=None,
+        )
 
 
 # ==================== HEALTH CHECK ====================

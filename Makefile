@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -41,6 +41,20 @@ config: ## Create configuration file from template
 	fi
 	@echo "✅ Configuration file ready at app/config.yaml"
 
+env-setup: ## Set up environment variables from .env.example
+	@if [ -f .env ]; then \
+		echo "⚠️  .env already exists. Backing up to .env.bak"; \
+		cp .env .env.bak; \
+	fi
+	@echo "Creating .env from template..."
+	@cp .env.example.new .env 2>/dev/null || cp .env.example .env
+	@echo "✅ Environment file created at .env"
+	@echo "📌 Edit .env with your specific settings (keys, addresses, etc.)"
+	@echo ""
+	@echo "🔐 Generate encryption key with:"
+	@echo "  python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+	@echo ""
+
 env: ## Show deprecation warning for .env
 	@echo "⚠️  WARNING: .env configuration is DEPRECATED!"
 	@echo "Use 'make config' to create the new YAML-based configuration instead."
@@ -50,8 +64,8 @@ env: ## Show deprecation warning for .env
 # DEVELOPMENT
 # ============================================================================
 
-test: ## Run pytest suite
-	.venv/bin/pytest -v
+test: ## Run pytest suite (tests/ directory only)
+	PYTHONPATH=$(PWD) .venv/bin/pytest tests/ -v --tb=short
 
 lint: ## Check code with flake8 and pylint
 	.venv/bin/flake8 app/ backend/ --max-line-length=120 --exclude=__pycache__
@@ -232,6 +246,94 @@ backtest-analysis: ## Analyze backtest results
 
 backtest-clean: ## Clean up old backtest results (keeps 20 most recent)
 	.venv/bin/python scripts/analyze_backtest_results.py --cleanup
+
+# ============================================================================
+# MIGRATIONS - Simple Commands
+# ============================================================================
+
+create-migration: ## Create new migration: make create-migration MSG='add user table'
+	@if [ -z "$(MSG)" ]; then \
+		echo "Usage: make create-migration MSG='describe your changes'"; \
+		echo "Example: make create-migration MSG='add user profile columns'"; \
+		exit 1; \
+	fi
+	.venv/bin/alembic revision --autogenerate -m "$(MSG)"
+	@echo "✅ Migration created in alembic/versions/"
+
+migration-up: ## Apply all pending migrations
+	.venv/bin/alembic upgrade head
+	@echo "✅ Database upgraded to latest migration"
+
+migration-down: ## Rollback N migrations: make migration-down N=1
+	@if [ -z "$(N)" ]; then \
+		echo "Usage: make migration-down N=1"; \
+		exit 1; \
+	fi
+	.venv/bin/alembic downgrade -$(N)
+	@echo "✅ Rolled back $(N) migration(s)"
+
+migration-verify: ## Show current migration & history
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "📍 CURRENT MIGRATION:"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@.venv/bin/alembic current
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "📜 MIGRATION HISTORY:"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@.venv/bin/alembic history --verbose
+	@echo "✅ Verification complete"
+
+db-init-schema: ## Initialize database schema (creates all tables)
+	.venv/bin/python scripts/init_database.py --init
+	@echo "✅ Database schema initialized"
+
+db-verify-schema: ## Verify database schema integrity
+	.venv/bin/python scripts/init_database.py --verify
+
+db-reset: ## Reset database (drop and recreate all tables) - USE WITH CAUTION!
+	.venv/bin/python scripts/init_database.py --reset
+
+# Legacy/Advanced (kept for reference)
+db-init: ## Initialize Alembic migrations (one-time setup)
+	.venv/bin/alembic init alembic
+	@echo "✅ Alembic initialized"
+
+db-revision: ## Create migration (use MESSAGE=) - Use 'create-migration' instead
+	@if [ -z "$(MESSAGE)" ]; then \
+		echo "Usage: make db-revision MESSAGE='describe your changes'"; \
+		exit 1; \
+	fi
+	.venv/bin/alembic revision --autogenerate -m "$(MESSAGE)"
+
+db-upgrade: ## Apply migrations - Use 'migration-up' instead
+	.venv/bin/alembic upgrade head
+
+db-downgrade: ## Rollback - Use 'migration-down N=X' instead
+	@if [ -z "$(STEPS)" ]; then \
+		echo "Usage: make db-downgrade STEPS=1"; \
+		exit 1; \
+	fi
+	.venv/bin/alembic downgrade -$(STEPS)
+
+db-current: ## Show current migration - Use 'migration-verify' instead
+	.venv/bin/alembic current
+
+db-history: ## Show history - Use 'migration-verify' instead
+	.venv/bin/alembic history --verbose
+
+db-branches: ## Show migration branches
+	.venv/bin/alembic branches
+
+db-merge: ## Merge branches (use MESSAGE=)
+	@if [ -z "$(MESSAGE)" ]; then \
+		echo "Usage: make db-merge MESSAGE='description'"; \
+		exit 1; \
+	fi
+	.venv/bin/alembic merge -m "$(MESSAGE)"
+
+db-migrate-legacy: ## Run legacy migration (migrate_db.py)
+	.venv/bin/python migrate_db.py
 
 # ============================================================================
 # UTILITY

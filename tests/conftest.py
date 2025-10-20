@@ -5,10 +5,12 @@ Provides database session, authentication, and test utilities.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.database import Base
+from backend.database import Base, get_db
+from backend.main import app
 
 # Test database URL (in-memory SQLite for fast tests)
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -21,8 +23,10 @@ def db_engine():
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
     )
+    # Ensure all tables are created before tests run
     Base.metadata.create_all(bind=engine)
     yield engine
+    # Cleanup after tests
     Base.metadata.drop_all(bind=engine)
 
 
@@ -35,6 +39,18 @@ def db_session(db_engine):
     session = TestingSessionLocal()
     yield session
     session.close()
+
+
+@pytest.fixture(scope="function")
+def client(db_session):
+    """FastAPI test client with database session override."""
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    yield TestClient(app)
+    # Cleanup dependency overrides
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="session")

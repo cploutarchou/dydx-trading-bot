@@ -1,14 +1,14 @@
 /**
- * Settings Page - Bot Configuration Management
+ * Settings Page - User & System Configuration Management
  * 
  * Allows users to view and modify:
  * - Profile Settings (avatar, name, email)
  * - dYdX Key Management (testnet/mainnet keys)
- * - Bot Settings (Z-score threshold, stats window, USD per trade, etc.)
- * - Backtesting (candle resolution, history days, starting balance, etc.)
  * - Logging (log level, Loki integration)
  * - Telegram (notification settings)
  * - dYdX Connection (testnet/mainnet, chain ID, mnemonic)
+ * 
+ * NOTE: Bot Settings and Backtesting moved to Strategies page for per-strategy configuration
  */
 
 import { useEffect, useState } from 'react';
@@ -212,7 +212,9 @@ export default function Settings() {
     );
   }
 
-  const currentSection = schema.sections.find((s) => s.section === activeSection);
+  const currentSection = schema.sections
+    .filter((s) => !['botSettings', 'backtesting', 'bot_settings'].includes(s.section.toLowerCase()))
+    .find((s) => s.section === activeSection);
 
   return (
     <div className="bg-gradient-to-br from-slate-900 to-slate-800 min-h-screen">
@@ -269,8 +271,12 @@ export default function Settings() {
                 <div className="text-xs opacity-75">Testnet & Mainnet</div>
               </button>
 
-              {/* Bot Settings Sections */}
-              {schema.sections.map((section) => (
+              {/* System Settings Sections - Exclude Bot & Backtesting (moved to Strategies) */}
+              {schema.sections
+                .filter((section) => 
+                  !['botSettings', 'backtesting', 'bot_settings'].includes(section.section.toLowerCase())
+                )
+                .map((section) => (
                 <button
                   key={section.section}
                   onClick={() => setActiveSection(section.section)}

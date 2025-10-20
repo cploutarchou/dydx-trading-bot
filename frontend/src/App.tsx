@@ -8,7 +8,7 @@ import { BacktestComparator } from './components/BacktestComparator';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
-import { BacktestDetailsPage } from './pages/BacktestDetails';
+import BacktestDetailsV2 from './pages/BacktestDetailsV2';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
 import SettingsPage from './pages/Settings';
@@ -87,10 +87,18 @@ export const App: React.FC = () => {
                         }
                     />
                     <Route
+                        path="/backtests"
+                        element={
+                            <ProtectedRoute>
+                                <DashboardPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
                         path="/backtest/:runId"
                         element={
                             <ProtectedRoute>
-                                <BacktestDetailsPage />
+                                <BacktestDetailsV2 />
                             </ProtectedRoute>
                         }
                     />

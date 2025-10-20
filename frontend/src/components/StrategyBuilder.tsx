@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 
 interface StrategyFormData {
@@ -51,6 +51,7 @@ const PRESETS = {
 
 export default function StrategyBuilder() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id: strategyId } = useParams<{ id?: string }>();
   const isEditMode = !!strategyId;
 
@@ -59,6 +60,26 @@ export default function StrategyBuilder() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(isEditMode);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  
+  // Get pre-loaded config from backtest or sessionStorage
+  const getPreloadedConfig = () => {
+    try {
+      // Check location state first (passed from navigate)
+      if (location.state?.configSnapshot) {
+        return location.state.configSnapshot;
+      }
+      // Check sessionStorage
+      const stored = sessionStorage.getItem('strategyConfig');
+      if (stored) {
+        const config = JSON.parse(stored);
+        sessionStorage.removeItem('strategyConfig'); // Clean up after use
+        return config;
+      }
+    } catch (err) {
+      console.error('Failed to load preloaded config:', err);
+    }
+    return null;
+  };
 
   const {
     control,
@@ -100,6 +121,24 @@ export default function StrategyBuilder() {
       loadStrategy(parseInt(strategyId, 10));
     }
   }, [isEditMode, strategyId]);
+
+  // Load preloaded config from backtest
+  useEffect(() => {
+    const preloadedConfig = getPreloadedConfig();
+    if (preloadedConfig && !isEditMode) {
+      console.log('📋 Loading preloaded strategy config:', preloadedConfig);
+      reset({
+        ...formValues,
+        ...preloadedConfig,
+        // Keep form metadata, but override with preloaded parameters
+        name: preloadedConfig.name || formValues.name,
+        category: preloadedConfig.category || 'pairs_trading',
+        description: preloadedConfig.description || 'Created from backtest configuration',
+      });
+      setSuccessMessage('✅ Strategy parameters loaded from backtest!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    }
+  }, [location]);
 
   const loadStrategy = async (id: number) => {
     try {

@@ -3,6 +3,12 @@ Database configuration and models for backtest results storage.
 Supports both SQLite (development) and PostgreSQL (production).
 """
 
+# ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
+# This ensures DB_* environment variables are available for database configuration
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import logging
 import os
 from contextlib import contextmanager
@@ -140,6 +146,9 @@ class BacktestRun(Base):
     strategy_snapshot = Column(
         JSON, nullable=True
     )  # Store strategy config at runtime for reproducibility
+    strategy_version_id = Column(
+        Integer, ForeignKey("strategy_version_history.id"), nullable=True, index=True
+    )  # Track which strategy version was used for this backtest
 
     # Relationships
     results = relationship(
@@ -148,6 +157,9 @@ class BacktestRun(Base):
     user = relationship("User", back_populates="backtest_runs")
     strategy = relationship(
         "BacktestStrategy", back_populates="runs", foreign_keys=[strategy_id]
+    )
+    strategy_version = relationship(
+        "StrategyVersionHistory", foreign_keys=[strategy_version_id]
     )
 
     # Indexes for common queries
@@ -285,7 +297,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(500), nullable=False)
 
     # Profile information
     full_name = Column(String(100), nullable=True)
@@ -439,6 +451,53 @@ class BacktestPosition(Base):
 
     def __repr__(self):
         return f"<BacktestPosition {self.position_id} - {self.status}>"
+
+
+class BacktestCandle(Base):
+    """Stores OHLCV candle data during backtest for accurate chart rendering and smart caching."""
+
+    __tablename__ = "backtest_candles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id_fk = Column(
+        Integer, ForeignKey("backtest_runs.id"), index=True, nullable=False
+    )
+
+    # Candle identification
+    # FIXED: Increased from String(50) to String(255) to accommodate long market names
+    # Example: "FARTCOIN,RAYDIUM,9BB6NFECJBCTNNLFKO2FQVQBQ8HHM13KCYYCDQBGPUMP-USD" (61 chars)
+    market = Column(
+        String(255), nullable=False, index=True
+    )  # e.g., "BTC-USD" or comma-separated markets
+    timestamp = Column(DateTime, nullable=False, index=True)
+    resolution = Column(
+        String(20), default="1HOUR"
+    )  # 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
+
+    # OHLCV data
+    open_price = Column(Float, nullable=False)
+    high_price = Column(Float, nullable=False)
+    low_price = Column(Float, nullable=False)
+    close_price = Column(Float, nullable=False)
+    volume = Column(Float, nullable=False)
+
+    # Additional metrics
+    trades_count = Column(Integer, nullable=True)  # Number of trades in the candle
+
+    # Timestamp when inserted
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    run = relationship("BacktestRun", backref="candles")
+
+    __table_args__ = (
+        Index("idx_backtest_candle_run_market", "run_id_fk", "market"),
+        Index("idx_backtest_candle_market_time", "market", "timestamp"),
+        Index("idx_backtest_candle_run_time", "run_id_fk", "timestamp"),
+    )
+
+    def __repr__(self):
+        return f"<BacktestCandle {self.market} {self.timestamp} O:{self.open_price} C:{self.close_price}>"
 
 
 class BotSetting(Base):
@@ -658,10 +717,199 @@ class BacktestStrategy(Base):
             "position_timeout_hours": self.position_timeout_hours,
             "usage_count": self.usage_count,
             "last_used_at": self.last_used_at.isoformat()
-            if self.last_used_at
+            if self.last_used_at is not None
             else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat()
+            if self.created_at is not None
+            else None,
+            "updated_at": self.updated_at.isoformat()
+            if self.updated_at is not None
+            else None,
+        }
+
+
+class StrategyVersionHistory(Base):
+    """Audit trail of strategy configuration changes for version control and reproducibility.
+
+    Each time a strategy is edited, a new version is saved. This allows:
+    - Tracking which config generated each backtest result
+    - Reverting to previous strategy versions
+    - Comparing strategy versions side-by-side
+    - Understanding config evolution over time
+    """
+
+    __tablename__ = "strategy_version_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Reference to the strategy
+    strategy_id = Column(
+        Integer, ForeignKey("backtest_strategies.id"), nullable=False, index=True
+    )
+
+    # Version metadata
+    version_number = Column(Integer, nullable=False)  # 1, 2, 3, etc.
+    change_description = Column(String(500), nullable=True)  # Why was this changed?
+
+    # Complete config snapshot at this version
+    config_snapshot = Column(JSON, nullable=False)  # Full strategy config
+
+    # Track what changed (optional, for UI diff display)
+    changes = Column(
+        JSON, nullable=True
+    )  # {"zscore_threshold": {"old": 1.5, "new": 2.0}}
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_by_user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )  # Which user made this change
+
+    # Optional: backtest results using this version
+    backtest_count = Column(Integer, default=0)
+    best_backtest_pnl = Column(Float, nullable=True)
+    average_backtest_pnl = Column(Float, nullable=True)
+
+    # Relationships
+    strategy = relationship(
+        "BacktestStrategy", backref="version_history", foreign_keys=[strategy_id]
+    )
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
+
+    __table_args__ = (
+        Index("idx_strategy_version", "strategy_id", "version_number"),
+        Index("idx_strategy_version_created", "strategy_id", "created_at"),
+    )
+
+    def __repr__(self):
+        return f"<StrategyVersionHistory Strategy:{self.strategy_id} v{self.version_number}>"
+
+    def to_dict(self):
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "strategy_id": self.strategy_id,
+            "version_number": self.version_number,
+            "change_description": self.change_description,
+            "config_snapshot": self.config_snapshot,
+            "changes": self.changes,
+            "created_at": self.created_at.isoformat()
+            if self.created_at is not None
+            else None,
+            "created_by_user_id": self.created_by_user_id,
+            "backtest_count": self.backtest_count,
+            "best_backtest_pnl": self.best_backtest_pnl,
+            "average_backtest_pnl": self.average_backtest_pnl,
+        }
+
+
+class StrategyExecutionState(Base):
+    """Stores runtime execution state of strategies for persistent tracking and real-time updates.
+
+    Updated by strategy executor threads and queried by WebSocket broadcasts.
+    Survives bot restarts via database persistence.
+    """
+
+    __tablename__ = "strategy_execution_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Strategy reference
+    strategy_id = Column(
+        Integer, ForeignKey("backtest_strategies.id"), nullable=False, index=True
+    )
+
+    # Execution state
+    enabled = Column(
+        Boolean, default=False, index=True
+    )  # Is strategy currently active?
+    status = Column(
+        String(20), default="stopped", index=True
+    )  # stopped, running, paused, error
+
+    # Execution statistics
+    trades_executed = Column(Integer, default=0)  # Total trades from this strategy
+    pnl = Column(Float, default=0.0)  # Cumulative profit/loss in USD
+    pnl_pct = Column(Float, default=0.0)  # PnL as percentage
+
+    # Error tracking
+    last_error = Column(String(500), nullable=True)  # Latest error message
+    error_count = Column(Integer, default=0)  # Total errors encountered
+    last_error_at = Column(DateTime, nullable=True)  # When last error occurred
+
+    # Configuration snapshot
+    config_snapshot = Column(JSON, nullable=True)  # Full strategy config at runtime
+
+    # Timing information
+    last_started = Column(DateTime, nullable=True)  # When strategy was last started
+    last_stopped = Column(DateTime, nullable=True)  # When strategy was last stopped
+    last_trade_at = Column(DateTime, nullable=True)  # Timestamp of last executed trade
+    uptime_seconds = Column(Integer, default=0)  # How long strategy has been running
+
+    # Market data state
+    last_cointegration_check = Column(
+        DateTime, nullable=True
+    )  # When pairs were last analyzed
+    active_pairs_count = Column(
+        Integer, default=0
+    )  # Number of active cointegrated pairs
+    open_positions_count = Column(Integer, default=0)  # Number of open positions
+
+    # Performance metrics (updated in real-time)
+    max_drawdown = Column(Float, nullable=True)  # Maximum drawdown reached
+    sharpe_ratio = Column(Float, nullable=True)  # Calculated Sharpe ratio
+    win_rate = Column(Float, nullable=True)  # Win rate percentage
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+
+    # Relationships
+    strategy = relationship("BacktestStrategy", backref="execution_state")
+
+    __table_args__ = (
+        Index("idx_execution_state_strategy_enabled", "strategy_id", "enabled"),
+        Index("idx_execution_state_status", "strategy_id", "status"),
+        Index("idx_execution_state_updated", "updated_at"),
+    )
+
+    def __repr__(self):
+        return f"<StrategyExecutionState strategy_id={self.strategy_id} status={self.status}>"
+
+    def to_dict(self):
+        """Convert execution state to dictionary for WebSocket broadcasts and API responses."""
+        return {
+            "strategyId": self.strategy_id,
+            "enabled": self.enabled,
+            "status": self.status,
+            "tradesExecuted": self.trades_executed,
+            "pnl": self.pnl,
+            "pnlPct": self.pnl_pct,
+            "lastError": self.last_error,
+            "errorCount": self.error_count,
+            "lastErrorAt": self.last_error_at.isoformat()
+            if self.last_error_at is not None
+            else None,
+            "lastStarted": self.last_started.isoformat()
+            if self.last_started is not None
+            else None,
+            "lastStopped": self.last_stopped.isoformat()
+            if self.last_stopped is not None
+            else None,
+            "lastTradeAt": self.last_trade_at.isoformat()
+            if self.last_trade_at is not None
+            else None,
+            "uptimeSeconds": self.uptime_seconds,
+            "activePairsCount": self.active_pairs_count,
+            "openPositionsCount": self.open_positions_count,
+            "maxDrawdown": self.max_drawdown,
+            "sharpeRatio": self.sharpe_ratio,
+            "winRate": self.win_rate,
+            "updatedAt": self.updated_at.isoformat()
+            if self.updated_at is not None
+            else None,
         }
 
 
@@ -744,8 +992,12 @@ class BacktestComparison(Base):
                 "win_rate_difference": self.win_rate_difference,
                 "drawdown_difference": self.drawdown_difference,
             },
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat()
+            if self.created_at is not None
+            else None,
+            "updated_at": self.updated_at.isoformat()
+            if self.updated_at is not None
+            else None,
         }
 
 
@@ -762,8 +1014,33 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     """Initialize database - create all tables and seed default admin user."""
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database initialized successfully")
+    try:
+        # Create all tables that don't exist
+        # This is safe to run even if tables already exist - SQLAlchemy won't recreate them
+        Base.metadata.create_all(bind=engine)
+
+        # Log all tables that should exist
+        inspector = __import__("sqlalchemy", fromlist=["inspect"]).inspect
+        inspector_obj = inspector(engine)
+        existing_tables = inspector_obj.get_table_names()
+
+        logger.info("✅ Database initialized successfully")
+        logger.info(
+            f"   Existing tables ({len(existing_tables)}): {', '.join(sorted(existing_tables))}"
+        )
+
+        # Verify all expected model tables exist
+        expected_tables = {table.name for table in Base.metadata.tables.values()}
+        missing_tables = expected_tables - set(existing_tables)
+
+        if missing_tables:
+            logger.warning(f"⚠️  Missing tables: {', '.join(sorted(missing_tables))}")
+        else:
+            logger.info(f"✅ All {len(expected_tables)} expected tables present")
+
+    except Exception as e:
+        logger.error(f"❌ Error initializing database: {e}", exc_info=True)
+        raise
 
     # Seed default admin user on first run
     _seed_admin_user()

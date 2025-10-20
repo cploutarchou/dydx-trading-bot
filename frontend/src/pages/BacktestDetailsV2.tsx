@@ -155,7 +155,8 @@ export const BacktestDetailsV2: React.FC = () => {
 			if (!runId) return;
 
 			try {
-				const response = await api.getBacktestPositions(runId, 'ALL');
+				// Don't pass status parameter - get all positions
+				const response = await api.getBacktestPositions(runId);
 
 				const data = response?.data || response;
 
@@ -191,12 +192,21 @@ export const BacktestDetailsV2: React.FC = () => {
 		fetchTrades();
 	}, [runId]);
 
-	// Mark loading complete after all data fetched
+	// Mark loading complete after essential data fetched
 	useEffect(() => {
-		if (backtest && candles.length > 0 && positions.length > 0) {
+		// Only require backtest and candles to be loaded
+		// Positions and trades are optional and may be empty
+		if (backtest && candles.length > 0) {
 			setLoading(false);
 		}
-	}, [backtest, candles, positions]);
+		// If we have backtest but no candles after 3 seconds, still show the page
+		if (backtest && !loading) {
+			const timer = setTimeout(() => {
+				setLoading(false);
+			}, 3000);
+			return () => clearTimeout(timer);
+		}
+	}, [backtest, candles]);
 
 	// Generate Equity Curve from candles
 	const generateEquityCurveData = () => {
@@ -306,23 +316,23 @@ export const BacktestDetailsV2: React.FC = () => {
 		},
 		{
 			label: 'Total PnL',
-			value: `$${backtest.total_pnl_usd?.toFixed(2) || '0'}`,
+			value: `$${(backtest.total_pnl_usd || 0).toFixed(2)}`,
 			icon: '💰',
-			color: backtest.total_pnl_usd >= 0 ? 'text-green-400' : 'text-red-400',
+			color: (backtest.total_pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400',
 		},
 		{
 			label: 'Sharpe Ratio',
-			value: backtest.sharpe_ratio?.toFixed(2) || 'N/A',
+			value: (backtest.sharpe_ratio !== undefined && backtest.sharpe_ratio !== null) ? backtest.sharpe_ratio.toFixed(2) : 'N/A',
 			icon: '📈',
 		},
 		{
 			label: 'Max Drawdown',
-			value: `${(backtest.max_drawdown * 100).toFixed(1)}%`,
+			value: `${((backtest.max_drawdown || 0) * 100).toFixed(1)}%`,
 			icon: '📉',
 		},
 		{
 			label: 'Profit Factor',
-			value: backtest.profit_factor?.toFixed(2) || 'N/A',
+			value: (backtest.profit_factor !== undefined && backtest.profit_factor !== null) ? backtest.profit_factor.toFixed(2) : 'N/A',
 			icon: '🎯',
 		},
 	];
@@ -550,21 +560,21 @@ export const BacktestDetailsV2: React.FC = () => {
 												? new Date(pos.exit_timestamp).toLocaleDateString()
 												: '-'}
 										</td>
-										<td className="px-4 py-2 text-right text-slate-300">
-											{pos.entry_zscore?.toFixed(3)}
-										</td>
-										<td className="px-4 py-2 text-right text-slate-300">
-											{pos.exit_zscore?.toFixed(3) || '-'}
-										</td>
-										<td
-											className={`px-4 py-2 text-right font-bold ${
-												pos.total_pnl_usd >= 0
-													? 'text-green-400'
-													: 'text-red-400'
-											}`}
-										>
-											${pos.total_pnl_usd.toFixed(2)}
-										</td>
+									<td className="px-4 py-2 text-right text-slate-300">
+										{pos.entry_zscore !== undefined && pos.entry_zscore !== null ? pos.entry_zscore.toFixed(3) : '-'}
+									</td>
+									<td className="px-4 py-2 text-right text-slate-300">
+										{pos.exit_zscore !== undefined && pos.exit_zscore !== null ? pos.exit_zscore.toFixed(3) : '-'}
+									</td>
+									<td
+										className={`px-4 py-2 text-right font-bold ${
+											(pos.total_pnl_usd || 0) >= 0
+												? 'text-green-400'
+												: 'text-red-400'
+										}`}
+									>
+										${(pos.total_pnl_usd || 0).toFixed(2)}
+									</td>
 										<td className="px-4 py-2 text-slate-300">{pos.status}</td>
 									</tr>
 								))}
@@ -606,23 +616,23 @@ export const BacktestDetailsV2: React.FC = () => {
 										<td className="px-4 py-2 text-slate-300">
 											{new Date(trade.exit_timestamp).toLocaleDateString()}
 										</td>
-										<td className="px-4 py-2 text-right text-slate-300">
-											{trade.duration_hours.toFixed(1)}
-										</td>
-										<td
-											className={`px-4 py-2 text-right font-bold ${
-												trade.pnl_usd >= 0 ? 'text-green-400' : 'text-red-400'
-											}`}
-										>
-											${trade.pnl_usd.toFixed(2)}
-										</td>
-										<td
-											className={`px-4 py-2 text-right font-bold ${
-												trade.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'
-											}`}
-										>
-											{trade.pnl_pct.toFixed(2)}%
-										</td>
+									<td className="px-4 py-2 text-right text-slate-300">
+										{(trade.duration_hours || 0).toFixed(1)}
+									</td>
+									<td
+										className={`px-4 py-2 text-right font-bold ${
+											(trade.pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+										}`}
+									>
+										${(trade.pnl_usd || 0).toFixed(2)}
+									</td>
+									<td
+										className={`px-4 py-2 text-right font-bold ${
+											(trade.pnl_pct || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+										}`}
+									>
+										{((trade.pnl_pct || 0) / 100).toFixed(2)}%
+									</td>
 										<td className="px-4 py-2 text-center">
 											{trade.win ? (
 												<ArrowUp className="w-4 h-4 text-green-400 mx-auto" />

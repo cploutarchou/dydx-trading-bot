@@ -58,11 +58,6 @@ def public_strategy(db_session: Session, test_user: User) -> BacktestStrategy:
         usd_per_trade=50.0,
         usd_min_collateral=200.0,
         close_at_zscore_cross=False,
-        transaction_fee=0.0005,
-        slippage=0.001,
-        starting_balance=1000.0,
-        candle_resolution="1HOUR",
-        max_history_days=90,
     )
     return strategy
 
@@ -106,24 +101,28 @@ class TestBacktestStrategyServiceCreate:
             category="advanced",
             zscore_threshold=1.2,
             stats_window=25,
-            max_half_life=36.0,
+            max_half_life=36,
             usd_per_trade=250.0,
             usd_min_collateral=1000.0,
             close_at_zscore_cross=True,
-            transaction_fee=0.001,
-            slippage=0.002,
-            starting_balance=5000.0,
-            candle_resolution="4HOURS",
-            max_history_days=180,
-            benchmark_symbol="ETH-USD",
-            risk_free_rate=0.03,
+            find_cointegrated_pairs=True,
+            manage_exits=True,
+            place_trades=True,
+            abort_all_positions=False,
+            max_positions=10,
+            max_drawdown_pct=20.0,
+            stop_loss_pct=3.0,
+            take_profit_pct=8.0,
+            trailing_stop_pct=2.0,
+            rebalance_interval_hours=48,
+            position_timeout_hours=96,
         )
 
         assert strategy.usd_per_trade == 250.0
         assert strategy.zscore_threshold == 1.2
         assert strategy.stats_window == 25
         assert strategy.category == "advanced"
-        assert strategy.transaction_fee == 0.001
+        assert strategy.max_positions == 10
 
     def test_create_strategy_duplicate_name(self, db_session: Session, test_user: User):
         """Test creating strategies with same name by same user."""

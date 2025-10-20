@@ -464,7 +464,11 @@ class BacktestCandle(Base):
     )
 
     # Candle identification
-    market = Column(String(50), nullable=False, index=True)  # e.g., "BTC-USD"
+    # FIXED: Increased from String(50) to String(255) to accommodate long market names
+    # Example: "FARTCOIN,RAYDIUM,9BB6NFECJBCTNNLFKO2FQVQBQ8HHM13KCYYCDQBGPUMP-USD" (61 chars)
+    market = Column(
+        String(255), nullable=False, index=True
+    )  # e.g., "BTC-USD" or comma-separated markets
     timestamp = Column(DateTime, nullable=False, index=True)
     resolution = Column(
         String(20), default="1HOUR"

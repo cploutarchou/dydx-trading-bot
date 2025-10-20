@@ -1,159 +1,162 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+    push:
+        branches:
+            - master
+    pull_request:
+        branches:
+            - master
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-      
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential gcc g++ python3-dev pkg-config
-      
-      - name: Setup environment
-        run: make setup
-      
-      - name: Install dependencies
-        run: make install
-      
-      - name: Create test config
-        run: |
-          # Create a clean test config to avoid YAML parsing issues
-          cat > app/config.yaml << 'EOF'
-          environment: development
-          dydx:
-            dydx_chain_address: dydx1testaddress123
-            dydx_secret_phrase: test seed phrase for ci testing only not real
-            is_testnet: true
-          telegram:
-            token: test_telegram_token
-            chat_id: test_chat_id
-          botSettings:
-            abortAllPositions: false
-            findCointegratedPairs: false
-            manageExits: false
-            placeTrades: false
-            resolutionTimeframe: 1HOUR
-            strategy: cointegration
-            statsWindow: 21
-            maxHalfLife: 24
-            ZScoreThreshold: 1.5
-            usdPerTrade: 10
-            usdMinCollateral: 100
-            closeAtZscoreCross: true
-            indexer_endpoint:
-              testnet: https://indexer.v4testnet.dydx.exchange
-              mainnet: https://indexer.dydx.trade
-          logging:
-            level: INFO
-            loki:
-              enabled: false
-              url: ""
-              username: ""
-              password: ""
-              tenant_id: null
-              labels:
-                app: dydx-trading-bot
-                environment: ci-test
-          EOF
-      
-      - name: Run linting (allow failures for now)
-        run: make lint || echo "⚠️ Linting issues found, but continuing CI"
-      
-      - name: Run tests
-        run: make test
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
-  docker:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Create test config for Docker
-        run: |
-          # Create a clean test config to avoid YAML parsing issues
-          cat > app/config.yaml << 'EOF'
-          environment: development
-          dydx:
-            dydx_chain_address: dydx1testaddress123
-            dydx_secret_phrase: test seed phrase for ci testing only not real
-            is_testnet: true
-          telegram:
-            token: test_telegram_token
-            chat_id: test_chat_id
-          botSettings:
-            abortAllPositions: false
-            findCointegratedPairs: false
-            manageExits: false
-            placeTrades: false
-            resolutionTimeframe: 1HOUR
-            strategy: cointegration
-            statsWindow: 21
-            maxHalfLife: 24
-            ZScoreThreshold: 1.5
-            usdPerTrade: 10
-            usdMinCollateral: 100
-            closeAtZscoreCross: true
-            indexer_endpoint:
-              testnet: https://indexer.v4testnet.dydx.exchange
-              mainnet: https://indexer.dydx.trade
-          logging:
-            level: INFO
-            loki:
-              enabled: false
-              url: ""
-              username: ""
-              password: ""
-              tenant_id: null
-              labels:
-                app: dydx-trading-bot
-                environment: ci-test
-          EOF
-      
-      - name: Build Docker image
-        run: |
-          docker build -t dydx-trading-bot:test --target production .
-      
-      - name: Test Docker image
-        run: |
-          # Test that the image runs and exits cleanly (without actual trading)
-          docker run --rm \
-            -v $(pwd)/app/config.yaml:/app/app/config.yaml:ro \
-            -e PYTHONPATH=/app/app \
-            dydx-trading-bot:test python -c "
-          print('🐳 Testing Docker environment...')
-          try:
-              from config import ConfigurationManager
-              config = ConfigurationManager.get_config()
-              print('✅ Configuration loaded successfully')
-              print(f'Environment: {getattr(config, \"environment\", \"development\")}')
-              print(f'Is testnet: {config.is_testnet}')
-              from logging_setup import setup_logging
-              setup_logging()
-              print('✅ Logging initialized successfully')
-              import constants
-              print('✅ Constants imported successfully')
-              print('🎉 Docker environment test completed successfully!')
-          except Exception as e:
-              print(f'❌ Docker test failed: {e}')
-              import traceback
-              traceback.print_exc()
-              exit(1)
-          "
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: "3.12"
+
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y build-essential gcc g++ python3-dev pkg-config
+
+            - name: Setup environment
+              run: make setup
+
+            - name: Install dependencies
+              run: make install
+
+            - name: Create test config
+              run: |
+                  # Create a clean test config to avoid YAML parsing issues
+                  cat > app/config.yaml << 'EOF'
+                  environment: development
+                  dydx:
+                    dydx_chain_address: dydx1testaddress123
+                    dydx_secret_phrase: test seed phrase for ci testing only not real
+                    is_testnet: true
+                  telegram:
+                    token: test_telegram_token
+                    chat_id: test_chat_id
+                  botSettings:
+                    abortAllPositions: false
+                    findCointegratedPairs: false
+                    manageExits: false
+                    placeTrades: false
+                    resolutionTimeframe: 1HOUR
+                    strategy: cointegration
+                    statsWindow: 21
+                    maxHalfLife: 24
+                    ZScoreThreshold: 1.5
+                    usdPerTrade: 10
+                    usdMinCollateral: 100
+                    closeAtZscoreCross: true
+                    indexer_endpoint:
+                      testnet: https://indexer.v4testnet.dydx.exchange
+                      mainnet: https://indexer.dydx.trade
+                  logging:
+                    level: INFO
+                    loki:
+                      enabled: false
+                      url: ""
+                      username: ""
+                      password: ""
+                      tenant_id: null
+                      labels:
+                        app: dydx-trading-bot
+                        environment: ci-test
+                  EOF
+
+            - name: Run linting (allow failures for now)
+              run: make lint || echo "⚠️ Linting issues found, but continuing CI"
+
+            - name: Run tests (tests/ directory only)
+              run: make test
+              continue-on-error: false
+              env:
+                  PYTHONPATH: ${{ github.workspace }}
+
+    docker:
+        runs-on: ubuntu-latest
+        needs: test
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Create test config for Docker
+              run: |
+                  # Create a clean test config to avoid YAML parsing issues
+                  cat > app/config.yaml << 'EOF'
+                  environment: development
+                  dydx:
+                    dydx_chain_address: dydx1testaddress123
+                    dydx_secret_phrase: test seed phrase for ci testing only not real
+                    is_testnet: true
+                  telegram:
+                    token: test_telegram_token
+                    chat_id: test_chat_id
+                  botSettings:
+                    abortAllPositions: false
+                    findCointegratedPairs: false
+                    manageExits: false
+                    placeTrades: false
+                    resolutionTimeframe: 1HOUR
+                    strategy: cointegration
+                    statsWindow: 21
+                    maxHalfLife: 24
+                    ZScoreThreshold: 1.5
+                    usdPerTrade: 10
+                    usdMinCollateral: 100
+                    closeAtZscoreCross: true
+                    indexer_endpoint:
+                      testnet: https://indexer.v4testnet.dydx.exchange
+                      mainnet: https://indexer.dydx.trade
+                  logging:
+                    level: INFO
+                    loki:
+                      enabled: false
+                      url: ""
+                      username: ""
+                      password: ""
+                      tenant_id: null
+                      labels:
+                        app: dydx-trading-bot
+                        environment: ci-test
+                  EOF
+
+            - name: Build Docker image
+              run: |
+                  docker build -t dydx-trading-bot:test --target production .
+
+            - name: Test Docker image
+              run: |
+                  # Test that the image runs and exits cleanly (without actual trading)
+                  docker run --rm \
+                    -v $(pwd)/app/config.yaml:/app/app/config.yaml:ro \
+                    -e PYTHONPATH=/app/app \
+                    dydx-trading-bot:test python -c "
+                  print('🐳 Testing Docker environment...')
+                  try:
+                      from config import ConfigurationManager
+                      config = ConfigurationManager.get_config()
+                      print('✅ Configuration loaded successfully')
+                      print(f'Environment: {getattr(config, \"environment\", \"development\")}')
+                      print(f'Is testnet: {config.is_testnet}')
+                      from logging_setup import setup_logging
+                      setup_logging()
+                      print('✅ Logging initialized successfully')
+                      import constants
+                      print('✅ Constants imported successfully')
+                      print('🎉 Docker environment test completed successfully!')
+                  except Exception as e:
+                      print(f'❌ Docker test failed: {e}')
+                      import traceback
+                      traceback.print_exc()
+                      exit(1)
+                  "

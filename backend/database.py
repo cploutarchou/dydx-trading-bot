@@ -140,6 +140,9 @@ class BacktestRun(Base):
     strategy_snapshot = Column(
         JSON, nullable=True
     )  # Store strategy config at runtime for reproducibility
+    strategy_version_id = Column(
+        Integer, ForeignKey("strategy_version_history.id"), nullable=True, index=True
+    )  # Track which strategy version was used for this backtest
 
     # Relationships
     results = relationship(
@@ -148,6 +151,9 @@ class BacktestRun(Base):
     user = relationship("User", back_populates="backtest_runs")
     strategy = relationship(
         "BacktestStrategy", back_populates="runs", foreign_keys=[strategy_id]
+    )
+    strategy_version = relationship(
+        "StrategyVersionHistory", foreign_keys=[strategy_version_id]
     )
 
     # Indexes for common queries
@@ -666,6 +672,79 @@ class BacktestStrategy(Base):
             "updated_at": self.updated_at.isoformat()
             if self.updated_at is not None
             else None,
+        }
+
+
+class StrategyVersionHistory(Base):
+    """Audit trail of strategy configuration changes for version control and reproducibility.
+    
+    Each time a strategy is edited, a new version is saved. This allows:
+    - Tracking which config generated each backtest result
+    - Reverting to previous strategy versions
+    - Comparing strategy versions side-by-side
+    - Understanding config evolution over time
+    """
+
+    __tablename__ = "strategy_version_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Reference to the strategy
+    strategy_id = Column(
+        Integer, ForeignKey("backtest_strategies.id"), nullable=False, index=True
+    )
+
+    # Version metadata
+    version_number = Column(Integer, nullable=False)  # 1, 2, 3, etc.
+    change_description = Column(String(500), nullable=True)  # Why was this changed?
+
+    # Complete config snapshot at this version
+    config_snapshot = Column(JSON, nullable=False)  # Full strategy config
+
+    # Track what changed (optional, for UI diff display)
+    changes = Column(JSON, nullable=True)  # {"zscore_threshold": {"old": 1.5, "new": 2.0}}
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_by_user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )  # Which user made this change
+
+    # Optional: backtest results using this version
+    backtest_count = Column(Integer, default=0)
+    best_backtest_pnl = Column(Float, nullable=True)
+    average_backtest_pnl = Column(Float, nullable=True)
+
+    # Relationships
+    strategy = relationship(
+        "BacktestStrategy", backref="version_history", foreign_keys=[strategy_id]
+    )
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
+
+    __table_args__ = (
+        Index("idx_strategy_version", "strategy_id", "version_number"),
+        Index("idx_strategy_version_created", "strategy_id", "created_at"),
+    )
+
+    def __repr__(self):
+        return f"<StrategyVersionHistory Strategy:{self.strategy_id} v{self.version_number}>"
+
+    def to_dict(self):
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "strategy_id": self.strategy_id,
+            "version_number": self.version_number,
+            "change_description": self.change_description,
+            "config_snapshot": self.config_snapshot,
+            "changes": self.changes,
+            "created_at": self.created_at.isoformat()
+            if self.created_at is not None
+            else None,
+            "created_by_user_id": self.created_by_user_id,
+            "backtest_count": self.backtest_count,
+            "best_backtest_pnl": self.best_backtest_pnl,
+            "average_backtest_pnl": self.average_backtest_pnl,
         }
 
 

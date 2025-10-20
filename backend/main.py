@@ -224,14 +224,23 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
         )
 
-    user_id = extract_user_from_token(token)
-    if not user_id:
+    subject = extract_user_from_token(token)
+    if not subject:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not extract user from token",
         )
 
-    user = UserService.get_user_by_id(db, int(user_id))
+    # Handle both numeric user IDs and usernames in token subject
+    user = None
+    try:
+        # Try parsing as numeric ID first
+        user_id_int = int(subject)
+        user = UserService.get_user_by_id(db, user_id_int)
+    except (ValueError, TypeError):
+        # Fall back to username lookup
+        user = UserService.get_user_by_username(db, subject)
+
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

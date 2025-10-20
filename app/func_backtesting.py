@@ -33,10 +33,12 @@ try:
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from backend.backtest_helpers import save_backtest_position, save_backtest_trade
+    from backend.database import BacktestCandle
 except ImportError:
     # Helpers not available (e.g., in standalone testing)
     save_backtest_position = None
     save_backtest_trade = None
+    BacktestCandle = None
 
 logger = logging.getLogger(__name__)
 
@@ -607,6 +609,11 @@ class BacktestEngine:
                     df.sort_index(inplace=True)
 
                     self.price_data[symbol] = df
+
+                    # Save candles to database for later retrieval (Phase 3 persistence)
+                    if self.db and self.run_id_int and BacktestCandle:
+                        self._save_candles_to_db(symbol, df)
+
                     self.logger.debug("Loaded %d candles for %s", len(df), symbol)
                 else:
                     self.logger.warning("No candle data for %s", symbol)
@@ -627,6 +634,61 @@ class BacktestEngine:
                     )
 
         self.logger.info("Loaded historical data for %d markets", len(self.price_data))
+
+    def _save_candles_to_db(self, market: str, df: pd.DataFrame):
+        """
+        Save candle data to database for smart caching and chart rendering.
+
+        This enables:
+        - Persistent storage of historical candles across backtests
+        - Smart caching to avoid re-fetching unchanged data
+        - Frontend chart rendering from database instead of re-computing
+
+        Args:
+            market: Market symbol (e.g., "BTC-USD")
+            df: DataFrame with OHLCV data indexed by timestamp
+        """
+        if not self.db or not self.run_id_int or not BacktestCandle:
+            return  # Database not available
+
+        try:
+            # Batch insert candles - more efficient than one-by-one
+            candles_to_insert = []
+
+            for timestamp, row in df.iterrows():
+                # Convert pandas Timestamp to Python datetime
+                if isinstance(timestamp, pd.Timestamp):
+                    timestamp_dt = timestamp.to_pydatetime()
+                else:
+                    timestamp_dt = timestamp
+
+                candle = BacktestCandle(
+                    run_id_fk=self.run_id_int,
+                    market=market,
+                    timestamp=timestamp_dt,
+                    resolution=self.config.backtesting.candleResolution,
+                    open_price=float(row.get("open", 0)),
+                    high_price=float(row.get("high", 0)),
+                    low_price=float(row.get("low", 0)),
+                    close_price=float(row.get("close", 0)),
+                    volume=float(row.get("volume", 0)),
+                )
+                candles_to_insert.append(candle)
+
+            # Batch insert
+            if candles_to_insert:
+                self.db.add_all(candles_to_insert)
+                self.db.commit()
+                self.logger.debug(
+                    "Saved %d candles for %s to database",
+                    len(candles_to_insert),
+                    market,
+                )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to save candles to database for %s: %s", market, str(e)
+            )
+            self.db.rollback()
 
     async def _load_historical_data(self):
         """Load historical data using the improved direct method."""

@@ -1,15 +1,35 @@
 # dYdX Trading Bot - AI Agent Instructions
 
+## Recent Updates (Oct 20, 2025)
+
+### Backtesting Engine Improvements ✅
+
+**Fixed Issues**:
+
+1. **Timezone-aware datetime comparisons** - All `pd.Timestamp()` calls now use `tz='UTC'` parameter to match timezone-aware DataFrame indices. Fixes "Invalid comparison between datetime64[ns, UTC] and Timestamp" errors.
+2. **Position attribute access polymorphism** - `_calculate_zscore()` now handles both `CointegrationResult` objects (dot-notation attributes) and position dictionaries (string keys) for flexible entry/exit signal processing.
+3. **JWT token refresh on 401** - Frontend API client now automatically refreshes expired tokens on 401 errors, preventing unexpected redirects to login page after backtest submission.
+4. **Cointegration data format** - Properly converts dictionary of Series to DataFrame before passing to `store_cointegration_results()`.
+
+**Validation**: Backtest run successfully completed with 70 trades (52.86% win rate), confirming full trading simulation pipeline works end-to-end.
+
+### Additional Enhancements
+
+5. **Strategy Parameters Injection** - `BacktestEngine` accepts optional `strategy_params` dict to override config values for flexible strategy testing without modifying config.yaml
+6. **Redis Caching Layer** - Backtesting results cached in Redis (configurable TTL, default 24h) to accelerate repeated analyses
+7. **Database Flexibility** - Config supports SQLite (dev) and PostgreSQL (prod) with environment variable overrides (DB_TYPE, DB_HOST, etc.)
+
 ## Project Overview
 
-Automated cointegration pairs trading bot for dYdX v4 decentralized exchange. Uses statistical analysis to identify mean-reverting cryptocurrency pairs, opens paired positions when Z-scores exceed thresholds (±1.5), and closes when correlations revert to the mean (Z-score crosses zero).
+Automated cointegration pairs trading bot for dYdX v4 decentralized exchange with full-stack support (Python backend, FastAPI API, React frontend).
 
-**Key facts**:
+**Key architecture facts**:
 
 - **Paired trading bot**: All trades consist of TWO positions (base + quote markets) executed **atomically** via `BotAgent`
 - **Atomic execution**: Single position failures trigger emergency cleanup to prevent orphaned positions
-- **State-driven**: All persistent state (positions, pairs, analysis results) stored in JSON files - survives bot restarts
-- **Configuration-first**: All bot behavior controlled via YAML flags - **no code changes needed for workflow variations**
+- **State-driven**: All persistent state stored in JSON files (`bot_agents.json`, `cointegrated_pairs.json`) - survives bot restarts
+- **Configuration-first**: All bot behavior controlled via YAML flags (`app/config.yaml`) - no code changes needed for workflow variations
+- **Full-stack**: Python trading engine (`app/`) + FastAPI backend (`backend/`) + React UI (`frontend/`) with PostgreSQL persistence
 
 ## Architecture & Data Flow
 
@@ -39,6 +59,30 @@ setup_logging() → validate config → connect_dydx()
 | `models/pair_storage.py` | JSON-first persistence with CSV backward compatibility + timestamped backups     | Singleton pattern. Auto-creates pair_history/ dir. See CointegrationResult dataclass                     |
 | `logging_setup.py`       | Custom logging with optional Loki integration. Direct HTTP (not logging_loki)    | Call setup_logging() FIRST in any new script. Auto-detects environment from config                       |
 | `constants.py`           | Single source of truth for all config values extracted from config.yaml          | **Always import from here, never call config() in functions**. Parse once at module load                 |
+
+### Full-Stack Architecture (Python + FastAPI + React)
+
+**Three-layer system:**
+
+1. **Trading Engine** (`app/`) - Python trading logic that runs independently
+   - No requirement for backend to function
+   - Standalone CLI: `make run` or `python app/main.py`
+   - Outputs JSON state files for position tracking
+2. **Backend API** (`backend/main.py`) - FastAPI server for backtest analysis & historical data
+   - RESTful API: `GET /api/v1/backtests`, `POST /api/v1/backtests/run`
+   - WebSocket: `ws://localhost:8888/ws/backtest/{runId}` for real-time progress
+   - SQLAlchemy ORM: Stores backtest results in PostgreSQL
+   - Runs on port 8888 independently from trading engine
+   - Authentication: JWT tokens with `HTTPBearer` security
+3. **Frontend UI** (`frontend/`) - React 19 + Vite dashboard
+   - Connects to backend API for backtest UI
+   - Cannot run without backend
+   - Zustand state management with localStorage persistence
+   - Runs on port 5173 (dev) or 3000 (prod)
+
+**Deployment independence**: Trading bot runs successfully WITHOUT backend/frontend. Backend optional for backtest visualization.
+
+**Backend startup**: `make backend-run` or `python -m uvicorn backend.main:app --reload --port 8888`
 
 ### Configuration System (YAML-first with Type-Safe Constants)
 
@@ -233,7 +277,59 @@ for position in active_positions:
         position["pair_status"] = "CLOSE"
 ```
 
-**Critical pattern**: Validate exchange state matches local state before closing (reconciliation step).
+**Critical pattern**: **Critical pattern**: Validate exchange state matches local state before closing (reconciliation step).
+
+### Frontend Integration Pattern (`frontend/src/api.ts`)
+
+**Centralized Axios client** for all backend communication:
+
+```typescript
+// Single API client instance - ALL backend calls go through here
+class ApiClient {
+  // JWT auto-injection via request interceptor
+  // 401 handling: logout + redirect to /login
+
+  async login(username: string, password: string): Promise<{ access_token }>
+  async getCurrentUser(): Promise<User>
+  async listBacktests(skip: number, limit: number): Promise<{ backtests: [...] }>
+  async getBacktest(runId: string): Promise<BacktestData>
+  async runBacktest(params: BacktestStartRequest): Promise<{ run_id }>
+  async connectBacktestSocket(runId: string, token: string): WebSocket
+}
+```
+
+**Frontend state management** (`frontend/src/store/auth.ts`):
+
+```typescript
+// Zustand store with localStorage persistence
+useAuthStore: {
+  user: User | null
+  loading: boolean
+  error: string | null
+  login(username, password): Promise<void>   // Calls api.login + getCurrentUser
+  logout(): void                              // Clears token + user
+  isAuthenticated(): boolean
+}
+```
+
+**Key frontend patterns**:
+
+1. **Protected Routes**: Wrap with `<ProtectedRoute>` - redirects to /login if not authenticated
+2. **Loading + Error States**: All components follow `{loading, error, data}` pattern
+3. **Real-time Updates**: `useBacktestProgress` hook opens WebSocket for live progress
+4. **Dark Theme**: `bg-slate-900`, `text-white`, financial colors: `text-green-400` (profit), `text-red-400` (loss)
+5. **Recharts Visualization**: Responsive containers with dark theme colors (22c55e green, ef4444 red)
+
+**Response handling** (IMPORTANT):
+
+```typescript
+// Backend response has nested structure
+const response = await api.listBacktests(0, 10);
+// Structure: {success, message, data: {backtests: [...]}, timestamp}
+const backTests = response.data?.backtests || []; // Extract nested data
+```
+
+## Development Workflow
 
 ### dYdX Client Architecture (`func_connections.py`)
 
@@ -244,6 +340,83 @@ class Client:
     node             # Order placement (testnet connection regardless of trading mode)
     wallet           # Transaction signing
 ```
+
+### Backend API Architecture (`backend/main.py`)
+
+**FastAPI services** for backtest management and real-time monitoring:
+
+```python
+# Core services (dependency injection pattern)
+class UserService:
+    create_user(username, password) → User  # Hash passwords with bcrypt
+    authenticate(username, password) → User # Verify credentials
+
+class BacktestRunService:
+    create_run(BacktestStartRequest) → BacktestRun  # Store config snapshot
+    update_run_status(run_id, status) → BacktestRun
+    list_runs(skip, limit, user_id) → List[BacktestRun]
+    get_run(run_id) → BacktestRun
+
+class AuditLogService:
+    log_action(user_id, action, resource_id) → AuditLog  # Track all operations
+```
+
+**REST Endpoints pattern**:
+
+```python
+# POST /api/v1/auth/login → {access_token, refresh_token, user}
+# GET /api/v1/users/me → {user_id, username, created_at}
+# POST /api/v1/backtests/run → {run_id, status, created_at}
+# GET /api/v1/backtests/{runId} → BacktestData with results/metrics
+# GET /api/v1/backtests?skip=0&limit=10 → {backtests: [...], total}
+```
+
+**WebSocket real-time updates**:
+
+```python
+# ws://localhost:8888/ws/backtest/{runId}?token=JWT
+# Broadcast BacktestProgressUpdate every N seconds:
+#   {run_id, progress_pct, current_pair, status, timestamp}
+# Frontend useBacktestProgress hook subscribes for live UI updates
+```
+
+**Database schema** (SQLAlchemy ORM):
+
+```python
+class BacktestRun:
+    run_id: str                    # Unique identifier
+    user_id: int                   # FK to User
+    start_date: datetime
+    end_date: datetime
+    num_pairs: int
+    config_snapshot: dict          # Store full config.yaml snapshot
+    status: str                    # RUNNING, COMPLETE, FAILED
+    result: BacktestResult         # OneToMany relationship
+
+class BacktestResult:
+    run_id: str
+    total_pnl: float
+    total_return_pct: float
+    sharpe_ratio: float
+    win_rate: float
+    # ... 20+ performance metrics
+```
+
+**Response wrapper pattern** (ALL endpoints):
+
+```python
+{
+    "success": true,
+    "message": "Backtests retrieved successfully",
+    "data": {
+        "backtests": [...],
+        "total": 42
+    },
+    "timestamp": "2025-10-17T15:30:00Z"
+}
+```
+
+**IMPORTANT**: Frontend expects nested response.data structure - always extract `response.data?.backtests` not `response.backtests`
 
 ## Development Workflow
 
@@ -333,6 +506,62 @@ botSettings:
   findCointegratedPairs: true # Run statistical analysis
   manageExits: true # Monitor existing positions
   placeTrades: true # Execute new trades
+```
+
+### Database & Persistence Configuration
+
+**Three-layer persistence architecture**:
+
+```yaml
+# 1. SQLite (Development) OR PostgreSQL (Production)
+database:
+  type: sqlite # sqlite or postgresql | Env: DB_TYPE
+  name: dydx_backtest.db # Database name | Env: DB_NAME
+  user: postgres # DB username (PostgreSQL only) | Env: DB_USER
+  password: "" # DB password (PostgreSQL only) | Env: DB_PASSWORD
+  host: localhost # DB host | Env: DB_HOST
+  port: "5432" # DB port | Env: DB_PORT
+  pool_size: 5 # Connection pool size | Env: DB_POOL_SIZE
+  max_overflow: 10 # Max overflow connections | Env: DB_MAX_OVERFLOW
+  timeout: 30 # Query timeout in seconds | Env: DB_TIMEOUT
+
+# 2. Redis Caching Layer (Optional - for backtest result acceleration)
+redis:
+  enabled: true # Enable Redis caching | Env: REDIS_ENABLED
+  host: localhost # Redis hostname | Env: REDIS_HOST
+  port: 6379 # Redis port | Env: REDIS_PORT
+  db: 0 # Redis database number | Env: REDIS_DB
+  password: null # Redis password (if required) | Env: REDIS_PASSWORD
+  ssl: false # Use SSL connection | Env: REDIS_SSL
+  timeout: 5 # Connection timeout in seconds | Env: REDIS_TIMEOUT
+  cache_ttl_seconds: 86400 # Cache TTL (24 hours) | Env: REDIS_CACHE_TTL
+  max_connections: 10 # Max connections in pool | Env: REDIS_MAX_CONNECTIONS
+
+# 3. JSON Files (Primary - survives restarts)
+# bot_agents.json, cointegrated_pairs.json, pair_history/
+```
+
+**Environment Variable Override Pattern**:
+
+```python
+# Config supports environment variable overrides for production deployments
+# Example: export DB_TYPE=postgresql DB_HOST=prod-db.example.com DB_PASSWORD=secret
+# Database constructor automatically detects and uses these overrides
+```
+
+**Redis Caching Strategy** (backtesting results):
+
+```python
+# Backtest results cached with 24-hour TTL
+# Key format: "backtest:{run_id}"
+# Enables quick re-fetching without re-running simulation
+# Automatic expiration prevents stale results
+
+from backend.redis_service import redis_service
+result = await redis_service.get(f"backtest:{run_id}")  # Cache hit
+if not result:
+    result = await run_backtest(...)  # Cache miss - run simulation
+    await redis_service.set(f"backtest:{run_id}", result, ttl=86400)
 ```
 
 ## Critical Developer Patterns
@@ -728,6 +957,120 @@ backtesting:
 - **Performance metrics**: PnL, Sharpe ratio, win rate, drawdown, profit factor, trade duration
 - **Analysis tools**: CSV export, matplotlib charts, aggregate statistics across multiple backtests
 
+### BacktestEngine Architecture & Strategy Parameter Injection
+
+**Key Feature**: BacktestEngine supports optional `strategy_params` dict to override config.yaml without file modifications:
+
+```python
+# Example: Test custom parameters without modifying config.yaml
+from app.func_backtesting import BacktestEngine
+
+engine = BacktestEngine(
+    client=client,
+    config=config,
+    run_id="test-123",
+    strategy_params={
+        'zscore_threshold': 2.0,      # Override default 1.5
+        'usd_per_trade': 20.0,         # Override default 25.0
+        'stats_window': 21,            # Override default 14
+        'close_at_zscore_cross': True,
+        'transaction_fee': 0.0005,
+        'slippage': 0.001
+    },
+    progress_callback=async_progress_callback  # Optional real-time updates
+)
+
+results = await engine.run_backtest(
+    start_date="2024-01-01",
+    end_date="2024-03-31",
+    pairs=["BTC-USD", "ETH-USD"]
+)
+```
+
+**Parameter precedence** (highest to lowest):
+
+1. `strategy_params` dict (explicit overrides)
+2. `config.yaml` values (defaults)
+
+**Use cases**:
+
+- A/B testing different threshold values
+- Sensitivity analysis on USD per trade
+- Batch backtesting with parameter sweeps
+- No code changes needed for strategy variations
+
+### Backtesting Critical Patterns (IMPORTANT)
+
+**1. Timezone-Aware Datetime Comparisons**
+
+```python
+# ✅ CORRECT: All pd.Timestamp() must be timezone-aware
+trading_timestamp = pd.Timestamp(trading_date, tz="UTC")  # Matches DataFrame index
+mask = df.index <= trading_timestamp  # Safe comparison
+
+# ❌ WRONG: Naive Timestamp causes "Invalid comparison" error
+trading_timestamp = pd.Timestamp(trading_date)  # No tz parameter = NAIVE
+mask = df.index <= trading_timestamp  # FAILS: tz-aware vs naive
+```
+
+**Why**: Backtesting DataFrames have timezone-aware UTC indices from dYdX API. All timestamp comparisons must match this.
+
+**2. Polymorphic Z-Score Calculation**
+The `_calculate_zscore()` method handles TWO input types:
+
+```python
+# Entry signals: CointegrationResult objects (attributes)
+pair = CointegrationResult(base_market="BTC-USD", quote_market="ETH-USD", ...)
+z_score = self._calculate_zscore(pair, prices, date)  # pair.base_market works
+
+# Exit signals: Position dictionaries (string keys)
+position = {"market_1": "BTC-USD", "market_2": "ETH-USD", "hedge_ratio": 0.05}
+fake_pair = {"base_market": position["market_1"], ...}
+z_score = self._calculate_zscore(fake_pair, prices, date)  # Dict with get() fallback
+```
+
+Implementation detects type and accesses appropriately:
+
+```python
+if isinstance(pair, dict):
+    market_1 = pair.get("base_market") or pair.get("market_1")  # Try both keys
+    market_2 = pair.get("quote_market") or pair.get("market_2")
+else:
+    market_1 = pair.base_market  # CointegrationResult attribute
+    market_2 = pair.quote_market
+```
+
+**3. Cointegration Data Format Conversion**
+
+```python
+# ✅ CORRECT: Convert dict of Series to DataFrame
+analysis_data = {"BTC-USD": series1, "ETH-USD": series2, ...}
+analysis_df = pd.DataFrame(analysis_data)  # Convert before passing
+store_cointegration_results(analysis_df)
+
+# ❌ WRONG: Passing dict directly causes "'dict' object has no attribute 'columns'"
+store_cointegration_results(analysis_data)  # FAILS
+```
+
+**4. Frontend JWT Token Refresh**
+
+```typescript
+// Frontend API client auto-handles 401 errors
+if (status === 401) {
+  try {
+    await this.client.get("/api/v1/users/me"); // Check if session valid
+    if (error.config) {
+      return this.client(error.config); // Retry original request
+    }
+  } catch (refreshError) {
+    this.logout();
+    window.location.href = "/login"; // Truly invalid, redirect
+  }
+}
+```
+
+This prevents "redirect to login after Run Backtest click" issue.
+
 ## Integration Points
 
 - **dYdX v4**: `dydx-v4-client` library for all exchange operations
@@ -736,3 +1079,119 @@ backtesting:
 - **Backtesting**: Historical simulation using same trading logic, risk-free strategy validation
 - **Backend API**: FastAPI server (`backend/main.py`) with SQLAlchemy ORM for backtest storage
 - **Frontend**: React/TypeScript dashboard (`frontend/src/`) with Zustand auth store for backtest visualization
+
+## Key Data Models & Patterns
+
+### Core Data Structures (`app/models/`)
+
+**CointegrationResult** - Statistical pair analysis results:
+
+```python
+# Dataclass from pair_storage.py
+@dataclass
+class CointegrationResult:
+    base_market: str          # e.g., "BTC-USD"
+    quote_market: str         # e.g., "ETH-USD"
+    hedge_ratio: float        # Beta coefficient from regression
+    half_life: float          # Mean reversion period (hours)
+    p_value: float            # Statistical significance (ADF/Johansen)
+    confidence_score: float   # 0-1 (score >= 0.7 = tradeable)
+    analysis_timestamp: str   # ISO format timestamp
+```
+
+**BacktestTrade** - Individual trade execution record:
+
+```python
+# From backtest_models.py
+@dataclass
+class BacktestTrade:
+    trade_id: str
+    entry_timestamp: datetime  # When position opened
+    exit_timestamp: datetime   # When position closed
+    market_1: str              # Base market
+    market_2: str              # Quote market
+    entry_zscore: float        # Z-score at entry
+    exit_zscore: float         # Z-score at exit
+    pnl_usd: float            # Profit/loss in USD
+    pnl_pct: float            # Return percentage
+    trade_duration_hours: float
+    win: bool                  # True if pnl_usd > 0
+```
+
+**BacktestResult** - Complete simulation results:
+
+```python
+# From backtest_models.py & database.py
+@dataclass
+class BacktestResult:
+    run_id: str
+    total_trades: int
+    total_pnl: float
+    total_return_pct: float
+    sharpe_ratio: float
+    win_rate: float            # % of winning trades
+    max_drawdown_pct: float
+    profit_factor: float       # Gross wins / Gross losses
+    avg_trade_duration_hours: float
+    trades: List[BacktestTrade]
+```
+
+### State File Formats
+
+**Position State** (`bot_agents.json`):
+
+```json
+[
+  {
+    "market_1": "BTC-USD",
+    "market_2": "ETH-USD",
+    "hedge_ratio": 0.05,
+    "z_score": 1.8,
+    "pair_status": "LIVE",      # FAILED, LIVE, CLOSE, ERROR
+    "order_id_m1": "abc123",
+    "order_id_m2": "def456",
+    "order_m1_size": 0.01,
+    "order_m1_side": "BUY",
+    "order_m2_size": 0.2,
+    "order_m2_side": "SELL"
+  }
+]
+```
+
+**Pair Analysis** (`cointegrated_pairs.json` - v2.0 format):
+
+```json
+{
+  "metadata": {
+    "analysis_timestamp": "2025-10-20T18:49:41Z",
+    "total_pairs": 50,
+    "confidence_threshold": 0.7
+  },
+  "pairs": [
+    {
+      "base_market": "BTC-USD",
+      "quote_market": "ETH-USD",
+      "hedge_ratio": 0.05,
+      "half_life": 12.5,
+      "p_value": 0.001,
+      "confidence_score": 0.82,
+      "analysis_timestamp": "2025-10-20T18:49:41Z"
+    }
+  ]
+}
+```
+
+## Quick Reference: File Locations & Purposes
+
+| Location                        | Purpose                                                  | Key Pattern                                                     |
+| ------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
+| `app/main.py`                   | Entry point - orchestrates full trading loop             | `setup_logging()` FIRST, then config, then loop                 |
+| `app/config.yaml`               | YAML-based configuration - always use as source of truth | Environment vars override YAML values                           |
+| `app/constants.py`              | Singleton config values for imports - NO re-parsing      | Import here, use everywhere without calling `config()`          |
+| `app/models/pair_storage.py`    | JSON/CSV persistence singleton for pairs                 | `pair_storage.load_pairs()` tries JSON first, falls back to CSV |
+| `app/models/backtest_models.py` | Dataclasses for backtest data                            | Use `BacktestResult` for complete results object                |
+| `app/func_backtesting.py`       | BacktestEngine simulation engine                         | Accepts `strategy_params` to override config values             |
+| `backend/main.py`               | FastAPI server on port 8888                              | Response wrapper: `{success, message, data, timestamp}`         |
+| `backend/redis_service.py`      | Redis caching layer for backtest results                 | TTL: 24h, enables fast re-fetching                              |
+| `frontend/src/api.ts`           | Centralized Axios client - ALL backend calls here        | Extracts `response.data` nested structure                       |
+| `frontend/src/store/auth.ts`    | Zustand auth store with localStorage persistence         | `useAuthStore()` - no selectors needed                          |

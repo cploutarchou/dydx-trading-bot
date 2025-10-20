@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -283,6 +283,16 @@ migration-verify: ## Show current migration & history
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@.venv/bin/alembic history --verbose
 	@echo "✅ Verification complete"
+
+db-init-schema: ## Initialize database schema (creates all tables)
+	.venv/bin/python scripts/init_database.py --init
+	@echo "✅ Database schema initialized"
+
+db-verify-schema: ## Verify database schema integrity
+	.venv/bin/python scripts/init_database.py --verify
+
+db-reset: ## Reset database (drop and recreate all tables) - USE WITH CAUTION!
+	.venv/bin/python scripts/init_database.py --reset
 
 # Legacy/Advanced (kept for reference)
 db-init: ## Initialize Alembic migrations (one-time setup)

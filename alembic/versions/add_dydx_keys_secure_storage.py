@@ -1,7 +1,7 @@
 """Add DYDXKey table for secure key storage
 
 Revision ID: add_dydx_keys_table
-Revises:
+Revises: a0293f2df788
 Create Date: 2025-10-20
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "add_dydx_keys_table"
-down_revision = None
+down_revision = "a0293f2df788"
 branch_labels = None
 depends_on = None
 

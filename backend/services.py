@@ -349,17 +349,18 @@ class BacktestResultService:
             max_drawdown = float(np.min(drawdown)) * 100 if len(drawdown) > 0 else 0.0
 
         # Update BacktestRun with aggregated metrics
+        # CRITICAL: Convert numpy types to Python floats for SQLAlchemy compatibility
         run.total_trades = total_trades
         run.profitable_trades = profitable_trades
         run.losing_trades = losing_trades
-        run.win_rate = win_rate
-        run.total_pnl = total_pnl
-        run.total_pnl_usd = total_pnl
-        run.sharpe_ratio = sharpe_ratio
-        run.sortino_ratio = sortino_ratio
-        run.profit_factor = profit_factor
-        run.max_drawdown = max_drawdown
-        run.ending_balance = run.starting_balance + total_pnl
+        run.win_rate = float(win_rate)
+        run.total_pnl = float(total_pnl)
+        run.total_pnl_usd = float(total_pnl)
+        run.sharpe_ratio = float(sharpe_ratio) if sharpe_ratio is not None else None
+        run.sortino_ratio = float(sortino_ratio) if sortino_ratio is not None else None
+        run.profit_factor = float(profit_factor) if profit_factor is not None else None
+        run.max_drawdown = float(max_drawdown) if max_drawdown is not None else None
+        run.ending_balance = float(run.starting_balance + total_pnl)
 
         db.commit()
         db.refresh(run)

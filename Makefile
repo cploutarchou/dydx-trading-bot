@@ -64,8 +64,8 @@ env: ## Show deprecation warning for .env
 # DEVELOPMENT
 # ============================================================================
 
-test: ## Run pytest suite
-	.venv/bin/pytest -v
+test: ## Run pytest suite (tests/ directory only)
+	PYTHONPATH=$(PWD) .venv/bin/pytest tests/ -v --tb=short
 
 lint: ## Check code with flake8 and pylint
 	.venv/bin/flake8 app/ backend/ --max-line-length=120 --exclude=__pycache__

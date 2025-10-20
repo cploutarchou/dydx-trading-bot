@@ -42,6 +42,7 @@ from backend.auth import (
     verify_token,
 )
 from backend.database import (
+    BacktestCandle,
     BacktestLog,
     BacktestResult,
     BacktestRun,
@@ -224,14 +225,23 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
         )
 
-    user_id = extract_user_from_token(token)
-    if not user_id:
+    subject = extract_user_from_token(token)
+    if not subject:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not extract user from token",
         )
 
-    user = UserService.get_user_by_id(db, int(user_id))
+    # Handle both numeric user IDs and usernames in token subject
+    user = None
+    try:
+        # Try parsing as numeric ID first
+        user_id_int = int(subject)
+        user = UserService.get_user_by_id(db, user_id_int)
+    except (ValueError, TypeError):
+        # Fall back to username lookup
+        user = UserService.get_user_by_username(db, subject)
+
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -947,6 +957,115 @@ async def get_backtest_logs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch logs: {str(e)}",
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/candles")
+async def get_backtest_candles(
+    run_id: str,
+    market: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ApiResponse:
+    """
+    Get historical candle data for backtest.
+
+    Query Parameters:
+    - market: Market symbol (optional - returns all if not specified)
+    - start_date: Filter from date (optional, ISO format)
+    - end_date: Filter to date (optional, ISO format)
+
+    Returns candle data with OHLCV information.
+    """
+    try:
+        # Find the backtest run
+        run = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        if not run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Backtest run {run_id} not found",
+            )
+
+        # Parse dates if provided
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date must be ISO format (YYYY-MM-DD or ISO-8601)",
+                )
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date must be ISO format (YYYY-MM-DD or ISO-8601)",
+                )
+
+        # Build query
+        query = db.query(BacktestCandle).filter(BacktestCandle.run_id_fk == run.id)
+
+        if market:
+            query = query.filter(BacktestCandle.market == market)
+
+        if start_dt:
+            query = query.filter(BacktestCandle.timestamp >= start_dt)
+
+        if end_dt:
+            query = query.filter(BacktestCandle.timestamp <= end_dt)
+
+        candles = query.order_by(BacktestCandle.timestamp).all()
+
+        # Get unique markets
+        markets_result = (
+            db.query(BacktestCandle.market)
+            .filter(BacktestCandle.run_id_fk == run.id)
+            .distinct()
+            .all()
+        )
+        markets_list = [m[0] for m in markets_result]
+
+        # Format candle data
+        candles_data = [
+            {
+                "market": c.market,
+                "timestamp": c.timestamp.isoformat() + "Z"
+                if c.timestamp and c.timestamp.tzinfo is None
+                else c.timestamp.isoformat()
+                if c.timestamp
+                else None,
+                "open": float(c.open_price),
+                "high": float(c.high_price),
+                "low": float(c.low_price),
+                "close": float(c.close_price),
+                "volume": float(c.volume),
+            }
+            for c in candles
+        ]
+
+        return ApiResponse(
+            success=True,
+            message="Candles retrieved",
+            data={
+                "run_id": run_id,
+                "candles": candles_data,
+                "count": len(candles_data),
+                "markets": markets_list,
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching backtest candles: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch candles: {str(e)}",
         )
 
 

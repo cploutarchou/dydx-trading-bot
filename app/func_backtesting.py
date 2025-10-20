@@ -935,7 +935,8 @@ class BacktestEngine:
         # Z-score
         z_score = (current_spread - spread_mean) / spread_std
 
-        return z_score
+        # Convert to native Python float (avoid NumPy serialization issues with PostgreSQL)
+        return float(z_score)
 
     def _calculate_zscore_for_position(
         self, position: Dict, current_prices: Dict[str, float], current_date: datetime
@@ -1050,8 +1051,24 @@ class BacktestEngine:
                     side_2=side_2,
                     hedge_ratio=hedge_ratio,
                 )
+            except ValueError as e:
+                # Validation error - likely run_id doesn't exist in database
+                self.logger.error(
+                    f"Failed to save position - validation error: {e} "
+                    f"(run_id_int={self.run_id_int})"
+                )
+                if self.run_id and self.db:
+                    log_backtest_warning(
+                        self.run_id,
+                        f"Position save validation failed: {str(e)}",
+                        self.db,
+                    )
             except Exception as e:
-                self.logger.error(f"Failed to save position to database: {e}")
+                # Other database errors
+                self.logger.error(
+                    f"Failed to save position to database: {e} "
+                    f"(run_id_int={self.run_id_int})"
+                )
                 if self.run_id and self.db:
                     log_backtest_warning(
                         self.run_id,
@@ -1165,8 +1182,24 @@ class BacktestEngine:
                     pnl_pct=pnl_pct,
                     duration_hours=duration,
                 )
+            except ValueError as e:
+                # Validation error - likely run_id doesn't exist in database
+                self.logger.error(
+                    f"Failed to save trade - validation error: {e} "
+                    f"(run_id_int={self.run_id_int})"
+                )
+                if self.run_id and self.db:
+                    log_backtest_warning(
+                        self.run_id,
+                        f"Trade save validation failed: {str(e)}",
+                        self.db,
+                    )
             except Exception as e:
-                self.logger.error(f"Failed to save trade to database: {e}")
+                # Other database errors
+                self.logger.error(
+                    f"Failed to save trade to database: {e} "
+                    f"(run_id_int={self.run_id_int})"
+                )
                 if self.run_id and self.db:
                     log_backtest_warning(
                         self.run_id,

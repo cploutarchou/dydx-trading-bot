@@ -212,3 +212,5 @@ build/
 *.swp
 *.swo
 *~
+
+app/pair_history/pairs*

@@ -1131,4 +1131,83 @@ class StrategyVersionHistoryService:
             if old_value != new_value:
                 changes[key] = {"old": old_value, "new": new_value}
         return changes if changes else None
-        return RedisSettingsService.get_redis_settings(db)
+
+
+# Module-level utility function for data validation
+def validate_results_quality(results: List[BacktestResult]) -> dict:
+    """
+    Validate backtest results for consistency issues.
+    Returns quality score and list of warnings.
+
+    Args:
+        results: List of BacktestResult objects to validate
+
+    Returns:
+        Dictionary with quality score (0-100), warnings list, and fixes applied
+    """
+    warnings = []
+
+    for result in results:
+        # Check 1: Win rate must be 0-100%
+        if result.win_rate is not None and (
+            result.win_rate < 0 or result.win_rate > 100
+        ):
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Win rate {result.win_rate}% outside valid range [0-100%]"
+            )
+
+        # Check 2: Profitable trades must be <= total trades
+        profitable = result.profitable_trades or 0
+        total = result.total_trades or 0
+        if profitable > total:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Profitable trades ({profitable}) > total trades ({total})"
+            )
+
+        # Check 3: Losing trades must be <= total trades
+        losing = result.losing_trades or 0
+        if losing > total:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Losing trades ({losing}) > total trades ({total})"
+            )
+
+        # Check 4: Profit factor must be >= 0
+        if result.profit_factor is not None and result.profit_factor < 0:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Negative profit factor {result.profit_factor}"
+            )
+
+        # Check 5: Sum of profitable + losing should not exceed total
+        total_categorized = profitable + losing
+        if total_categorized > total:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Profitable ({profitable}) + Losing ({losing}) > Total ({total})"
+            )
+
+        # Check 6: Max drawdown should not exceed -100%
+        if result.max_drawdown is not None and result.max_drawdown < -100:
+            warnings.append(
+                f"{result.market_1}/{result.market_2}: "
+                f"Extreme max drawdown {result.max_drawdown}% (likely data error)"
+            )
+
+    # Calculate quality score
+    # Start at 100, deduct 10 points per warning (capped at 0)
+    quality_score = max(0, 100 - len(warnings) * 10)
+
+    logger.info(
+        f"Results validation: {len(results)} results, "
+        f"quality score: {quality_score}, warnings: {len(warnings)}"
+    )
+
+    return {
+        "score": quality_score,
+        "warnings": warnings[:10],  # Limit to 10 warnings for API response
+        "fixes_applied": [],
+        "total_results": len(results),
+    }

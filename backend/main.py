@@ -2114,22 +2114,30 @@ async def get_backtest_summary(
 @app.get("/api/v1/backtests/{run_id}/results")
 async def get_backtest_results(
     run_id: str,
-    limit: int = 100,
+    limit: int = 20,
     offset: int = 0,
+    sort_by: str = "pnl",
+    sort_order: str = "desc",
+    min_win_rate: Optional[float] = None,
+    min_trades: Optional[int] = None,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get detailed results for each pair tested in a backtest.
+    """Get detailed results for each pair tested in a backtest with enhanced filtering and validation.
 
     Args:
         run_id: UUID of the backtest run
-        limit: Maximum results to return (default 100)
+        limit: Maximum results to return (default 20, max 100)
         offset: Number of results to skip for pagination (default 0)
+        sort_by: Field to sort by (pnl, win_rate, sharpe_ratio, total_trades, profit_factor)
+        sort_order: Sort order (desc or asc)
+        min_win_rate: Filter results with win rate >= this value (0-100)
+        min_trades: Filter results with total_trades >= this value
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        ApiResponse with paginated list of pair results including metrics
+        ApiResponse with paginated list of pair results including validation metadata
     """
     # Get run
     run = BacktestRunService.get_run_by_run_id(db, run_id)
@@ -2140,58 +2148,123 @@ async def get_backtest_results(
     if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    # Get results
-    results = (
-        db.query(BacktestResult)
-        .filter(BacktestResult.run_id_fk == run.id)
-        .order_by(BacktestResult.pnl.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    # Validate and sanitize parameters
+    limit = min(int(limit), 100)  # Cap at 100 results per page
+    offset = max(int(offset), 0)
 
-    total = db.query(BacktestResult).filter(BacktestResult.run_id_fk == run.id).count()
+    # Validate sort field
+    valid_sorts = [
+        "pnl",
+        "pnl_usd",
+        "win_rate",
+        "sharpe_ratio",
+        "total_trades",
+        "profit_factor",
+        "avg_trade_duration_hours",
+        "cointegration_score",
+    ]
+    if sort_by not in valid_sorts:
+        sort_by = "pnl"
 
+    # Build query
+    query = db.query(BacktestResult).filter(BacktestResult.run_id_fk == run.id)
+
+    # Apply filters
+    if min_win_rate is not None:
+        try:
+            min_win_rate_val = float(min_win_rate)
+            if 0 <= min_win_rate_val <= 100:
+                query = query.filter(BacktestResult.win_rate >= min_win_rate_val)
+        except (ValueError, TypeError):
+            pass
+
+    if min_trades is not None:
+        try:
+            min_trades_val = int(min_trades)
+            if min_trades_val > 0:
+                query = query.filter(BacktestResult.total_trades >= min_trades_val)
+        except (ValueError, TypeError):
+            pass
+
+    # Get total count before applying limit/offset
+    total_count = query.count()
+
+    # Apply sorting
+    sort_column = getattr(BacktestResult, sort_by, BacktestResult.pnl)
+    if sort_order.lower() == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    # Get paginated results
+    results = query.offset(offset).limit(limit).all()
+
+    # Format results
     formatted_results = []
     for result in results:
         formatted_results.append(
             {
                 "id": result.id,
+                "pair": f"{result.market_1}/{result.market_2}",
                 "market_1": result.market_1,
                 "market_2": result.market_2,
-                "total_trades": result.total_trades,
-                "profitable_trades": result.profitable_trades,
-                "losing_trades": result.losing_trades,
-                "win_rate": result.win_rate,
-                "pnl": result.pnl,
-                "pnl_usd": result.pnl_usd,
-                "avg_win": result.avg_win,
-                "avg_loss": result.avg_loss,
-                "profit_factor": result.profit_factor,
-                "max_drawdown": result.max_drawdown,
-                "sharpe_ratio": result.sharpe_ratio,
-                "sortino_ratio": result.sortino_ratio,
-                "calmar_ratio": result.calmar_ratio,
-                "avg_trade_duration_hours": result.avg_trade_duration_hours,
-                "cointegration_score": result.cointegration_score,
-                "correlation": result.correlation,
-                "zscore_mean": result.zscore_mean,
-                "zscore_std": result.zscore_std,
+                "total_trades": result.total_trades or 0,
+                "profitable_trades": result.profitable_trades or 0,
+                "losing_trades": result.losing_trades or 0,
+                "win_rate": float(result.win_rate or 0),
+                "pnl": float(result.pnl or 0),
+                "pnl_usd": float(result.pnl_usd or 0),
+                "avg_win": float(result.avg_win or 0),
+                "avg_loss": float(result.avg_loss or 0),
+                "profit_factor": float(result.profit_factor or 0),
+                "max_drawdown": float(result.max_drawdown or 0),
+                "sharpe_ratio": float(result.sharpe_ratio)
+                if result.sharpe_ratio
+                else None,
+                "sortino_ratio": float(result.sortino_ratio)
+                if result.sortino_ratio
+                else None,
+                "calmar_ratio": float(result.calmar_ratio)
+                if result.calmar_ratio
+                else None,
+                "avg_trade_duration_hours": float(result.avg_trade_duration_hours or 0),
+                "cointegration_score": float(result.cointegration_score or 0),
+                "correlation": float(result.correlation or 0),
+                "zscore_mean": float(result.zscore_mean or 0),
+                "zscore_std": float(result.zscore_std or 0),
                 "created_at": result.created_at.isoformat(),
             }
         )
 
+    # Validate results quality
+    from backend.services import validate_results_quality
+
+    data_quality = validate_results_quality(results)
+
+    # Calculate pagination metadata
+    pages_count = (total_count + limit - 1) // limit if limit > 0 else 1
+    current_page = (offset // limit) + 1 if limit > 0 else 1
+
     return ApiResponse(
         success=True,
-        message="Backtest results retrieved",
+        message=f"Retrieved {len(formatted_results)} results",
         data={
             "results": formatted_results,
             "pagination": {
-                "total": total,
+                "total": total_count,
                 "limit": limit,
                 "offset": offset,
                 "returned": len(formatted_results),
+                "pages": pages_count,
+                "current_page": current_page,
             },
+            "metadata": {
+                "run_id": run.run_id,
+                "status": run.status,
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+            },
+            "data_quality": data_quality,
         },
     )
 

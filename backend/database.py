@@ -3,6 +3,12 @@ Database configuration and models for backtest results storage.
 Supports both SQLite (development) and PostgreSQL (production).
 """
 
+# ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
+# This ensures DB_* environment variables are available for database configuration
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import logging
 import os
 from contextlib import contextmanager
@@ -291,7 +297,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(500), nullable=False)
 
     # Profile information
     full_name = Column(String(100), nullable=True)
@@ -445,6 +451,49 @@ class BacktestPosition(Base):
 
     def __repr__(self):
         return f"<BacktestPosition {self.position_id} - {self.status}>"
+
+
+class BacktestCandle(Base):
+    """Stores OHLCV candle data during backtest for accurate chart rendering and smart caching."""
+
+    __tablename__ = "backtest_candles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id_fk = Column(
+        Integer, ForeignKey("backtest_runs.id"), index=True, nullable=False
+    )
+
+    # Candle identification
+    market = Column(String(50), nullable=False, index=True)  # e.g., "BTC-USD"
+    timestamp = Column(DateTime, nullable=False, index=True)
+    resolution = Column(
+        String(20), default="1HOUR"
+    )  # 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
+
+    # OHLCV data
+    open_price = Column(Float, nullable=False)
+    high_price = Column(Float, nullable=False)
+    low_price = Column(Float, nullable=False)
+    close_price = Column(Float, nullable=False)
+    volume = Column(Float, nullable=False)
+
+    # Additional metrics
+    trades_count = Column(Integer, nullable=True)  # Number of trades in the candle
+
+    # Timestamp when inserted
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    run = relationship("BacktestRun", backref="candles")
+
+    __table_args__ = (
+        Index("idx_backtest_candle_run_market", "run_id_fk", "market"),
+        Index("idx_backtest_candle_market_time", "market", "timestamp"),
+        Index("idx_backtest_candle_run_time", "run_id_fk", "timestamp"),
+    )
+
+    def __repr__(self):
+        return f"<BacktestCandle {self.market} {self.timestamp} O:{self.open_price} C:{self.close_price}>"
 
 
 class BotSetting(Base):
@@ -677,7 +726,7 @@ class BacktestStrategy(Base):
 
 class StrategyVersionHistory(Base):
     """Audit trail of strategy configuration changes for version control and reproducibility.
-    
+
     Each time a strategy is edited, a new version is saved. This allows:
     - Tracking which config generated each backtest result
     - Reverting to previous strategy versions
@@ -702,7 +751,9 @@ class StrategyVersionHistory(Base):
     config_snapshot = Column(JSON, nullable=False)  # Full strategy config
 
     # Track what changed (optional, for UI diff display)
-    changes = Column(JSON, nullable=True)  # {"zscore_threshold": {"old": 1.5, "new": 2.0}}
+    changes = Column(
+        JSON, nullable=True
+    )  # {"zscore_threshold": {"old": 1.5, "new": 2.0}}
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -959,8 +1010,33 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     """Initialize database - create all tables and seed default admin user."""
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database initialized successfully")
+    try:
+        # Create all tables that don't exist
+        # This is safe to run even if tables already exist - SQLAlchemy won't recreate them
+        Base.metadata.create_all(bind=engine)
+
+        # Log all tables that should exist
+        inspector = __import__("sqlalchemy", fromlist=["inspect"]).inspect
+        inspector_obj = inspector(engine)
+        existing_tables = inspector_obj.get_table_names()
+
+        logger.info("✅ Database initialized successfully")
+        logger.info(
+            f"   Existing tables ({len(existing_tables)}): {', '.join(sorted(existing_tables))}"
+        )
+
+        # Verify all expected model tables exist
+        expected_tables = {table.name for table in Base.metadata.tables.values()}
+        missing_tables = expected_tables - set(existing_tables)
+
+        if missing_tables:
+            logger.warning(f"⚠️  Missing tables: {', '.join(sorted(missing_tables))}")
+        else:
+            logger.info(f"✅ All {len(expected_tables)} expected tables present")
+
+    except Exception as e:
+        logger.error(f"❌ Error initializing database: {e}", exc_info=True)
+        raise
 
     # Seed default admin user on first run
     _seed_admin_user()

@@ -20,6 +20,7 @@ import {
     YAxis,
 } from 'recharts';
 import api from '../api';
+import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 
 interface Candle {
 	market: string;
@@ -98,7 +99,7 @@ export const BacktestDetailsV2: React.FC = () => {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
-	const [activeTab, setActiveTab] = useState<'summary' | 'candles' | 'positions' | 'trades'>('summary');
+	const [activeTab, setActiveTab] = useState<'summary' | 'candles' | 'positions' | 'trades' | 'results'>('summary');
 
 	// Fetch backtest metadata
 	useEffect(() => {
@@ -377,7 +378,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
 				{/* Tabs */}
 				<div className="flex gap-4 mb-8 border-b border-slate-700">
-					{(['summary', 'candles', 'positions', 'trades'] as const).map((tab) => (
+					{(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
 						<button
 							key={tab}
 							onClick={() => setActiveTab(tab)}
@@ -644,6 +645,14 @@ export const BacktestDetailsV2: React.FC = () => {
 								))}
 							</tbody>
 						</table>
+					</div>
+				)}
+
+				{/* Results Tab */}
+				{activeTab === 'results' && (
+					<div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+						<h2 className="text-xl font-bold mb-4">Detailed Results</h2>
+						<BacktestResultsEnhanced runId={runId || ''} />
 					</div>
 				)}
 			</div>

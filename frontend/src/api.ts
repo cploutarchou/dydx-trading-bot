@@ -276,6 +276,32 @@ class ApiClient {
     return response.data;
   }
 
+  async getBacktestResults(
+    runId: string,
+    limit: number = 20,
+    offset: number = 0,
+    sortBy: string = 'pnl',
+    sortOrder: string = 'desc',
+    minWinRate?: number,
+    minTrades?: number
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+
+    let url = `/api/v1/backtests/${runId}/results?`;
+    url += `limit=${limit}&offset=${offset}`;
+    url += `&sort_by=${sortBy}&sort_order=${sortOrder}`;
+
+    if (minWinRate !== undefined) {
+      url += `&min_win_rate=${minWinRate}`;
+    }
+    if (minTrades !== undefined) {
+      url += `&min_trades=${minTrades}`;
+    }
+
+    const response = await this.client.get<ApiResponse>(url);
+    return response.data;
+  }
+
   // Strategy endpoints
   async createStrategy(data: any): Promise<ApiResponse> {
     console.log('🔌 api.ts: createStrategy() called with:', data);

@@ -8,6 +8,7 @@ interface StrategyFormData {
   category: string;
   description: string;
   is_public: boolean;
+  resolution: string; // 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
   zscore_threshold: number;
   stats_window: number;
   max_half_life: number;
@@ -25,6 +26,9 @@ interface StrategyFormData {
   trailing_stop_pct: number;
   rebalance_interval_hours: number;
   position_timeout_hours: number;
+  initial_amount: number;
+  transaction_fee?: number;
+  slippage?: number;
 }
 
 // Preset configurations
@@ -93,6 +97,7 @@ export default function StrategyBuilder() {
       category: 'pairs_trading',
       description: '',
       is_public: false,
+      resolution: '1HOUR',
       zscore_threshold: 1.5,
       stats_window: 21,
       max_half_life: 24,
@@ -110,6 +115,9 @@ export default function StrategyBuilder() {
       trailing_stop_pct: 1.0,
       rebalance_interval_hours: 24,
       position_timeout_hours: 72,
+      initial_amount: 1000.0,
+      transaction_fee: 0.0005,
+      slippage: 0.001,
     },
   });
 
@@ -189,6 +197,9 @@ export default function StrategyBuilder() {
         trailing_stop_pct: Number(data.trailing_stop_pct),
         rebalance_interval_hours: Number(data.rebalance_interval_hours),
         position_timeout_hours: Number(data.position_timeout_hours),
+        initial_amount: Number(data.initial_amount),
+        transaction_fee: data.transaction_fee ? Number(data.transaction_fee) : 0.0005,
+        slippage: data.slippage ? Number(data.slippage) : 0.001,
       };
 
       if (isEditMode && strategyId) {
@@ -313,6 +324,41 @@ export default function StrategyBuilder() {
             />
           </div>
 
+          {/* Candle Resolution */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Candle Resolution <span className="text-red-400">*</span>
+            </label>
+            <Controller
+              name="resolution"
+              control={control}
+              rules={{
+                required: 'Candle resolution is required',
+              }}
+              render={({ field }) => (
+                <select
+                  {...field}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="1MIN">1 Minute 🐢 (Very Slow - ~900K candles/90d)</option>
+                  <option value="5MINS">5 Minutes 🐌 (Slow - ~180K candles/90d)</option>
+                  <option value="15MINS">15 Minutes 🚶 (Moderate - ~60K candles/90d)</option>
+                  <option value="1HOUR">1 Hour ✅ (Recommended - ~2,160 candles/90d)</option>
+                  <option value="4HOURS">4 Hours ⚡ (Fast - ~540 candles/90d)</option>
+                  <option value="1DAY">1 Day ⚡⚡ (Very Fast - ~90 candles/90d)</option>
+                </select>
+              )}
+            />
+            <p className="mt-2 text-xs text-gray-500">
+              Timeframe for candle data (1HOUR recommended for stable backtests)
+            </p>
+            {formValues.resolution === '1MIN' || formValues.resolution === '5MINS' ? (
+              <p className="mt-2 text-xs text-yellow-400 bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
+                ⚠️ High-frequency resolutions significantly increase backtest time. Consider using 1HOUR or higher for faster results.
+              </p>
+            ) : null}
+          </div>
+
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -330,6 +376,42 @@ export default function StrategyBuilder() {
                 />
               )}
             />
+          </div>
+
+          {/* Initial Investment Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Initial Investment Amount (USD) <span className="text-red-400">*</span>
+            </label>
+            <Controller
+              name="initial_amount"
+              control={control}
+              rules={{
+                required: 'Initial investment amount is required',
+                min: { value: 10, message: 'Minimum investment is $10' },
+                max: { value: 1000000, message: 'Maximum investment is $1,000,000' },
+              }}
+              render={({ field }) => (
+                <div className="flex items-center">
+                  <span className="text-gray-400 mr-3">$</span>
+                  <input
+                    {...field}
+                    type="number"
+                    min="10"
+                    max="1000000"
+                    step="100"
+                    placeholder="1000"
+                    className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+            />
+            <p className="mt-2 text-xs text-gray-500">
+              Total capital allocated to this strategy for live trading
+            </p>
+            {errors.initial_amount && (
+              <p className="mt-1 text-red-400 text-sm">{errors.initial_amount.message}</p>
+            )}
           </div>
 
           {/* Divider */}
@@ -692,6 +774,54 @@ export default function StrategyBuilder() {
                           />
                         )}
                       />
+                    </div>
+
+                    {/* Transaction Fee */}
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="text-sm font-medium text-gray-300">Transaction Fee</label>
+                        <span className="text-blue-400 text-sm">{(formValues.transaction_fee || 0.0005).toFixed(4)}</span>
+                      </div>
+                      <Controller
+                        name="transaction_fee"
+                        control={control}
+                        render={({ field }) => (
+                          <input
+                            {...field}
+                            type="number"
+                            min="0.0001"
+                            max="0.01"
+                            step="0.0001"
+                            placeholder="0.0005"
+                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
+                          />
+                        )}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">dYdX maker fee (typically 0.0005 = 0.05%)</p>
+                    </div>
+
+                    {/* Slippage */}
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="text-sm font-medium text-gray-300">Slippage</label>
+                        <span className="text-blue-400 text-sm">{(formValues.slippage || 0.001).toFixed(4)}</span>
+                      </div>
+                      <Controller
+                        name="slippage"
+                        control={control}
+                        render={({ field }) => (
+                          <input
+                            {...field}
+                            type="number"
+                            min="0.0001"
+                            max="0.1"
+                            step="0.0001"
+                            placeholder="0.001"
+                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
+                          />
+                        )}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Estimated price slippage (typically 0.001 = 0.1%)</p>
                     </div>
                   </div>
                 </div>

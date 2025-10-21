@@ -119,9 +119,9 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                                     <td className={`px-4 py-2 text-right font-semibold ${run.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                         ${run.total_pnl.toFixed(2)}
                                     </td>
-                                    <td className="px-4 py-2 text-right">{(run.win_rate * 100).toFixed(1)}%</td>
+                                    <td className="px-4 py-2 text-right">{run.win_rate !== null && run.win_rate !== undefined ? `${run.win_rate.toFixed(1)}%` : 'N/A'}</td>
                                     <td className="px-4 py-2 text-right">{run.sharpe_ratio ? run.sharpe_ratio.toFixed(2) : 'N/A'}</td>
-                                    <td className="px-4 py-2 text-right">{run.max_drawdown ? (run.max_drawdown * 100).toFixed(1) : 'N/A'}%</td>
+                                    <td className="px-4 py-2 text-right">{run.max_drawdown ? run.max_drawdown.toFixed(1) : 'N/A'}%</td>
                                     <td className="px-4 py-2 text-center">
                                         <span className={`px-2 py-1 rounded text-xs font-medium ${
                                             run.status === 'completed' ? 'bg-green-900 text-green-300' :

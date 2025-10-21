@@ -7,6 +7,7 @@ interface BacktestRunRequest {
     start_date: string;
     end_date: string;
     num_pairs?: number;
+    resolution?: string;
     zscore_threshold?: number;
     stats_window?: number;
     max_half_life?: number;
@@ -71,7 +72,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({ 
             if (strategy) {
                 setFormData(prev => ({
                     ...prev,
-                    // All 21 strategy parameters
+                    // All 22 strategy parameters
+                    resolution: strategy.resolution,
                     zscore_threshold: strategy.zscore_threshold,
                     stats_window: strategy.stats_window,
                     max_half_life: strategy.max_half_life,

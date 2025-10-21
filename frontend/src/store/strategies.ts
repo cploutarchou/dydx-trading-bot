@@ -13,6 +13,7 @@ export interface Strategy {
     description: string;
     is_public: boolean;
     user_id: number;
+    resolution: string;
     zscore_threshold: number;
     stats_window: number;
     max_half_life: number;

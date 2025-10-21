@@ -188,7 +188,7 @@ export const BacktestDetailsPage: React.FC = () => {
 
     // Handler to create a new strategy using current settings
     const handleCreateStrategy = () => {
-        if (!backtest.strategy_snapshot) {
+        if (!backtest || !backtest.strategy_snapshot) {
             alert('No strategy configuration available');
             return;
         }
@@ -221,22 +221,30 @@ export const BacktestDetailsPage: React.FC = () => {
         );
     }
 
+    // Ensure all numeric values are valid before using toFixed()
+    const safeWinRate = typeof backtest.win_rate === 'number' ? backtest.win_rate : null;
+    const safeMaxDrawdown = typeof backtest.max_drawdown === 'number' ? backtest.max_drawdown : null;
+    const safeSharpeRatio = typeof backtest.sharpe_ratio === 'number' ? backtest.sharpe_ratio : null;
+    const safeProfitFactor = typeof backtest.profit_factor === 'number' ? backtest.profit_factor : null;
+    const safeDurationSeconds = typeof backtest.duration_seconds === 'number' ? backtest.duration_seconds : 0;
+    const safeTotalPnlUsd = typeof backtest.total_pnl_usd === 'number' ? backtest.total_pnl_usd : 0;
+
     const topMetrics = [
-        { label: 'Total Trades', value: backtest.total_trades, icon: '📊' },
+        { label: 'Total Trades', value: backtest.total_trades || 0, icon: '📊' },
         {
             label: 'Win Rate',
-            value: `${(backtest.win_rate * 100).toFixed(1)}%`,
+            value: safeWinRate !== null ? `${safeWinRate.toFixed(1)}%` : 'N/A',
             icon: '✅',
         },
         {
             label: 'Total PnL',
-            value: `$${backtest.total_pnl_usd?.toFixed(2) || '0'}`,
+            value: `$${safeTotalPnlUsd.toFixed(2)}`,
             icon: '💰',
-            color: backtest.total_pnl_usd >= 0 ? 'text-green-600' : 'text-red-600',
+            color: safeTotalPnlUsd >= 0 ? 'text-green-600' : 'text-red-600',
         },
         {
             label: 'Sharpe Ratio',
-            value: backtest.sharpe_ratio?.toFixed(2) || 'N/A',
+            value: safeSharpeRatio !== null ? safeSharpeRatio.toFixed(2) : 'N/A',
             icon: '📈',
         },
     ];
@@ -244,22 +252,22 @@ export const BacktestDetailsPage: React.FC = () => {
     const riskMetrics = [
         {
             label: 'Max Drawdown',
-            value: `${(backtest.max_drawdown * 100).toFixed(1)}%`,
+            value: safeMaxDrawdown !== null ? `${safeMaxDrawdown.toFixed(1)}%` : 'N/A',
             icon: '📉',
         },
         {
             label: 'Profit Factor',
-            value: backtest.profit_factor?.toFixed(2) || 'N/A',
+            value: safeProfitFactor !== null ? safeProfitFactor.toFixed(2) : 'N/A',
             icon: '🎯',
         },
         {
             label: 'Profitable Trades',
-            value: backtest.profitable_trades,
+            value: backtest.profitable_trades || 0,
             icon: '💚',
         },
         {
             label: 'Duration',
-            value: `${(backtest.duration_seconds / 60).toFixed(1)} min`,
+            value: `${(safeDurationSeconds / 60).toFixed(1)} min`,
             icon: '⏱️',
         },
     ];

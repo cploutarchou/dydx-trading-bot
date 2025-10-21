@@ -93,6 +93,10 @@ class BacktestStartRequest(BaseModel):
     strategy_id: Optional[int] = Field(None, description="Strategy ID from database")
 
     # Existing inline parameters (used if strategy_id not provided)
+    resolution: Optional[str] = Field(
+        "1HOUR",
+        description="Candle resolution (1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY)",
+    )
     zscore_threshold: Optional[float] = Field(1.2)
     stats_window: Optional[int] = Field(14)
     usd_per_trade: Optional[float] = Field(25.0)
@@ -611,6 +615,7 @@ async def run_backtest(
                 "trailing_stop_pct": strategy.trailing_stop_pct,
                 "rebalance_interval_hours": strategy.rebalance_interval_hours,
                 "position_timeout_hours": strategy.position_timeout_hours,
+                "resolution": strategy.candle_resolution,
             }
 
             logger.info(f"Using strategy {strategy.id} ({strategy.name})")
@@ -621,6 +626,7 @@ async def run_backtest(
         else:
             # Use inline parameters
             strategy_params = {
+                "resolution": request.resolution,
                 "zscore_threshold": request.zscore_threshold,
                 "stats_window": request.stats_window,
                 "usd_per_trade": request.usd_per_trade,
@@ -646,7 +652,7 @@ async def run_backtest(
             run_id=run_id,
             start_date=request.start_date,
             end_date=request.end_date,
-            num_pairs=request.num_pairs or 10,
+            num_pairs=request.num_pairs or 999,
             total_markets=0,  # Will be updated when backtest runs
             user_id=current_user["user_id"],
             config=strategy_snapshot,  # Store parameters used
@@ -773,7 +779,7 @@ async def _execute_backtest_task(
             db,
             request.start_date,
             request.end_date,
-            request.num_pairs or 10,
+            request.num_pairs or 999,
             strategy_snapshot_for_query,
         )
 
@@ -837,7 +843,7 @@ async def _execute_backtest_task(
         # Run backtest in a thread pool to avoid blocking the event loop
         start_date = datetime.fromisoformat(request.start_date)
         end_date = datetime.fromisoformat(request.end_date)
-        num_pairs = request.num_pairs or 10
+        num_pairs = request.num_pairs or 999
 
         # FIX: Use asyncio.to_thread() to run synchronous backtest in background thread
         # This prevents the UI from freezing while backtest runs
@@ -2491,6 +2497,10 @@ async def create_strategy(
     try:
         from backend.services import BacktestStrategyService
 
+        # Auto-sync usd_min_collateral to initial_amount for field consolidation
+        # This ensures the backend matches the frontend's single investment amount paradigm
+        usd_min_collateral_value = request.initial_amount
+
         strategy = BacktestStrategyService.create_strategy(
             db=db,
             user_id=current_user["user_id"],
@@ -2498,11 +2508,12 @@ async def create_strategy(
             description=request.description,
             category=request.category,
             is_public=request.is_public,
+            resolution=request.resolution,
             zscore_threshold=request.zscore_threshold,
             stats_window=request.stats_window,
             max_half_life=request.max_half_life,
             usd_per_trade=request.usd_per_trade,
-            usd_min_collateral=request.usd_min_collateral,
+            usd_min_collateral=usd_min_collateral_value,
             close_at_zscore_cross=request.close_at_zscore_cross,
             find_cointegrated_pairs=request.find_cointegrated_pairs,
             manage_exits=request.manage_exits,
@@ -2515,6 +2526,9 @@ async def create_strategy(
             trailing_stop_pct=request.trailing_stop_pct,
             rebalance_interval_hours=request.rebalance_interval_hours,
             position_timeout_hours=request.position_timeout_hours,
+            initial_amount=request.initial_amount,
+            transaction_fee=request.transaction_fee,
+            slippage=request.slippage,
         )
 
         AuditLogService.log_action(
@@ -2678,6 +2692,11 @@ async def update_strategy(
 
         # Convert to dict, removing None values
         update_data = updates.dict(exclude_unset=True)
+
+        # Auto-sync usd_min_collateral to initial_amount if initial_amount is being updated
+        # This ensures field consolidation: initial_amount is the single source of truth for min collateral
+        if "initial_amount" in update_data:
+            update_data["usd_min_collateral"] = update_data["initial_amount"]
 
         updated = BacktestStrategyService.update_strategy(
             db=db, strategy_id=strategy_id, update_data=update_data

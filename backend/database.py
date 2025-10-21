@@ -660,6 +660,9 @@ class BacktestStrategy(Base):
     benchmark_symbol = Column(String(20), default="BTC-USD")
     risk_free_rate = Column(Float, nullable=False, default=0.02)
 
+    # Initial investment amount - tracks the capital allocated to this strategy
+    initial_amount = Column(Float, nullable=False, default=1000.0)
+
     # Usage statistics
     usage_count = Column(Integer, default=0)
     last_used_at = Column(DateTime, nullable=True)
@@ -698,6 +701,7 @@ class BacktestStrategy(Base):
             "user_id": self.user_id,
             "is_public": self.is_public,
             "is_default": self.is_default,
+            "resolution": self.candle_resolution,
             "zscore_threshold": self.zscore_threshold,
             "stats_window": self.stats_window,
             "max_half_life": self.max_half_life,
@@ -715,6 +719,9 @@ class BacktestStrategy(Base):
             "trailing_stop_pct": self.trailing_stop_pct,
             "rebalance_interval_hours": self.rebalance_interval_hours,
             "position_timeout_hours": self.position_timeout_hours,
+            "initial_amount": self.initial_amount,
+            "transaction_fee": self.transaction_fee,
+            "slippage": self.slippage,
             "usage_count": self.usage_count,
             "last_used_at": self.last_used_at.isoformat()
             if self.last_used_at is not None

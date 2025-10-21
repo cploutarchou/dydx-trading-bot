@@ -198,7 +198,7 @@ export const BacktestDetailsPage: React.FC = () => {
           <div className="bg-slate-800 border border-slate-700 rounded p-4">
             <p className="text-gray-400 text-sm">Win Rate</p>
             <p className="text-2xl font-bold text-blue-400">
-              {(backtest.win_rate * 100).toFixed(1)}%
+              {backtest.win_rate.toFixed(1)}%
             </p>
           </div>
 
@@ -440,7 +440,7 @@ export const BacktestDetailsPage: React.FC = () => {
                       <td className={`px-4 py-2 text-right font-semibold ${result.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         ${result.pnl.toFixed(2)}
                       </td>
-                      <td className="px-4 py-2 text-right">{(result.win_rate * 100).toFixed(1)}%</td>
+                      <td className="px-4 py-2 text-right">{result.win_rate.toFixed(1)}%</td>
                       <td className="px-4 py-2 text-right">{result.sharpe_ratio ? result.sharpe_ratio.toFixed(2) : 'N/A'}</td>
                     </tr>
                   ))}

@@ -127,8 +127,8 @@ export const BacktestComparator: React.FC = () => {
             (bt.data.total_return_pct ?? 0).toFixed(2),
             (bt.data.total_pnl ?? 0).toFixed(2),
             (bt.data.sharpe_ratio ?? 0).toFixed(2),
-            ((bt.data.win_rate ?? 0) * 100).toFixed(2),
-            ((bt.data.max_drawdown ?? 0) * 100).toFixed(2),
+            (bt.data.win_rate ?? 0).toFixed(2),
+            (bt.data.max_drawdown ?? 0).toFixed(2),
             bt.data.num_trades ?? 0,
             (bt.data.avg_trade_duration ?? 0).toFixed(1),
             bt.data.start_date || 'N/A',
@@ -304,9 +304,9 @@ export const BacktestComparator: React.FC = () => {
                                                 <div className="flex items-end justify-between">
                                                     <span className="text-xs text-gray-400">Win Rate</span>
                                                     <span className={`font-semibold text-sm ${
-                                                        (bt.win_rate ?? 0) >= 0.5 ? 'text-green-400' : 'text-orange-400'
+                                                        (bt.win_rate ?? 0) >= 50 ? 'text-green-400' : 'text-orange-400'
                                                     }`}>
-                                                        {((bt.win_rate ?? 0) * 100).toFixed(0)}%
+                                                        {(bt.win_rate ?? 0).toFixed(0)}%
                                                     </span>
                                                 </div>
 
@@ -557,7 +557,7 @@ export const BacktestComparator: React.FC = () => {
                                             }`}
                                         >
                                             <div>
-                                                {((bt.data.win_rate ?? 0) * 100).toFixed(
+                                                {(bt.data.win_rate ?? 0).toFixed(
                                                     1
                                                 )}
                                                 %
@@ -604,7 +604,7 @@ export const BacktestComparator: React.FC = () => {
                                         >
                                             <div>
                                                 {(
-                                                    (bt.data.max_drawdown ?? 0) * 100
+                                                    (bt.data.max_drawdown ?? 0)
                                                 ).toFixed(1)}
                                                 %
                                             </div>

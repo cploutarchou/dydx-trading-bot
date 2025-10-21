@@ -312,7 +312,7 @@ export const BacktestDetailsV2: React.FC = () => {
 		},
 		{
 			label: 'Win Rate',
-			value: `${(backtest.win_rate * 100).toFixed(1)}%`,
+			value: `${backtest.win_rate.toFixed(1)}%`,
 			icon: '✅',
 		},
 		{
@@ -328,7 +328,7 @@ export const BacktestDetailsV2: React.FC = () => {
 		},
 		{
 			label: 'Max Drawdown',
-			value: `${((backtest.max_drawdown || 0) * 100).toFixed(1)}%`,
+			value: `${(backtest.max_drawdown || 0).toFixed(1)}%`,
 			icon: '📉',
 		},
 		{

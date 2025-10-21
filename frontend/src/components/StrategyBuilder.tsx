@@ -115,7 +115,7 @@ export default function StrategyBuilder() {
       trailing_stop_pct: 1.0,
       rebalance_interval_hours: 24,
       position_timeout_hours: 72,
-      initial_amount: 1000.0,
+      initial_amount: 300.0,
       transaction_fee: 0.0005,
       slippage: 0.001,
     },
@@ -183,13 +183,15 @@ export default function StrategyBuilder() {
       setSuccessMessage(null);
 
       // Convert string values to numbers for all numeric fields
+      const initialAmount = Number(data.initial_amount);
       const cleanedData = {
         ...data,
         zscore_threshold: Number(data.zscore_threshold),
         stats_window: Number(data.stats_window),
         max_half_life: Number(data.max_half_life),
         usd_per_trade: Number(data.usd_per_trade),
-        usd_min_collateral: Number(data.usd_min_collateral),
+        // Auto-set min collateral to match initial_amount (consolidated from UI)
+        usd_min_collateral: initialAmount,
         max_positions: Number(data.max_positions),
         max_drawdown_pct: Number(data.max_drawdown_pct),
         stop_loss_pct: Number(data.stop_loss_pct),
@@ -197,7 +199,7 @@ export default function StrategyBuilder() {
         trailing_stop_pct: Number(data.trailing_stop_pct),
         rebalance_interval_hours: Number(data.rebalance_interval_hours),
         position_timeout_hours: Number(data.position_timeout_hours),
-        initial_amount: Number(data.initial_amount),
+        initial_amount: initialAmount,
         transaction_fee: data.transaction_fee ? Number(data.transaction_fee) : 0.0005,
         slippage: data.slippage ? Number(data.slippage) : 0.001,
       };
@@ -388,7 +390,6 @@ export default function StrategyBuilder() {
               control={control}
               rules={{
                 required: 'Initial investment amount is required',
-                min: { value: 10, message: 'Minimum investment is $10' },
                 max: { value: 1000000, message: 'Maximum investment is $1,000,000' },
               }}
               render={({ field }) => (
@@ -397,10 +398,9 @@ export default function StrategyBuilder() {
                   <input
                     {...field}
                     type="number"
-                    min="10"
                     max="1000000"
-                    step="100"
-                    placeholder="1000"
+                    step="1"
+                    placeholder="300"
                     className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -688,10 +688,10 @@ export default function StrategyBuilder() {
                 <div className="border-t border-slate-700 pt-4">
                   <h3 className="text-sm font-semibold text-gray-300 mb-3">Trading Parameters</h3>
                   <div className="grid grid-cols-2 gap-4">
-                    {/* USD Per Trade */}
+                    {/* Amount Per Trade */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">USD Per Trade</label>
+                        <label className="text-sm font-medium text-gray-300">Amount Per Trade ($)</label>
                         <span className="text-blue-400 text-sm">${formValues.usd_per_trade}</span>
                       </div>
                       <Controller
@@ -708,28 +708,7 @@ export default function StrategyBuilder() {
                           />
                         )}
                       />
-                    </div>
-
-                    {/* USD Min Collateral */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Min Collateral</label>
-                        <span className="text-blue-400 text-sm">${formValues.usd_min_collateral}</span>
-                      </div>
-                      <Controller
-                        name="usd_min_collateral"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="number"
-                            min="10"
-                            max="10000"
-                            step="10"
-                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
-                          />
-                        )}
-                      />
+                      <p className="mt-1 text-xs text-gray-500">Capital per individual trade position</p>
                     </div>
 
                     {/* Rebalance Interval */}

@@ -611,6 +611,7 @@ async def run_backtest(
                 "trailing_stop_pct": strategy.trailing_stop_pct,
                 "rebalance_interval_hours": strategy.rebalance_interval_hours,
                 "position_timeout_hours": strategy.position_timeout_hours,
+                "resolution": strategy.candle_resolution,
             }
 
             logger.info(f"Using strategy {strategy.id} ({strategy.name})")
@@ -2498,6 +2499,7 @@ async def create_strategy(
             description=request.description,
             category=request.category,
             is_public=request.is_public,
+            resolution=request.resolution,
             zscore_threshold=request.zscore_threshold,
             stats_window=request.stats_window,
             max_half_life=request.max_half_life,
@@ -2515,6 +2517,9 @@ async def create_strategy(
             trailing_stop_pct=request.trailing_stop_pct,
             rebalance_interval_hours=request.rebalance_interval_hours,
             position_timeout_hours=request.position_timeout_hours,
+            initial_amount=request.initial_amount,
+            transaction_fee=request.transaction_fee,
+            slippage=request.slippage,
         )
 
         AuditLogService.log_action(

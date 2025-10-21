@@ -93,6 +93,10 @@ class BacktestStartRequest(BaseModel):
     strategy_id: Optional[int] = Field(None, description="Strategy ID from database")
 
     # Existing inline parameters (used if strategy_id not provided)
+    resolution: Optional[str] = Field(
+        "1HOUR",
+        description="Candle resolution (1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY)",
+    )
     zscore_threshold: Optional[float] = Field(1.2)
     stats_window: Optional[int] = Field(14)
     usd_per_trade: Optional[float] = Field(25.0)
@@ -622,6 +626,7 @@ async def run_backtest(
         else:
             # Use inline parameters
             strategy_params = {
+                "resolution": request.resolution,
                 "zscore_threshold": request.zscore_threshold,
                 "stats_window": request.stats_window,
                 "usd_per_trade": request.usd_per_trade,
@@ -647,7 +652,7 @@ async def run_backtest(
             run_id=run_id,
             start_date=request.start_date,
             end_date=request.end_date,
-            num_pairs=request.num_pairs or 10,
+            num_pairs=request.num_pairs or 999,
             total_markets=0,  # Will be updated when backtest runs
             user_id=current_user["user_id"],
             config=strategy_snapshot,  # Store parameters used
@@ -774,7 +779,7 @@ async def _execute_backtest_task(
             db,
             request.start_date,
             request.end_date,
-            request.num_pairs or 10,
+            request.num_pairs or 999,
             strategy_snapshot_for_query,
         )
 
@@ -838,7 +843,7 @@ async def _execute_backtest_task(
         # Run backtest in a thread pool to avoid blocking the event loop
         start_date = datetime.fromisoformat(request.start_date)
         end_date = datetime.fromisoformat(request.end_date)
-        num_pairs = request.num_pairs or 10
+        num_pairs = request.num_pairs or 999
 
         # FIX: Use asyncio.to_thread() to run synchronous backtest in background thread
         # This prevents the UI from freezing while backtest runs

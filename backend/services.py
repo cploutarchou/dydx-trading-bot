@@ -615,6 +615,7 @@ class BacktestStrategyService:
         description: str,
         category: str = "custom",
         is_public: bool = False,
+        resolution: str = "1HOUR",
         zscore_threshold: float = 1.5,
         stats_window: int = 21,
         max_half_life: int = 24,
@@ -632,6 +633,9 @@ class BacktestStrategyService:
         trailing_stop_pct: float = 1.0,
         rebalance_interval_hours: int = 24,
         position_timeout_hours: int = 72,
+        initial_amount: float = 1000.0,
+        transaction_fee: float = 0.0005,
+        slippage: float = 0.001,
     ) -> BacktestStrategy:
         """Create a new backtest strategy with all parameters."""
         strategy = BacktestStrategy(
@@ -641,6 +645,7 @@ class BacktestStrategyService:
             category=category,
             is_public=is_public,
             is_default=False,
+            candle_resolution=resolution,
             zscore_threshold=zscore_threshold,
             stats_window=stats_window,
             max_half_life=max_half_life,
@@ -658,6 +663,9 @@ class BacktestStrategyService:
             trailing_stop_pct=trailing_stop_pct,
             rebalance_interval_hours=rebalance_interval_hours,
             position_timeout_hours=position_timeout_hours,
+            initial_amount=initial_amount,
+            transaction_fee=transaction_fee,
+            slippage=slippage,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -738,6 +746,7 @@ class BacktestStrategyService:
             "category",
             "is_public",
             "is_default",
+            "resolution",
             "zscore_threshold",
             "stats_window",
             "max_half_life",
@@ -755,11 +764,18 @@ class BacktestStrategyService:
             "trailing_stop_pct",
             "rebalance_interval_hours",
             "position_timeout_hours",
+            "initial_amount",
+            "transaction_fee",
+            "slippage",
         }
 
         for key, value in update_data.items():
             if key in allowed_fields:
-                setattr(strategy, key, value)
+                # Map 'resolution' to 'candle_resolution' in database
+                if key == "resolution":
+                    setattr(strategy, "candle_resolution", value)
+                else:
+                    setattr(strategy, key, value)
 
         strategy.updated_at = datetime.utcnow()
         db.commit()

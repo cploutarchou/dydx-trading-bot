@@ -269,6 +269,7 @@ class BacktestStrategyBase(BaseModel):
     description: Optional[str] = None
     category: str = "custom"
     is_public: bool = False
+    resolution: str = "1HOUR"
     zscore_threshold: float = 1.5
     stats_window: int = 21
     max_half_life: int = 24
@@ -286,6 +287,9 @@ class BacktestStrategyBase(BaseModel):
     trailing_stop_pct: float = 1.0
     rebalance_interval_hours: int = 24
     position_timeout_hours: int = 72
+    initial_amount: float = 1000.0
+    transaction_fee: float = 0.0005
+    slippage: float = 0.001
 
 
 class BacktestStrategyCreate(BacktestStrategyBase):
@@ -301,6 +305,7 @@ class BacktestStrategyUpdate(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
     is_public: Optional[bool] = None
+    resolution: Optional[str] = None
     zscore_threshold: Optional[float] = None
     stats_window: Optional[int] = None
     max_half_life: Optional[int] = None
@@ -318,6 +323,9 @@ class BacktestStrategyUpdate(BaseModel):
     trailing_stop_pct: Optional[float] = None
     rebalance_interval_hours: Optional[int] = None
     position_timeout_hours: Optional[int] = None
+    initial_amount: Optional[float] = None
+    transaction_fee: Optional[float] = None
+    slippage: Optional[float] = None
 
 
 class BacktestStrategyResponse(BacktestStrategyBase):

@@ -127,6 +127,9 @@ class BacktestEngine:
         self.stats_window = self._get_param(
             "stats_window", config.botSettings.statsWindow
         )
+        self.resolution = self._get_param(
+            "resolution", config.backtesting.candleResolution
+        )
 
         # Log strategy parameters if provided
         if strategy_id or strategy_params:
@@ -575,7 +578,7 @@ class BacktestEngine:
                 response = (
                     await self.client.indexer.markets.get_perpetual_market_candles(
                         market=symbol,
-                        resolution=self.config.backtesting.candleResolution,
+                        resolution=self.resolution,
                         from_iso=data_start.isoformat() + ".000Z",
                         to_iso=end_date.isoformat() + ".000Z",
                         limit=1000,
@@ -666,7 +669,7 @@ class BacktestEngine:
                     run_id_fk=self.run_id_int,
                     market=market,
                     timestamp=timestamp_dt,
-                    resolution=self.config.backtesting.candleResolution,
+                    resolution=self.resolution,
                     open_price=float(row.get("open", 0)),
                     high_price=float(row.get("high", 0)),
                     low_price=float(row.get("low", 0)),

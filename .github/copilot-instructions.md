@@ -1,6 +1,16 @@
-# dYdX Trading Bot - AI Agent Instructions
+# dYdX Trading Bot - AI Coding Agent Instructions
 
-## Recent Updates (Oct 20, 2025)
+**Quick Reference for AI Agents** - Essential patterns, workflows, and anti-patterns for this codebase.
+
+## Recent Updates (Oct 21, 2025)
+
+### Documentation Refresh for AI Coding Agents
+
+- Reorganized for AI agent productivity: focus on **discoverable patterns** not aspirational practices
+- Emphasize critical execution patterns that prevent runtime failures (atomic trades, state management, timezone handling)
+- Call out workflow commands that aren't obvious from file inspection (`make backtest START=... PAIRS=ALL`)
+- Include concrete anti-patterns (`config()` re-parsing, missing `await` keywords, naive timestamps)
+- Frontend response structure gotchas (`response.data?.backtests` extraction)
 
 ### Backtesting Engine Improvements ✅
 
@@ -30,6 +40,58 @@ Automated cointegration pairs trading bot for dYdX v4 decentralized exchange wit
 - **State-driven**: All persistent state stored in JSON files (`bot_agents.json`, `cointegrated_pairs.json`) - survives bot restarts
 - **Configuration-first**: All bot behavior controlled via YAML flags (`app/config.yaml`) - no code changes needed for workflow variations
 - **Full-stack**: Python trading engine (`app/`) + FastAPI backend (`backend/`) + React UI (`frontend/`) with PostgreSQL persistence
+
+## How to Discover Things Quickly
+
+### 🔍 **Finding Your Way Around**
+
+| What you need                         | Where to look                                                                                                      | Why                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| **Understand "how pairs get traded"** | Read `app/main.py` (main loop) → `app/func_entry_pairs.py` → `app/func_bot_agent.py`                               | Discover atomic execution pattern                                                  |
+| **Learn state persistence**           | Check `app/bot_agents.json` (structure) + `app/models/pair_storage.py` (code)                                      | Understand JSON-first design                                                       |
+| **Add new config parameter**          | 1) Edit `app/config.yaml`, 2) Define in `app/config.py` (dataclass), 3) Export in `app/constants.py`               | Config layer separation is intentional                                             |
+| **Debug: "Why no trades executed?"**  | Check Z-scores: `cat app/cointegrated_pairs.json \| jq '.pairs\[] \| {market: .base_market, zscore: .z_score}'`    | First validation before looking at code                                            |
+| **Run backtest with all pairs**       | `python scripts/run_backtest.py --start 2024-09-01 --end 2024-10-01 --pairs ALL`                                   | Equivalent make command: `make backtest START=2024-09-01 END=2024-10-01 PAIRS=ALL` |
+| **Test live vs backtest**             | Search for `IS_BACKTEST_MODE` in codebase - controls wallet skipping and API routing                               | Set via `--backtest` flag or env var                                               |
+| **Understand API response format**    | Check `backend/main.py` response wrapper (search `"success": true`) + Frontend extraction in `frontend/src/api.ts` | All responses have nested `data` structure                                         |
+
+### 🚨 **Common Discovery Mistakes**
+
+```python
+# ❌ WRONG: Each call reloads YAML from disk
+from config import config
+settings = config().botSettings.ZScoreThreshold
+other_settings = config().botSettings.usdPerTrade  # SLOW: Re-parsed twice
+
+# ✅ RIGHT: Import once at module startup
+from constants import ZSCORE_THRESH, USD_PER_TRADE  # Parsed once in constants.py
+
+# ❌ WRONG: Missing timezone breaks backtesting
+trading_date = pd.Timestamp("2024-01-01")  # NAIVE timestamp
+mask = df.index <= trading_date  # ERROR: tz-aware vs naive comparison
+
+# ✅ RIGHT: Timezone-aware UTC
+trading_date = pd.Timestamp("2024-01-01", tz="UTC")
+mask = df.index <= trading_date  # Works! Matches DataFrame's UTC index
+
+# ❌ WRONG: Missing await on async dYdX API
+markets = get_markets(client)  # Missing await = returns coroutine object!
+
+# ✅ RIGHT: Always await dYdX calls
+markets = await get_markets(client)
+```
+
+## Common Task Patterns (When to Use What)
+
+| Task                                  | Approach                                                                              | Key File                                    | Why                                                                  |
+| ------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------- |
+| **Add new trading parameter**         | 1. Edit `config.yaml`, 2. Add to `config.py` dataclass, 3. Export from `constants.py` | `app/config.py`, `app/constants.py`         | Three-layer ensures type safety & no re-parsing                      |
+| **Debug trades not executing**        | Check `cointegrated_pairs.json` Z-scores, verify config flags                         | `app/cointegrated_pairs.json`               | JSON state survives restarts, shows current signals                  |
+| **Fix atomic execution bug**          | Review `BotAgent.open_trades()` emergency cleanup logic                               | `app/func_bot_agent.py`                     | Must handle market_2 failure without leaving orphaned market_1       |
+| **Add Telegram notification**         | Use `TelegramMessenger` singleton (already initialized in main.py)                    | `app/func_messaging.py`                     | Critical errors auto-alert, non-critical logged to Loki              |
+| **Optimize backtest performance**     | Adjust `statsWindow`, `ZScoreThreshold`, `maxHalfLife` in config                      | `app/config.yaml` backtesting block         | Parameter injection avoids re-running for A/B tests                  |
+| **Debug API failures**                | Check rate limiting delays (0.2-0.5s between calls) and `format_number()` precision   | `app/func_private.py`, `app/func_public.py` | dYdX rejects wrong precision or too-fast API calls                   |
+| **Frontend issue with API responses** | Extract `response.data` nested structure, check for 401 token refresh                 | `frontend/src/api.ts`                       | All backend responses wrapped: `{success, message, data, timestamp}` |
 
 ## Architecture & Data Flow
 
@@ -564,6 +626,58 @@ if not result:
     await redis_service.set(f"backtest:{run_id}", result, ttl=86400)
 ```
 
+## Non-Obvious Workflow Commands (Not in Files)
+
+### Backtesting Workflows That Require Shell Knowledge
+
+```bash
+# ⚠️ These patterns aren't obvious from file inspection:
+
+# 1. Test current period (last 30 days) with ALL pairs - full market coverage
+make backtest START=$(date -d '30 days ago' +%Y-%m-%d) END=$(date +%Y-%m-%d) PAIRS=ALL
+
+# 2. Compare multiple strategies by running backtests with different configs
+# Edit app/config.yaml → Run backtest → Save results → Edit config → Run again
+python scripts/run_backtest.py --start 2024-09-01 --end 2024-10-01 --pairs 10
+# Then analyze: python scripts/analyze_backtest_results.py --compare
+
+# 3. Validate code changes without modifying state files
+python app/main.py --dry-run  # Tests connection and config without trading
+
+# 4. Debug: Check why Z-scores aren't triggering trades
+cat app/cointegrated_pairs.json | jq '.pairs[] | select(.confidence_score >= 0.7) | {base: .base_market, quote: .quote_market, zscore: .current_zscore}'
+
+# 5. Emergency position closure (critical!)
+python scripts/close_open_positions.py  # Closes ALL positions immediately
+
+# 6. Development container for isolation (recommended over local install)
+make devcontainer  # Opens full VS Code dev environment
+```
+
+### Database & Persistence Patterns
+
+```bash
+# These are NOT obvious from code inspection:
+
+# 1. Database migration workflow
+make db-upgrade    # Apply pending migrations
+make db-downgrade  # Revert last migration
+make db-current    # Check current schema version
+
+# 2. Three-layer persistence (all important):
+# - JSON files (app/*.json) - Primary state, survives restarts
+# - PostgreSQL (backend) - Backtest results history, optional
+# - Redis (backend) - Cache layer, accelerates repeated queries
+
+# 3. Configure all three layers via environment variables
+export DB_TYPE=postgresql DB_HOST=prod-db.com DB_PASSWORD=secret
+export REDIS_ENABLED=true REDIS_HOST=cache.example.com
+# Now run: python app/main.py
+
+# 4. Development uses SQLite (no setup needed), Production uses PostgreSQL
+# This is auto-detected by config.yaml database.type parameter
+```
+
 ## Critical Developer Patterns
 
 ### Market Data Always Uses MAINNET Indexer
@@ -1071,14 +1185,32 @@ if (status === 401) {
 
 This prevents "redirect to login after Run Backtest click" issue.
 
-## Integration Points
+## Integration Points & Dependencies
 
-- **dYdX v4**: `dydx-v4-client` library for all exchange operations
-- **Statistical analysis**: `scipy`, `statsmodels` for cointegration tests (imported only when needed)
-- **Telegram**: Real-time notifications for trades, errors, and system status
-- **Backtesting**: Historical simulation using same trading logic, risk-free strategy validation
-- **Backend API**: FastAPI server (`backend/main.py`) with SQLAlchemy ORM for backtest storage
-- **Frontend**: React/TypeScript dashboard (`frontend/src/`) with Zustand auth store for backtest visualization
+**External Services** (these require configuration):
+
+- **dYdX v4 Mainnet/Testnet**: `dydx-v4-client` library, configured via `app/config.yaml` `dydx:` block
+
+  - Indexer (market data) always uses MAINNET for liquidity (even in testnet trading mode!)
+  - Node/Wallet use testnet/mainnet based on `is_testnet` flag
+  - Testnet funding: `python scripts/request_testnet_usdc.py`
+
+- **Telegram Bot**: Push notifications for trades/errors, configured via `telegram:` block in config
+
+  - Token generated via Telegram BotFather
+  - Critical: alerts are ONE-WAY (bot→you), not interactive
+
+- **Grafana Loki** (optional): Real-time log aggregation for production monitoring
+  - Configured via `logging.loki:` block
+  - Uses direct HTTP API (not `logging_loki` library due to silent failures)
+  - Query example: `{job="dydx-trading-bot", level="error"}`
+
+**Internal Systems** (no external config needed):
+
+- **Statistical Analysis**: `scipy`, `statsmodels` imported on-demand (only when `findCointegratedPairs` runs)
+- **Backend API**: FastAPI on port 8888, independent from trading engine, stores backtests in PostgreSQL
+- **Redis Cache**: Optional acceleration layer, 24h TTL for backtest results (env: `REDIS_*` vars)
+- **React Frontend**: Connects only to backend API, cannot run standalone
 
 ## Key Data Models & Patterns
 

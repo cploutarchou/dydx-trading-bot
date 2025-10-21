@@ -572,6 +572,9 @@ class BacktestEngine:
         )
 
         # Load data for each market using direct API
+        # Use end_date with current time of day (not just midnight)
+        to_iso_time = end_date.replace(hour=23, minute=59, second=59)
+
         for symbol in market_symbols:
             try:
                 # Make direct API call to get candle data
@@ -580,7 +583,7 @@ class BacktestEngine:
                         market=symbol,
                         resolution=self.resolution,
                         from_iso=data_start.isoformat() + ".000Z",
-                        to_iso=end_date.isoformat() + ".000Z",
+                        to_iso=to_iso_time.isoformat() + ".000Z",
                         limit=1000,
                     )
                 )

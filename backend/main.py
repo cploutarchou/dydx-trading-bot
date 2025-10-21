@@ -2492,6 +2492,10 @@ async def create_strategy(
     try:
         from backend.services import BacktestStrategyService
 
+        # Auto-sync usd_min_collateral to initial_amount for field consolidation
+        # This ensures the backend matches the frontend's single investment amount paradigm
+        usd_min_collateral_value = request.initial_amount
+
         strategy = BacktestStrategyService.create_strategy(
             db=db,
             user_id=current_user["user_id"],
@@ -2504,7 +2508,7 @@ async def create_strategy(
             stats_window=request.stats_window,
             max_half_life=request.max_half_life,
             usd_per_trade=request.usd_per_trade,
-            usd_min_collateral=request.usd_min_collateral,
+            usd_min_collateral=usd_min_collateral_value,
             close_at_zscore_cross=request.close_at_zscore_cross,
             find_cointegrated_pairs=request.find_cointegrated_pairs,
             manage_exits=request.manage_exits,
@@ -2683,6 +2687,11 @@ async def update_strategy(
 
         # Convert to dict, removing None values
         update_data = updates.dict(exclude_unset=True)
+
+        # Auto-sync usd_min_collateral to initial_amount if initial_amount is being updated
+        # This ensures field consolidation: initial_amount is the single source of truth for min collateral
+        if "initial_amount" in update_data:
+            update_data["usd_min_collateral"] = update_data["initial_amount"]
 
         updated = BacktestStrategyService.update_strategy(
             db=db, strategy_id=strategy_id, update_data=update_data

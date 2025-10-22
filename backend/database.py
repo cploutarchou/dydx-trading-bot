@@ -1054,33 +1054,78 @@ def init_db():
 
 
 def _seed_admin_user():
-    """Create default admin user if it doesn't exist."""
+    """Create default admin user if it doesn't exist.
+
+    Behavior:
+    - Uses environment variables ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_EMAIL when provided.
+    - If ADMIN_PASSWORD is not set, generate a secure random password and save it to
+      `app/admin_credentials.txt` with restrictive permissions (0o600).
+    - Never log the plaintext password to logs. Log only the username and the path
+      where credentials were saved (if generated).
+    - Idempotent: will not recreate admin if a user with the same username exists.
+    """
     from backend.auth import hash_password
+    import secrets
+    from pathlib import Path
 
     db = SessionLocal()
     try:
-        # Check if admin user already exists
-        admin_exists = db.query(User).filter(User.username == "admin").first()
+        admin_username = os.getenv("ADMIN_USERNAME", "admin")
+        admin_email = os.getenv("ADMIN_EMAIL", "admin@dydx-backtest.local")
+        admin_password = os.getenv("ADMIN_PASSWORD", None)
 
-        if not admin_exists:
-            # Create default admin user
-            hashed_password = hash_password("admin123")
-            admin_user = User(
-                username="admin",
-                email="admin@dydx-backtest.local",
-                hashed_password=hashed_password,
-                is_active=True,
-                is_admin=True,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-            )
-            db.add(admin_user)
-            db.commit()
+        # Check if admin user already exists
+        admin_exists = db.query(User).filter(User.username == admin_username).first()
+
+        if admin_exists:
+            logger.info(f"ℹ️  Admin user '{admin_username}' already exists, skipping creation")
+            return
+
+        generated_password_path = None
+        if not admin_password:
+            # Generate a secure random password and persist it to a local file with restricted permissions
+            admin_password = secrets.token_urlsafe(16)
+            try:
+                cred_path = Path(__file__).resolve().parents[1] / "app" / "admin_credentials.txt"
+                cred_path.parent.mkdir(parents=True, exist_ok=True)
+                with cred_path.open("w", encoding="utf-8") as f:
+                    f.write(f"username: {admin_username}\n")
+                    f.write(f"password: {admin_password}\n")
+                    f.write(f"email: {admin_email}\n")
+                    f.write(f"created_at: {datetime.utcnow().isoformat()}Z\n")
+                # Restrict file permissions to owner read/write
+                try:
+                    cred_path.chmod(0o600)
+                except Exception:
+                    # chmod may not be available on all filesystems (e.g., Windows/NTFS mount)
+                    logger.debug("Could not set file permissions on admin credentials file; please secure it manually")
+                generated_password_path = str(cred_path)
+            except Exception as e:
+                logger.warning(f"Could not write admin credentials to file: {e}")
+
+        # Create default admin user
+        hashed_password = hash_password(admin_password)
+        admin_user = User(
+            username=admin_username,
+            email=admin_email,
+            hashed_password=hashed_password,
+            is_active=True,
+            is_admin=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(admin_user)
+        db.commit()
+
+        if generated_password_path:
             logger.info(
-                "✅ Default admin user created: username=admin, password=admin123"
+                f"✅ Default admin user created: username={admin_username}. Credentials saved to {generated_password_path}"
             )
         else:
-            logger.info("ℹ️  Admin user already exists, skipping creation")
+            logger.info(
+                f"✅ Default admin user created: username={admin_username}." " (password provided via ADMIN_PASSWORD)"
+            )
+
     except Exception as e:
         logger.error(f"❌ Error seeding admin user: {e}")
         db.rollback()

@@ -134,7 +134,7 @@ class BacktestRunService:
     @staticmethod
     def get_user_runs(
         db: Session, user_id: int, skip: int = 0, limit: int = 50
-    ) -> List[BacktestRun]:
+    ) -> list[type[BacktestRun]]:
         """Get all backtest runs for a user."""
         return (
             db.query(BacktestRun)
@@ -184,7 +184,7 @@ class BacktestRunService:
         return run
 
     @staticmethod
-    def get_latest_runs(db: Session, limit: int = 10) -> List[BacktestRun]:
+    def get_latest_runs(db: Session, limit: int = 10) -> list[type[BacktestRun]]:
         """Get latest backtest runs."""
         return (
             db.query(BacktestRun)
@@ -238,7 +238,7 @@ class BacktestResultService:
     @staticmethod
     def get_run_results(
         db: Session, run_id_fk: int, skip: int = 0, limit: int = 1000
-    ) -> List[BacktestResult]:
+    ) -> list[type[BacktestResult]]:
         """Get all results for a backtest run."""
         return (
             db.query(BacktestResult)
@@ -249,7 +249,7 @@ class BacktestResultService:
         )
 
     @staticmethod
-    def get_profitable_pairs(db: Session, run_id_fk: int) -> List[BacktestResult]:
+    def get_profitable_pairs(db: Session, run_id_fk: int) -> list[type[BacktestResult]]:
         """Get profitable trading pairs from a run."""
         return (
             db.query(BacktestResult)

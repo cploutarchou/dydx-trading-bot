@@ -55,15 +55,15 @@ class BacktestEngine:
     """
 
     def __init__(
-        self,
-        client,
-        config,
-        run_id: Optional[str] = None,
-        run_id_int: Optional[int] = None,
-        db: Optional[Session] = None,
-        strategy_id: Optional[int] = None,
-        strategy_params: Optional[Dict] = None,
-        progress_callback: Optional[Callable] = None,
+            self,
+            client,
+            config,
+            run_id: Optional[str] = None,
+            run_id_int: Optional[int] = None,
+            db: Optional[Session] = None,
+            strategy_id: Optional[int] = None,
+            strategy_params: Optional[Dict] = None,
+            progress_callback: Optional[Callable] = None,
     ):
         """
         Initialize BacktestEngine with optional strategy parameters and progress tracking.
@@ -127,9 +127,7 @@ class BacktestEngine:
         self.stats_window = self._get_param(
             "stats_window", config.botSettings.statsWindow
         )
-        self.resolution = self._get_param(
-            "resolution", config.backtesting.candleResolution
-        )
+        self.resolution = self._get_param("resolution", config.backtesting.candleResolution)
 
         # Log strategy parameters if provided
         if strategy_id or strategy_params:
@@ -249,7 +247,7 @@ class BacktestEngine:
         }
 
     def update_trade_strategy_metadata(
-        self, strategy_name: Optional[str] = None
+            self, strategy_name: Optional[str] = None
     ) -> None:
         """
         Update strategy metadata in all completed trades.
@@ -262,13 +260,6 @@ class BacktestEngine:
 
         Returns:
             None (updates trades in-place)
-
-        Example:
-            >>> engine = BacktestEngine(..., strategy_id=10)
-            >>> result = await engine.run_backtest(start_date, end_date)
-            >>> # Later, after retrieving strategy name from database:
-            >>> engine.update_trade_strategy_metadata(strategy_name="Conservative Cointegration")
-            >>> # Now all trades have strategy_name populated
         """
         if not self.completed_trades:
             return
@@ -293,7 +284,7 @@ class BacktestEngine:
             )
 
     async def _emit_progress(
-        self, progress_pct: float, current_pair: str = "", eta_seconds: int = 0
+            self, progress_pct: float, current_pair: str = "", eta_seconds: int = 0
     ) -> None:
         """
         Emit progress update via callback if registered.
@@ -371,16 +362,16 @@ class BacktestEngine:
 
         # Weight simulation days at 70%, pair processing at 30%
         days_progress = (
-            self._current_simulation_day / self._total_simulation_days
-        ) * 70
+                                self._current_simulation_day / self._total_simulation_days
+                        ) * 70
         pairs_progress = (
-            self._current_pair_index / max(1, self._total_pairs_count)
-        ) * 30
+                                 self._current_pair_index / max(1, self._total_pairs_count)
+                         ) * 30
 
         return min(99.0, days_progress + pairs_progress)  # Cap at 99% until complete
 
     async def run_backtest(
-        self, start_date: datetime, end_date: datetime, max_pairs: Optional[int] = None
+            self, start_date: datetime, end_date: datetime, max_pairs: Optional[int] = None
     ) -> BacktestResult:
         """
         Run complete backtesting simulation.
@@ -701,7 +692,7 @@ class BacktestEngine:
         return await self._load_historical_data_direct()
 
     async def _find_cointegrated_pairs(
-        self, analysis_date: datetime, max_pairs: Optional[int]
+            self, analysis_date: datetime, max_pairs: Optional[int]
     ) -> List[Dict]:
         """Find cointegrated pairs using existing analysis logic."""
         try:
@@ -743,8 +734,8 @@ class BacktestEngine:
             for result in cointegration_results:
                 # Apply same filters as live trading
                 if (
-                    result.p_value <= 0.05
-                    and result.half_life <= self.config.botSettings.maxHalfLife
+                        result.p_value <= 0.05
+                        and result.half_life <= self.config.botSettings.maxHalfLife
                 ):
                     valid_pairs.append(result)
 
@@ -770,7 +761,7 @@ class BacktestEngine:
             return []
 
     async def _simulate_trading_day(
-        self, trading_date: datetime, pairs: List[Dict]
+            self, trading_date: datetime, pairs: List[Dict]
     ) -> None:
         """Simulate trading logic for a specific day."""
         # Get price data for this day
@@ -807,7 +798,7 @@ class BacktestEngine:
         return day_prices
 
     async def _check_entry_signals(
-        self, trading_date: datetime, pairs: List[Dict], prices: Dict[str, float]
+            self, trading_date: datetime, pairs: List[Dict], prices: Dict[str, float]
     ) -> None:
         """Check for trade entry signals (following existing entry logic)."""
         for pair in pairs:
@@ -837,7 +828,7 @@ class BacktestEngine:
                 )
 
     async def _check_exit_signals(
-        self, trading_date: datetime, prices: Dict[str, float]
+            self, trading_date: datetime, prices: Dict[str, float]
     ) -> None:
         """Check for trade exit signals (following existing exit logic)."""
         positions_to_close = []
@@ -863,7 +854,7 @@ class BacktestEngine:
                     # Close on Z-score crossing zero (mean reversion)
                     entry_z_score = position["z_score_entry"]
                     if (entry_z_score > 0 and z_score <= 0) or (
-                        entry_z_score < 0 and z_score >= 0
+                            entry_z_score < 0 and z_score >= 0
                     ):
                         should_close = True
 
@@ -880,7 +871,7 @@ class BacktestEngine:
             )
 
     def _calculate_zscore(
-        self, pair: Dict, current_prices: Dict[str, float], current_date: datetime
+            self, pair: Dict, current_prices: Dict[str, float], current_date: datetime
     ) -> float:
         """Calculate Z-score for pair (simplified version of existing logic)."""
         # Handle both dict and object formats (for compatibility with CointegrationResult and position dicts)
@@ -918,8 +909,8 @@ class BacktestEngine:
         )
 
         if (
-            len(recent_data1) < self.stats_window
-            or len(recent_data2) < self.stats_window
+                len(recent_data1) < self.stats_window
+                or len(recent_data2) < self.stats_window
         ):
             raise ValueError("Insufficient historical data for Z-score calculation")
 
@@ -935,7 +926,7 @@ class BacktestEngine:
 
         # Current spread
         current_spread = current_prices[market_1] - (
-            hedge_ratio * current_prices[market_2]
+                hedge_ratio * current_prices[market_2]
         )
 
         # Z-score
@@ -945,7 +936,7 @@ class BacktestEngine:
         return float(z_score)
 
     def _calculate_zscore_for_position(
-        self, position: Dict, current_prices: Dict[str, float], current_date: datetime
+            self, position: Dict, current_prices: Dict[str, float], current_date: datetime
     ) -> float:
         """Calculate Z-score for existing position."""
         # Reconstruct pair info from position
@@ -958,11 +949,11 @@ class BacktestEngine:
         return self._calculate_zscore(fake_pair, current_prices, current_date)
 
     async def _enter_position(
-        self,
-        trading_date: datetime,
-        pair: Dict,
-        z_score: float,
-        prices: Dict[str, float],
+            self,
+            trading_date: datetime,
+            pair: Dict,
+            z_score: float,
+            prices: Dict[str, float],
     ) -> None:
         """Enter new position (simulate trade execution)."""
         market_1 = pair.base_market
@@ -1083,12 +1074,12 @@ class BacktestEngine:
                     )
 
     async def _exit_position(
-        self,
-        trading_date: datetime,
-        pair_key: str,
-        position: Dict,
-        exit_z_score: float,
-        prices: Dict[str, float],
+            self,
+            trading_date: datetime,
+            pair_key: str,
+            position: Dict,
+            exit_z_score: float,
+            prices: Dict[str, float],
     ) -> None:
         """Exit existing position (simulate trade closure)."""
         market_1 = position["market_1"]
@@ -1214,7 +1205,7 @@ class BacktestEngine:
                     )
 
     def _calculate_position_pnl(
-        self, position: Dict, exit_price_1: float, exit_price_2: float
+            self, position: Dict, exit_price_1: float, exit_price_2: float
     ) -> float:
         """Calculate PnL for position closure."""
         side_1 = position["side_1"]
@@ -1281,7 +1272,7 @@ class BacktestEngine:
         }
 
     def _create_empty_result(
-        self, start_date: datetime, end_date: datetime
+            self, start_date: datetime, end_date: datetime
     ) -> BacktestResult:
         """Create empty result when no pairs found."""
         empty_metrics = BacktestMetrics(

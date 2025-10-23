@@ -109,7 +109,9 @@ class BacktestRun(Base):
     end_date = Column(String(10), nullable=False)
     num_pairs = Column(Integer, nullable=False)
     total_markets = Column(Integer, nullable=False)
-
+    resolution = Column(
+        String(20), default="1HOUR"
+    )  # 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
     # Configuration snapshot
     config = Column(JSON, nullable=True)  # Store full config used
 

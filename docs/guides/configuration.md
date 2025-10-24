@@ -321,13 +321,15 @@ botSettings:
 ## 🧪 Testing Configuration
 
 ### Configuration Validation Script
+
 ```python
 #!/usr/bin/env python3
 # test_config.py
 import sys
+
 sys.path.append('.')
 
-from app.config import config
+from backend.app.config import config
 
 try:
     cfg = config()

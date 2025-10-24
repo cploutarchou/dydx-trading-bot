@@ -14,9 +14,9 @@ from pathlib import Path
 # Add parent directory to path so we can import app modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.config import config as get_config
-from app.func_backtesting import BacktestEngine
-from app.logging_setup import setup_logging
+from backend.app.config import config as get_config
+from backend.app.func_backtesting import BacktestEngine
+from backend.app.logging_setup import setup_logging
 from backend.database import (
     BacktestResult,
     BacktestRun,

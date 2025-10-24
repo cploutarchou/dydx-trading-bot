@@ -31,7 +31,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from backend.auth import (
+from auth import (
     Token,
     UserCreate,
     UserLogin,
@@ -41,7 +41,7 @@ from backend.auth import (
     extract_user_from_token,
     verify_token,
 )
-from backend.database import (
+from database import (
     BacktestCandle,
     BacktestLog,
     BacktestResult,
@@ -52,8 +52,8 @@ from backend.database import (
     get_db,
     init_db,
 )
-from backend.schemas import BacktestStrategyCreate, BacktestStrategyUpdate
-from backend.services import (
+from schemas import BacktestStrategyCreate, BacktestStrategyUpdate
+from services import (
     AuditLogService,
     BacktestResultService,
     BacktestRunService,
@@ -61,7 +61,7 @@ from backend.services import (
     UserService,
 )
 
-from backend.ws_broadcaster import BacktestProgressUpdate, get_broadcaster
+from ws_broadcaster import BacktestProgressUpdate, get_broadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -714,11 +714,11 @@ async def _execute_backtest_task(
     # Add app directory to path BEFORE importing app modules
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-    from config import config
-    from func_backtest_logging import log_backtest_error, log_backtest_info
-    from func_backtesting import BacktestEngine
-    from func_connections import connect_dydx
-    from logging_setup import setup_logging
+    from bot.config import config
+    from bot.func_backtest_logging import log_backtest_error, log_backtest_info
+    from bot.func_backtesting import BacktestEngine
+    from bot.func_connections import connect_dydx
+    from bot.logging_setup import setup_logging
 
     # Initialize logging for this background task
     setup_logging()
@@ -729,10 +729,10 @@ async def _execute_backtest_task(
     # This ensures BacktestRunService has the latest methods (find_cached_backtest, aggregate_run_metrics)
     import importlib
 
-    import backend.services
+    import services
 
-    importlib.reload(backend.services)
-    from backend.services import BacktestResultService
+    importlib.reload(services)
+    from services import BacktestResultService
 
     try:
         log_backtest_info(run_id, "Backtest execution started", db)

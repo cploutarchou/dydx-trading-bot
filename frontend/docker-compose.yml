@@ -68,7 +68,7 @@ services:
   frontend:
     container_name: dydx-frontend
     image: node:20-alpine
-    working_dir: /app
+    working_dir: /backend/app
     environment:
       - VITE_API_URL=http://backend:8888
       - NODE_ENV=development

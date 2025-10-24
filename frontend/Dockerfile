@@ -17,7 +17,7 @@ WORKDIR /app
 
 RUN npm install -g serve
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /backend/app/dist ./dist
 
 EXPOSE 3000
 

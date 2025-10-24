@@ -12,7 +12,7 @@ import pandas as pd
 from func_connections import connect_dydx
 from func_public import get_candles_recent, get_markets
 
-from app.func_cointegration import calculate_cointegration
+from backend.app.func_cointegration import calculate_cointegration
 
 
 async def run(n_markets: int):

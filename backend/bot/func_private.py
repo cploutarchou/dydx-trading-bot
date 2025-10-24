@@ -84,7 +84,6 @@ async def get_order(client, order_id):
 
 # Get existing open positions
 async def is_open_positions(client, market):
-
     # Protect API
     time.sleep(0.2)
 
@@ -131,7 +130,6 @@ async def check_order_status(client, order_id):
 
 # Place market order
 async def place_market_order(client, market, side, size, price, reduce_only):
-
     # Initialize
     ticker = market
     current_block = await client.node.latest_block_height()
@@ -179,8 +177,8 @@ async def place_market_order(client, market, side, size, price, reduce_only):
         clob_pair_id = int(order["clobPairId"])
         order["createdAtHeight"] = int(order["createdAtHeight"])
         if (
-            client_id == market_order_id.client_id
-            and clob_pair_id == market_order_id.clob_pair_id
+                client_id == market_order_id.client_id
+                and clob_pair_id == market_order_id.clob_pair_id
         ):
             order_id = order["id"]
             break
@@ -226,7 +224,6 @@ async def cancel_all_orders(client):
 
 # Abort all open positions
 async def abort_all_positions(client):
-
     # Cancel all orders
     await cancel_all_orders(client)
 

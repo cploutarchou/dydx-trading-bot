@@ -18,7 +18,7 @@ async def manage_trade_exits(client):
     Manage exiting open positions
     Based upon criteria set in constants
     """
-    
+
     # Initialize Telegram messenger
     messenger = TelegramMessenger()
 
@@ -90,17 +90,17 @@ async def manage_trade_exits(client):
 
         # Perform matching checks
         check_m1 = (
-            position_market_m1 == order_market_m1
-            and position_size_m1 == order_size_m1
-            and position_side_m1 == order_side_m1
+                position_market_m1 == order_market_m1
+                and position_size_m1 == order_size_m1
+                and position_side_m1 == order_side_m1
         )
         check_m2 = (
-            position_market_m2 == order_market_m2
-            and position_size_m2 == order_size_m2
-            and position_side_m2 == order_side_m2
+                position_market_m2 == order_market_m2
+                and position_size_m2 == order_size_m2
+                and position_side_m2 == order_side_m2
         )
         check_live = (
-            position_market_m1 in markets_live and position_market_m2 in markets_live
+                position_market_m1 in markets_live and position_market_m2 in markets_live
         )
 
         # Guard: If not all match exit with error
@@ -141,12 +141,11 @@ async def manage_trade_exits(client):
             # Determine trigger
             z_score_level_check = abs(z_score_current) >= abs(z_score_traded)
             z_score_cross_check = (z_score_current < 0 and z_score_traded > 0) or (
-                z_score_current > 0 and z_score_traded < 0
+                    z_score_current > 0 and z_score_traded < 0
             )
 
             # Close trade
             if z_score_level_check and z_score_cross_check:
-
                 # Initiate close trigger
                 is_close = True
 
@@ -217,7 +216,7 @@ async def manage_trade_exits(client):
                 )
 
                 logger.debug("Close order m2 id: %s", close_order_m2.get("id"))
-                
+
                 # Send trade closed notification
                 trade_info = {
                     "pair": f"{position_market_m1} / {position_market_m2}",

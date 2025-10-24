@@ -36,10 +36,10 @@ from dydx_v4_client.indexer.rest.indexer_client import IndexerClient  # noqa: E4
 from dydx_v4_client.network import TESTNET  # noqa: E402
 from dydx_v4_client.node.market import Market  # noqa: E402
 
-from app.config import config as app_config  # noqa: E402
-from app.constants import INDEXER_ACCOUNT_ENDPOINT  # noqa: E402
-from app.func_utils import format_number  # noqa: E402
-from app.logging_setup import setup_logging  # noqa: E402
+from backend.app.config import config as app_config  # noqa: E402
+from backend.app.constants import INDEXER_ACCOUNT_ENDPOINT  # noqa: E402
+from backend.app.func_utils import format_number  # noqa: E402
+from backend.app.logging_setup import setup_logging  # noqa: E402
 
 setup_logging()
 logger = logging.getLogger(__name__)

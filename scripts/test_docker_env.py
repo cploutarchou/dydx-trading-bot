@@ -20,7 +20,7 @@ def test_docker_environment():
     try:
         # Test 1: Configuration loading
         print("📋 Testing configuration loading...")
-        from app.config import ConfigurationManager
+        from backend.app.config import ConfigurationManager
         config = ConfigurationManager.get_config()
         
         if config is None:
@@ -33,7 +33,7 @@ def test_docker_environment():
         
         # Test 2: Logging initialization
         print("📊 Testing logging setup...")
-        from app.logging_setup import setup_logging
+        from backend.app.logging_setup import setup_logging
         setup_logging()
         print("✅ Logging initialized successfully")
         
@@ -61,7 +61,7 @@ def test_docker_environment():
         
         # Test 4: Constants loading
         print("⚙️  Testing constants loading...")
-        from app.constants import LOG_LEVEL, MARKET_DATA_MODE, USD_PER_TRADE
+        from backend.app.constants import LOG_LEVEL, MARKET_DATA_MODE, USD_PER_TRADE
         print(f"   ✅ LOG_LEVEL: {LOG_LEVEL}")
         print(f"   ✅ MARKET_DATA_MODE: {MARKET_DATA_MODE}")
         print(f"   ✅ USD_PER_TRADE: {USD_PER_TRADE}")

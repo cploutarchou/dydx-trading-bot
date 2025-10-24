@@ -83,8 +83,8 @@ def calculate_cointegration(series_1, series_2):
     if np.isnan(series_1).any() or np.isnan(series_2).any():
         raise SmartError("Series contains NaN values")
     if (
-        np.nanstd(series_1) < np.finfo(np.float64).eps
-        or np.nanstd(series_2) < np.finfo(np.float64).eps
+            np.nanstd(series_1) < np.finfo(np.float64).eps
+            or np.nanstd(series_2) < np.finfo(np.float64).eps
     ):
         raise SmartError("Series variance is too small for reliable cointegration test")
     # Quick check for nearly identical series which make the test ill-conditioned
@@ -119,12 +119,12 @@ def count_zero_crossings(series):
     """Count zero crossings in a time series."""
     if len(series) < 2:
         return 0
-    
+
     # Remove NaN values
     clean_series = series.dropna()
     if len(clean_series) < 2:
         return 0
-    
+
     # Count sign changes (zero crossings)
     signs = np.sign(clean_series)
     sign_changes = np.diff(signs)
@@ -133,7 +133,6 @@ def count_zero_crossings(series):
 
 # Store Cointegration Results
 def store_cointegration_results(df_market_prices):
-
     # Initialize
     start_time = time.time()
     messenger = TelegramMessenger()
@@ -167,7 +166,7 @@ def store_cointegration_results(df_market_prices):
             continue
 
         # Get Quote Pair
-        for quote_market in markets[index + 1 :]:
+        for quote_market in markets[index + 1:]:
             series_2 = df_market_prices[quote_market].values.astype(np.float64).tolist()
 
             # Quick filter: skip quote markets with near-zero return volatility
@@ -202,17 +201,17 @@ def store_cointegration_results(df_market_prices):
                     # Create spread for Z-score analysis
                     spread = pd.Series(series_1) - hedge_ratio * pd.Series(series_2)
                     z_scores = calculate_zscore(spread)
-                    
+
                     # Calculate zero crossings
                     zero_crossings = count_zero_crossings(z_scores)
-                    
+
                     # Calculate confidence score
                     confidence = calculate_confidence_score(
                         p_value=0.01,  # Placeholder - would need actual cointegration test p-value
                         half_life=half_life,
                         zero_crossings=zero_crossings
                     )
-                    
+
                     # Create enhanced result
                     cointegration_result = CointegrationResult(
                         base_market=base_market,
@@ -226,9 +225,9 @@ def store_cointegration_results(df_market_prices):
                         analysis_timestamp=datetime.now().isoformat(),
                         confidence_score=confidence
                     )
-                    
+
                     criteria_met_pairs.append(cointegration_result)
-                    
+
                 except Exception as e:
                     # If enhanced metrics fail, create basic result
                     logger.warning(f"Enhanced metrics failed for {base_market}/{quote_market}: {e}")
@@ -248,14 +247,14 @@ def store_cointegration_results(df_market_prices):
 
     # Save using enhanced storage system
     result = pair_storage.save_pairs(criteria_met_pairs)
-    
+
     # Calculate analysis time and send enhanced notification
     analysis_time = time.time() - start_time
     pairs_found = len(criteria_met_pairs)
     high_confidence_pairs = len([p for p in criteria_met_pairs if p.is_high_confidence])
-    
+
     messenger.send_cointegration_results(pairs_found, analysis_time, high_confidence_pairs)
-    
+
     # Log enhanced results
     logger.info(
         f"Cointegrated pairs analysis complete: {pairs_found} total pairs, "

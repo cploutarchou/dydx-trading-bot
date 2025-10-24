@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_backtest_log(
-    run_id: str, message: str, level: str = "info", db: Optional[Session] = None
+        run_id: str, message: str, level: str = "info", db: Optional[Session] = None
 ) -> bool:
     """
     Create a log entry for backtest execution.
@@ -65,7 +65,7 @@ def log_backtest_debug(run_id: str, message: str, db: Optional[Session] = None) 
 
 
 def log_backtest_warning(
-    run_id: str, message: str, db: Optional[Session] = None
+        run_id: str, message: str, db: Optional[Session] = None
 ) -> bool:
     """Log warning level message during backtest."""
     return create_backtest_log(run_id, message, "warning", db)

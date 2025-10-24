@@ -16,20 +16,20 @@ class BotAgent:
 
     # Initialize class
     def __init__(
-        self,
-        client,
-        market_1,
-        market_2,
-        base_side,
-        base_size,
-        base_price,
-        quote_side,
-        quote_size,
-        quote_price,
-        accept_failsafe_base_price,
-        z_score,
-        half_life,
-        hedge_ratio,
+            self,
+            client,
+            market_1,
+            market_2,
+            base_side,
+            base_size,
+            base_price,
+            quote_side,
+            quote_size,
+            quote_price,
+            accept_failsafe_base_price,
+            z_score,
+            half_life,
+            hedge_ratio,
     ):
 
         # Initialize class variables
@@ -46,7 +46,7 @@ class BotAgent:
         self.z_score = z_score
         self.half_life = half_life
         self.hedge_ratio = hedge_ratio
-        
+
         # Initialize Telegram messenger
         self.messenger = TelegramMessenger()
 

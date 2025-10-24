@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - dependency enforced via requirements
 
 try:
     import importlib.util
+
     REQUESTS_AVAILABLE = importlib.util.find_spec("requests") is not None
 except ImportError:
     REQUESTS_AVAILABLE = False
@@ -31,10 +32,10 @@ class _LoggerStream:
     """Redirect writes to a logger at the configured level."""
 
     def __init__(
-        self,
-        logger: logging.Logger,
-        level: int,
-        fallback: Optional[object] = None,
+            self,
+            logger: logging.Logger,
+            level: int,
+            fallback: Optional[object] = None,
     ) -> None:
         self._logger = logger
         self._level = level
@@ -81,12 +82,12 @@ class _LoggerStream:
 
 
 def send_to_loki_directly(
-    message: str,
-    level: str,
-    labels: Dict[str, str],
-    url: str,
-    username: str,
-    password: str,
+        message: str,
+        level: str,
+        labels: Dict[str, str],
+        url: str,
+        username: str,
+        password: str,
 ) -> bool:
     """Send log directly to Loki with proper error handling."""
 
@@ -141,7 +142,7 @@ def send_to_loki_directly(
 
 
 def create_loki_fallback_handler(
-    url: str, username: str, password: str, labels: Dict[str, str]
+        url: str, username: str, password: str, labels: Dict[str, str]
 ) -> logging.Handler:
     """Create a custom Loki handler that actually reports errors."""
 

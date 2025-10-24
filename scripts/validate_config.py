@@ -54,7 +54,7 @@ def check_env_vars():
 def check_dataclasses():
     """Check if dataclasses are defined in config.py."""
     try:
-        from app.config import DydxConfig
+        from backend.app.config import DydxConfig
 
         print("  ✅ DatabaseSettings class found")
         print("  ✅ RedisSettings class found")
@@ -107,7 +107,7 @@ def main():
                 "ConfigurationLoader",
             ),
             check_file_exists(
-                "/home/chris/workspace/dydx-trading-bot/app/config.yaml", "config.yaml"
+                "/backend/app/config.yaml", "config.yaml"
             ),
             check_file_exists(
                 "/home/chris/workspace/dydx-trading-bot/.env.example", ".env.example"
@@ -124,10 +124,10 @@ def main():
     config_ok = all(
         [
             check_config_section(
-                "/home/chris/workspace/dydx-trading-bot/app/config.yaml", "database"
+                "/backend/app/config.yaml", "database"
             ),
             check_config_section(
-                "/home/chris/workspace/dydx-trading-bot/app/config.yaml", "redis"
+                "/backend/app/config.yaml", "redis"
             ),
         ]
     )

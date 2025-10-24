@@ -6,6 +6,9 @@ from typing import Dict, Optional
 
 import yaml
 
+testnet_url = "https://indexer.v4testnet.dydx.exchange"
+mainnet_url = "https://indexer.dydx.trade"
+
 
 @dataclass
 class IndexerEndpoint:
@@ -15,6 +18,11 @@ class IndexerEndpoint:
 
 @dataclass
 class BotSettings:
+    is_testnet: bool = False
+    if is_testnet:
+        indexer_endpoint: str = testnet_url
+    else:
+        indexer_endpoint: str = mainnet_url
     abortAllPositions: bool = False
     findCointegratedPairs: bool = False
     manageExits: bool = False
@@ -27,47 +35,6 @@ class BotSettings:
     usdPerTrade: float = 10.0
     usdMinCollateral: float = 100.0
     closeAtZscoreCross: bool = True
-    indexer_endpoint: IndexerEndpoint = field(
-        default_factory=lambda: IndexerEndpoint(testnet="", mainnet="")
-    )
-    # WalletSettings is optional in the YAML; if present add parsing logic later
-
-    @classmethod
-    def from_env(cls) -> "BotSettings":
-        """Load bot settings from environment variables with defaults."""
-        import os
-
-        return cls(
-            abortAllPositions=cls._parse_bool(
-                os.getenv("BOT_ABORT_ALL_POSITIONS", "false")
-            ),
-            findCointegratedPairs=cls._parse_bool(
-                os.getenv("BOT_FIND_COINTEGRATED_PAIRS", "true")
-            ),
-            manageExits=cls._parse_bool(os.getenv("BOT_MANAGE_EXITS", "true")),
-            placeTrades=cls._parse_bool(os.getenv("BOT_PLACE_TRADES", "true")),
-            resolutionTimeframe=os.getenv("BOT_RESOLUTION_TIMEFRAME", "1HOUR"),
-            strategy=os.getenv("BOT_STRATEGY", "cointegration"),
-            statsWindow=int(os.getenv("BOT_STATS_WINDOW", "21")),
-            maxHalfLife=int(os.getenv("BOT_MAX_HALF_LIFE", "24")),
-            ZScoreThreshold=float(os.getenv("BOT_ZSCORE_THRESHOLD", "1.5")),
-            usdPerTrade=float(os.getenv("BOT_USD_PER_TRADE", "10.0")),
-            usdMinCollateral=float(os.getenv("BOT_USDC_MIN_COLLATERAL", "100.0")),
-            closeAtZscoreCross=cls._parse_bool(
-                os.getenv("BOT_CLOSE_AT_ZSCORE_CROSS", "true")
-            ),
-            indexer_endpoint=IndexerEndpoint(
-                testnet=os.getenv(
-                    "INDEXER_TESTNET", "https://indexer.v4testnet.dydx.exchange"
-                ),
-                mainnet=os.getenv("INDEXER_MAINNET", "https://indexer.dydx.trade"),
-            ),
-        )
-
-    @staticmethod
-    def _parse_bool(value: str) -> bool:
-        """Parse string to boolean."""
-        return value.lower() in ("true", "1", "yes", "on")
 
 
 @dataclass
@@ -211,7 +178,7 @@ class ConfigurationManager:
             # Default to looking for config.yaml in the same directory as this file
             app_config_path = Path(__file__).parent / "config.yaml"
             scripts_config_path = (
-                Path(__file__).parent.parent / "scripts" / "config.yaml"
+                    Path(__file__).parent.parent / "scripts" / "config.yaml"
             )
 
             # Try app directory first, then scripts directory
@@ -265,7 +232,7 @@ class ConfigurationManager:
                     **{
                         **data.get("botSettings", {}),
                         "indexer_endpoint": indexer_endpoint
-                        or IndexerEndpoint(testnet="", mainnet=""),
+                                            or IndexerEndpoint(testnet="", mainnet=""),
                     }
                 )
 

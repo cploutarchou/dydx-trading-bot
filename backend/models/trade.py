@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
 
-from backend.models.base import Base
+from base import Base
 
 
 class TradeLog(Base):

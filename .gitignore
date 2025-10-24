@@ -173,15 +173,15 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 .idea
-app/cointegrated_pairs.csv
-app/config.py
-app/config.yaml
-app/cointegrated_pairs.json
-app/pair_history/pairs_20251012_092707.json
+backend/app/cointegrated_pairs.csv
+backend/app/config.py
+backend/app/config.yaml
+backend/app/cointegrated_pairs.json
+backend/app/pair_history/pairs_20251012_092707.json
 .github/copilot-instructions.md
 
 # Backtest Results & Data
-app/backtest_results/
+backend/app/backtest_results/
 app/backtest_results/**/*.json
 app/*.db
 app/*.sqlite
@@ -193,7 +193,7 @@ app/*.sqlite3
 *.sqlite
 *.sqlite3
 database.db
-app/logs/
+backend/app/logs/
 logs/
 
 # Environment variables
@@ -213,4 +213,4 @@ build/
 *.swo
 *~
 
-app/pair_history/pairs*
+backend/app/pair_history/pairs*

@@ -26,7 +26,7 @@ class ConfigurationLoader:
             return
 
         try:
-            from app.config import config as load_config
+            from backend.app.config import config as load_config
 
             cfg = load_config()
             self._config = cfg
@@ -50,7 +50,7 @@ class ConfigurationLoader:
         Returns:
             Dictionary with database settings
         """
-        # Check environment variables FIRST for highest priority
+        # Check environment variables FIRST for the highest priority
         env_type = os.getenv("DB_TYPE")
         env_name = os.getenv("DB_NAME")
         env_user = os.getenv("DB_USER")

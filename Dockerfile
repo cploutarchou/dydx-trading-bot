@@ -62,7 +62,7 @@ COPY --chown=dydx:dydx requirements.txt .
 RUN pip install --user -r requirements.txt
 
 # Copy application code
-COPY --chown=dydx:dydx app/ ./app/
+COPY --chown=dydx:dydx backend/app/ ./app/
 COPY --chown=dydx:dydx scripts/ ./scripts/
 
 # Set Python path

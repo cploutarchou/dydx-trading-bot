@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models.backtest_models import BacktestTrade
+from backend.app.models import BacktestTrade
 from backend.database import BacktestRun, BacktestStrategy, Base, User
 
 

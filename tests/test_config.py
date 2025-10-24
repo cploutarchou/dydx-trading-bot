@@ -1,6 +1,6 @@
 import yaml
 
-from app.config import ConfigurationManager
+from backend.app.config import ConfigurationManager
 
 
 def write_temp_yaml(tmp_path, data):

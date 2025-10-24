@@ -184,7 +184,7 @@ class BacktestResult:
 
 
 def calculate_backtest_metrics(
-    trades: List[BacktestTrade], starting_balance: float, total_days: int
+        trades: List[BacktestTrade], starting_balance: float, total_days: int
 ) -> BacktestMetrics:
     """
     Calculate comprehensive performance metrics from trade list.
@@ -318,7 +318,7 @@ def calculate_backtest_metrics(
             avg_return = statistics.mean(daily_returns)
             std_return = statistics.stdev(daily_returns)
             sharpe_ratio = (
-                (avg_return * 252) / (std_return * (252**0.5)) if std_return > 0 else 0
+                (avg_return * 252) / (std_return * (252 ** 0.5)) if std_return > 0 else 0
             )
         else:
             sharpe_ratio = 0

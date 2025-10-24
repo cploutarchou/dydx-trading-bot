@@ -10,13 +10,13 @@ logger = logging.getLogger(__name__)
 
 class TelegramMessenger:
     """Professional Telegram messaging system for dYdX Trading Bot."""
-    
+
     def __init__(self):
         self.bot_token = TELEGRAM_TOKEN
         self.chat_id = TELEGRAM_CHAT_ID
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self.enabled = bool(self.bot_token and self.chat_id)
-        
+
         if not self.enabled:
             logger.warning("Telegram messaging disabled - missing token or chat_id")
 
@@ -28,17 +28,17 @@ class TelegramMessenger:
         """Send HTTP request to Telegram API."""
         if not self.enabled:
             return False
-            
+
         try:
             url = f"{self.base_url}/{method}"
             response = requests.post(url, json=data, timeout=15)
-            
+
             if response.status_code == 200:
                 return True
             else:
                 logger.error(f"Telegram API error {response.status_code}: {response.text}")
                 return False
-                
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to send Telegram message: {e}")
             return False
@@ -47,14 +47,14 @@ class TelegramMessenger:
         """Send a formatted message to Telegram."""
         if not self.enabled:
             return False
-            
+
         data = {
             "chat_id": self.chat_id,
             "text": text,
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }
-        
+
         return self._send_request("sendMessage", data)
 
     def send_startup_message(self, config_info: Dict[str, Any]) -> bool:
@@ -62,14 +62,14 @@ class TelegramMessenger:
         environment = config_info.get("environment", "development")
         is_testnet = config_info.get("is_testnet", True)
         strategy = config_info.get("strategy", "unknown")
-        
+
         # Smart environment detection
         if environment == "unknown" or environment == "development":
             environment = "development" if is_testnet else "production"
-        
+
         network = "🧪 TESTNET" if is_testnet else "🔴 MAINNET"
         env_emoji = "🧪" if environment == "development" else "🚀" if environment == "production" else "⚙️"
-        
+
         # Create clickable account link based on environment
         if environment == "development" or is_testnet:
             mintscan_url = f"https://www.mintscan.io/dydx-testnet/account/{DYDX_ADDRESS}"
@@ -77,9 +77,9 @@ class TelegramMessenger:
         else:
             mintscan_url = f"https://www.mintscan.io/dydx/account/{DYDX_ADDRESS}"
             network_text = "Mainnet"
-        
+
         account_display = f"{DYDX_ADDRESS[:8]}...{DYDX_ADDRESS[-6:]}"
-        
+
         message = f"""
 🤖 <b>dYdX Trading Bot Started</b>
 
@@ -92,14 +92,14 @@ class TelegramMessenger:
 
 <i>Bot is now monitoring markets and will notify you of all trading activities.</i>
         """.strip()
-        
+
         return self.send_message(message)
 
     def send_error_message(self, error_type: str, error_details: str, is_critical: bool = False) -> bool:
         """Send formatted error notification."""
         emoji = "🚨" if is_critical else "⚠️"
         severity = "CRITICAL ERROR" if is_critical else "ERROR"
-        
+
         message = f"""
 {emoji} <b>{severity}</b>
 
@@ -109,7 +109,7 @@ class TelegramMessenger:
 
 <i>{"Bot may have stopped - check immediately!" if is_critical else "Monitoring continues - review when convenient."}</i>
         """.strip()
-        
+
         return self.send_message(message)
 
     def send_trade_opened_message(self, trade_info: Dict[str, Any]) -> bool:
@@ -122,9 +122,9 @@ class TelegramMessenger:
         size_2 = trade_info.get("size_2", 0.0)
         side_1 = trade_info.get("side_1", "")
         side_2 = trade_info.get("side_2", "")
-        
+
         direction_emoji = "📈" if z_score > 0 else "📉"
-        
+
         message = f"""
 {direction_emoji} <b>NEW POSITION OPENED</b>
 
@@ -140,7 +140,7 @@ class TelegramMessenger:
 
 <i>Position will be monitored for exit signals.</i>
         """.strip()
-        
+
         return self.send_message(message)
 
     def send_trade_closed_message(self, trade_info: Dict[str, Any], reason: str = "Z-score reversion") -> bool:
@@ -148,14 +148,14 @@ class TelegramMessenger:
         market_1 = trade_info.get("market_1", "Unknown")
         market_2 = trade_info.get("market_2", "Unknown")
         z_score = trade_info.get("current_zscore", 0.0)
-        
+
         reason_emoji = {
             "Z-score reversion": "🎯",
-            "Manual close": "👨‍💼", 
+            "Manual close": "👨‍💼",
             "Error recovery": "🛠️",
             "Emergency stop": "🚨"
         }.get(reason, "✅")
-        
+
         message = f"""
 {reason_emoji} <b>POSITION CLOSED</b>
 
@@ -167,15 +167,16 @@ class TelegramMessenger:
 
 <i>Position successfully closed and removed from tracking.</i>
         """.strip()
-        
+
         return self.send_message(message)
 
-    def send_cointegration_results(self, pairs_found: int, analysis_time: float, high_confidence_pairs: int = 0) -> bool:
+    def send_cointegration_results(self, pairs_found: int, analysis_time: float,
+                                   high_confidence_pairs: int = 0) -> bool:
         """Send enhanced cointegration analysis results."""
         confidence_ratio = (high_confidence_pairs / pairs_found * 100) if pairs_found > 0 else 0
-        
+
         status_emoji = "🎯" if high_confidence_pairs > 0 else "📊" if pairs_found > 0 else "⚠️"
-        
+
         message = f"""
 🔬 <b>COINTEGRATION ANALYSIS COMPLETE</b>
 
@@ -186,7 +187,7 @@ class TelegramMessenger:
 
 <i>{"Ready for high-quality trading opportunities!" if high_confidence_pairs > 0 else "Ready to identify trading opportunities!" if pairs_found > 0 else "No suitable pairs found - will retry next cycle."}</i>
         """.strip()
-        
+
         return self.send_message(message)
 
     def send_account_status(self, account_info: Dict[str, Any], is_testnet: bool = True) -> bool:
@@ -194,17 +195,17 @@ class TelegramMessenger:
         balance = account_info.get("balance", 0.0)
         open_positions = account_info.get("open_positions", 0)
         available_balance = account_info.get("available_balance", 0.0)
-        
+
         balance_emoji = "✅" if balance >= 100 else "⚠️" if balance >= 50 else "🚨"
-        
+
         # Create clickable account link
         if is_testnet:
             mintscan_url = f"https://www.mintscan.io/dydx-testnet/account/{DYDX_ADDRESS}"
         else:
             mintscan_url = f"https://www.mintscan.io/dydx/account/{DYDX_ADDRESS}"
-        
+
         account_display = f"{DYDX_ADDRESS[:8]}...{DYDX_ADDRESS[-6:]}"
-        
+
         message = f"""
 💰 <b>ACCOUNT STATUS</b>
 
@@ -217,7 +218,7 @@ class TelegramMessenger:
 
 <i>Minimum required balance: $100.00</i>
         """.strip()
-        
+
         return self.send_message(message)
 
     def send_daily_summary(self, summary_info: Dict[str, Any]) -> bool:
@@ -225,7 +226,7 @@ class TelegramMessenger:
         trades_opened = summary_info.get("trades_opened", 0)
         trades_closed = summary_info.get("trades_closed", 0)
         active_positions = summary_info.get("active_positions", 0)
-        
+
         message = f"""
 📊 <b>DAILY SUMMARY</b>
 
@@ -237,7 +238,7 @@ class TelegramMessenger:
 
 <i>Bot continues monitoring for opportunities.</i>
         """.strip()
-        
+
         return self.send_message(message)
 
     def send_shutdown_message(self, reason: str = "Manual stop") -> bool:
@@ -250,12 +251,13 @@ class TelegramMessenger:
 
 <i>Bot is no longer monitoring markets. All positions remain as they were.</i>
         """.strip()
-        
+
         return self.send_message(message)
 
 
 # Global messenger instance
 _messenger = TelegramMessenger()
+
 
 # Legacy function for backward compatibility
 def send_message(message: str) -> str:
@@ -263,14 +265,17 @@ def send_message(message: str) -> str:
     success = _messenger.send_message(message, parse_mode="Markdown")
     return "sent" if success else ("no-token" if not _messenger.enabled else "failed")
 
+
 # New enhanced messaging functions
 def send_startup_notification(config_info: Dict[str, Any]) -> bool:
     """Send professional startup notification."""
     return _messenger.send_startup_message(config_info)
 
+
 def send_error_notification(error_type: str, error_details: str, is_critical: bool = False) -> bool:
     """Send formatted error notification."""
     return _messenger.send_error_message(error_type, error_details, is_critical)
+
 
 def send_trade_notification(action: str, trade_info: Dict[str, Any], **kwargs) -> bool:
     """Send trade-related notifications."""
@@ -281,17 +286,21 @@ def send_trade_notification(action: str, trade_info: Dict[str, Any], **kwargs) -
         return _messenger.send_trade_closed_message(trade_info, reason)
     return False
 
+
 def send_analysis_notification(pairs_found: int, analysis_time: float) -> bool:
     """Send cointegration analysis results."""
     return _messenger.send_cointegration_results(pairs_found, analysis_time)
+
 
 def send_account_notification(account_info: Dict[str, Any], is_testnet: bool = True) -> bool:
     """Send account status notification."""
     return _messenger.send_account_status(account_info, is_testnet)
 
+
 def send_daily_summary(summary_info: Dict[str, Any]) -> bool:
     """Send daily summary notification."""
     return _messenger.send_daily_summary(summary_info)
+
 
 def send_shutdown_notification(reason: str = "Manual stop") -> bool:
     """Send shutdown notification."""

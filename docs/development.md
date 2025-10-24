@@ -390,7 +390,7 @@ Statistical analysis for cointegration:
 - **Z-score calculation** - Mean reversion metric
 
 ```python
-from app.func_cointegration import calculate_zscore, johansen_test
+from backend.app.func_cointegration import calculate_zscore, johansen_test
 
 # Calculate Z-score for pair
 z_score = calculate_zscore(series1, series2, hedge_ratio)
@@ -408,7 +408,7 @@ Atomic paired position management:
 - State management
 
 ```python
-from app.func_bot_agent import BotAgent
+from backend.app.func_bot_agent import BotAgent
 
 agent = BotAgent(client, market1, market2, ...)
 result = await agent.open_trades()

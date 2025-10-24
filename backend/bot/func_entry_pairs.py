@@ -25,14 +25,14 @@ async def open_positions(client):
     Manage finding triggers for trade entry
     Store trades for managing later on on exit function
     """
-    
+
     # Initialize Telegram messenger
     messenger = TelegramMessenger()
 
     # Load cointegrated pairs using enhanced storage
     pairs = pair_storage.load_pairs()
     logger.info("Loaded %d cointegrated pairs from enhanced storage", len(pairs))
-    
+
     # Convert to DataFrame for backward compatibility with existing logic
     if pairs:
         df = pd.DataFrame([pair.to_dict() for pair in pairs])
@@ -202,10 +202,9 @@ async def open_positions(client):
 
                         # Handle success in opening trades
                         if (
-                            isinstance(bot_open_dict, dict)
-                            and bot_open_dict.get("pair_status") == "LIVE"
+                                isinstance(bot_open_dict, dict)
+                                and bot_open_dict.get("pair_status") == "LIVE"
                         ):
-                            
                             # Send trade opened notification before deleting bot_open_dict
                             trade_info = {
                                 "pair": f"{base_market} / {quote_market}",

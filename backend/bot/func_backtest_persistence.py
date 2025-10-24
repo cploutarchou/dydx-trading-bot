@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 def save_backtest_candles(
-    db: Session,
-    run_id_fk: int,
-    market: str,
-    candle_data: pd.DataFrame,
-    resolution: str = "1HOUR",
+        db: Session,
+        run_id_fk: int,
+        market: str,
+        candle_data: pd.DataFrame,
+        resolution: str = "1HOUR",
 ) -> int:
     """
     Save OHLCV candles to database for chart rendering and caching.
@@ -88,19 +88,19 @@ def save_backtest_candles(
 
 
 def save_backtest_position_entry(
-    db: Session,
-    run_id_fk: int,
-    market_1: str,
-    market_2: str,
-    entry_timestamp: datetime,
-    entry_price_1: float,
-    entry_price_2: float,
-    entry_z_score: float,
-    size_1: float,
-    size_2: float,
-    side_1: str,
-    side_2: str,
-    hedge_ratio: float,
+        db: Session,
+        run_id_fk: int,
+        market_1: str,
+        market_2: str,
+        entry_timestamp: datetime,
+        entry_price_1: float,
+        entry_price_2: float,
+        entry_z_score: float,
+        size_1: float,
+        size_2: float,
+        side_1: str,
+        side_2: str,
+        hedge_ratio: float,
 ) -> Optional[str]:
     """
     Save position entry (open trade) to database.
@@ -173,13 +173,13 @@ def save_backtest_position_entry(
 
 
 def update_backtest_position_exit(
-    db: Session,
-    position_id: str,
-    exit_timestamp: datetime,
-    exit_price_1: float,
-    exit_price_2: float,
-    exit_z_score: float,
-    realized_pnl: float,
+        db: Session,
+        position_id: str,
+        exit_timestamp: datetime,
+        exit_price_1: float,
+        exit_price_2: float,
+        exit_z_score: float,
+        realized_pnl: float,
 ) -> bool:
     """
     Update position with exit details (close trade).
@@ -223,8 +223,8 @@ def update_backtest_position_exit(
         # Calculate duration in hours
         if position.entry_timestamp:
             duration = (
-                exit_timestamp - position.entry_timestamp
-            ).total_seconds() / 3600
+                               exit_timestamp - position.entry_timestamp
+                       ).total_seconds() / 3600
             position.duration_hours = duration
 
         db.commit()
@@ -239,28 +239,28 @@ def update_backtest_position_exit(
 
 
 def save_backtest_trade(
-    db: Session,
-    run_id_fk: int,
-    trade_id: str,
-    market_1: str,
-    market_2: str,
-    entry_timestamp: datetime,
-    entry_price_1: float,
-    entry_price_2: float,
-    entry_z_score: float,
-    side_1: str,
-    side_2: str,
-    size_1: float,
-    size_2: float,
-    exit_timestamp: Optional[datetime] = None,
-    exit_price_1: Optional[float] = None,
-    exit_price_2: Optional[float] = None,
-    exit_z_score: Optional[float] = None,
-    pnl: Optional[float] = None,
-    pnl_pct: Optional[float] = None,
-    hedge_ratio: float = 0.0,
-    transaction_fee: float = 0.0005,
-    slippage: float = 0.001,
+        db: Session,
+        run_id_fk: int,
+        trade_id: str,
+        market_1: str,
+        market_2: str,
+        entry_timestamp: datetime,
+        entry_price_1: float,
+        entry_price_2: float,
+        entry_z_score: float,
+        side_1: str,
+        side_2: str,
+        size_1: float,
+        size_2: float,
+        exit_timestamp: Optional[datetime] = None,
+        exit_price_1: Optional[float] = None,
+        exit_price_2: Optional[float] = None,
+        exit_z_score: Optional[float] = None,
+        pnl: Optional[float] = None,
+        pnl_pct: Optional[float] = None,
+        hedge_ratio: float = 0.0,
+        transaction_fee: float = 0.0005,
+        slippage: float = 0.001,
 ) -> bool:
     """
     Save complete trade record (entry + exit) to database.
@@ -350,11 +350,11 @@ def save_backtest_trade(
 
 
 def get_backtest_candles(
-    db: Session,
-    run_id_fk: int,
-    market: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+        db: Session,
+        run_id_fk: int,
+        market: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
 ) -> List:
     """
     Retrieve candles from database with optional filtering.
@@ -400,9 +400,9 @@ def get_backtest_candles(
 
 
 def get_backtest_positions(
-    db: Session,
-    run_id_fk: int,
-    status: Optional[str] = None,
+        db: Session,
+        run_id_fk: int,
+        status: Optional[str] = None,
 ) -> List:
     """
     Retrieve positions from database with optional status filter.
@@ -436,10 +436,10 @@ def get_backtest_positions(
 
 
 def get_backtest_trades(
-    db: Session,
-    run_id_fk: int,
-    market_1: Optional[str] = None,
-    market_2: Optional[str] = None,
+        db: Session,
+        run_id_fk: int,
+        market_1: Optional[str] = None,
+        market_2: Optional[str] = None,
 ) -> List:
     """
     Retrieve trades from database with optional market filtering.

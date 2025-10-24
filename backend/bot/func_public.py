@@ -14,7 +14,6 @@ ISO_TIMES = get_ISO_times()
 
 # Get Recent Candles
 async def get_candles_recent(client, market):
-
     # Define output
     close_prices = []
 
@@ -41,7 +40,6 @@ async def get_candles_recent(client, market):
 
 # Get Historical Candles
 async def get_candles_historical(client, market):
-
     # Define output
     close_prices = []
 
@@ -84,7 +82,6 @@ async def get_markets(client):
 
 # Construct market prices
 async def construct_market_prices(client):
-
     # Ensure only Testnet Assets are used
 
     # Declare variables

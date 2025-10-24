@@ -226,7 +226,7 @@ config = config()  # Each call reloads YAML
 **Storage pattern**: Always use `pair_storage` singleton from `models/pair_storage.py`
 
 ```python
-from app.models.pair_storage import pair_storage
+from backend.app.models import pair_storage
 
 # Load with format detection (JSON preferred, CSV fallback)
 pairs = pair_storage.load_pairs()
@@ -1077,16 +1077,16 @@ backtesting:
 
 ```python
 # Example: Test custom parameters without modifying config.yaml
-from app.func_backtesting import BacktestEngine
+from backend.app.func_backtesting import BacktestEngine
 
 engine = BacktestEngine(
     client=client,
     config=config,
     run_id="test-123",
     strategy_params={
-        'zscore_threshold': 2.0,      # Override default 1.5
-        'usd_per_trade': 20.0,         # Override default 25.0
-        'stats_window': 21,            # Override default 14
+        'zscore_threshold': 2.0,  # Override default 1.5
+        'usd_per_trade': 20.0,  # Override default 25.0
+        'stats_window': 21,  # Override default 14
         'close_at_zscore_cross': True,
         'transaction_fee': 0.0005,
         'slippage': 0.001

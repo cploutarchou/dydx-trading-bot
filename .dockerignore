@@ -92,11 +92,11 @@ docker-compose*.yml
 Makefile
 
 # State files that should be mounted as volumes instead
-app/bot_agents.json
-app/cointegrated_pairs*.csv
+backend/app/bot_agents.json
+backend/app/cointegrated_pairs*.csv
 
 # Config files (should be mounted securely)
-app/config.yaml
+backend/app/config.yaml
 .env*
 
 # Development scripts (not needed in production)

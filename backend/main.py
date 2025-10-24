@@ -7,6 +7,8 @@ Provides REST API and WebSocket for real-time backtest monitoring.
 # This ensures DB_* environment variables are available to database.py
 from dotenv import load_dotenv
 
+from services.settings_service import SettingsService
+
 load_dotenv()
 
 import logging

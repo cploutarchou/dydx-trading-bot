@@ -13,7 +13,6 @@ load_dotenv()
 
 import logging
 import os
-from contextlib import contextmanager
 from datetime import datetime
 
 from sqlalchemy import create_engine
@@ -22,10 +21,10 @@ from sqlalchemy.orm import sessionmaker
 logger = logging.getLogger(__name__)
 
 # Import Base from models package (single source of truth for declarative base)
-from backend.models.base import Base
+from .models.base import Base
 
 # Import all models to register them with Base
-from backend.models.backtest import (
+from .models.backtest import (
     BacktestCandle,
     BacktestComparison,
     BacktestLog,
@@ -34,14 +33,14 @@ from backend.models.backtest import (
     BacktestRun,
     BacktestTrade,
 )
-from backend.models.strategy import (
+from .models.strategy import (
     BacktestStrategy,
     StrategyExecutionState,
     StrategyVersionHistory,
 )
-from backend.models.trade import TradeLog
-from backend.models.user import AuditLog, User
-from backend.models.settings import BotSetting, RedisSetting
+from .models.trade import TradeLog
+from .models.user import AuditLog, User
+from .models.settings import BotSetting, RedisSetting
 
 __all__ = [
     "BacktestRun",
@@ -234,9 +233,8 @@ def _seed_admin_user():
         db.close()
 
 
-@contextmanager
 def get_db():
-    """Get a database session context manager."""
+    """Get a database session for FastAPI dependency injection."""
     db = SessionLocal()
     try:
         yield db

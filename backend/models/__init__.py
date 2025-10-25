@@ -10,7 +10,7 @@ This package contains all SQLAlchemy ORM models for:
 - Bot settings and audit logs
 """
 
-from backend.models.backtest import (
+from .backtest import (
     BacktestCandle,
     BacktestComparison,
     BacktestLog,
@@ -19,14 +19,14 @@ from backend.models.backtest import (
     BacktestRun,
     BacktestTrade,
 )
-from backend.models.strategy import (
+from .strategy import (
     BacktestStrategy,
     StrategyExecutionState,
     StrategyVersionHistory,
 )
-from backend.models.trade import TradeLog
-from backend.models.user import AuditLog, User
-from backend.models.settings import BotSetting, RedisSetting
+from .trade import TradeLog
+from .user import AuditLog, User
+from .settings import BotSetting, RedisSetting
 
 __all__ = [
     # Backtest models

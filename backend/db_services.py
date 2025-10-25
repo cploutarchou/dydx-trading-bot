@@ -996,7 +996,7 @@ class RedisSettingsService:
     @staticmethod
     def test_redis_connection(db: Session) -> dict:
         """Test Redis connection and update status in database."""
-        from database import RedisSetting
+        from .database import RedisSetting
         from redis_service import get_redis_service
 
         redis_service = get_redis_service()
@@ -1032,7 +1032,7 @@ class RedisSettingsService:
     @staticmethod
     def toggle_redis_enabled(db: Session, enabled: bool) -> dict:
         """Toggle Redis caching on/off."""
-        from database import RedisSetting
+        from .database import RedisSetting
 
         settings = db.query(RedisSetting).first()
         if not settings:

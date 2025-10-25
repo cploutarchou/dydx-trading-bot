@@ -4,10 +4,10 @@ Provides REST API and WebSocket for real-time backtest monitoring.
 """
 
 from dotenv import load_dotenv
-
-from .services.settings_service import SettingsService
-
 load_dotenv()
+
+from services.settings_service import SettingsService
+
 
 import logging
 import os
@@ -30,7 +30,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from .auth import (
+from auth import (
     Token,
     UserCreate,
     UserLogin,
@@ -40,7 +40,7 @@ from .auth import (
     extract_user_from_token,
     verify_token,
 )
-from .database import (
+from database import (
     BacktestCandle,
     BacktestLog,
     BacktestResult,
@@ -51,7 +51,7 @@ from .database import (
     get_db,
     init_db,
 )
-from .db_services import (
+from db_services import (
     AuditLogService,
     BacktestRunService,
     UserService,

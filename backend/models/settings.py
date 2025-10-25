@@ -10,7 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String
 
-from .base import Base
+from models.base import Base
 
 
 class BotSetting(Base):

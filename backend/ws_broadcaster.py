@@ -176,7 +176,7 @@ class WebSocketBroadcaster:
         if db is not None and update.strategy_id is not None:
             try:
                 # Import here to avoid circular imports
-                from backend.database import BacktestStrategy
+                from database import BacktestStrategy
 
                 strategy = (
                     db.query(BacktestStrategy)

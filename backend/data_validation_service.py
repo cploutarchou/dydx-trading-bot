@@ -10,7 +10,7 @@ import numpy as np
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from backend.database import (
+from database import (
     BacktestCandle,
     BacktestPosition,
     BacktestResult,

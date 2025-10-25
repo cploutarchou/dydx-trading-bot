@@ -10,8 +10,8 @@ from typing import List, Optional
 from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
-from backend.auth import hash_password, verify_password
-from backend.database import (
+from .auth import hash_password, verify_password
+from .database import (
     AuditLog,
     BacktestResult,
     BacktestRun,
@@ -277,7 +277,7 @@ class BacktestResultService:
             return None
 
         # Get all trades for this run
-        from backend.database import BacktestTrade
+        from .database import BacktestTrade
 
         trades = (
             db.query(BacktestTrade).filter(BacktestTrade.run_id_fk == run_id_pk).all()
@@ -909,7 +909,7 @@ class RedisSettingsService:
     @staticmethod
     def get_redis_settings(db: Session) -> Optional[dict]:
         """Get current Redis settings from database."""
-        from backend.database import RedisSetting
+        from .database import RedisSetting
 
         settings = db.query(RedisSetting).first()
         if not settings:
@@ -952,7 +952,7 @@ class RedisSettingsService:
         cache_analysis_results: Optional[bool] = None,
     ) -> Optional[dict]:
         """Update Redis settings."""
-        from backend.database import RedisSetting
+        from .database import RedisSetting
 
         settings = db.query(RedisSetting).first()
         if not settings:
@@ -996,8 +996,8 @@ class RedisSettingsService:
     @staticmethod
     def test_redis_connection(db: Session) -> dict:
         """Test Redis connection and update status in database."""
-        from backend.database import RedisSetting
-        from backend.redis_service import get_redis_service
+        from database import RedisSetting
+        from redis_service import get_redis_service
 
         redis_service = get_redis_service()
         status = redis_service.check_connection()
@@ -1015,7 +1015,7 @@ class RedisSettingsService:
     @staticmethod
     def get_cache_stats(db: Session) -> dict:
         """Get cache statistics."""
-        from backend.redis_service import get_redis_service
+        from redis_service import get_redis_service
 
         redis_service = get_redis_service()
         stats = redis_service.get_cache_stats()
@@ -1032,7 +1032,7 @@ class RedisSettingsService:
     @staticmethod
     def toggle_redis_enabled(db: Session, enabled: bool) -> dict:
         """Toggle Redis caching on/off."""
-        from backend.database import RedisSetting
+        from database import RedisSetting
 
         settings = db.query(RedisSetting).first()
         if not settings:

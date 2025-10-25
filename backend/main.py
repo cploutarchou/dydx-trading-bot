@@ -3,11 +3,9 @@ FastAPI backend server for dYdX Backtest System.
 Provides REST API and WebSocket for real-time backtest monitoring.
 """
 
-# ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
-# This ensures DB_* environment variables are available to database.py
 from dotenv import load_dotenv
 
-from services.settings_service import SettingsService
+from .services.settings_service import SettingsService
 
 load_dotenv()
 
@@ -24,7 +22,6 @@ from fastapi import (
     FastAPI,
     HTTPException,
     WebSocket,
-    WebSocketDisconnect,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +30,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from auth import (
+from .auth import (
     Token,
     UserCreate,
     UserLogin,
@@ -43,7 +40,7 @@ from auth import (
     extract_user_from_token,
     verify_token,
 )
-from database import (
+from .database import (
     BacktestCandle,
     BacktestLog,
     BacktestResult,
@@ -54,16 +51,11 @@ from database import (
     get_db,
     init_db,
 )
-from schemas import BacktestStrategyCreate, BacktestStrategyUpdate
-from services import (
+from .db_services import (
     AuditLogService,
-    BacktestResultService,
     BacktestRunService,
-    BacktestStrategyService,
     UserService,
 )
-
-from ws_broadcaster import BacktestProgressUpdate, get_broadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -731,10 +723,10 @@ async def _execute_backtest_task(
     # This ensures BacktestRunService has the latest methods (find_cached_backtest, aggregate_run_metrics)
     import importlib
 
-    import services
+    from . import db_services
 
-    importlib.reload(services)
-    from services import BacktestResultService
+    importlib.reload(db_services)
+    from db_services import BacktestResultService
 
     try:
         log_backtest_info(run_id, "Backtest execution started", db)
@@ -1204,4 +1196,3 @@ if __name__ == "__main__":
         reload=False,
         log_level="info",
     )
-

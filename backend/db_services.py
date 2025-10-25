@@ -10,8 +10,8 @@ from typing import List, Optional
 from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
-from .auth import hash_password, verify_password
-from .database import (
+from auth import hash_password, verify_password
+from database import (
     AuditLog,
     BacktestResult,
     BacktestRun,

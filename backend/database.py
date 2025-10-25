@@ -21,10 +21,10 @@ from sqlalchemy.orm import sessionmaker
 logger = logging.getLogger(__name__)
 
 # Import Base from models package (single source of truth for declarative base)
-from .models.base import Base
+from models.base import Base
 
 # Import all models to register them with Base
-from .models.backtest import (
+from models.backtest import (
     BacktestCandle,
     BacktestComparison,
     BacktestLog,
@@ -33,14 +33,14 @@ from .models.backtest import (
     BacktestRun,
     BacktestTrade,
 )
-from .models.strategy import (
+from models.strategy import (
     BacktestStrategy,
     StrategyExecutionState,
     StrategyVersionHistory,
 )
-from .models.trade import TradeLog
-from .models.user import AuditLog, User
-from .models.settings import BotSetting, RedisSetting
+from models.trade import TradeLog
+from models.user import AuditLog, User
+from models.settings import BotSetting, RedisSetting
 
 __all__ = [
     "BacktestRun",
@@ -169,7 +169,7 @@ def _seed_admin_user():
       where credentials were saved (if generated).
     - Idempotent: will not recreate admin if a user with the same username exists.
     """
-    from backend.auth import hash_password
+    from auth import hash_password
     import secrets
     from pathlib import Path
 

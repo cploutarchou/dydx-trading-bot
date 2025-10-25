@@ -7,11 +7,11 @@ Supports per-user settings and system-wide defaults.
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from ..models.settings import BotSetting, RedisSetting
+from models.settings import BotSetting
 
 
 class SettingsService:

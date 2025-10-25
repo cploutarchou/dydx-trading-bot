@@ -125,7 +125,7 @@ class CandleCache:
             List of BacktestCandle records
         """
         try:
-            from backend.database import BacktestCandle
+            from database import BacktestCandle
 
             query = (
                 self.db.query(BacktestCandle)

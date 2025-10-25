@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from backend.auth import get_current_user
-from backend.database import get_db
-from backend.services.key_management import DYDXKeyService
+from auth import get_current_user
+from database import get_db
+from services.key_management import DYDXKeyService
 
 router = APIRouter(prefix="/api/v1/keys", tags=["keys"])
 

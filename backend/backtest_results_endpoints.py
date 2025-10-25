@@ -8,12 +8,13 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from backend.database import (
+from database import (
     BacktestResult,
     BacktestTrade,
 )
-from backend.schemas import ApiResponse
-from backend.services import BacktestRunService
+from main import ApiResponse
+
+from services import BacktestRunService
 
 
 class BacktestResultsEndpoint:

@@ -16,7 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from backend.database import (
+from database import (
     BacktestCandle,
     BacktestPosition,
     BacktestRun,
@@ -33,7 +33,7 @@ def get_db():
     Dependency to get database session.
     Should be replaced with actual session factory from backend.database
     """
-    from backend.database import SessionLocal
+    from database import SessionLocal
 
     db = SessionLocal()
     try:

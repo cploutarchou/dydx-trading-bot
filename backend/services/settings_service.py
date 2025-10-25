@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from backend.models.settings import BotSetting, RedisSetting
+from ..models.settings import BotSetting, RedisSetting
 
 
 class SettingsService:

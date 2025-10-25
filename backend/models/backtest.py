@@ -16,7 +16,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.orm import relationship
 
-from .base import Base
+from models.base import Base
 
 
 class BacktestRun(Base):

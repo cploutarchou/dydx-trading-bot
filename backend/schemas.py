@@ -1,407 +1,536 @@
-"""Pydantic schemas for API request/response validation."""
-
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-from pydantic import BaseModel
-
-# ============================================================================
-# Backtest Trade Schemas
-# ============================================================================
-
-
-class BacktestTradeBase(BaseModel):
-    """Base trade schema with common fields."""
-
-    market_1: str
-    market_2: str
-    entry_timestamp: datetime
-    entry_price_1: float
-    entry_price_2: float
-    entry_z_score: float
-    side_1: str
-    side_2: str
-    size_1: float
-    size_2: float
-    hedge_ratio: float
-    transaction_fee: float
-    slippage: float
-
-
-class BacktestTradeCreate(BacktestTradeBase):
-    """Schema for creating a trade."""
-
-    trade_id: str
-    run_id_fk: int
-
-
-class BacktestTradeUpdate(BaseModel):
-    """Schema for updating trade with exit details."""
-
-    exit_timestamp: datetime
-    exit_price_1: float
-    exit_price_2: float
-    exit_z_score: float
-    pnl: float
-    pnl_pct: float
-    duration_hours: float
-
-
-class BacktestTradeResponse(BacktestTradeBase):
-    """Schema for trade API response."""
-
-    id: int
-    trade_id: str
-    run_id_fk: int
-    exit_timestamp: Optional[datetime] = None
-    exit_price_1: Optional[float] = None
-    exit_price_2: Optional[float] = None
-    exit_z_score: Optional[float] = None
-    pnl: Optional[float] = None
-    pnl_pct: Optional[float] = None
-    duration_hours: Optional[float] = None
-
-    class Config:
-        from_attributes = True
-
-
-# ============================================================================
-# Backtest Position Schemas
-# ============================================================================
-
-
-class BacktestPositionBase(BaseModel):
-    """Base position schema."""
-
-    market_1: str
-    market_2: str
-    status: str
-    entry_timestamp: datetime
-    entry_price_1: float
-    entry_price_2: float
-    entry_z_score: float
-    size_1: float
-    size_2: float
-    side_1: str
-    side_2: str
-    hedge_ratio: float
-
-
-class BacktestPositionCreate(BacktestPositionBase):
-    """Schema for creating a position."""
-
-    position_id: str
-    run_id_fk: int
-
-
-class BacktestPositionUpdate(BaseModel):
-    """Schema for updating position status."""
-
-    status: str
-    current_price_1: Optional[float] = None
-    current_price_2: Optional[float] = None
-    current_z_score: Optional[float] = None
-    unrealized_pnl: Optional[float] = None
-    close_timestamp: Optional[datetime] = None
-    realized_pnl: Optional[float] = None
-
-
-class BacktestPositionResponse(BacktestPositionBase):
-    """Schema for position API response."""
-
-    id: int
-    position_id: str
-    run_id_fk: int
-    close_timestamp: Optional[datetime] = None
-    current_price_1: Optional[float] = None
-    current_price_2: Optional[float] = None
-    current_z_score: Optional[float] = None
-    unrealized_pnl: Optional[float] = None
-    realized_pnl: Optional[float] = None
-
-    class Config:
-        from_attributes = True
-
-
-# ============================================================================
-# Bot Settings Schemas
-# ============================================================================
-
-
-class SettingFieldConfig(BaseModel):
-    """Configuration for a single setting field in UI."""
-
-    key: str
-    label: str
-    description: Optional[str] = None
-    value_type: str  # string, float, int, boolean, json
-    value: Any
-    default_value: Optional[Any] = None
-    required: bool = False
-    options: Optional[List[str]] = None  # For select fields
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
-    placeholder: Optional[str] = None
-
-
-class SettingSectionConfig(BaseModel):
-    """Configuration for a settings section."""
-
-    section: str
-    title: str
-    description: Optional[str] = None
-    fields: List[SettingFieldConfig]
-
-
-class SettingsSchemaResponse(BaseModel):
-    """Complete settings schema for UI generation."""
-
-    sections: List[SettingSectionConfig]
-
-
-class BotSettingBase(BaseModel):
-    """Base setting schema."""
-
-    section: str
-    key: str
-    value: str  # JSON serialized
-    value_type: str
-    description: Optional[str] = None
-
-
-class BotSettingCreate(BotSettingBase):
-    """Schema for creating a setting."""
-
-    default_value: Optional[str] = None
-
-
-class BotSettingUpdate(BaseModel):
-    """Schema for updating a setting."""
-
-    value: str
-    version: Optional[int] = None
-
-
-class BotSettingResponse(BotSettingBase):
-    """Schema for setting API response."""
-
-    id: int
-    default_value: Optional[str] = None
-    is_active: bool
-    version: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class BotSettingsSectionResponse(BaseModel):
-    """Settings grouped by section."""
-
-    section: str
-    settings: List[BotSettingResponse]
-
-
-class BotSettingsResponse(BaseModel):
-    """All bot settings grouped by section."""
-
-    sections: List[BotSettingsSectionResponse]
-
-
-# ============================================================================
-# Batch Update Schemas
-# ============================================================================
-
-
-class BotSettingBatchUpdate(BaseModel):
-    """Batch update multiple settings."""
-
-    updates: Dict[str, Any]  # {section.key: value, ...}
-
-
-# ============================================================================
-# Analysis Schemas
-# ============================================================================
-
-
-class BacktestAnalysisSummary(BaseModel):
-    """Summary statistics for backtest analysis."""
-
-    total_trades: int
-    winning_trades: int
-    losing_trades: int
-    win_rate: float
-    total_pnl: float
-    avg_trade_pnl: float
-    best_trade: float
-    worst_trade: float
-    avg_duration_hours: float
-    sharpe_ratio: Optional[float] = None
-    max_drawdown: Optional[float] = None
-
-
-class BacktestTradeListResponse(BaseModel):
-    """List of trades from a backtest."""
-
-    run_id: int
-    total: int
-    trades: List[BacktestTradeResponse]
-
-
-class BacktestPositionListResponse(BaseModel):
-    """List of positions from a backtest."""
-
-    run_id: int
-    total: int
-    positions: List[BacktestPositionResponse]
-
-
-# ============================================================================
-# Backtest Strategy Schemas
-# ============================================================================
-
-
-class BacktestStrategyBase(BaseModel):
-    """Base strategy schema with common fields."""
-
-    name: str
-    description: Optional[str] = None
-    category: str = "custom"
-    is_public: bool = False
-    resolution: str = "1HOUR"
-    zscore_threshold: float = 1.5
-    stats_window: int = 21
-    max_half_life: int = 24
-    usd_per_trade: float = 10.0
-    usd_min_collateral: float = 100.0
-    close_at_zscore_cross: bool = True
-    find_cointegrated_pairs: bool = True
-    manage_exits: bool = True
-    place_trades: bool = True
-    abort_all_positions: bool = False
-    max_positions: int = 5
-    max_drawdown_pct: float = 15.0
-    stop_loss_pct: float = 2.0
-    take_profit_pct: float = 5.0
-    trailing_stop_pct: float = 1.0
-    rebalance_interval_hours: int = 24
-    position_timeout_hours: int = 72
-    initial_amount: float = 1000.0
-    transaction_fee: float = 0.0005
-    slippage: float = 0.001
-
-
-class BacktestStrategyCreate(BacktestStrategyBase):
-    """Schema for creating a new strategy."""
-
-    pass
-
-
-class BacktestStrategyUpdate(BaseModel):
-    """Schema for updating a strategy."""
-
-    name: Optional[str] = None
-    description: Optional[str] = None
-    category: Optional[str] = None
-    is_public: Optional[bool] = None
-    resolution: Optional[str] = None
-    zscore_threshold: Optional[float] = None
-    stats_window: Optional[int] = None
-    max_half_life: Optional[int] = None
-    usd_per_trade: Optional[float] = None
-    usd_min_collateral: Optional[float] = None
-    close_at_zscore_cross: Optional[bool] = None
-    find_cointegrated_pairs: Optional[bool] = None
-    manage_exits: Optional[bool] = None
-    place_trades: Optional[bool] = None
-    abort_all_positions: Optional[bool] = None
-    max_positions: Optional[int] = None
-    max_drawdown_pct: Optional[float] = None
-    stop_loss_pct: Optional[float] = None
-    take_profit_pct: Optional[float] = None
-    trailing_stop_pct: Optional[float] = None
-    rebalance_interval_hours: Optional[int] = None
-    position_timeout_hours: Optional[int] = None
-    initial_amount: Optional[float] = None
-    transaction_fee: Optional[float] = None
-    slippage: Optional[float] = None
-
-
-class BacktestStrategyResponse(BacktestStrategyBase):
-    """Schema for strategy API response."""
-
-    id: int
-    user_id: int
-    is_default: bool
-    last_used_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class BacktestStrategyListResponse(BaseModel):
-    """List of strategies."""
-
-    total: int
-    skip: int
-    limit: int
-    strategies: List[BacktestStrategyResponse]
-
-
-class BacktestStrategyUsageStats(BaseModel):
-    """Usage statistics for a strategy."""
-
-    strategy_id: int
-    total_runs: int
-    completed_runs: int
-    failed_runs: int
-    avg_pnl: float
-    success_rate: float
-
-
-class BacktestStrategyWithStats(BacktestStrategyResponse):
-    """Strategy with usage statistics."""
-
-    usage_stats: Optional[BacktestStrategyUsageStats] = None
-
-
-# ============================================================================
-# Backtest Run Schemas (Enhanced with Strategy Support)
-# ============================================================================
-
-
-class BacktestRunBase(BaseModel):
-    """Base backtest run schema."""
-
-    run_id: str
-    start_date: str
-    end_date: str
-    num_pairs: int
-    total_markets: int
-    strategy_id: Optional[int] = None
-
-
-class BacktestRunResponse(BacktestRunBase):
-    """Schema for backtest run API response."""
-
-    id: int
-    status: str
-    created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    total_trades: int
-    profitable_trades: int
-    losing_trades: int
-    win_rate: Optional[float] = None
-    total_pnl: float
-    total_pnl_usd: float
-    sharpe_ratio: Optional[float] = None
-    max_drawdown: Optional[float] = None
-    strategy: Optional[BacktestStrategyResponse] = None
-
-    class Config:
-        from_attributes = True
+"""
+SQLAlchemy Core schema definitions using Table objects.
+Matches PostgreSQL schema exactly from the provided DDL.
+"""
+
+from sqlalchemy import (
+    Table,
+    Column,
+    Integer,
+    String,
+    Double,
+    Boolean,
+    DateTime,
+    Text,
+    JSON,
+    ForeignKey,
+    Index,
+    MetaData,
+    func,
+)
+
+# Create metadata object for all tables
+metadata = MetaData(schema='public')
+
+# ========== Users table ==========
+users = Table(
+    'users',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('username', String(50), nullable=False),
+    Column('email', String(100), nullable=False),
+    Column('hashed_password', String(500), nullable=False),
+    Column('full_name', String(100), nullable=True),
+    Column('avatar', Text, nullable=True),
+    Column('is_active', Boolean, nullable=True),
+    Column('is_admin', Boolean, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Column('last_login', DateTime, nullable=True),
+    Index('ix_users_username', 'username', unique=True),
+    Index('ix_users_id', 'id'),
+    Index('ix_users_email', 'email', unique=True),
+    Index('idx_user_active', 'is_active'),
+)
+
+# ========== Bot Settings table ==========
+bot_settings = Table(
+    'bot_settings',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('section', String(50), nullable=False),
+    Column('key', String(100), nullable=False),
+    Column('value', String, nullable=False),
+    Column('value_type', String(20), nullable=False),
+    Column('description', String, nullable=True),
+    Column('default_value', String, nullable=True),
+    Column('is_active', Boolean, nullable=True),
+    Column('version', Integer, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_by', Integer, ForeignKey('public.users.id'), nullable=True),
+    Index('ix_bot_settings_key', 'key'),
+    Index('idx_bot_setting_section_key', 'section', 'key'),
+    Index('ix_bot_settings_id', 'id'),
+    Index('ix_bot_settings_section', 'section'),
+    Index('idx_bot_setting_active', 'is_active'),
+    Index('ix_bot_settings_is_active', 'is_active'),
+)
+
+# ========== Audit Logs table ==========
+audit_logs = Table(
+    'audit_logs',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('user_id', Integer, ForeignKey('public.users.id'), nullable=True),
+    Column('action', String(100), nullable=False),
+    Column('resource_type', String(50), nullable=False),
+    Column('resource_id', String(100), nullable=True),
+    Column('details', JSON, nullable=True),
+    Column('status', String(20), nullable=True),
+    Column('ip_address', String(50), nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_audit_logs_id', 'id'),
+    Index('ix_audit_logs_created_at', 'created_at'),
+    Index('idx_audit_resource', 'resource_type', 'resource_id'),
+    Index('ix_audit_logs_action', 'action'),
+    Index('idx_audit_user_action', 'user_id', 'action'),
+    Index('ix_audit_logs_user_id', 'user_id'),
+)
+
+# ========== Backtest Strategies table ==========
+backtest_strategies = Table(
+    'backtest_strategies',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('name', String(100), nullable=False),
+    Column('description', String(500), nullable=True),
+    Column('category', String(50), nullable=True),
+    Column('user_id', Integer, ForeignKey('public.users.id'), nullable=False),
+    Column('is_public', Boolean, nullable=True),
+    Column('is_default', Boolean, nullable=True),
+    Column('zscore_threshold', Double, nullable=False),
+    Column('stats_window', Integer, nullable=False),
+    Column('max_half_life', Double, nullable=False),
+    Column('usd_per_trade', Double, nullable=False),
+    Column('usd_min_collateral', Double, nullable=False),
+    Column('close_at_zscore_cross', Boolean, nullable=False),
+    Column('transaction_fee', Double, nullable=False),
+    Column('slippage', Double, nullable=False),
+    Column('starting_balance', Double, nullable=False),
+    Column('candle_resolution', String(20), nullable=False),
+    Column('max_history_days', Integer, nullable=False),
+    Column('benchmark_symbol', String(20), nullable=True),
+    Column('risk_free_rate', Double, nullable=False),
+    Column('usage_count', Integer, nullable=True),
+    Column('last_used_at', DateTime, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Column('deleted_at', DateTime, nullable=True),
+    Column('find_cointegrated_pairs', Boolean, nullable=False, server_default='true'),
+    Column('manage_exits', Boolean, nullable=False, server_default='true'),
+    Column('place_trades', Boolean, nullable=False, server_default='true'),
+    Column('abort_all_positions', Boolean, nullable=False, server_default='false'),
+    Column('max_positions', Integer, nullable=False, server_default='5'),
+    Column('max_drawdown_pct', Double, nullable=False, server_default='15'),
+    Column('stop_loss_pct', Double, nullable=False, server_default='2'),
+    Column('take_profit_pct', Double, nullable=False, server_default='5'),
+    Column('trailing_stop_pct', Double, nullable=False, server_default='1'),
+    Column('rebalance_interval_hours', Integer, nullable=False, server_default='24'),
+    Column('position_timeout_hours', Integer, nullable=False, server_default='72'),
+    Column('initial_amount', Double, nullable=False, server_default='1000'),
+    Index('idx_strategy_user_name', 'user_id', 'name'),
+    Index('idx_strategy_public', 'is_public'),
+    Index('ix_backtest_strategies_user_id', 'user_id'),
+    Index('idx_strategy_default', 'is_default'),
+    Index('idx_strategy_category', 'category'),
+    Index('ix_backtest_strategies_created_at', 'created_at'),
+    Index('ix_backtest_strategies_name', 'name'),
+    Index('ix_backtest_strategies_id', 'id'),
+)
+
+# ========== Redis Settings table ==========
+redis_settings = Table(
+    'redis_settings',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('enabled', Boolean, nullable=True),
+    Column('host', String(255), nullable=True),
+    Column('port', Integer, nullable=True),
+    Column('db', Integer, nullable=True),
+    Column('password', String(255), nullable=True),
+    Column('ssl', Boolean, nullable=True),
+    Column('timeout', Integer, nullable=True),
+    Column('max_connections', Integer, nullable=True),
+    Column('cache_ttl_seconds', Integer, nullable=True),
+    Column('cache_backtest_results', Boolean, nullable=True),
+    Column('cache_market_data', Boolean, nullable=True),
+    Column('cache_analysis_results', Boolean, nullable=True),
+    Column('last_connection_test', DateTime, nullable=True),
+    Column('last_connection_status', String(20), nullable=True),
+    Column('total_cache_hits', Integer, nullable=True),
+    Column('total_cache_misses', Integer, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_redis_settings_id', 'id'),
+    Index('ix_redis_settings_enabled', 'enabled'),
+    Index('idx_redis_enabled', 'enabled'),
+)
+
+# ========== Strategy Version History table ==========
+strategy_version_history = Table(
+    'strategy_version_history',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('strategy_id', Integer, ForeignKey('public.backtest_strategies.id'), nullable=False),
+    Column('version_number', Integer, nullable=False),
+    Column('change_description', String(500), nullable=True),
+    Column('config_snapshot', JSON, nullable=False),
+    Column('changes', JSON, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('created_by_user_id', Integer, ForeignKey('public.users.id'), nullable=True),
+    Column('backtest_count', Integer, nullable=True),
+    Column('best_backtest_pnl', Double, nullable=True),
+    Column('average_backtest_pnl', Double, nullable=True),
+    Index('ix_strategy_version_history_created_at', 'created_at'),
+    Index('idx_strategy_version', 'strategy_id', 'version_number'),
+    Index('idx_strategy_version_created', 'strategy_id', 'created_at'),
+    Index('ix_strategy_version_history_strategy_id', 'strategy_id'),
+    Index('ix_strategy_version_history_id', 'id'),
+)
+
+# ========== Backtest Runs table ==========
+backtest_runs = Table(
+    'backtest_runs',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('run_id', String(50), nullable=False),
+    Column('status', String(20), nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('started_at', DateTime, nullable=True),
+    Column('completed_at', DateTime, nullable=True),
+    Column('duration_seconds', Double, nullable=True),
+    Column('start_date', String(10), nullable=False),
+    Column('end_date', String(10), nullable=False),
+    Column('num_pairs', Integer, nullable=False),
+    Column('total_markets', Integer, nullable=False),
+    Column('config', JSON, nullable=True),
+    Column('total_trades', Integer, nullable=True),
+    Column('profitable_trades', Integer, nullable=True),
+    Column('losing_trades', Integer, nullable=True),
+    Column('win_rate', Double, nullable=True),
+    Column('total_pnl', Double, nullable=True),
+    Column('total_pnl_usd', Double, nullable=True),
+    Column('sharpe_ratio', Double, nullable=True),
+    Column('sortino_ratio', Double, nullable=True),
+    Column('calmar_ratio', Double, nullable=True),
+    Column('max_drawdown', Double, nullable=True),
+    Column('profit_factor', Double, nullable=True),
+    Column('starting_balance', Double, nullable=True),
+    Column('ending_balance', Double, nullable=True),
+    Column('max_balance', Double, nullable=True),
+    Column('min_balance', Double, nullable=True),
+    Column('error_message', String, nullable=True),
+    Column('user_id', Integer, ForeignKey('public.users.id'), nullable=True),
+    Column('strategy_id', Integer, ForeignKey('public.backtest_strategies.id'), nullable=True),
+    Column('strategy_snapshot', JSON, nullable=True),
+    Column('strategy_version_id', Integer, ForeignKey('public.strategy_version_history.id'), nullable=True),
+    Column('resolution', String(20), nullable=False, server_default='1HOUR'),
+    Index('ix_backtest_runs_strategy_id', 'strategy_id'),
+    Index('ix_backtest_runs_run_id', 'run_id', unique=True),
+    Index('ix_backtest_runs_created_at', 'created_at'),
+    Index('idx_run_date_range', 'start_date', 'end_date'),
+    Index('idx_run_status_created', 'status', 'created_at'),
+    Index('ix_backtest_runs_user_id', 'user_id'),
+    Index('idx_run_user_created', 'user_id', 'created_at'),
+    Index('ix_backtest_runs_status', 'status'),
+    Index('ix_backtest_runs_id', 'id'),
+    Index('ix_backtest_runs_strategy_version_id', 'strategy_version_id'),
+)
+
+# ========== Backtest Results table ==========
+backtest_results = Table(
+    'backtest_results',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('market_1', String(50), nullable=False),
+    Column('market_2', String(50), nullable=False),
+    Column('run_id_fk', Integer, ForeignKey('public.backtest_runs.id'), nullable=False),
+    Column('total_trades', Integer, nullable=True),
+    Column('entry_trades', Integer, nullable=True),
+    Column('exit_trades', Integer, nullable=True),
+    Column('profitable_trades', Integer, nullable=True),
+    Column('losing_trades', Integer, nullable=True),
+    Column('pnl', Double, nullable=True),
+    Column('pnl_usd', Double, nullable=True),
+    Column('win_rate', Double, nullable=True),
+    Column('avg_win', Double, nullable=True),
+    Column('avg_loss', Double, nullable=True),
+    Column('profit_factor', Double, nullable=True),
+    Column('max_drawdown', Double, nullable=True),
+    Column('sharpe_ratio', Double, nullable=True),
+    Column('sortino_ratio', Double, nullable=True),
+    Column('calmar_ratio', Double, nullable=True),
+    Column('avg_trade_duration_hours', Double, nullable=True),
+    Column('avg_winning_trade_duration', Double, nullable=True),
+    Column('avg_losing_trade_duration', Double, nullable=True),
+    Column('cointegration_score', Double, nullable=True),
+    Column('correlation', Double, nullable=True),
+    Column('zscore_mean', Double, nullable=True),
+    Column('zscore_std', Double, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_backtest_results_created_at', 'created_at'),
+    Index('ix_backtest_results_market_2', 'market_2'),
+    Index('idx_result_pair', 'market_1', 'market_2'),
+    Index('ix_backtest_results_id', 'id'),
+    Index('ix_backtest_results_run_id_fk', 'run_id_fk'),
+    Index('idx_result_run_profit', 'run_id_fk', 'pnl'),
+    Index('ix_backtest_results_market_1', 'market_1'),
+)
+
+# ========== Backtest Logs table ==========
+backtest_logs = Table(
+    'backtest_logs',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('run_id_fk', Integer, ForeignKey('public.backtest_runs.id'), nullable=False),
+    Column('message', String, nullable=False),
+    Column('level', String(20), nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_backtest_logs_run_id_fk', 'run_id_fk'),
+    Index('ix_backtest_logs_created_at', 'created_at'),
+    Index('ix_backtest_logs_id', 'id'),
+    Index('idx_backtest_log_run_created', 'run_id_fk', 'created_at'),
+)
+
+# ========== Backtest Trades table ==========
+backtest_trades = Table(
+    'backtest_trades',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('run_id_fk', Integer, ForeignKey('public.backtest_runs.id'), nullable=False),
+    Column('trade_id', String(100), nullable=False),
+    Column('market_1', String(50), nullable=False),
+    Column('market_2', String(50), nullable=False),
+    Column('entry_timestamp', DateTime, nullable=False),
+    Column('entry_price_1', Double, nullable=False),
+    Column('entry_price_2', Double, nullable=False),
+    Column('entry_z_score', Double, nullable=False),
+    Column('side_1', String(10), nullable=False),
+    Column('side_2', String(10), nullable=False),
+    Column('size_1', Double, nullable=False),
+    Column('size_2', Double, nullable=False),
+    Column('exit_timestamp', DateTime, nullable=True),
+    Column('exit_price_1', Double, nullable=True),
+    Column('exit_price_2', Double, nullable=True),
+    Column('exit_z_score', Double, nullable=True),
+    Column('pnl', Double, nullable=True),
+    Column('pnl_pct', Double, nullable=True),
+    Column('duration_hours', Double, nullable=True),
+    Column('hedge_ratio', Double, nullable=False),
+    Column('transaction_fee', Double, nullable=False),
+    Column('slippage', Double, nullable=False),
+    Index('ix_backtest_trades_entry_timestamp', 'entry_timestamp'),
+    Index('idx_backtest_trade_run_entry', 'run_id_fk', 'entry_timestamp'),
+    Index('ix_backtest_trades_exit_timestamp', 'exit_timestamp'),
+    Index('idx_backtest_trade_market', 'market_1', 'market_2'),
+    Index('ix_backtest_trades_trade_id', 'trade_id', unique=True),
+    Index('ix_backtest_trades_market_1', 'market_1'),
+    Index('ix_backtest_trades_run_id_fk', 'run_id_fk'),
+    Index('ix_backtest_trades_id', 'id'),
+    Index('ix_backtest_trades_market_2', 'market_2'),
+)
+
+# ========== Backtest Positions table ==========
+backtest_positions = Table(
+    'backtest_positions',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('run_id_fk', Integer, ForeignKey('public.backtest_runs.id'), nullable=False),
+    Column('position_id', String(100), nullable=False),
+    Column('market_1', String(50), nullable=False),
+    Column('market_2', String(50), nullable=False),
+    Column('status', String(20), nullable=False),
+    Column('entry_timestamp', DateTime, nullable=False),
+    Column('close_timestamp', DateTime, nullable=True),
+    Column('entry_price_1', Double, nullable=False),
+    Column('entry_price_2', Double, nullable=False),
+    Column('entry_z_score', Double, nullable=False),
+    Column('current_price_1', Double, nullable=True),
+    Column('current_price_2', Double, nullable=True),
+    Column('current_z_score', Double, nullable=True),
+    Column('size_1', Double, nullable=False),
+    Column('size_2', Double, nullable=False),
+    Column('side_1', String(10), nullable=False),
+    Column('side_2', String(10), nullable=False),
+    Column('hedge_ratio', Double, nullable=False),
+    Column('unrealized_pnl', Double, nullable=True),
+    Column('realized_pnl', Double, nullable=True),
+    Index('ix_backtest_positions_run_id_fk', 'run_id_fk'),
+    Index('ix_backtest_positions_id', 'id'),
+    Index('idx_backtest_position_run_time', 'run_id_fk', 'entry_timestamp'),
+    Index('ix_backtest_positions_position_id', 'position_id', unique=True),
+    Index('idx_backtest_position_status', 'run_id_fk', 'status'),
+)
+
+# ========== Backtest Comparisons table ==========
+backtest_comparisons = Table(
+    'backtest_comparisons',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('name', String(100), nullable=False),
+    Column('description', String(500), nullable=True),
+    Column('user_id', Integer, ForeignKey('public.users.id'), nullable=False),
+    Column('strategy_id_1', Integer, ForeignKey('public.backtest_strategies.id'), nullable=False),
+    Column('strategy_id_2', Integer, ForeignKey('public.backtest_strategies.id'), nullable=False),
+    Column('run_id_1', Integer, ForeignKey('public.backtest_runs.id'), nullable=False),
+    Column('run_id_2', Integer, ForeignKey('public.backtest_runs.id'), nullable=False),
+    Column('winner_run_id', Integer, nullable=True),
+    Column('pnl_difference', Double, nullable=True),
+    Column('sharpe_difference', Double, nullable=True),
+    Column('win_rate_difference', Double, nullable=True),
+    Column('drawdown_difference', Double, nullable=True),
+    Column('comparison_metrics', JSON, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Index('idx_comparison_strategies', 'strategy_id_1', 'strategy_id_2'),
+    Index('ix_backtest_comparisons_user_id', 'user_id'),
+    Index('idx_comparison_runs', 'run_id_1', 'run_id_2'),
+    Index('ix_backtest_comparisons_name', 'name'),
+    Index('ix_backtest_comparisons_id', 'id'),
+    Index('ix_backtest_comparisons_created_at', 'created_at'),
+    Index('idx_comparison_user_created', 'user_id', 'created_at'),
+)
+
+# ========== Trade Logs table ==========
+trade_logs = Table(
+    'trade_logs',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('result_id_fk', Integer, ForeignKey('public.backtest_results.id'), nullable=False),
+    Column('trade_number', Integer, nullable=False),
+    Column('entry_timestamp', DateTime, nullable=False),
+    Column('exit_timestamp', DateTime, nullable=True),
+    Column('entry_price_1', Double, nullable=False),
+    Column('entry_price_2', Double, nullable=False),
+    Column('exit_price_1', Double, nullable=True),
+    Column('exit_price_2', Double, nullable=True),
+    Column('quantity_1', Double, nullable=False),
+    Column('quantity_2', Double, nullable=False),
+    Column('side_1', String(10), nullable=False),
+    Column('side_2', String(10), nullable=False),
+    Column('pnl', Double, nullable=True),
+    Column('pnl_usd', Double, nullable=True),
+    Column('entry_zscore', Double, nullable=True),
+    Column('exit_zscore', Double, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_trade_logs_result_id_fk', 'result_id_fk'),
+    Index('idx_trade_result', 'result_id_fk', 'entry_timestamp'),
+    Index('ix_trade_logs_id', 'id'),
+)
+
+# ========== Backtest Candles table ==========
+backtest_candles = Table(
+    'backtest_candles',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('run_id_fk', Integer, ForeignKey('public.backtest_runs.id'), nullable=False),
+    Column('market', String(255), nullable=False),
+    Column('timestamp', DateTime, nullable=False),
+    Column('resolution', String(20), nullable=True),
+    Column('open_price', Double, nullable=False),
+    Column('high_price', Double, nullable=False),
+    Column('low_price', Double, nullable=False),
+    Column('close_price', Double, nullable=False),
+    Column('volume', Double, nullable=False),
+    Column('trades_count', Integer, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_backtest_candles_run_id_fk', 'run_id_fk'),
+    Index('ix_backtest_candles_timestamp', 'timestamp'),
+    Index('ix_backtest_candles_id', 'id'),
+    Index('idx_backtest_candle_run_time', 'run_id_fk', 'timestamp'),
+    Index('ix_backtest_candles_market', 'market'),
+    Index('idx_backtest_candle_run_market', 'run_id_fk', 'market'),
+    Index('idx_backtest_candle_market_time', 'market', 'timestamp'),
+)
+
+# ========== Strategy Execution States table ==========
+strategy_execution_states = Table(
+    'strategy_execution_states',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('strategy_id', Integer, ForeignKey('public.backtest_strategies.id'), nullable=False),
+    Column('enabled', Boolean, nullable=True),
+    Column('status', String(20), nullable=True),
+    Column('trades_executed', Integer, nullable=True),
+    Column('pnl', Double, nullable=True),
+    Column('pnl_pct', Double, nullable=True),
+    Column('last_error', String(500), nullable=True),
+    Column('error_count', Integer, nullable=True),
+    Column('last_error_at', DateTime, nullable=True),
+    Column('config_snapshot', JSON, nullable=True),
+    Column('last_started', DateTime, nullable=True),
+    Column('last_stopped', DateTime, nullable=True),
+    Column('last_trade_at', DateTime, nullable=True),
+    Column('uptime_seconds', Integer, nullable=True),
+    Column('last_cointegration_check', DateTime, nullable=True),
+    Column('active_pairs_count', Integer, nullable=True),
+    Column('open_positions_count', Integer, nullable=True),
+    Column('max_drawdown', Double, nullable=True),
+    Column('sharpe_ratio', Double, nullable=True),
+    Column('win_rate', Double, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Index('idx_execution_state_strategy_enabled', 'strategy_id', 'enabled'),
+    Index('ix_strategy_execution_states_strategy_id', 'strategy_id'),
+    Index('ix_strategy_execution_states_created_at', 'created_at'),
+    Index('ix_strategy_execution_states_status', 'status'),
+    Index('idx_execution_state_status', 'strategy_id', 'status'),
+    Index('idx_execution_state_updated', 'updated_at'),
+    Index('ix_strategy_execution_states_updated_at', 'updated_at'),
+    Index('ix_strategy_execution_states_id', 'id'),
+    Index('ix_strategy_execution_states_enabled', 'enabled'),
+)
+
+# ========== DYdX Keys table ==========
+dydx_keys = Table(
+    'dydx_keys',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('user_id', Integer, ForeignKey('public.users.id'), nullable=False),
+    Column('network', String(50), nullable=False),
+    Column('chain_address', String(255), nullable=False),
+    Column('encrypted_secret', Text, nullable=False),
+    Column('is_active', Boolean, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_dydx_keys_id', 'id'),
+    Index('ix_dydx_keys_user_id', 'user_id'),
+    Index('ix_dydx_keys_network', 'network'),
+)
+
+# ========== DYdX Key Settings table ==========
+dydx_key_settings = Table(
+    'dydx_key_settings',
+    metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('user_id', Integer, ForeignKey('public.users.id'), nullable=False),
+    Column('default_network', String(50), nullable=True),
+    Column('auto_switch_testnet', Boolean, nullable=True),
+    Column('created_at', DateTime, nullable=True, server_default=func.now()),
+    Column('updated_at', DateTime, nullable=True, server_default=func.now()),
+    Index('ix_dydx_key_settings_id', 'id'),
+    Index('ix_dydx_key_settings_user_id', 'user_id'),
+)
+
+# Export all tables
+__all__ = [
+    'metadata',
+    'users',
+    'bot_settings',
+    'audit_logs',
+    'backtest_strategies',
+    'redis_settings',
+    'strategy_version_history',
+    'backtest_runs',
+    'backtest_results',
+    'backtest_logs',
+    'backtest_trades',
+    'backtest_positions',
+    'backtest_comparisons',
+    'trade_logs',
+    'backtest_candles',
+    'strategy_execution_states',
+    'dydx_keys',
+    'dydx_key_settings',
+]

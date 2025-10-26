@@ -4,20 +4,20 @@ Secure key management models for dYdX credentials.
 Stores testnet and mainnet keys encrypted with Fernet symmetric encryption.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cryptography.fernet import Fernet
 from sqlalchemy import (
     Boolean,
+    Column,
     DateTime,
     ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
-    func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import relationship
 
 from models.base import Base
 
@@ -30,25 +30,17 @@ class DYDXKey(Base):
         UniqueConstraint("user_id", "network", name="uq_user_network_keys"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("user.id"), index=True, nullable=False
-    )
-    network: Mapped[str] = mapped_column(
-        String(50), index=True, nullable=False
-    )  # testnet, mainnet
-    chain_address: Mapped[str] = mapped_column(String(255), nullable=False)
-    encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
-    )
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    network = Column(String(50), index=True, nullable=False)  # testnet, mainnet
+    chain_address = Column(String(255), nullable=False)
+    encrypted_secret = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationship to User
-    user: Mapped["User"] = relationship("User", back_populates="dydx_keys")
+    user = relationship("User", back_populates="dydx_keys")
 
     @staticmethod
     def encrypt_secret(secret: str, cipher: Fernet) -> str:
@@ -92,25 +84,15 @@ class DYDXKeySettings(Base):
 
     __tablename__ = "dydx_key_settings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("user.id"), unique=True, index=True, nullable=False
-    )
-    default_network: Mapped[str] = mapped_column(
-        String(50), default="testnet", nullable=False
-    )  # Default network
-    auto_switch_testnet: Mapped[bool] = mapped_column(
-        Boolean, default=True, nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
-    )
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True, nullable=False)
+    default_network = Column(String(50), default="testnet", nullable=False)
+    auto_switch_testnet = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationship to User
-    user: Mapped["User"] = relationship("User", back_populates="dydx_key_settings")
+    user = relationship("User", back_populates="dydx_key_settings")
 
     def __repr__(self) -> str:
         return f"<DYDXKeySettings(user_id={self.user_id}, default_network={self.default_network})>"

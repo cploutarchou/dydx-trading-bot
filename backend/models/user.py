@@ -46,6 +46,12 @@ class User(Base):
     backtest_runs = relationship(
         "BacktestRun", back_populates="user", cascade="all, delete-orphan"
     )
+    dydx_keys = relationship(
+        "DYDXKey", back_populates="user", cascade="all, delete-orphan"
+    )
+    dydx_key_settings = relationship(
+        "DYDXKeySettings", back_populates="user", cascade="all, delete-orphan", uselist=False
+    )
 
     __table_args__ = (Index("idx_user_active", "is_active"),)
 

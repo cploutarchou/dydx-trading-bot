@@ -3,7 +3,6 @@ JWT Authentication module with user management.
 """
 
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,15 +10,15 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 
+import config
+
 logger = logging.getLogger(__name__)
 
 # JWT Configuration
-SECRET_KEY = os.getenv(
-    "JWT_SECRET_KEY", "your-secret-key-change-in-production-use-strong-key-32-chars"
-)
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+SECRET_KEY = config.APP_CONFIG.auth.jwt_secret_key
+ALGORITHM = config.APP_CONFIG.auth.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = config.APP_CONFIG.auth.access_token_expire_minutes
+REFRESH_TOKEN_EXPIRE_DAYS = config.APP_CONFIG.auth.refresh_token_expire_days
 
 # Password hashing - use argon2 for better compatibility and security
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")

@@ -2,19 +2,12 @@
 FastAPI backend server for dYdX Backtest System.
 Provides REST API and WebSocket for real-time backtest monitoring.
 """
-
-from dotenv import load_dotenv
-load_dotenv()
-
-from services.settings_service import SettingsService
-
-
+import datetime
 import logging
 import os
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-import datetime
 from typing import List, Optional
 
 import uvicorn
@@ -30,6 +23,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+import config
 from auth import (
     Token,
     UserCreate,
@@ -47,6 +41,10 @@ from db_services import (
     BacktestStrategyService,
     TradeLogService,
 )
+from services.settings_service import SettingsService
+
+current_path = os.path.dirname(os.path.abspath(__file__))
+config.load_dotenv(os.path.join(current_path, ".env"))
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +113,7 @@ class BacktestStatusUpdate(BaseModel):
     status: str  # running, completed, failed
     progress: Optional[float] = None  # 0-100
     message: Optional[str] = None
-    timestamp: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
+    timestamp: datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 class ProfileUpdate(BaseModel):
@@ -132,7 +130,7 @@ class ApiResponse(BaseModel):
     success: bool
     message: str
     data: Optional[dict] = None
-    timestamp: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
+    timestamp: datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 # Startup/Shutdown events
@@ -203,7 +201,7 @@ security = HTTPBearer()
 
 # Dependency: Get current user
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+        credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
     """Verify JWT token and get current user."""
     token = credentials.credentials
@@ -272,7 +270,8 @@ async def login(login_data: UserLogin):
 
     if not user:
         AuditLogService.log_action(
-            action="login_failed", resource_type="user", user_id=None, details={"username": login_data.username}, status="failure"
+            action="login_failed", resource_type="user", user_id=None, details={"username": login_data.username},
+            status="failure"
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -294,7 +293,7 @@ async def login(login_data: UserLogin):
 
 @app.post("/api/v1/auth/refresh", response_model=Token)
 async def refresh_token(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+        credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Refresh access token using refresh token."""
     token = credentials.credentials
@@ -320,7 +319,7 @@ async def refresh_token(
 
 @app.get("/api/v1/users/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: dict = Depends(get_current_user),
+        current_user: dict = Depends(get_current_user),
 ):
     """Get current user profile."""
     user = UserService.get_user_by_id(current_user["user_id"])
@@ -329,8 +328,8 @@ async def get_current_user_info(
 
 @app.put("/api/v1/profile", response_model=ApiResponse)
 async def update_profile(
-    profile_data: ProfileUpdate,
-    current_user: dict = Depends(get_current_user),
+        profile_data: ProfileUpdate,
+        current_user: dict = Depends(get_current_user),
 ):
     """Update current user profile (full_name, email, avatar)."""
     try:
@@ -373,9 +372,9 @@ async def update_profile(
 
 @app.get("/api/v1/backtests")
 async def list_backtests(
-    skip: int = 0,
-    limit: int = 50,
-    current_user: dict = Depends(get_current_user),
+        skip: int = 0,
+        limit: int = 50,
+        current_user: dict = Depends(get_current_user),
 ):
     """List backtest runs for current user."""
     runs = BacktestRunService.get_user_runs(current_user["user_id"], skip, limit)
@@ -390,8 +389,8 @@ async def list_backtests(
 
 @app.get("/api/v1/backtests/{run_id}")
 async def get_backtest(
-    run_id: str,
-    current_user: dict = Depends(get_current_user),
+        run_id: str,
+        current_user: dict = Depends(get_current_user),
 ):
     """Get backtest details with trades and results."""
     run = BacktestRunService.get_run_by_run_id(run_id)
@@ -429,8 +428,8 @@ async def get_backtest(
 
 @app.post("/api/v1/backtests/run")
 async def run_backtest(
-    request: BacktestStartRequest,
-    current_user: dict = Depends(get_current_user),
+        request: BacktestStartRequest,
+        current_user: dict = Depends(get_current_user),
 ):
     """Start a new backtest run.
 
@@ -541,7 +540,7 @@ async def run_backtest(
                 "strategy_id": strategy.id if strategy else None,
                 "strategy_name": strategy.name if strategy else None,
                 "message": f"Your backtest has been queued. "
-                f"{'Using strategy: ' + strategy.name if strategy else 'Using custom parameters.'}",
+                           f"{'Using strategy: ' + strategy.name if strategy else 'Using custom parameters.'}",
             },
         )
     except HTTPException:
@@ -555,9 +554,9 @@ async def run_backtest(
 
 
 async def _execute_backtest_task(
-    run_id: str,
-    request: BacktestStartRequest,
-    strategy_params: Optional[dict] = None,
+        run_id: str,
+        request: BacktestStartRequest,
+        strategy_params: Optional[dict] = None,
 ):
     """Background task to execute backtest and create logs.
 
@@ -767,7 +766,7 @@ async def _execute_backtest_task(
 
 @app.get("/api/v1/stats")
 async def get_stats(
-    current_user: dict = Depends(get_current_user),
+        current_user: dict = Depends(get_current_user),
 ):
     """Get backtest statistics."""
     stats = BacktestRunService.get_run_stats()
@@ -776,8 +775,8 @@ async def get_stats(
 
 @app.get("/api/v1/backtests/{run_id}/logs")
 async def get_backtest_logs(
-    run_id: str,
-    current_user: dict = Depends(get_current_user),
+        run_id: str,
+        current_user: dict = Depends(get_current_user),
 ):
     """Get logs for a specific backtest run."""
     try:
@@ -823,11 +822,11 @@ async def get_backtest_logs(
 
 @app.get("/api/v1/backtests/{run_id}/candles")
 async def get_backtest_candles(
-    run_id: str,
-    market: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    current_user: dict = Depends(get_current_user),
+        run_id: str,
+        market: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        current_user: dict = Depends(get_current_user),
 ) -> ApiResponse:
     """
     Get historical candle data for backtest.
@@ -1007,7 +1006,7 @@ async def update_settings(
 
 @app.post("/api/v1/settings/initialize", response_model=ApiResponse)
 async def initialize_settings(
-    current_user: dict = Depends(get_current_user),
+        current_user: dict = Depends(get_current_user),
 ):
     """Initialize default settings if they don't exist."""
     try:

@@ -27,6 +27,11 @@ class DatabaseSettings:
     pool_size: int = 5
     max_overflow: int = 10
     enabled: bool = True
+    def __post_init__(self):
+        if self.type == "postgresql":
+            self.dsn = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.dbname}"
+        elif self.type == "sqlite":
+            self.dsn = f"sqlite:///{self.dbname}"
 
 
 @dataclass

@@ -1,52 +1,77 @@
 """
-Database models for dYdX Trading Bot backend.
-
-This package contains all SQLAlchemy ORM models for:
-- Backtest runs and results
-- Trading logs and positions
-- User accounts and authentication
-- Strategy configurations and version history
-- Execution states and comparisons
-- Bot settings and audit logs
+Database models package - SQLModel-based ORM models + Bot utility models.
+All SQLModel models are defined in sqlmodel_models.py with full type hints and validation.
+Bot utility models (dataclasses) are in bot_backtest_models.py and bot_pair_storage.py
 """
+from .sqlmodel_models import (
+    # User models
+    User, UserBase, UserCreate, UserRead, UserUpdate,
+    DYDXKey, DYDXKeyBase, DYDXKeyRead, DYDXKeyCreate,
+    DYDXKeySettings, DYDXKeySettingsBase, DYDXKeySettingsRead, DYDXKeySettingsCreate,
+    # Backtest Strategy & Version History models
+    BacktestStrategy, BacktestStrategyBase, BacktestStrategyRead, BacktestStrategyCreate,
+    StrategyVersionHistory, StrategyVersionHistoryBase, StrategyVersionHistoryRead, StrategyVersionHistoryCreate,
+    # Backtest Run models
+    BacktestRun, BacktestRunBase, BacktestRunRead, BacktestRunCreate,
+    # Backtest Result models
+    BacktestResult, BacktestResultBase, BacktestResultRead,
+    # Backtest Trade models
+    BacktestTrade, BacktestTradeBase, BacktestTradeRead,
+    # Backtest Candle models
+    BacktestCandle, BacktestCandleBase, BacktestCandleRead,
+    # Backtest Log models
+    BacktestLog, BacktestLogBase, BacktestLogRead,
+    # Backtest Position models
+    BacktestPosition, BacktestPositionBase, BacktestPositionRead,
+    # Backtest Comparison models
+    BacktestComparison, BacktestComparisonBase, BacktestComparisonRead,
+    # Trade Log models
+    TradeLog, TradeLogBase, TradeLogRead,
+    # Strategy Execution State models
+    StrategyExecutionState, StrategyExecutionStateBase, StrategyExecutionStateRead,
+    # Audit models
+    AuditLog, AuditLogBase, AuditLogRead, AuditLogCreate,
+    # Settings models
+    BotSetting, BotSettingBase, BotSettingRead,
+    RedisSettings, RedisSettingsBase, RedisSettingsRead,
+)
 
-from .backtest import (
-    BacktestCandle,
-    BacktestComparison,
-    BacktestLog,
-    BacktestPosition,
-    BacktestResult,
-    BacktestRun,
-    BacktestTrade,
-)
-from .strategy import (
-    BacktestStrategy,
-    StrategyExecutionState,
-    StrategyVersionHistory,
-)
-from .trade import TradeLog
-from .user import AuditLog, User
-from .settings import BotSetting, RedisSetting
+# Bot utility models (dataclasses for bot operations)
+from .bot_backtest_models import BacktestTrade as BotBacktestTrade, BacktestMetrics, BacktestResult as BotBacktestResult
+from .bot_pair_storage import CointegrationResult, PairStorageManager, pair_storage
+from .bot_backtest_storage import BacktestStorage
 
 __all__ = [
-    # Backtest models
-    "BacktestRun",
-    "BacktestResult",
-    "BacktestTrade",
-    "BacktestLog",
-    "BacktestPosition",
-    "BacktestCandle",
-    "BacktestComparison",
-    # Strategy models
-    "BacktestStrategy",
-    "StrategyVersionHistory",
-    "StrategyExecutionState",
-    # Trade models
-    "TradeLog",
-    # User models
-    "User",
-    "AuditLog",
-    # Settings models
-    "BotSetting",
-    "RedisSetting",
+    # SQLModel - User models
+    "User", "UserBase", "UserCreate", "UserRead", "UserUpdate",
+    "DYDXKey", "DYDXKeyBase", "DYDXKeyRead", "DYDXKeyCreate",
+    "DYDXKeySettings", "DYDXKeySettingsBase", "DYDXKeySettingsRead", "DYDXKeySettingsCreate",
+    # SQLModel - Backtest Strategy & Version History models
+    "BacktestStrategy", "BacktestStrategyBase", "BacktestStrategyRead", "BacktestStrategyCreate",
+    "StrategyVersionHistory", "StrategyVersionHistoryBase", "StrategyVersionHistoryRead", "StrategyVersionHistoryCreate",
+    # SQLModel - Backtest Run models
+    "BacktestRun", "BacktestRunBase", "BacktestRunRead", "BacktestRunCreate",
+    # SQLModel - Backtest Result models
+    "BacktestResult", "BacktestResultBase", "BacktestResultRead",
+    # SQLModel - Backtest Trade models
+    "BacktestTrade", "BacktestTradeBase", "BacktestTradeRead",
+    # SQLModel - Backtest Candle models
+    "BacktestCandle", "BacktestCandleBase", "BacktestCandleRead",
+    # SQLModel - Backtest Log models
+    "BacktestLog", "BacktestLogBase", "BacktestLogRead",
+    # SQLModel - Backtest Position models
+    "BacktestPosition", "BacktestPositionBase", "BacktestPositionRead",
+    # SQLModel - Backtest Comparison models
+    "BacktestComparison", "BacktestComparisonBase", "BacktestComparisonRead",
+    # SQLModel - Trade Log models
+    "TradeLog", "TradeLogBase", "TradeLogRead",
+    # SQLModel - Strategy Execution State models
+    "StrategyExecutionState", "StrategyExecutionStateBase", "StrategyExecutionStateRead",
+    # SQLModel - Audit & Settings
+    "AuditLog", "AuditLogBase", "AuditLogRead", "AuditLogCreate",
+    "BotSetting", "BotSettingBase", "BotSettingRead",
+    "RedisSettings", "RedisSettingsBase", "RedisSettingsRead",
+    # Bot utility models (dataclasses)
+    "BotBacktestTrade", "BacktestMetrics", "BotBacktestResult",
+    "CointegrationResult", "PairStorageManager", "pair_storage", "BacktestStorage",
 ]

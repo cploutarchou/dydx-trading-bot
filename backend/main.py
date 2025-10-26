@@ -2,13 +2,7 @@
 FastAPI backend server for dYdX Backtest System.
 Provides REST API and WebSocket for real-time backtest monitoring.
 """
-
-from dotenv import load_dotenv
-
-from .services.settings_service import SettingsService
-
-load_dotenv()
-
+import datetime
 import logging
 import os
 import traceback
@@ -28,9 +22,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
-from .auth import (
+import config
+from auth import (
     Token,
     UserCreate,
     UserLogin,
@@ -40,22 +34,20 @@ from .auth import (
     extract_user_from_token,
     verify_token,
 )
-from .database import (
-    BacktestCandle,
-    BacktestLog,
-    BacktestResult,
-    BacktestRun,
-    BacktestStrategy,
-    TradeLog,
-    User,
-    get_db,
-    init_db,
-)
-from .db_services import (
+from db_services import (
     AuditLogService,
     BacktestRunService,
     UserService,
+    BacktestStrategyService,
+    TradeLogService,
 )
+from models.backtest import BacktestRun, BacktestCandle
+from services.settings_service import SettingsService
+
+from database import db
+
+current_path = os.path.dirname(os.path.abspath(__file__))
+config.load_dotenv(os.path.join(current_path, ".env"))
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +116,7 @@ class BacktestStatusUpdate(BaseModel):
     status: str  # running, completed, failed
     progress: Optional[float] = None  # 0-100
     message: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 class ProfileUpdate(BaseModel):
@@ -141,7 +133,7 @@ class ApiResponse(BaseModel):
     success: bool
     message: str
     data: Optional[dict] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 # Startup/Shutdown events
@@ -150,8 +142,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown event handler."""
     # Startup
     logger.info("Starting dYdX Backtest API Server")
-    init_db()
-    logger.info("Database initialized")
+    # No init_db needed, handled by migration or elsewhere
     yield
     # Shutdown
     logger.info("Shutting down dYdX Backtest API Server")
@@ -196,7 +187,7 @@ async def global_exception_handler(request, exc):
             "success": False,
             "message": str(exc) if not isinstance(exc, HTTPException) else exc.detail,
             "error_type": type(exc).__name__,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
         },
         headers={
             "Access-Control-Allow-Origin": "*",
@@ -213,8 +204,7 @@ security = HTTPBearer()
 
 # Dependency: Get current user
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
+        credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
     """Verify JWT token and get current user."""
     token = credentials.credentials
@@ -236,57 +226,66 @@ async def get_current_user(
     try:
         # Try parsing as numeric ID first
         user_id_int = int(subject)
-        user = UserService.get_user_by_id(db, user_id_int)
+        user = UserService.get_user_by_id(user_id_int)
     except (ValueError, TypeError):
         # Fall back to username lookup
-        user = UserService.get_user_by_username(db, subject)
+        user = UserService.get_user_by_username(subject)
 
-    if not user or not user.is_active:
+    if not user or not user.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
 
-    return {"user_id": user.id, "username": user.username, "is_admin": user.is_admin}
+    return {
+        "user_id": user["id"],
+        "username": user["username"],
+        "is_admin": user.get("is_admin", False),
+    }
 
 
 # ==================== AUTHENTICATION ENDPOINTS ====================
 
 
 @app.post("/api/v1/auth/register", response_model=ApiResponse)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register(user_data: UserCreate):
     """Register new user account."""
     try:
         user = UserService.create_user(
-            db, user_data.username, user_data.email, user_data.password
+            str(user_data.username), str(user_data.email), user_data.password
         )
-        AuditLogService.log_action(db, "user_registration", "user", None, user.id)
+        AuditLogService.log_action(
+            action="user_registration", resource_type="user", user_id=user["id"]
+        )
         return ApiResponse(
             success=True,
             message="User registered successfully",
-            data={"user_id": user.id, "username": user.username},
+            data={"user_id": user["id"], "username": user["username"]},
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.post("/api/v1/auth/login", response_model=Token)
-async def login(login_data: UserLogin, db: Session = Depends(get_db)):
+async def login(login_data: UserLogin):
     """Authenticate user and return JWT tokens."""
-    user = UserService.authenticate_user(db, login_data.username, login_data.password)
+    user = UserService.authenticate_user(login_data.username, login_data.password)
 
     if not user:
         AuditLogService.log_action(
-            db, "login_failed", "user", None, login_data.username, status="failure"
+            action="login_failed", resource_type="user", user_id=None, details={"username": login_data.username},
+            status="failure"
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
 
-    access_token = create_access_token(subject=str(user.id))
-    refresh_token = create_refresh_token(subject=str(user.id))
+    access_token = create_access_token(subject=str(user["id"]))
+    refresh_token = create_refresh_token(subject=str(user["id"]))
 
-    AuditLogService.log_action(db, "login_success", "user", user.id, None)
+    AuditLogService.log_action(
+        action="login_success", resource_type="user", user_id=user["id"]
+    )
 
     return Token(
         access_token=access_token,
@@ -297,8 +296,7 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
 
 @app.post("/api/v1/auth/refresh", response_model=Token)
 async def refresh_token(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
+        credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Refresh access token using refresh token."""
     token = credentials.credentials
@@ -324,87 +322,49 @@ async def refresh_token(
 
 @app.get("/api/v1/users/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+        current_user: dict = Depends(get_current_user),
 ):
     """Get current user profile."""
-    user = UserService.get_user_by_id(db, current_user["user_id"])
+    user = UserService.get_user_by_id(current_user["user_id"])
     return user
 
 
 @app.put("/api/v1/profile", response_model=ApiResponse)
 async def update_profile(
-    profile_data: ProfileUpdate,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        profile_data: ProfileUpdate,
+        current_user: dict = Depends(get_current_user),
 ):
     """Update current user profile (full_name, email, avatar)."""
     try:
-        user = UserService.get_user_by_id(db, current_user["user_id"])
+        user = UserService.get_user_by_id(current_user["user_id"])
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
-
         # Update fields if provided
+        update_data = {}
         if profile_data.full_name is not None:
-            user.full_name = profile_data.full_name.strip()[:100]  # Max 100 chars
-
+            update_data["full_name"] = profile_data.full_name.strip()[:100]
         if profile_data.email is not None:
-            # Check if email is already taken by another user
-            existing_user = (
-                db.query(User)
-                .filter(User.email == profile_data.email, User.id != user.id)
-                .first()
-            )
-            if existing_user:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already in use",
-                )
-            user.email = profile_data.email
-
+            update_data["email"] = profile_data.email
         if profile_data.avatar is not None:
-            user.avatar = profile_data.avatar
-
-        user.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(user)
-
-        # Log the action
-        AuditLogService.log_action(
-            db,
-            action="profile_update",
-            resource_type="user",
-            user_id=user.id,
-            details="Profile updated (full_name, email, avatar)",
-        )
-
+            update_data["avatar"] = profile_data.avatar
+        if update_data:
+            AuditLogService.log_action(
+                action="profile_update",
+                resource_type="user",
+                user_id=user["id"],
+                details=update_data,
+            )
         return ApiResponse(
             success=True,
             message="Profile updated successfully",
-            data={
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "full_name": user.full_name,
-                    "avatar": user.avatar,
-                    "is_active": user.is_active,
-                    "is_admin": user.is_admin,
-                    "created_at": user.created_at.isoformat()
-                    if user.created_at is not None
-                    else None,
-                    "last_login": user.last_login.isoformat()
-                    if user.last_login is not None
-                    else None,
-                }
-            },
+            data={"user": user},
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error updating profile: {e}")
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
@@ -415,137 +375,54 @@ async def update_profile(
 
 @app.get("/api/v1/backtests")
 async def list_backtests(
-    skip: int = 0,
-    limit: int = 50,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        skip: int = 0,
+        limit: int = 50,
+        current_user: dict = Depends(get_current_user),
 ):
     """List backtest runs for current user."""
-    runs = BacktestRunService.get_user_runs(db, current_user["user_id"], skip, limit)
+    runs = BacktestRunService.get_user_runs(current_user["user_id"], skip, limit)
     return ApiResponse(
         success=True,
         message="Backtests retrieved",
         data={
-            "backtests": [
-                {
-                    "id": run.id,
-                    "run_id": run.run_id,
-                    "status": run.status,
-                    "created_at": run.created_at.isoformat(),
-                    "duration_seconds": run.duration_seconds,
-                    "total_pnl": run.total_pnl,
-                    "total_trades": run.total_trades,
-                    "win_rate": run.win_rate,
-                }
-                for run in runs
-            ]
+            "backtests": [run for run in runs]
         },
     )
 
 
 @app.get("/api/v1/backtests/{run_id}")
 async def get_backtest(
-    run_id: str,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        run_id: str,
+        current_user: dict = Depends(get_current_user),
 ):
     """Get backtest details with trades and results."""
-    run = BacktestRunService.get_run_by_run_id(db, run_id)
-
+    run = BacktestRunService.get_run_by_run_id(run_id)
     if not run:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Backtest not found"
         )
-
     # Check authorization
-    if run.user_id != current_user["user_id"] and not current_user["is_admin"]:
+    if run["user_id"] != current_user["user_id"] and not current_user["is_admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
         )
-
     # Get all results for this backtest run
-    results = db.query(BacktestResult).filter(BacktestResult.run_id_fk == run.id).all()
-
-    # Format results with trades
+    from db_services import BacktestResultService
+    results = BacktestResultService.get_run_results(run["id"])
     formatted_results = []
     all_trades = []
     for result in results:
-        trades = (
-            db.query(TradeLog)
-            .filter(TradeLog.result_id_fk == result.id)
-            .order_by(TradeLog.entry_timestamp)
-            .all()
-        )
-
+        trades = TradeLogService.get_result_trades(result["id"])
         formatted_trades = []
         for trade in trades:
-            formatted_trades.append(
-                {
-                    "trade_number": trade.trade_number,
-                    "entry_timestamp": trade.entry_timestamp.isoformat()
-                    if trade.entry_timestamp is not None
-                    else None,
-                    "exit_timestamp": trade.exit_timestamp.isoformat()
-                    if trade.exit_timestamp is not None
-                    else None,
-                    "entry_price_1": trade.entry_price_1,
-                    "entry_price_2": trade.entry_price_2,
-                    "exit_price_1": trade.exit_price_1,
-                    "exit_price_2": trade.exit_price_2,
-                    "quantity_1": trade.quantity_1,
-                    "quantity_2": trade.quantity_2,
-                    "side_1": trade.side_1,
-                    "side_2": trade.side_2,
-                    "pnl": trade.pnl,
-                    "pnl_usd": trade.pnl_usd,
-                    "entry_zscore": trade.entry_zscore,
-                    "exit_zscore": trade.exit_zscore,
-                }
-            )
-            all_trades.append(formatted_trades[-1])
-
-        formatted_results.append(
-            {
-                "market_1": result.market_1,
-                "market_2": result.market_2,
-                "total_trades": result.total_trades,
-                "profitable_trades": result.profitable_trades,
-                "win_rate": result.win_rate,
-                "pnl": result.pnl,
-                "pnl_usd": result.pnl_usd,
-                "sharpe_ratio": result.sharpe_ratio,
-                "max_drawdown": result.max_drawdown,
-                "profit_factor": result.profit_factor,
-                "trades": formatted_trades,
-            }
-        )
-
+            formatted_trades.append(trade)
+            all_trades.append(trade)
+        formatted_results.append({**result, "trades": formatted_trades})
     return ApiResponse(
         success=True,
         message="Backtest retrieved",
         data={
-            "id": run.id,
-            "run_id": run.run_id,
-            "status": run.status,
-            "created_at": run.created_at.isoformat(),
-            "start_date": run.start_date,
-            "end_date": run.end_date,
-            "num_pairs": run.num_pairs,
-            "total_markets": run.total_markets,
-            "duration_seconds": run.duration_seconds,
-            "total_trades": run.total_trades,
-            "profitable_trades": run.profitable_trades,
-            "win_rate": run.win_rate,
-            "total_pnl": run.total_pnl,
-            "total_pnl_usd": run.total_pnl_usd,
-            "sharpe_ratio": run.sharpe_ratio,
-            "max_drawdown": run.max_drawdown,
-            "profit_factor": run.profit_factor,
-            "starting_balance": run.starting_balance,
-            "ending_balance": run.ending_balance,
-            "strategy_snapshot": run.strategy_snapshot,
-            "strategy_version_id": run.strategy_version_id,
-            "strategy_id": run.strategy_id,
+            **run,
             "results": formatted_results,
             "all_trades": all_trades,
         },
@@ -554,9 +431,8 @@ async def get_backtest(
 
 @app.post("/api/v1/backtests/run")
 async def run_backtest(
-    request: BacktestStartRequest,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        request: BacktestStartRequest,
+        current_user: dict = Depends(get_current_user),
 ):
     """Start a new backtest run.
 
@@ -573,11 +449,7 @@ async def run_backtest(
 
         if request.strategy_id is not None:
             # Load strategy from database
-            strategy = (
-                db.query(BacktestStrategy)
-                .filter(BacktestStrategy.id == request.strategy_id)
-                .first()
-            )
+            strategy = BacktestStrategyService.get_strategy_by_id(request.strategy_id)
 
             if not strategy:
                 raise HTTPException(
@@ -616,8 +488,7 @@ async def run_backtest(
             logger.info(f"Using strategy {strategy.id} ({strategy.name})")
 
             # Update last_used_at timestamp
-            strategy.last_used_at = datetime.utcnow()
-            db.commit()
+            # UserService.update_strategy_last_used_at(strategy.id)
         else:
             # Use inline parameters
             strategy_params = {
@@ -643,7 +514,6 @@ async def run_backtest(
         strategy_snapshot = strategy_params.copy() if strategy_params else None
 
         BacktestRunService.create_run(
-            db,
             run_id=run_id,
             start_date=request.start_date,
             end_date=request.end_date,
@@ -661,7 +531,7 @@ async def run_backtest(
         import asyncio
 
         asyncio.create_task(
-            _execute_backtest_task(run_id, request, db, strategy_params)
+            _execute_backtest_task(run_id, request, strategy_params)
         )
 
         return ApiResponse(
@@ -673,7 +543,7 @@ async def run_backtest(
                 "strategy_id": strategy.id if strategy else None,
                 "strategy_name": strategy.name if strategy else None,
                 "message": f"Your backtest has been queued. "
-                f"{'Using strategy: ' + strategy.name if strategy else 'Using custom parameters.'}",
+                           f"{'Using strategy: ' + strategy.name if strategy else 'Using custom parameters.'}",
             },
         )
     except HTTPException:
@@ -687,17 +557,15 @@ async def run_backtest(
 
 
 async def _execute_backtest_task(
-    run_id: str,
-    request: BacktestStartRequest,
-    db: Session,
-    strategy_params: Optional[dict] = None,
+        run_id: str,
+        request: BacktestStartRequest,
+        strategy_params: Optional[dict] = None,
 ):
     """Background task to execute backtest and create logs.
 
     Args:
         run_id: UUID of the backtest run
         request: Backtest start request parameters
-        db: Database session
         strategy_params: Optional strategy parameters to override config
     """
     import logging
@@ -729,22 +597,22 @@ async def _execute_backtest_task(
     from db_services import BacktestResultService
 
     try:
-        log_backtest_info(run_id, "Backtest execution started", db)
+        log_backtest_info(run_id, "Backtest execution started", None)
 
         # Get the integer ID from the database
-        run_record = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        run_record = BacktestRunService.get_run_by_run_id(run_id)
         if not run_record:
-            log_backtest_error(run_id, "BacktestRun record not found in database", db)
+            log_backtest_error(run_id, "BacktestRun record not found in database", None)
             raise ValueError(f"BacktestRun with run_id {run_id} not found")
 
-        run_id_int = run_record.id  # Direct integer value
+        run_id_int = run_record["id"]  # Direct integer value
         log_backtest_info(
-            run_id, f"Backtest execution started (DB ID: {run_id_int})", db
+            run_id, f"Backtest execution started (DB ID: {run_id_int})", None
         )
 
         # Load configuration
         cfg = config()
-        log_backtest_info(run_id, "Configuration loaded", db)
+        log_backtest_info(run_id, "Configuration loaded", None)
 
         # ========== NEW: Apply Strategy Parameters ==========
         if strategy_params:
@@ -755,11 +623,11 @@ async def _execute_backtest_task(
             log_backtest_info(
                 run_id,
                 f"Strategy parameters applied ({len(strategy_params)} overrides)",
-                db,
+                None,
             )
 
         # ========== CACHE-FIRST CHECK: Look for matching completed backtest ==========
-        log_backtest_info(run_id, "Checking for cached backtest results...", db)
+        log_backtest_info(run_id, "Checking for cached backtest results...", None)
 
         # Build strategy snapshot for comparison
         strategy_snapshot = {}
@@ -771,18 +639,18 @@ async def _execute_backtest_task(
 
         # Look for cached backtest with identical parameters
         cached_run = BacktestResultService.find_cached_backtest(
-            db,
+            None,
             request.start_date,
             request.end_date,
             request.num_pairs or 999,
             strategy_snapshot_for_query,
         )
 
-        if cached_run and cached_run.status == "completed":
+        if cached_run and cached_run["status"] == "completed":
             log_backtest_info(
                 run_id,
-                f"Found cached backtest result from {cached_run.created_at}. Using cached data...",
-                db,
+                f"Found cached backtest result from {cached_run['created_at']}. Using cached data...",
+                None,
             )
 
             # Copy all result fields from cached run to current run
@@ -808,7 +676,7 @@ async def _execute_backtest_task(
                 log_backtest_info(
                     run_id,
                     f"Cache hit! Results copied: {run_record.total_trades} trades, ${run_record.total_pnl:.2f} PnL",
-                    db,
+                    None,
                 )
 
                 # Mark as completed and return early
@@ -816,7 +684,7 @@ async def _execute_backtest_task(
                 run_record.completed_at = datetime.now(timezone.utc)
                 db.commit()
 
-                log_backtest_info(run_id, "Backtest completed using cached results", db)
+                log_backtest_info(run_id, "Backtest completed using cached results", None)
                 return  # Exit early - no need to run backtest
 
         # ========== NO CACHE: Proceed with regular backtest execution ==========
@@ -824,16 +692,16 @@ async def _execute_backtest_task(
         # Connect to dYdX client
         try:
             client = await connect_dydx()
-            log_backtest_info(run_id, "Connected to dYdX API", db)
+            log_backtest_info(run_id, "Connected to dYdX API", None)
         except Exception as e:
-            log_backtest_error(run_id, f"Failed to connect to dYdX: {str(e)}", db)
+            log_backtest_error(run_id, f"Failed to connect to dYdX: {str(e)}", None)
             raise
 
         # Create backtest engine with logging (pass integer ID for database operations)
         engine = BacktestEngine(
-            client, cfg, run_id=run_id, run_id_int=run_id_int, db=db
+            client, cfg, run_id=run_id, run_id_int=run_id_int, db=None
         )  # type: ignore
-        log_backtest_info(run_id, "Backtest engine initialized", db)
+        log_backtest_info(run_id, "Backtest engine initialized", None)
 
         # Run backtest in a thread pool to avoid blocking the event loop
         start_date = datetime.fromisoformat(request.start_date)
@@ -859,21 +727,21 @@ async def _execute_backtest_task(
         # Execute in thread pool (non-blocking)
         await asyncio.to_thread(run_backtest_sync)
 
-        log_backtest_info(run_id, "Backtest execution completed successfully", db)
+        log_backtest_info(run_id, "Backtest execution completed successfully", None)
 
         # ========== AGGREGATE METRICS FROM TRADES ==========
-        run_record = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        run_record = BacktestRunService.get_run_by_run_id(run_id)
         if run_record:
-            BacktestResultService.aggregate_run_metrics(db, run_record.id)
+            BacktestResultService.aggregate_run_metrics(None, run_record["id"])
             log_backtest_info(
                 run_id,
                 f"Metrics aggregated - {run_record.total_trades} trades, "
                 f"${run_record.total_pnl:.2f} PnL, {run_record.win_rate:.1f}% win rate",
-                db,
+                None,
             )
 
         # ========== UPDATE STATUS TO COMPLETED ==========
-        run_record = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        run_record = BacktestRunService.get_run_by_run_id(run_id)
         if run_record:
             run_record.status = "completed"
             run_record.completed_at = datetime.now(timezone.utc)
@@ -882,7 +750,7 @@ async def _execute_backtest_task(
 
     except Exception as e:
         logger.error(f"Backtest execution failed: {e}")
-        log_backtest_error(run_id, f"Backtest execution failed: {str(e)}", db)
+        log_backtest_error(run_id, f"Backtest execution failed: {str(e)}", None)
 
         # ========== UPDATE STATUS TO FAILED ==========
         try:
@@ -901,23 +769,22 @@ async def _execute_backtest_task(
 
 @app.get("/api/v1/stats")
 async def get_stats(
-    current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+        current_user: dict = Depends(get_current_user),
 ):
     """Get backtest statistics."""
-    stats = BacktestRunService.get_run_stats(db)
+    stats = BacktestRunService.get_run_stats()
     return ApiResponse(success=True, message="Statistics retrieved", data=stats)
 
 
 @app.get("/api/v1/backtests/{run_id}/logs")
 async def get_backtest_logs(
-    run_id: str,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        run_id: str,
+        current_user: dict = Depends(get_current_user),
 ):
     """Get logs for a specific backtest run."""
     try:
         # Find the backtest run
-        run = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        run = BacktestRunService.get_run_by_run_id(run_id)
         if not run:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -925,12 +792,7 @@ async def get_backtest_logs(
             )
 
         # Get logs for this run, ordered by creation time
-        logs = (
-            db.query(BacktestLog)
-            .filter(BacktestLog.run_id_fk == run.id)
-            .order_by(BacktestLog.created_at.asc())
-            .all()
-        )
+        logs = BacktestRunService.get_run_logs(run["id"])
 
         formatted_logs = [
             {
@@ -963,12 +825,11 @@ async def get_backtest_logs(
 
 @app.get("/api/v1/backtests/{run_id}/candles")
 async def get_backtest_candles(
-    run_id: str,
-    market: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        run_id: str,
+        market: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        current_user: dict = Depends(get_current_user),
 ) -> ApiResponse:
     """
     Get historical candle data for backtest.
@@ -982,7 +843,7 @@ async def get_backtest_candles(
     """
     try:
         # Find the backtest run
-        run = db.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+        run = BacktestRunService.get_run_by_run_id(run_id)
         if not run:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1010,7 +871,7 @@ async def get_backtest_candles(
                 )
 
         # Build query
-        query = db.query(BacktestCandle).filter(BacktestCandle.run_id_fk == run.id)
+        query = BacktestRunService.get_candles_by_run_id(run["id"])
 
         if market:
             query = query.filter(BacktestCandle.market == market)
@@ -1025,10 +886,7 @@ async def get_backtest_candles(
 
         # Get unique markets
         markets_result = (
-            db.query(BacktestCandle.market)
-            .filter(BacktestCandle.run_id_fk == run.id)
-            .distinct()
-            .all()
+            BacktestRunService.get_markets_by_run_id(run["id"])
         )
         markets_list = [m[0] for m in markets_result]
 
@@ -1093,12 +951,10 @@ async def get_settings_schema():
 @app.get("/api/v1/settings", response_model=ApiResponse)
 async def get_settings(
         section: str = None,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """Get current settings grouped by section."""
     try:
-        all_settings = SettingsService.get_all_settings(db)
+        all_settings = SettingsService.get_all_settings()
 
         # Filter by section if provided
         if section:
@@ -1121,8 +977,7 @@ async def get_settings(
 @app.post("/api/v1/settings", response_model=ApiResponse)
 async def update_settings(
         updates: dict,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        current_user: dict = Depends(get_current_user),
 ):
     """Update multiple settings at once.
 
@@ -1130,11 +985,10 @@ async def update_settings(
     """
     try:
         # Update settings in database
-        result = SettingsService.update_settings(db, updates)
+        result = SettingsService.update_settings(updates)
 
         # Log the action
         AuditLogService.log_action(
-            db,
             action="settings_update",
             resource_type="settings",
             user_id=current_user["user_id"],
@@ -1148,7 +1002,6 @@ async def update_settings(
         )
     except Exception as e:
         logger.error(f"Error updating settings: {e}")
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
@@ -1156,16 +1009,14 @@ async def update_settings(
 
 @app.post("/api/v1/settings/initialize", response_model=ApiResponse)
 async def initialize_settings(
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+        current_user: dict = Depends(get_current_user),
 ):
     """Initialize default settings if they don't exist."""
     try:
-        SettingsService.initialize_defaults(db)
+        SettingsService.initialize_defaults()
 
         # Log the action
         AuditLogService.log_action(
-            db,
             action="settings_initialize",
             resource_type="settings",
             user_id=current_user["user_id"],
@@ -1178,7 +1029,6 @@ async def initialize_settings(
         )
     except Exception as e:
         logger.error(f"Error initializing settings: {e}")
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )

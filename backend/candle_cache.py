@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
-from sqlalchemy.orm import Session
+from database import execute_query
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +27,10 @@ class CandleCache:
     2. Memory cache: Fast access for current session
     """
 
-    def __init__(self, db: Session):
+    def __init__(self):
         """
-        Initialize candle cache with database session.
-
-        Args:
-            db: SQLAlchemy database session for persistence
+        Initialize candle cache (no ORM session required).
         """
-        self.db = db
         self._memory_cache: Dict[str, pd.DataFrame] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -65,11 +61,11 @@ class CandleCache:
             DataFrame with OHLCV data or None if insufficient data
 
         Example:
-            >>> cache = CandleCache(db)
+            >>> cache = CandleCache()
             >>> df = cache.get_candles_for_backtest(
             ...     run_id_fk=1, market="BTC-USD",
-            ...     start_date=datetime(2025, 9, 20, tzinfo=UTC),
-            ...     end_date=datetime(2025, 10, 20, tzinfo=UTC)
+            ...     start_date=datetime(2025, 9, 20),
+            ...     end_date=datetime(2025, 10, 20)
             ... )
             >>> print(f"Retrieved {len(df)} candles")
         """
@@ -111,9 +107,9 @@ class CandleCache:
         market: str,
         start_date: datetime,
         end_date: datetime,
-    ) -> List:
+    ) -> List[dict]:
         """
-        Query database for candles in date range.
+        Query database for candles in date range using pure SQL.
 
         Args:
             run_id_fk: Backtest run ID
@@ -122,22 +118,16 @@ class CandleCache:
             end_date: End date
 
         Returns:
-            List of BacktestCandle records
+            List of dicts (each representing a candle row)
         """
         try:
-            from database import BacktestCandle
-
             query = (
-                self.db.query(BacktestCandle)
-                .filter_by(run_id_fk=run_id_fk, market=market)
-                .filter(BacktestCandle.timestamp >= start_date)
-                .filter(BacktestCandle.timestamp <= end_date)
-                .order_by(BacktestCandle.timestamp)
-                .all()
+                "SELECT * FROM backtest_candles WHERE run_id_fk = %s AND market = %s "
+                "AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp"
             )
-
-            return query
-
+            params = (run_id_fk, market, start_date, end_date)
+            result = execute_query(query, params)
+            return result
         except Exception as e:
             self.logger.error(
                 f"Failed to query candles for {market} (run {run_id_fk}): {e}"
@@ -159,7 +149,12 @@ class CandleCache:
             List of (gap_start, gap_end) tuples for missing data
 
         Example:
-            >>> gaps = cache._find_gaps(df, start, end)
+            >>> from datetime import datetime
+            >>> cache = CandleCache()
+            >>> df = pd.DataFrame([...])
+            >>> start_date = datetime(2025, 9, 20)
+            >>> end_date = datetime(2025, 10, 20)
+            >>> gaps = cache._find_gaps(df, start_date, end_date)
             >>> for gap_start, gap_end in gaps:
             ...     print(f"Missing data: {gap_start} to {gap_end}")
         """
@@ -177,21 +172,57 @@ class CandleCache:
             return []
 
         # Check gap at beginning
-        if pd.Timestamp(timestamps[0], tz="UTC") > pd.Timestamp(start_date, tz="UTC"):
-            gaps.append((start_date, timestamps[0]))
+        if (
+            timestamps
+            and pd.notna(timestamps[0])
+            and not pd.isna(timestamps[0])
+            and not pd.isna(start_date)
+        ):
+            ts0 = timestamps[0]
+            if (
+                isinstance(ts0, (datetime, pd.Timestamp))
+                and isinstance(start_date, (datetime, pd.Timestamp))
+                and not pd.isna(ts0)
+                and not pd.isna(start_date)
+            ):
+                if pd.Timestamp(ts0, tz="UTC") > pd.Timestamp(start_date, tz="UTC"):
+                    gaps.append((start_date, ts0))
 
         # Check gaps between candles (expect hourly, allow 1-hour gaps)
         for i in range(len(timestamps) - 1):
-            current = pd.Timestamp(timestamps[i], tz="UTC")
-            next_ts = pd.Timestamp(timestamps[i + 1], tz="UTC")
-
-            time_diff = (next_ts - current).total_seconds() / 3600  # hours
-            if time_diff > 1.5:  # Allow 1.5x normal gap
-                gaps.append((current, next_ts))
+            t0 = timestamps[i]
+            t1 = timestamps[i + 1]
+            if (
+                pd.notna(t0)
+                and pd.notna(t1)
+                and not pd.isna(t0)
+                and not pd.isna(t1)
+                and isinstance(t0, (datetime, pd.Timestamp))
+                and isinstance(t1, (datetime, pd.Timestamp))
+            ):
+                current = pd.Timestamp(t0, tz="UTC")
+                next_ts = pd.Timestamp(t1, tz="UTC")
+                if not pd.isna(current) and not pd.isna(next_ts):
+                    time_diff = (next_ts - current).total_seconds() / 3600  # hours
+                    if time_diff > 1.5:  # Allow 1.5x normal gap
+                        gaps.append((current, next_ts))
 
         # Check gap at end
-        if pd.Timestamp(timestamps[-1], tz="UTC") < pd.Timestamp(end_date, tz="UTC"):
-            gaps.append((timestamps[-1], end_date))
+        if (
+            timestamps
+            and pd.notna(timestamps[-1])
+            and not pd.isna(timestamps[-1])
+            and not pd.isna(end_date)
+        ):
+            tsn = timestamps[-1]
+            if (
+                isinstance(tsn, (datetime, pd.Timestamp))
+                and isinstance(end_date, (datetime, pd.Timestamp))
+                and not pd.isna(tsn)
+                and not pd.isna(end_date)
+            ):
+                if pd.Timestamp(tsn, tz="UTC") < pd.Timestamp(end_date, tz="UTC"):
+                    gaps.append((tsn, end_date))
 
         return gaps
 
@@ -217,14 +248,11 @@ class CandleCache:
             Complete DataFrame or None
 
         Example:
-            >>> async def fetch_from_api(market, start, end):
-            ...     # Your API call here
-            ...     return candles_df
-            >>>
-            >>> df = await cache.get_candles_with_fallback(
+            >>> cache = CandleCache()
+            >>> df = cache.get_candles_with_fallback(
             ...     run_id_fk=1, market="BTC-USD",
-            ...     start_date=start, end_date=end,
-            ...     fetch_func=fetch_from_api
+            ...     start_date=start_date, end_date=end_date,
+            ...     fetch_func=None
             ... )
         """
         # Try database first
@@ -265,6 +293,7 @@ class CandleCache:
             Dictionary with cache info
 
         Example:
+            >>> cache = CandleCache()
             >>> stats = cache.get_cache_stats()
             >>> print(f"Memory cache: {stats['memory_entries']} entries")
             >>> print(f"Memory used: {stats['memory_mb']:.2f} MB")
@@ -282,21 +311,23 @@ class CandleCache:
         }
 
 
-def create_cache_for_run(db: Session, run_id_fk: int) -> CandleCache:
+def create_cache_for_run(run_id_fk: int) -> CandleCache:
     """
     Factory function to create cache for specific backtest run.
 
     Args:
-        db: Database session
         run_id_fk: Backtest run ID
 
     Returns:
         Initialized CandleCache instance
 
     Example:
-        >>> cache = create_cache_for_run(db, run_id_fk=1)
+        >>> from datetime import datetime
+        >>> cache = create_cache_for_run(run_id_fk=1)
+        >>> start_date = datetime(2025, 9, 20)
+        >>> end_date = datetime(2025, 10, 20)
         >>> df = cache.get_candles_for_backtest(
-        ...     run_id_fk=1, market="BTC-USD", start_date=start, end_date=end
+        ...     run_id_fk=1, market="BTC-USD", start_date=start_date, end_date=end_date
         ... )
     """
-    return CandleCache(db)
+    return CandleCache()

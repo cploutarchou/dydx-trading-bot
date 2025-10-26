@@ -41,7 +41,10 @@ from db_services import (
     BacktestStrategyService,
     TradeLogService,
 )
+from models.backtest import BacktestRun, BacktestCandle
 from services.settings_service import SettingsService
+
+from database import db
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 config.load_dotenv(os.path.join(current_path, ".env"))
@@ -868,7 +871,7 @@ async def get_backtest_candles(
                 )
 
         # Build query
-        query = BacktestRunService.get_candles_by_run_id(run.id)
+        query = BacktestRunService.get_candles_by_run_id(run["id"])
 
         if market:
             query = query.filter(BacktestCandle.market == market)
@@ -883,7 +886,7 @@ async def get_backtest_candles(
 
         # Get unique markets
         markets_result = (
-            BacktestRunService.get_markets_by_run_id(run.id)
+            BacktestRunService.get_markets_by_run_id(run["id"])
         )
         markets_list = [m[0] for m in markets_result]
 

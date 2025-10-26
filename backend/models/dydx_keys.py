@@ -67,6 +67,25 @@ class DYDXKey(Base):
     def __repr__(self) -> str:
         return f"<DYDXKey(user_id={self.user_id}, network={self.network}, address={self.chain_address[:10]}...)>"
 
+    def to_dict(self, include_secret: bool = False):
+        data = {
+            "id": self.id,
+            "user_id": self.user_id,
+            "network": self.network,
+            "chain_address": self.chain_address,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_secret:
+            data["encrypted_secret"] = self.encrypted_secret
+        return data
+
+    def from_dict(self, data: dict):
+        for k in ["user_id", "network", "chain_address", "encrypted_secret", "is_active"]:
+            if k in data:
+                setattr(self, k, data[k])
+
 
 class DYDXKeySettings(Base):
     """Stores user preferences for dYdX key usage."""
@@ -95,3 +114,18 @@ class DYDXKeySettings(Base):
 
     def __repr__(self) -> str:
         return f"<DYDXKeySettings(user_id={self.user_id}, default_network={self.default_network})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "default_network": self.default_network,
+            "auto_switch_testnet": self.auto_switch_testnet,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def from_dict(self, data: dict):
+        for k in ["user_id", "default_network", "auto_switch_testnet"]:
+            if k in data:
+                setattr(self, k, data[k])

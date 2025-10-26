@@ -7,7 +7,7 @@ Models:
 - StrategyExecutionState: Runtime execution state of strategies
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.orm import relationship
@@ -74,8 +74,8 @@ class BacktestStrategy(Base):
     last_used_at = Column(DateTime, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     deleted_at = Column(DateTime, nullable=True)  # Soft delete support
 
     # Relationships
@@ -173,7 +173,7 @@ class StrategyVersionHistory(Base):
     )  # {"zscore_threshold": {"old": 1.5, "new": 2.0}}
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     created_by_user_id = Column(
         Integer, ForeignKey("users.id"), nullable=True
     )  # Which user made this change
@@ -274,9 +274,9 @@ class StrategyExecutionState(Base):
     win_rate = Column(Float, nullable=True)  # Win rate percentage
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), index=True
     )
 
     # Relationships

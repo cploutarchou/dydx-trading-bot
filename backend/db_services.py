@@ -3,13 +3,11 @@ Database service layer for backtest operations.
 Handles CRUD operations and complex queries using raw SQL.
 """
 
+import datetime
+import json
 import logging
 from datetime import datetime
 from typing import List, Optional
-import datetime
-import psycopg2
-import sqlite3
-import json
 
 from auth import hash_password, verify_password
 from database import execute_query
@@ -60,7 +58,8 @@ class UserService:
             fetchone=True,
         )
         logger.info(f"User created: {username}")
-        return dict(user) if user else None
+        user = user.__dict__ if user else None
+        return user if user else None
 
     @staticmethod
     def get_user_by_username(username: str) -> Optional[dict]:
@@ -240,6 +239,45 @@ class BacktestRunService:
             "avg_pnl": float(avg_pnl) if avg_pnl else 0.0,
         }
 
+    @classmethod
+    def get_candles_by_run_id(cls, id):
+        """Return a query-like object for all candles for a given run_id (id is PK of backtest_runs)."""
+        # This returns all columns for all candles for the run, for further filtering (market, timestamp, etc.)
+        return CandleQuery(run_id_fk=id)
+
+    @classmethod
+    def get_markets_by_run_id(cls, id):
+        """Return a list of unique markets for a given run_id (id is PK of backtest_runs)."""
+        query = "SELECT DISTINCT market FROM backtest_candles WHERE run_id_fk = %s"
+        return execute_query(query, (id,), fetchall=True)
+
+
+class CandleQuery:
+    """A minimal query-like object for filtering candles using raw SQL."""
+    def __init__(self, run_id_fk):
+        self.run_id_fk = run_id_fk
+        self.filters = []
+        self.order = None
+
+    def filter(self, condition):
+        self.filters.append(condition)
+        return self
+
+    def order_by(self, order):
+        self.order = order
+        return self
+
+    def all(self):
+        # Build SQL
+        sql = "SELECT * FROM backtest_candles WHERE run_id_fk = ?"
+        params = [self.run_id_fk]
+        for cond in self.filters:
+            sql += f" AND {cond[0]}"
+            params.append(cond[1])
+        if self.order:
+            sql += f" ORDER BY {self.order}"
+        return execute_query(sql, tuple(params), fetchall=True)
+
 
 class BacktestResultService:
     """Service for individual backtest results."""
@@ -346,14 +384,14 @@ class BacktestResultService:
             risk_free_rate = 0.02 / 252  # Annualized 2% risk-free rate
 
             if std_dev > 0:
-                sharpe_ratio = (mean_return - risk_free_rate) / std_dev * np.sqrt(252.0)
+                sharpe_ratio = (float(mean_return) - risk_free_rate) / float(std_dev) * np.sqrt(252.0)
 
             # Sortino Ratio: (mean return - risk_free_rate) / downside_std_dev
             downside_returns = np.minimum(daily_returns, 0)
             downside_std = np.std(downside_returns)
             if downside_std > 0:
                 sortino_ratio = (
-                    (mean_return - risk_free_rate) / downside_std * np.sqrt(252.0)
+                    (float(mean_return) - risk_free_rate) / downside_std * np.sqrt(252.0)
                 )
 
             # Profit Factor: gross_profit / gross_loss

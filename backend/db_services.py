@@ -3,13 +3,11 @@ Database service layer for backtest operations.
 Handles CRUD operations and complex queries using raw SQL.
 """
 
+import datetime
+import json
 import logging
 from datetime import datetime
 from typing import List, Optional
-import datetime
-import psycopg2
-import sqlite3
-import json
 
 from auth import hash_password, verify_password
 from database import execute_query
@@ -60,7 +58,8 @@ class UserService:
             fetchone=True,
         )
         logger.info(f"User created: {username}")
-        return dict(user) if user else None
+        user = user.__dict__ if user else None
+        return user if user else None
 
     @staticmethod
     def get_user_by_username(username: str) -> Optional[dict]:

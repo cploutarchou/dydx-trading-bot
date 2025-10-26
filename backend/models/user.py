@@ -47,6 +47,11 @@ class User(Base):
     def __repr__(self):
         return f"<User {self.username}>"
 
+    def to_dict(self):
+        # TODO - CONVERT USER CLASS TO DICT FOR JSON SERIALIZATION
+        pass
+
+    def from_dict(self, data):
 
 class AuditLog(Base):
     """Track system actions for audit trail."""

@@ -5,7 +5,7 @@ Models:
 - TradeLog: Individual trade executed during backtesting
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
@@ -51,7 +51,7 @@ class TradeLog(Base):
     exit_zscore = Column(Float, nullable=True)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     result = relationship("BacktestResult", back_populates="trades")

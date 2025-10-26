@@ -11,7 +11,7 @@ Models:
 - BacktestComparison: Stores comparisons between multiple backtest runs
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.orm import relationship
@@ -29,7 +29,7 @@ class BacktestRun(Base):
     # Execution info
     run_id = Column(String(50), unique=True, index=True, nullable=False)
     status = Column(String(20), default="running", index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     duration_seconds = Column(Float, nullable=True)
@@ -148,7 +148,7 @@ class BacktestResult(Base):
     zscore_std = Column(Float, nullable=True)
 
     # Dates
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
     # Relationships
     run = relationship("BacktestRun", back_populates="results")
@@ -177,7 +177,7 @@ class BacktestLog(Base):
 
     message = Column(String, nullable=False)
     level = Column(String(20), default="info")  # debug, info, warning, error
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
     run = relationship("BacktestRun", backref="logs")
 
@@ -315,7 +315,7 @@ class BacktestCandle(Base):
 
     # Additional metrics
     trades_count = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     run = relationship("BacktestRun", backref="candles")
@@ -367,8 +367,8 @@ class BacktestComparison(Base):
     comparison_metrics = Column(JSON, nullable=True)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
     user = relationship("User", backref="comparisons")

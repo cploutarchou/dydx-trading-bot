@@ -1,0 +1,21 @@
+# requirements-conda.txt
+# Use this file to install compiled/binary packages using conda-forge before
+# running `pip install -r requirements.txt` on macOS/Apple Silicon or on newer
+# Python versions where pip wheels may not be available.
+
+# Recommended conda-forge command (example):
+# conda activate backend
+# conda install -c conda-forge numpy=1.26 scipy=1.14 psycopg2 libpq pkg-config openblas gfortran
+
+# Packages to install from conda-forge
+numpy=1.26
+scipy=1.14
+psycopg2
+libpq
+pkg-config
+openblas
+gfortran
+
+# After installing the above with conda, run:
+# pip install -r requirements.txt
+

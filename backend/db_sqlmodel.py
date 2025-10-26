@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from models import (
     User, DYDXKey, DYDXKeySettings, BacktestStrategy, BacktestRun, 
     BacktestResult, BacktestTrade, BacktestCandle, AuditLog, 
-    RedisSettings, BotSetting
+    RedisSettings, BotSetting, BacktestLog, BacktestPosition,
+    BacktestComparison, TradeLog, StrategyExecutionState
 )
-from db_init import SessionLocal, get_session, DatabaseSession, get_database_config
+import db_init
 from typing import Optional, List, Type, TypeVar
 
 
@@ -206,25 +207,87 @@ def get_audit_logs_by_user(session: Session, user_id: int, limit: int = 100) -> 
     return session.query(AuditLog).filter(AuditLog.user_id == user_id).order_by(AuditLog.created_at.desc()).limit(limit).all()
 
 
-# Context manager for automatic session handling
-class DatabaseSession:
-    """Context manager for automatic session handling."""
-    
-    def __init__(self):
-        self.session: Optional[Session] = None
-    
-    def __enter__(self) -> Session:
-        self.session = SessionLocal()
-        return self.session
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            if exc_type:
-                self.session.rollback()
-            self.session.close()
+def create_backtest_log(session: Session, log_data: dict) -> BacktestLog:
+    """Create a backtest log."""
+    return DatabaseService.create(session, BacktestLog, log_data)
 
 
-# Usage example:
-# with DatabaseSession() as session:
-#     user = create_user(session, {"username": "alice", "email": "alice@example.com", "hashed_password": "hash"})
-#     print(user)
+def get_backtest_logs_by_run(session: Session, run_id: int) -> List[BacktestLog]:
+    """Get all logs for a backtest run."""
+    return session.query(BacktestLog).filter(BacktestLog.run_id_fk == run_id).order_by(BacktestLog.created_at).all()
+
+
+def create_backtest_position(session: Session, position_data: dict) -> BacktestPosition:
+    """Create a backtest position."""
+    return DatabaseService.create(session, BacktestPosition, position_data)
+
+
+def get_backtest_positions_by_run(session: Session, run_id: int) -> List[BacktestPosition]:
+    """Get all positions for a backtest run."""
+    return session.query(BacktestPosition).filter(BacktestPosition.run_id_fk == run_id).all()
+
+
+def get_backtest_positions_by_status(session: Session, run_id: int, status: str) -> List[BacktestPosition]:
+    """Get positions by status for a run."""
+    return session.query(BacktestPosition).filter(
+        BacktestPosition.run_id_fk == run_id,
+        BacktestPosition.status == status
+    ).all()
+
+
+def create_backtest_comparison(session: Session, comparison_data: dict) -> BacktestComparison:
+    """Create a backtest comparison."""
+    return DatabaseService.create(session, BacktestComparison, comparison_data)
+
+
+def get_backtest_comparisons_by_user(session: Session, user_id: int) -> List[BacktestComparison]:
+    """Get all backtest comparisons for a user."""
+    return session.query(BacktestComparison).filter(BacktestComparison.user_id == user_id).all()
+
+
+def get_backtest_comparison(session: Session, comparison_id: int) -> Optional[BacktestComparison]:
+    """Get a backtest comparison by ID."""
+    return session.query(BacktestComparison).filter(BacktestComparison.id == comparison_id).first()
+
+
+def create_trade_log(session: Session, trade_log_data: dict) -> TradeLog:
+    """Create a trade log."""
+    return DatabaseService.create(session, TradeLog, trade_log_data)
+
+
+def get_trade_logs_by_result(session: Session, result_id: int) -> List[TradeLog]:
+    """Get all trade logs for a backtest result."""
+    return session.query(TradeLog).filter(TradeLog.result_id_fk == result_id).order_by(TradeLog.entry_timestamp).all()
+
+
+def create_strategy_execution_state(session: Session, state_data: dict) -> StrategyExecutionState:
+    """Create a strategy execution state."""
+    return DatabaseService.create(session, StrategyExecutionState, state_data)
+
+
+def get_strategy_execution_state(session: Session, strategy_id: int) -> Optional[StrategyExecutionState]:
+    """Get strategy execution state by strategy ID."""
+    return session.query(StrategyExecutionState).filter(StrategyExecutionState.strategy_id == strategy_id).first()
+
+
+def update_strategy_execution_state(session: Session, strategy_id: int, state_data: dict) -> Optional[StrategyExecutionState]:
+    """Update strategy execution state."""
+    state = session.query(StrategyExecutionState).filter(StrategyExecutionState.strategy_id == strategy_id).first()
+    if not state:
+        state_data['strategy_id'] = strategy_id
+        return create_strategy_execution_state(session, state_data)
+    for key, value in state_data.items():
+        if value is not None:
+            setattr(state, key, value)
+    session.add(state)
+    session.commit()
+    session.refresh(state)
+    return state
+
+
+# Re-export from db_init for convenience
+DatabaseSession = db_init.DatabaseSession
+get_session = db_init.get_session
+init_db = db_init.init_db
+close_db = db_init.close_db
+get_database_config = db_init.get_database_config

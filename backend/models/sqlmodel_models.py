@@ -6,7 +6,8 @@ This is the new standard for all database models in the project.
 
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlmodel import SQLModel, Field, Relationship, Column, String, Integer, Boolean, DateTime, Text, JSON, ForeignKey, Index
+
+from sqlmodel import SQLModel, Field, Relationship, Column, JSON
 
 
 # ========== Base Classes ==========
@@ -241,6 +242,8 @@ class BacktestRun(BacktestRunBase, TimestampMixin, table=True):
     strategy: Optional[BacktestStrategy] = Relationship(back_populates="backtest_runs")
     backtest_results: List["BacktestResult"] = Relationship(back_populates="backtest_run", cascade_delete=True)
     backtest_candles: List["BacktestCandle"] = Relationship(back_populates="backtest_run", cascade_delete=True)
+    backtest_logs: List["BacktestLog"] = Relationship(back_populates="backtest_run", cascade_delete=True)
+    backtest_positions: List["BacktestPosition"] = Relationship(back_populates="backtest_run", cascade_delete=True)
 
 
 class BacktestRunRead(BacktestRunBase):
@@ -465,3 +468,222 @@ class BacktestCandleRead(BacktestCandleBase):
     id: int
     run_id_fk: int
     timestamp: datetime
+
+
+# ========== Backtest Log Models ==========
+
+class BacktestLogBase(SQLModel):
+    """Base Backtest Log model."""
+    message: str = Field(nullable=False)
+    level: Optional[str] = Field(default=None, max_length=20)
+
+
+class BacktestLog(BacktestLogBase, table=True):
+    """Backtest execution logs."""
+    __tablename__ = "backtest_log"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id_fk: int = Field(foreign_key="backtest_run.id", index=True, nullable=False)
+    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    
+    # Relationship
+    backtest_run: Optional[BacktestRun] = Relationship(back_populates="backtest_logs")
+
+
+class BacktestLogRead(BacktestLogBase):
+    """Backtest Log read schema."""
+    id: int
+    run_id_fk: int
+    created_at: datetime
+
+
+# ========== Backtest Position Models ==========
+
+class BacktestPositionBase(SQLModel):
+    """Base Backtest Position model."""
+    position_id: str = Field(unique=True, index=True, nullable=False, max_length=100)
+    market_1: str = Field(nullable=False, max_length=50)
+    market_2: str = Field(nullable=False, max_length=50)
+    status: str = Field(nullable=False, max_length=20)
+    entry_price_1: float = Field(nullable=False)
+    entry_price_2: float = Field(nullable=False)
+    entry_z_score: float = Field(nullable=False)
+    current_price_1: Optional[float] = Field(default=None)
+    current_price_2: Optional[float] = Field(default=None)
+    current_z_score: Optional[float] = Field(default=None)
+    size_1: float = Field(nullable=False)
+    size_2: float = Field(nullable=False)
+    side_1: str = Field(nullable=False, max_length=10)
+    side_2: str = Field(nullable=False, max_length=10)
+    hedge_ratio: float = Field(nullable=False)
+    unrealized_pnl: Optional[float] = Field(default=None)
+    realized_pnl: Optional[float] = Field(default=None)
+
+
+class BacktestPosition(BacktestPositionBase, table=True):
+    """Open positions during backtest."""
+    __tablename__ = "backtest_position"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id_fk: int = Field(foreign_key="backtest_run.id", index=True, nullable=False)
+    entry_timestamp: datetime = Field(index=True, nullable=False)
+    close_timestamp: Optional[datetime] = Field(default=None, nullable=True)
+
+
+class BacktestPositionRead(BacktestPositionBase):
+    """Backtest Position read schema."""
+    id: int
+    run_id_fk: int
+    entry_timestamp: datetime
+
+
+# ========== Backtest Comparison Models ==========
+
+class BacktestComparisonBase(SQLModel):
+    """Base Backtest Comparison model."""
+    name: str = Field(index=True, nullable=False, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+    winner_run_id: Optional[int] = Field(default=None)
+    pnl_difference: Optional[float] = Field(default=None)
+    sharpe_difference: Optional[float] = Field(default=None)
+    win_rate_difference: Optional[float] = Field(default=None)
+    drawdown_difference: Optional[float] = Field(default=None)
+    comparison_metrics: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+
+
+class BacktestComparison(BacktestComparisonBase, TimestampMixin, table=True):
+    """Comparison of two backtest runs."""
+    __tablename__ = "backtest_comparison"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
+    strategy_id_1: int = Field(foreign_key="backtest_strategy.id", nullable=False)
+    strategy_id_2: int = Field(foreign_key="backtest_strategy.id", nullable=False)
+    run_id_1: int = Field(foreign_key="backtest_run.id", nullable=False)
+    run_id_2: int = Field(foreign_key="backtest_run.id", nullable=False)
+
+
+class BacktestComparisonRead(BacktestComparisonBase):
+    """Backtest Comparison read schema."""
+    id: int
+    user_id: int
+    strategy_id_1: int
+    strategy_id_2: int
+    run_id_1: int
+    run_id_2: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# ========== Trade Log Models ==========
+
+class TradeLogBase(SQLModel):
+    """Base Trade Log model."""
+    trade_number: int = Field(nullable=False)
+    entry_price_1: float = Field(nullable=False)
+    entry_price_2: float = Field(nullable=False)
+    exit_price_1: Optional[float] = Field(default=None)
+    exit_price_2: Optional[float] = Field(default=None)
+    quantity_1: float = Field(nullable=False)
+    quantity_2: float = Field(nullable=False)
+    side_1: str = Field(nullable=False, max_length=10)
+    side_2: str = Field(nullable=False, max_length=10)
+    pnl: Optional[float] = Field(default=None)
+    pnl_usd: Optional[float] = Field(default=None)
+    entry_zscore: Optional[float] = Field(default=None)
+    exit_zscore: Optional[float] = Field(default=None)
+
+
+class TradeLog(TradeLogBase, table=True):
+    """Individual trade logs from backtest results."""
+    __tablename__ = "trade_log"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    result_id_fk: int = Field(foreign_key="backtest_result.id", index=True, nullable=False)
+    entry_timestamp: datetime = Field(nullable=False)
+    exit_timestamp: Optional[datetime] = Field(default=None, nullable=True)
+    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class TradeLogRead(TradeLogBase):
+    """Trade Log read schema."""
+    id: int
+    result_id_fk: int
+    entry_timestamp: datetime
+
+
+# ========== Strategy Execution State Models ==========
+
+class StrategyExecutionStateBase(SQLModel):
+    """Base Strategy Execution State model."""
+    enabled: Optional[bool] = Field(default=None)
+    status: Optional[str] = Field(default=None, max_length=20)
+    trades_executed: Optional[int] = Field(default=0)
+    pnl: Optional[float] = Field(default=None)
+    pnl_pct: Optional[float] = Field(default=None)
+    last_error: Optional[str] = Field(default=None, max_length=500)
+    error_count: Optional[int] = Field(default=0)
+    last_error_at: Optional[datetime] = Field(default=None)
+    config_snapshot: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    last_started: Optional[datetime] = Field(default=None)
+    last_stopped: Optional[datetime] = Field(default=None)
+    last_trade_at: Optional[datetime] = Field(default=None)
+    uptime_seconds: Optional[int] = Field(default=0)
+    last_cointegration_check: Optional[datetime] = Field(default=None)
+    active_pairs_count: Optional[int] = Field(default=0)
+    open_positions_count: Optional[int] = Field(default=0)
+    max_drawdown: Optional[float] = Field(default=None)
+    sharpe_ratio: Optional[float] = Field(default=None)
+    win_rate: Optional[float] = Field(default=None)
+
+
+class StrategyExecutionState(StrategyExecutionStateBase, TimestampMixin, table=True):
+    """Strategy execution state tracking."""
+    __tablename__ = "strategy_execution_state"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    strategy_id: int = Field(foreign_key="backtest_strategy.id", index=True, nullable=False)
+
+
+class StrategyExecutionStateRead(StrategyExecutionStateBase):
+    """Strategy Execution State read schema."""
+    id: int
+    strategy_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# ========== Strategy Version History Models ==========
+
+class StrategyVersionHistoryBase(SQLModel):
+    """Base Strategy Version History model."""
+    version_number: int = Field(nullable=False)
+    change_description: Optional[str] = Field(default=None, max_length=500)
+    config_snapshot: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    changes: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    backtest_count: Optional[int] = Field(default=None)
+    best_backtest_pnl: Optional[float] = Field(default=None)
+    average_backtest_pnl: Optional[float] = Field(default=None)
+
+
+class StrategyVersionHistory(StrategyVersionHistoryBase, TimestampMixin, table=True):
+    """Strategy version history tracking."""
+    __tablename__ = "strategy_version_history"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    strategy_id: int = Field(foreign_key="backtest_strategy.id", index=True, nullable=False)
+    created_by_user_id: Optional[int] = Field(foreign_key="user.id", nullable=True)
+
+
+class StrategyVersionHistoryRead(StrategyVersionHistoryBase):
+    """Strategy Version History read schema."""
+    id: int
+    strategy_id: int
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+
+
+class StrategyVersionHistoryCreate(StrategyVersionHistoryBase):
+    """Strategy Version History creation schema."""
+    strategy_id: int
+    created_by_user_id: Optional[int] = None

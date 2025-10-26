@@ -14,6 +14,11 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "customizations": {
+    "jetbrains": {
+      "settings": {
+        "com.intellij:app:HttpConfigurable.use_proxy_pac": true
+      }
+    },
     "vscode": {
       "extensions": [
         "dbaeumer.vscode-eslint",

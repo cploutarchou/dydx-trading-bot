@@ -5,7 +5,6 @@ Handles engine creation, session management, and table creation.
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from models.sqlmodel_models import SQLModel
 from config.config import DatabaseSettings
 import os
 import logging
@@ -54,6 +53,8 @@ def get_session() -> Session:
 
 def init_db():
     """Initialize database tables."""
+    from models.sqlmodel_models import SQLModel
+
     logger.info(f"Initializing database: {_db_config.dbname}")
     try:
         SQLModel.metadata.create_all(engine)
@@ -71,14 +72,14 @@ def close_db():
 
 class DatabaseSession:
     """Context manager for automatic session handling."""
-    
+
     def __init__(self):
         self.session: Session = None
-    
+
     def __enter__(self) -> Session:
         self.session = SessionLocal()
         return self.session
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.session:
             if exc_type:

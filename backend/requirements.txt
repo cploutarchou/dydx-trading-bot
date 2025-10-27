@@ -14,6 +14,8 @@ pandas==2.2.2
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 sqlalchemy==2.0.23
+# SQLModel (Pydantic + SQLAlchemy) - used across the project
+sqlmodel>=0.0.8
 alembic==1.13.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
@@ -21,7 +23,10 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.1.1
 python-multipart==0.0.6
-# psycopg2-binary==2.9.9  # install via conda (see requirements-conda.txt) to avoid building from source on macOS
+# psycopg (v3) binary wheel recommended for Postgres access; on some systems prefer conda-installed libpq/psycopg2
+psycopg[binary]>=3.0.0
+# If you need the older psycopg2 binary wheel you can uncomment the line below (see conda note above)
+# psycopg2-binary==2.9.9
 python-dotenv==1.0.0
 
 # Core dependencies
@@ -40,6 +45,12 @@ multidict==6.0.5
 requests==2.32.3
 sniffio==1.3.1
 urllib3==2.2.2
+
+# Async DB drivers (if any async parts use them)
+asyncpg>=0.27.0
+
+# SQLAlchemy utilities (helpful for devs and some tools)
+sqlalchemy-utils>=0.41.0
 
 # Cryptography and security
 asn1crypto==1.5.1

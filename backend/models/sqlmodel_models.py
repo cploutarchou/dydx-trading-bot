@@ -1,12 +1,11 @@
 """
 SQLModel-based database models combining SQLAlchemy and Pydantic.
+Production-ready models matching PostgreSQL schema.
 Provides type hints, validation, and serialization out of the box.
-This is the new standard for all database models in the project.
 """
 
 from datetime import datetime, timezone
 from typing import Optional, List
-
 from sqlmodel import SQLModel, Field, Relationship, Column, JSON
 
 
@@ -20,42 +19,6 @@ class TimestampMixin(SQLModel):
 
 # ========== User Models ==========
 
-class DYDXKeyBase(SQLModel):
-    """Base DYdX Key model with common fields."""
-    network: str = Field(index=True, nullable=False)
-    chain_address: str = Field(nullable=False)
-    encrypted_secret: str = Field(nullable=False)
-    is_active: bool = Field(default=True, nullable=False)
-
-
-class DYDXKey(DYDXKeyBase, TimestampMixin, table=True):
-    """DYdX API key storage (encrypted)."""
-    __tablename__ = "dydx_keys"
-    
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
-    
-    # Relationship
-    user: Optional["User"] = Relationship(back_populates="dydx_keys")
-
-
-class DYDXKeySettingsBase(SQLModel):
-    """Base DYdX Key Settings model."""
-    default_network: Optional[str] = Field(default=None, nullable=True)
-    auto_switch_testnet: bool = Field(default=True, nullable=False)
-
-
-class DYDXKeySettings(DYDXKeySettingsBase, TimestampMixin, table=True):
-    """User's DYdX key preferences."""
-    __tablename__ = "dydx_key_settings"
-    
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", unique=True, index=True, nullable=False)
-    
-    # Relationship
-    user: Optional["User"] = Relationship(back_populates="dydx_key_settings")
-
-
 class UserBase(SQLModel):
     """Base User model with common fields."""
     username: str = Field(unique=True, index=True, nullable=False, max_length=50)
@@ -68,70 +31,60 @@ class UserBase(SQLModel):
 
 class User(UserBase, TimestampMixin, table=True):
     """User account for authentication and access control."""
-    __tablename__ = "user"
+    __tablename__ = "users"
     
     id: Optional[int] = Field(default=None, primary_key=True)
     hashed_password: str = Field(nullable=False, max_length=500)
     last_login: Optional[datetime] = Field(default=None, nullable=True)
     
     # Relationships
-    dydx_keys: List[DYDXKey] = Relationship(back_populates="user", cascade_delete=True)
-    dydx_key_settings: Optional[DYDXKeySettings] = Relationship(back_populates="user", cascade_delete=True)
+    dydx_keys: List["DYDXKey"] = Relationship(back_populates="user", cascade_delete=True)
+    dydx_key_settings: Optional["DYDXKeySettings"] = Relationship(back_populates="user", cascade_delete=True)
     backtest_runs: List["BacktestRun"] = Relationship(back_populates="user", cascade_delete=True)
     backtest_strategies: List["BacktestStrategy"] = Relationship(back_populates="user", cascade_delete=True)
     audit_logs: List["AuditLog"] = Relationship(back_populates="user", cascade_delete=True)
+    bot_settings: List["BotSetting"] = Relationship(back_populates="updated_by_user", cascade_delete=True)
+    backtest_comparisons: List["BacktestComparison"] = Relationship(back_populates="user", cascade_delete=True)
+    strategy_version_history: List["StrategyVersionHistory"] = Relationship(back_populates="created_by_user", cascade_delete=True)
 
 
-class UserCreate(UserBase):
-    """User creation schema (password in plain text)."""
-    password: str = Field(min_length=8, max_length=100)
+class DYDXKeyBase(SQLModel):
+    """Base DYdX Key model with common fields."""
+    network: str = Field(index=True, nullable=False, max_length=50)
+    chain_address: str = Field(nullable=False, max_length=255)
+    encrypted_secret: str = Field(nullable=False)
+    is_active: bool = Field(default=True, nullable=False)
 
 
-class UserRead(UserBase):
-    """User read schema (for API responses)."""
-    id: int
-    created_at: datetime
-    updated_at: datetime
-    last_login: Optional[datetime] = None
+class DYDXKey(DYDXKeyBase, TimestampMixin, table=True):
+    """DYdX API key storage (encrypted)."""
+    __tablename__ = "dydx_keys"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True, nullable=False)
+    
+    # Relationship
+    user: Optional[User] = Relationship(back_populates="dydx_keys")
 
 
-class UserUpdate(SQLModel):
-    """User update schema (partial fields)."""
-    username: Optional[str] = Field(default=None, max_length=50)
-    email: Optional[str] = Field(default=None, max_length=100)
-    full_name: Optional[str] = Field(default=None, max_length=100)
-    avatar: Optional[str] = Field(default=None)
-    is_active: Optional[bool] = Field(default=None)
-    password: Optional[str] = Field(default=None, min_length=8, max_length=100)
+class DYDXKeySettingsBase(SQLModel):
+    """Base DYdX Key Settings model."""
+    default_network: Optional[str] = Field(default=None, nullable=True, max_length=50)
+    auto_switch_testnet: bool = Field(default=True, nullable=False)
 
 
-class DYDXKeyRead(DYDXKeyBase):
-    """DYdX Key read schema."""
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: datetime
+class DYDXKeySettings(DYDXKeySettingsBase, TimestampMixin, table=True):
+    """User's DYdX key preferences."""
+    __tablename__ = "dydx_key_settings"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", unique=True, index=True, nullable=False)
+    
+    # Relationship
+    user: Optional[User] = Relationship(back_populates="dydx_key_settings")
 
 
-class DYDXKeyCreate(DYDXKeyBase):
-    """DYdX Key creation schema."""
-    user_id: int
-
-
-class DYDXKeySettingsRead(DYDXKeySettingsBase):
-    """DYdX Key Settings read schema."""
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class DYDXKeySettingsCreate(DYDXKeySettingsBase):
-    """DYdX Key Settings creation schema."""
-    user_id: int
-
-
-# ========== Backtest Models ==========
+# ========== Backtest Strategy Models ==========
 
 class BacktestStrategyBase(SQLModel):
     """Base Backtest Strategy model."""
@@ -171,31 +124,28 @@ class BacktestStrategyBase(SQLModel):
 
 class BacktestStrategy(BacktestStrategyBase, TimestampMixin, table=True):
     """Reusable backtest strategy configuration."""
-    __tablename__ = "backtest_strategy"
+    __tablename__ = "backtest_strategies"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
-    usage_count: int = Field(default=0)
+    user_id: int = Field(foreign_key="users.id", index=True, nullable=False)
+    usage_count: Optional[int] = Field(default=0)
     last_used_at: Optional[datetime] = Field(default=None, nullable=True)
     deleted_at: Optional[datetime] = Field(default=None, nullable=True)
     
     # Relationships
     user: Optional[User] = Relationship(back_populates="backtest_strategies")
     backtest_runs: List["BacktestRun"] = Relationship(back_populates="strategy", cascade_delete=True)
+    backtest_comparisons_1: List["BacktestComparison"] = Relationship(
+        back_populates="strategy_1", foreign_key="backtest_comparisons.strategy_id_1", cascade_delete=True
+    )
+    backtest_comparisons_2: List["BacktestComparison"] = Relationship(
+        back_populates="strategy_2", foreign_key="backtest_comparisons.strategy_id_2", cascade_delete=True
+    )
+    strategy_execution_state: Optional["StrategyExecutionState"] = Relationship(back_populates="strategy", cascade_delete=True)
+    strategy_version_history: List["StrategyVersionHistory"] = Relationship(back_populates="strategy", cascade_delete=True)
 
 
-class BacktestStrategyRead(BacktestStrategyBase):
-    """Backtest Strategy read schema."""
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class BacktestStrategyCreate(BacktestStrategyBase):
-    """Backtest Strategy creation schema."""
-    user_id: int
-
+# ========== Backtest Run Models ==========
 
 class BacktestRunBase(SQLModel):
     """Base Backtest Run model."""
@@ -228,136 +178,27 @@ class BacktestRunBase(SQLModel):
 
 class BacktestRun(BacktestRunBase, TimestampMixin, table=True):
     """Individual backtest execution run."""
-    __tablename__ = "backtest_run"
+    __tablename__ = "backtest_runs"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: Optional[int] = Field(foreign_key="user.id", index=True, nullable=True)
-    strategy_id: Optional[int] = Field(foreign_key="backtest_strategy.id", index=True, nullable=True)
+    user_id: Optional[int] = Field(foreign_key="users.id", index=True, nullable=True)
+    strategy_id: Optional[int] = Field(foreign_key="backtest_strategies.id", index=True, nullable=True)
+    strategy_version_id: Optional[int] = Field(foreign_key="strategy_version_history.id", index=True, nullable=True)
     started_at: Optional[datetime] = Field(default=None, nullable=True)
     completed_at: Optional[datetime] = Field(default=None, nullable=True)
     duration_seconds: Optional[float] = Field(default=None)
+    config: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    strategy_snapshot: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     
     # Relationships
     user: Optional[User] = Relationship(back_populates="backtest_runs")
     strategy: Optional[BacktestStrategy] = Relationship(back_populates="backtest_runs")
+    strategy_version_history: Optional["StrategyVersionHistory"] = Relationship(back_populates="backtest_runs")
     backtest_results: List["BacktestResult"] = Relationship(back_populates="backtest_run", cascade_delete=True)
     backtest_candles: List["BacktestCandle"] = Relationship(back_populates="backtest_run", cascade_delete=True)
     backtest_logs: List["BacktestLog"] = Relationship(back_populates="backtest_run", cascade_delete=True)
     backtest_positions: List["BacktestPosition"] = Relationship(back_populates="backtest_run", cascade_delete=True)
-
-
-class BacktestRunRead(BacktestRunBase):
-    """Backtest Run read schema."""
-    id: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class BacktestRunCreate(BacktestRunBase):
-    """Backtest Run creation schema."""
-    user_id: Optional[int] = None
-    strategy_id: Optional[int] = None
-
-
-# ========== Audit Models ==========
-
-class AuditLogBase(SQLModel):
-    """Base Audit Log model."""
-    action: str = Field(index=True, nullable=False, max_length=100)
-    resource_type: str = Field(nullable=False, max_length=50)
-    resource_id: Optional[str] = Field(default=None, max_length=100)
-    status: Optional[str] = Field(default="success", max_length=20)
-    ip_address: Optional[str] = Field(default=None, max_length=50)
-
-
-class AuditLog(AuditLogBase, table=True):
-    """System audit trail."""
-    __tablename__ = "audit_log"
-    
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: Optional[int] = Field(foreign_key="user.id", index=True, nullable=True)
-    details: Optional[dict] = Field(default=None, sa_column=Column(JSON))
-    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
-    
-    # Relationship
-    user: Optional[User] = Relationship(back_populates="audit_logs")
-
-
-class AuditLogRead(AuditLogBase):
-    """Audit Log read schema."""
-    id: int
-    user_id: Optional[int] = None
-    created_at: datetime
-
-
-class AuditLogCreate(AuditLogBase):
-    """Audit Log creation schema."""
-    user_id: Optional[int] = None
-
-
-# ========== Redis Settings Models ==========
-
-class RedisSettingsBase(SQLModel):
-    """Base Redis Settings model."""
-    enabled: bool = Field(default=True, index=True)
-    host: str = Field(default="localhost", max_length=255)
-    port: int = Field(default=6379)
-    db: int = Field(default=0)
-    password: Optional[str] = Field(default=None, max_length=255)
-    ssl: bool = Field(default=False)
-    timeout: int = Field(default=5)
-    max_connections: int = Field(default=10)
-    cache_ttl_seconds: int = Field(default=86400)
-    cache_backtest_results: bool = Field(default=True)
-    cache_market_data: bool = Field(default=True)
-    cache_analysis_results: bool = Field(default=True)
-
-
-class RedisSettings(RedisSettingsBase, TimestampMixin, table=True):
-    """Redis cache configuration."""
-    __tablename__ = "redis_settings"
-    
-    id: Optional[int] = Field(default=None, primary_key=True)
-    last_connection_test: Optional[datetime] = Field(default=None, nullable=True)
-    last_connection_status: str = Field(default="unknown", max_length=20)
-    total_cache_hits: int = Field(default=0)
-    total_cache_misses: int = Field(default=0)
-
-
-class RedisSettingsRead(RedisSettingsBase):
-    """Redis Settings read schema."""
-    id: int
-    created_at: datetime
-    updated_at: datetime
-
-
-# ========== Bot Settings Models ==========
-
-class BotSettingBase(SQLModel):
-    """Base Bot Setting model."""
-    section: str = Field(index=True, nullable=False, max_length=50)
-    key: str = Field(index=True, nullable=False, max_length=100)
-    value: str = Field(nullable=False)
-    value_type: str = Field(nullable=False, max_length=20)
-    description: Optional[str] = Field(default=None)
-    default_value: Optional[str] = Field(default=None)
-    is_active: bool = Field(default=True, index=True)
-    version: int = Field(default=1)
-
-
-class BotSetting(BotSettingBase, TimestampMixin, table=True):
-    """Bot configuration settings."""
-    __tablename__ = "bot_setting"
-    
-    id: Optional[int] = Field(default=None, primary_key=True)
-    updated_by: Optional[int] = Field(foreign_key="user.id", nullable=True)
-
-
-class BotSettingRead(BotSettingBase):
-    """Bot Setting read schema."""
-    id: int
-    created_at: datetime
-    updated_at: datetime
+    backtest_trades: List["BacktestTrade"] = Relationship(back_populates="backtest_run", cascade_delete=True)
 
 
 # ========== Backtest Result Models ==========
@@ -367,31 +208,39 @@ class BacktestResultBase(SQLModel):
     market_1: str = Field(index=True, nullable=False, max_length=50)
     market_2: str = Field(index=True, nullable=False, max_length=50)
     total_trades: Optional[int] = Field(default=0)
+    entry_trades: Optional[int] = Field(default=0)
+    exit_trades: Optional[int] = Field(default=0)
     profitable_trades: Optional[int] = Field(default=0)
     losing_trades: Optional[int] = Field(default=0)
     pnl: Optional[float] = Field(default=0.0)
     pnl_usd: Optional[float] = Field(default=0.0)
     win_rate: Optional[float] = Field(default=None)
-    sharpe_ratio: Optional[float] = Field(default=None)
+    avg_win: Optional[float] = Field(default=None)
+    avg_loss: Optional[float] = Field(default=None)
+    profit_factor: Optional[float] = Field(default=None)
     max_drawdown: Optional[float] = Field(default=None)
+    sharpe_ratio: Optional[float] = Field(default=None)
+    sortino_ratio: Optional[float] = Field(default=None)
+    calmar_ratio: Optional[float] = Field(default=None)
+    avg_trade_duration_hours: Optional[float] = Field(default=None)
+    avg_winning_trade_duration: Optional[float] = Field(default=None)
+    avg_losing_trade_duration: Optional[float] = Field(default=None)
+    cointegration_score: Optional[float] = Field(default=None)
+    correlation: Optional[float] = Field(default=None)
+    zscore_mean: Optional[float] = Field(default=None)
+    zscore_std: Optional[float] = Field(default=None)
 
 
 class BacktestResult(BacktestResultBase, TimestampMixin, table=True):
     """Per-pair backtest results."""
-    __tablename__ = "backtest_result"
+    __tablename__ = "backtest_results"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    run_id_fk: int = Field(foreign_key="backtest_run.id", index=True, nullable=False)
+    run_id_fk: int = Field(foreign_key="backtest_runs.id", index=True, nullable=False)
     
     # Relationship
     backtest_run: Optional[BacktestRun] = Relationship(back_populates="backtest_results")
-
-
-class BacktestResultRead(BacktestResultBase):
-    """Backtest Result read schema."""
-    id: int
-    run_id_fk: int
-    created_at: datetime
+    trade_logs: List["TradeLog"] = Relationship(back_populates="backtest_result", cascade_delete=True)
 
 
 # ========== Backtest Trade Models ==========
@@ -412,28 +261,24 @@ class BacktestTradeBase(SQLModel):
     transaction_fee: float = Field(nullable=False)
     slippage: float = Field(nullable=False)
     pnl: Optional[float] = Field(default=None)
+    pnl_pct: Optional[float] = Field(default=None)
+    duration_hours: Optional[float] = Field(default=None)
 
 
 class BacktestTrade(BacktestTradeBase, table=True):
     """Individual backtest trade."""
-    __tablename__ = "backtest_trade"
+    __tablename__ = "backtest_trades"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    run_id_fk: int = Field(foreign_key="backtest_run.id", index=True, nullable=False)
+    run_id_fk: int = Field(foreign_key="backtest_runs.id", index=True, nullable=False)
     entry_timestamp: datetime = Field(index=True, nullable=False)
     exit_timestamp: Optional[datetime] = Field(default=None, index=True, nullable=True)
     exit_price_1: Optional[float] = Field(default=None)
     exit_price_2: Optional[float] = Field(default=None)
     exit_z_score: Optional[float] = Field(default=None)
-    pnl_pct: Optional[float] = Field(default=None)
-    duration_hours: Optional[float] = Field(default=None)
-
-
-class BacktestTradeRead(BacktestTradeBase):
-    """Backtest Trade read schema."""
-    id: int
-    run_id_fk: int
-    entry_timestamp: datetime
+    
+    # Relationship
+    backtest_run: Optional[BacktestRun] = Relationship(back_populates="backtest_trades")
 
 
 # ========== Backtest Candle Models ==========
@@ -452,22 +297,15 @@ class BacktestCandleBase(SQLModel):
 
 class BacktestCandle(BacktestCandleBase, table=True):
     """OHLCV price data for backtest."""
-    __tablename__ = "backtest_candle"
+    __tablename__ = "backtest_candles"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    run_id_fk: int = Field(foreign_key="backtest_run.id", index=True, nullable=False)
+    run_id_fk: int = Field(foreign_key="backtest_runs.id", index=True, nullable=False)
     timestamp: datetime = Field(index=True, nullable=False)
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Relationship
     backtest_run: Optional[BacktestRun] = Relationship(back_populates="backtest_candles")
-
-
-class BacktestCandleRead(BacktestCandleBase):
-    """Backtest Candle read schema."""
-    id: int
-    run_id_fk: int
-    timestamp: datetime
 
 
 # ========== Backtest Log Models ==========
@@ -480,21 +318,14 @@ class BacktestLogBase(SQLModel):
 
 class BacktestLog(BacktestLogBase, table=True):
     """Backtest execution logs."""
-    __tablename__ = "backtest_log"
+    __tablename__ = "backtest_logs"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    run_id_fk: int = Field(foreign_key="backtest_run.id", index=True, nullable=False)
+    run_id_fk: int = Field(foreign_key="backtest_runs.id", index=True, nullable=False)
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     
     # Relationship
     backtest_run: Optional[BacktestRun] = Relationship(back_populates="backtest_logs")
-
-
-class BacktestLogRead(BacktestLogBase):
-    """Backtest Log read schema."""
-    id: int
-    run_id_fk: int
-    created_at: datetime
 
 
 # ========== Backtest Position Models ==========
@@ -522,19 +353,15 @@ class BacktestPositionBase(SQLModel):
 
 class BacktestPosition(BacktestPositionBase, table=True):
     """Open positions during backtest."""
-    __tablename__ = "backtest_position"
+    __tablename__ = "backtest_positions"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    run_id_fk: int = Field(foreign_key="backtest_run.id", index=True, nullable=False)
+    run_id_fk: int = Field(foreign_key="backtest_runs.id", index=True, nullable=False)
     entry_timestamp: datetime = Field(index=True, nullable=False)
     close_timestamp: Optional[datetime] = Field(default=None, nullable=True)
-
-
-class BacktestPositionRead(BacktestPositionBase):
-    """Backtest Position read schema."""
-    id: int
-    run_id_fk: int
-    entry_timestamp: datetime
+    
+    # Relationship
+    backtest_run: Optional[BacktestRun] = Relationship(back_populates="backtest_positions")
 
 
 # ========== Backtest Comparison Models ==========
@@ -553,26 +380,19 @@ class BacktestComparisonBase(SQLModel):
 
 class BacktestComparison(BacktestComparisonBase, TimestampMixin, table=True):
     """Comparison of two backtest runs."""
-    __tablename__ = "backtest_comparison"
+    __tablename__ = "backtest_comparisons"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
-    strategy_id_1: int = Field(foreign_key="backtest_strategy.id", nullable=False)
-    strategy_id_2: int = Field(foreign_key="backtest_strategy.id", nullable=False)
-    run_id_1: int = Field(foreign_key="backtest_run.id", nullable=False)
-    run_id_2: int = Field(foreign_key="backtest_run.id", nullable=False)
-
-
-class BacktestComparisonRead(BacktestComparisonBase):
-    """Backtest Comparison read schema."""
-    id: int
-    user_id: int
-    strategy_id_1: int
-    strategy_id_2: int
-    run_id_1: int
-    run_id_2: int
-    created_at: datetime
-    updated_at: datetime
+    user_id: int = Field(foreign_key="users.id", index=True, nullable=False)
+    strategy_id_1: int = Field(foreign_key="backtest_strategies.id", nullable=False)
+    strategy_id_2: int = Field(foreign_key="backtest_strategies.id", nullable=False)
+    run_id_1: int = Field(foreign_key="backtest_runs.id", nullable=False)
+    run_id_2: int = Field(foreign_key="backtest_runs.id", nullable=False)
+    
+    # Relationships
+    user: Optional[User] = Relationship(back_populates="backtest_comparisons")
+    strategy_1: Optional[BacktestStrategy] = Relationship(back_populates="backtest_comparisons_1")
+    strategy_2: Optional[BacktestStrategy] = Relationship(back_populates="backtest_comparisons_2")
 
 
 # ========== Trade Log Models ==========
@@ -596,20 +416,94 @@ class TradeLogBase(SQLModel):
 
 class TradeLog(TradeLogBase, table=True):
     """Individual trade logs from backtest results."""
-    __tablename__ = "trade_log"
+    __tablename__ = "trade_logs"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    result_id_fk: int = Field(foreign_key="backtest_result.id", index=True, nullable=False)
+    result_id_fk: int = Field(foreign_key="backtest_results.id", index=True, nullable=False)
     entry_timestamp: datetime = Field(nullable=False)
     exit_timestamp: Optional[datetime] = Field(default=None, nullable=True)
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    # Relationship
+    backtest_result: Optional[BacktestResult] = Relationship(back_populates="trade_logs")
 
 
-class TradeLogRead(TradeLogBase):
-    """Trade Log read schema."""
-    id: int
-    result_id_fk: int
-    entry_timestamp: datetime
+# ========== Audit Log Models ==========
+
+class AuditLogBase(SQLModel):
+    """Base Audit Log model."""
+    action: str = Field(index=True, nullable=False, max_length=100)
+    resource_type: str = Field(nullable=False, max_length=50)
+    resource_id: Optional[str] = Field(default=None, max_length=100)
+    status: Optional[str] = Field(default="success", max_length=20)
+    ip_address: Optional[str] = Field(default=None, max_length=50)
+
+
+class AuditLog(AuditLogBase, table=True):
+    """System audit trail."""
+    __tablename__ = "audit_logs"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(foreign_key="users.id", index=True, nullable=True)
+    details: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    
+    # Relationship
+    user: Optional[User] = Relationship(back_populates="audit_logs")
+
+
+# ========== Redis Settings Models ==========
+
+class RedisSettingsBase(SQLModel):
+    """Base Redis Settings model."""
+    enabled: bool = Field(default=True, index=True)
+    host: str = Field(default="localhost", max_length=255)
+    port: int = Field(default=6379)
+    db: int = Field(default=0)
+    password: Optional[str] = Field(default=None, max_length=255)
+    ssl: bool = Field(default=False)
+    timeout: int = Field(default=5)
+    max_connections: int = Field(default=10)
+    cache_ttl_seconds: int = Field(default=86400)
+    cache_backtest_results: bool = Field(default=True)
+    cache_market_data: bool = Field(default=True)
+    cache_analysis_results: bool = Field(default=True)
+    last_connection_test: Optional[datetime] = Field(default=None)
+    last_connection_status: str = Field(default="unknown", max_length=20)
+    total_cache_hits: int = Field(default=0)
+    total_cache_misses: int = Field(default=0)
+
+
+class RedisSettings(RedisSettingsBase, TimestampMixin, table=True):
+    """Redis cache configuration."""
+    __tablename__ = "redis_settings"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
+# ========== Bot Settings Models ==========
+
+class BotSettingBase(SQLModel):
+    """Base Bot Setting model."""
+    section: str = Field(index=True, nullable=False, max_length=50)
+    key: str = Field(index=True, nullable=False, max_length=100)
+    value: str = Field(nullable=False)
+    value_type: str = Field(nullable=False, max_length=20)
+    description: Optional[str] = Field(default=None)
+    default_value: Optional[str] = Field(default=None)
+    is_active: bool = Field(default=True, index=True)
+    version: int = Field(default=1)
+
+
+class BotSetting(BotSettingBase, TimestampMixin, table=True):
+    """Bot configuration settings."""
+    __tablename__ = "bot_settings"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    updated_by: Optional[int] = Field(foreign_key="users.id", nullable=True)
+    
+    # Relationship
+    updated_by_user: Optional[User] = Relationship(back_populates="bot_settings")
 
 
 # ========== Strategy Execution State Models ==========
@@ -639,18 +533,13 @@ class StrategyExecutionStateBase(SQLModel):
 
 class StrategyExecutionState(StrategyExecutionStateBase, TimestampMixin, table=True):
     """Strategy execution state tracking."""
-    __tablename__ = "strategy_execution_state"
+    __tablename__ = "strategy_execution_states"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    strategy_id: int = Field(foreign_key="backtest_strategy.id", index=True, nullable=False)
-
-
-class StrategyExecutionStateRead(StrategyExecutionStateBase):
-    """Strategy Execution State read schema."""
-    id: int
-    strategy_id: int
-    created_at: datetime
-    updated_at: datetime
+    strategy_id: int = Field(foreign_key="backtest_strategies.id", index=True, nullable=False)
+    
+    # Relationship
+    strategy: Optional[BacktestStrategy] = Relationship(back_populates="strategy_execution_state")
 
 
 # ========== Strategy Version History Models ==========
@@ -671,19 +560,33 @@ class StrategyVersionHistory(StrategyVersionHistoryBase, TimestampMixin, table=T
     __tablename__ = "strategy_version_history"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    strategy_id: int = Field(foreign_key="backtest_strategy.id", index=True, nullable=False)
-    created_by_user_id: Optional[int] = Field(foreign_key="user.id", nullable=True)
+    strategy_id: int = Field(foreign_key="backtest_strategies.id", index=True, nullable=False)
+    created_by_user_id: Optional[int] = Field(foreign_key="users.id", nullable=True)
+    
+    # Relationships
+    strategy: Optional[BacktestStrategy] = Relationship(back_populates="strategy_version_history")
+    created_by_user: Optional[User] = Relationship(back_populates="strategy_version_history")
+    backtest_runs: List[BacktestRun] = Relationship(back_populates="strategy_version_history")
 
 
-class StrategyVersionHistoryRead(StrategyVersionHistoryBase):
-    """Strategy Version History read schema."""
-    id: int
-    strategy_id: int
-    created_by_user_id: Optional[int] = None
-    created_at: datetime
-
-
-class StrategyVersionHistoryCreate(StrategyVersionHistoryBase):
-    """Strategy Version History creation schema."""
-    strategy_id: int
-    created_by_user_id: Optional[int] = None
+# Export all models
+__all__ = [
+    "SQLModel", "Field", "Relationship", "Column", "JSON",
+    "TimestampMixin",
+    "User", "UserBase",
+    "DYDXKey", "DYDXKeyBase", "DYDXKeySettings", "DYDXKeySettingsBase",
+    "BacktestStrategy", "BacktestStrategyBase",
+    "BacktestRun", "BacktestRunBase",
+    "BacktestResult", "BacktestResultBase",
+    "BacktestTrade", "BacktestTradeBase",
+    "BacktestCandle", "BacktestCandleBase",
+    "BacktestLog", "BacktestLogBase",
+    "BacktestPosition", "BacktestPositionBase",
+    "BacktestComparison", "BacktestComparisonBase",
+    "TradeLog", "TradeLogBase",
+    "AuditLog", "AuditLogBase",
+    "RedisSettings", "RedisSettingsBase",
+    "BotSetting", "BotSettingBase",
+    "StrategyExecutionState", "StrategyExecutionStateBase",
+    "StrategyVersionHistory", "StrategyVersionHistoryBase",
+]

@@ -576,11 +576,11 @@ async def _execute_backtest_task(
     # Add app directory to path BEFORE importing app modules
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-    from bot.config import config
-    from bot.func_backtest_logging import log_backtest_error, log_backtest_info
-    from bot.func_backtesting import BacktestEngine
-    from bot.func_connections import connect_dydx
-    from bot.logging_setup import setup_logging
+    from bot import config
+    from bot import log_backtest_error, log_backtest_info
+    from bot import BacktestEngine
+    from bot import connect_dydx
+    from bot import setup_logging
 
     # Initialize logging for this background task
     setup_logging()

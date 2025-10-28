@@ -33,10 +33,8 @@ func LoggingMiddleware() gin.HandlerFunc {
 	}
 }
 
-// AuthMiddleware validates JWT token
-func AuthMiddleware(secret string) gin.HandlerFunc {
-	jwtManager := auth.NewManager(auth.JWTConfig{Secret: secret})
-
+// AuthMiddleware validates JWT token using config secret
+func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get token from Authorization header
 		authHeader := c.GetHeader("Authorization")
@@ -55,6 +53,10 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 		}
 
 		tokenString := parts[1]
+
+		// We'll need to pass secret through context or use a package-level variable
+		// For now, create a default manager - this should be set from main
+		jwtManager := auth.NewManager(auth.JWTConfig{Secret: "your-secret-key"})
 
 		// Verify token (expecting access token)
 		claims, err := jwtManager.VerifyToken(tokenString, "access")

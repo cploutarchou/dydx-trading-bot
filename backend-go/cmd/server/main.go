@@ -22,9 +22,14 @@ func main() {
 		dbDriver = "sqlite"
 	}
 
+	// Normalize common shorthand to the actual driver name used by database/sql
+	if dbDriver == "sqlite" {
+		dbDriver = "sqlite3"
+	}
+
 	dbDSN := os.Getenv("DB_DSN")
 	if dbDSN == "" {
-		if dbDriver == "sqlite" {
+		if dbDriver == "sqlite3" {
 			dbDSN = "trading_bot.db"
 		} else {
 			dbDSN = "postgres://user:password@localhost/trading_bot"
@@ -49,6 +54,7 @@ func main() {
 	}
 	defer database.Close()
 
+	runMigrations(database)
 	// Create Gin router
 	router := gin.Default()
 
@@ -93,4 +99,9 @@ func main() {
 	if err := router.Run(fmt.Sprintf(":%s", port)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+func runMigrations(database *db.Database) error {
+	panic("implement me")
+
 }

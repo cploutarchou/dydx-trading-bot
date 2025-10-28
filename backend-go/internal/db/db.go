@@ -26,8 +26,8 @@ type Config struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
-	// AutoMigrate controls whether to run migrations using golang-migrate
-	AutoMigrate bool
+	ConnMaxIdleTime time.Duration
+	AutoMigrate     bool
 }
 
 // Database wraps the SQL DB connection
@@ -92,25 +92,37 @@ func New(cfg Config) (*Database, error) {
 	}
 
 	// Configure connection pool
+	// MaxOpenConns: maximum number of open connections to the database
 	if cfg.MaxOpenConns > 0 {
 		conn.SetMaxOpenConns(cfg.MaxOpenConns)
 	} else {
-		conn.SetMaxOpenConns(25)
+		conn.SetMaxOpenConns(25) // default: suitable for moderate load
 	}
 
+	// MaxIdleConns: maximum number of idle connections
 	if cfg.MaxIdleConns > 0 {
 		conn.SetMaxIdleConns(cfg.MaxIdleConns)
 	} else {
-		conn.SetMaxIdleConns(5)
+		conn.SetMaxIdleConns(5) // default: keep some warm connections
 	}
 
+	// ConnMaxLifetime: maximum lifetime of a connection (prevents stale connections)
 	if cfg.ConnMaxLifetime > 0 {
 		conn.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	} else {
-		conn.SetConnMaxLifetime(5 * time.Minute)
+		conn.SetConnMaxLifetime(5 * time.Minute) // default: recycle connections after 5 min
+	}
+
+	// ConnMaxIdleTime: maximum idle time before connection is closed (reduces resource usage)
+	if cfg.ConnMaxIdleTime > 0 {
+		conn.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
+	} else {
+		conn.SetConnMaxIdleTime(2 * time.Minute) // default: close idle connections after 2 min
 	}
 
 	log.Printf("✅ Database connected successfully (%s)", cfg.Driver)
+	log.Printf("📊 Connection pool: max_open=%d, max_idle=%d, lifetime=%v, idle_timeout=%v",
+		conn.Stats().OpenConnections, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime)
 	return &Database{DB: conn}, nil
 }
 
@@ -137,19 +149,17 @@ func (d *Database) Ping() error {
 	return d.DB.PingContext(ctx)
 }
 
-// Health checks database health and returns detailed info
-func (d *Database) Health() map[string]interface{} {
-	stats := d.DB.Stats()
-	return map[string]interface{}{
-		"connected":           d.Ping() == nil,
-		"open_connections":    stats.OpenConnections,
-		"in_use":              stats.InUse,
-		"idle":                stats.Idle,
-		"wait_count":          stats.WaitCount,
-		"wait_duration":       stats.WaitDuration.String(),
-		"max_idle_closed":     stats.MaxIdleClosed,
-		"max_lifetime_closed": stats.MaxLifetimeClosed,
+// Health checks database health
+func (d *Database) Health() error {
+	return d.Ping()
+}
+
+// GetStats returns current connection pool statistics
+func (d *Database) GetStats() sql.DBStats {
+	if d.DB != nil {
+		return d.DB.Stats()
 	}
+	return sql.DBStats{}
 }
 
 // contextWithTimeout returns a context with timeout

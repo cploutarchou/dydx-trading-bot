@@ -9,6 +9,7 @@ import (
 
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
+	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -50,10 +51,15 @@ func main() {
 	if err = runMigrations(database, config.ConfigInstance.Database.Type); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
+
+	// Initialize auth middleware with config
+	middleware.InitAuthMiddleware(config.ConfigInstance)
+
 	// Create Gin router
 	router := gin.Default()
 
 	// Add middleware
+	router.Use(middleware.ErrorHandlingMiddleware())
 	router.Use(middleware.CORSMiddleware())
 	router.Use(middleware.LoggingMiddleware())
 
@@ -66,23 +72,9 @@ func main() {
 		c.JSON(200, gin.H{"status": "healthy"})
 	})
 
-	// API v1 group
-	//v1 := router.Group("/api/v1")
-	{
-		// Auth routes (will be implemented)
-		// v1.POST("/auth/login", authHandlers.Login)
-		// v1.POST("/auth/register", authHandlers.Register)
-		// v1.POST("/auth/refresh", authHandlers.Refresh)
-
-		// Protected routes (require JWT)
-		// protected := v1.Group("")
-		// protected.Use(middleware.AuthMiddleware(jwtSecret))
-		// {
-		//     // Backtest routes
-		//     // protected.GET("/backtests", backtestHandlers.List)
-		//     // etc
-		// }
-	}
+	// Register routes
+	routes.RegisterBacktestRoutes(router, database)
+	routes.RegisterKeyRoutes(router, database)
 
 	// Start server
 	port := os.Getenv("API_PORT")

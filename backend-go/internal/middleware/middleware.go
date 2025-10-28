@@ -56,8 +56,8 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 
 		tokenString := parts[1]
 
-		// Verify token
-		claims, err := jwtManager.VerifyToken(tokenString)
+		// Verify token (expecting access token)
+		claims, err := jwtManager.VerifyToken(tokenString, "access")
 		if err != nil {
 			c.JSON(401, gin.H{"error": fmt.Sprintf("invalid token: %v", err)})
 			c.Abort()

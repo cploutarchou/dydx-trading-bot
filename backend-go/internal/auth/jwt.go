@@ -11,8 +11,9 @@ import (
 
 // JWTConfig holds JWT configuration
 type JWTConfig struct {
-	Secret      string
-	ExpiryHours int
+	Secret            string
+	ExpiryHours       int
+	RefreshExpiryDays int
 }
 
 // TokenClaims represents JWT claims
@@ -21,6 +22,7 @@ type TokenClaims struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	IsAdmin  bool   `json:"is_admin"`
+	Type     string `json:"type"`
 	jwt.RegisteredClaims
 }
 
@@ -42,15 +44,23 @@ func NewManager(cfg JWTConfig) *Manager {
 	return &Manager{config: cfg}
 }
 
-// GenerateToken generates a JWT token
-func (m *Manager) GenerateToken(userID int, username, email string, isAdmin bool) (string, time.Time, error) {
-	expiresAt := time.Now().Add(time.Hour * time.Duration(m.config.ExpiryHours))
+// CreateAccessToken creates a JWT access token
+func (m *Manager) CreateAccessToken(userID int, username, email string, isAdmin bool, expiresDelta ...time.Duration) (string, time.Time, error) {
+	var expiresAt time.Time
+	if len(expiresDelta) > 0 {
+		expiresAt = time.Now().Add(expiresDelta[0])
+	} else if m.config.ExpiryHours > 0 {
+		expiresAt = time.Now().Add(time.Hour * time.Duration(m.config.ExpiryHours))
+	} else {
+		expiresAt = time.Now().Add(time.Hour * 24) // default 24h
+	}
 
 	claims := TokenClaims{
 		UserID:   userID,
 		Username: username,
 		Email:    email,
 		IsAdmin:  isAdmin,
+		Type:     "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -61,31 +71,83 @@ func (m *Manager) GenerateToken(userID int, username, email string, isAdmin bool
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(m.config.Secret))
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to sign token: %w", err)
+		return "", time.Time{}, fmt.Errorf("failed to sign access token: %w", err)
 	}
 
 	return tokenString, expiresAt, nil
 }
 
-// VerifyToken verifies and parses a JWT token
-func (m *Manager) VerifyToken(tokenString string) (*TokenClaims, error) {
+// CreateRefreshToken creates a JWT refresh token
+func (m *Manager) CreateRefreshToken(userID int, username, email string, isAdmin bool) (string, time.Time, error) {
+	var expiresAt time.Time
+	if m.config.RefreshExpiryDays > 0 {
+		expiresAt = time.Now().Add(time.Hour * 24 * time.Duration(m.config.RefreshExpiryDays))
+	} else {
+		expiresAt = time.Now().Add(time.Hour * 24 * 7) // default 7 days
+	}
+
+	claims := TokenClaims{
+		UserID:   userID,
+		Username: username,
+		Email:    email,
+		IsAdmin:  isAdmin,
+		Type:     "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(m.config.Secret))
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("failed to sign refresh token: %w", err)
+	}
+
+	return tokenString, expiresAt, nil
+}
+
+// DecodeToken decodes and validates a JWT token and returns claims
+func (m *Manager) DecodeToken(tokenString string) (*TokenClaims, error) {
 	claims := &TokenClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(m.config.Secret), nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	if !token.Valid {
-		return nil, errors.New("invalid token")
+	// Check expiry
+	if claims.ExpiresAt == nil || claims.ExpiresAt.Time.Before(time.Now()) {
+		return nil, errors.New("token expired")
 	}
 
 	return claims, nil
+}
+
+// VerifyToken verifies token validity and expected type (access or refresh)
+func (m *Manager) VerifyToken(tokenString string, expectedType string) (*TokenClaims, error) {
+	claims, err := m.DecodeToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if expectedType != "" && claims.Type != expectedType {
+		return nil, fmt.Errorf("token type mismatch: expected %s got %s", expectedType, claims.Type)
+	}
+	return claims, nil
+}
+
+// ExtractSubject returns the username (subject) from a token if valid
+func (m *Manager) ExtractSubject(tokenString string) (string, error) {
+	claims, err := m.DecodeToken(tokenString)
+	if err != nil {
+		return "", err
+	}
+	return claims.Username, nil
 }
 
 // HashPassword hashes a password using bcrypt

@@ -15,7 +15,7 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/database/sqlite"
+	_ "github.com/golang-migrate/migrate/v4/database/sqlite3"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
@@ -76,7 +76,12 @@ func New(cfg Config) (*Database, error) {
 			if err != nil {
 				log.Printf("⚠️  Migration setup failed: %v (continuing with server startup)", err)
 			} else {
-				defer m.Close()
+				defer func() {
+					srcErr, dbErr := m.Close()
+					if srcErr != nil || dbErr != nil {
+						log.Printf("⚠️  failed to close migrate: source=%v db=%v", srcErr, dbErr)
+					}
+				}()
 				if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 					log.Printf("⚠️  Migrations failed: %v (continuing with server startup)", err)
 				} else {

@@ -21,11 +21,3 @@ func ErrorHandlingMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-// RequestValidationMiddleware validates common request parameters
-func RequestValidationMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Additional request validation can be added here
-		c.Next()
-	}
-}

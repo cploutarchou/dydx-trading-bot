@@ -11,15 +11,6 @@ def load_config(path: str = ".env"):
 indexer = config.IndexerEndpoint(mainnet="https://indexer.dydx.trade",
                                  testnet="https://indexer.v4testnet.dydx.exchange")
 
-Ethereum = config.EthereumSettings(
-    Address=os.getenv("ADDRESS"),
-    PrivateKey=os.getenv("PRIVATE_KEY")
-)
-
-Wallet = config.WalletSettings(
-    EthereumSettings=Ethereum
-)
-
 Telegram = config.TelegramSettings(token=os.getenv("TELEGRAM_TOKEN"), chat_id=os.getenv("TELEGRAM_CHAT_ID"))
 
 DYDX = config.DYDX(
@@ -74,7 +65,6 @@ Auth = config.AuthSettings(
 APP_CONFIG = config.Config(
     database=Database,
     indexer=indexer,
-    wallet=Wallet,
     telegram=Telegram,
     dydx=DYDX,
     loki=Loki,

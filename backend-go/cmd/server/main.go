@@ -51,6 +51,10 @@ func main() {
 	if err = runMigrations(database, config.ConfigInstance.Database.Type); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
+
+	// Initialize auth middleware with config
+	middleware.InitAuthMiddleware(config.ConfigInstance)
+
 	// Create Gin router
 	router := gin.Default()
 
@@ -70,6 +74,7 @@ func main() {
 
 	// Register routes
 	routes.RegisterBacktestRoutes(router, database)
+	routes.RegisterKeyRoutes(router, database)
 
 	// Start server
 	port := os.Getenv("API_PORT")

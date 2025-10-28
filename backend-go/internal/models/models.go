@@ -208,6 +208,7 @@ type BacktestPosition struct {
 	RunID          int        `db:"run_id" json:"run_id"`
 	Market1        string     `db:"market_1" json:"market_1"`
 	Market2        string     `db:"market_2" json:"market_2"`
+	Status         string     `db:"status" json:"status"`
 	EntryPrice1    float64    `db:"entry_price_1" json:"entry_price_1"`
 	EntryPrice2    float64    `db:"entry_price_2" json:"entry_price_2"`
 	ExitPrice1     *float64   `db:"exit_price_1" json:"exit_price_1"`

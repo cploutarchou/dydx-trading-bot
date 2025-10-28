@@ -7,18 +7,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dydx-trading-bot/backend-go/internal/db"
-	"github.com/dydx-trading-bot/backend-go/internal/models"
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/gin-gonic/gin"
 )
 
 type BacktestHandler struct {
-	db *db.Database
+	repo *repository.BacktestRepository
 }
 
-func NewBacktestHandler(database *db.Database) *BacktestHandler {
+func NewBacktestHandler(repo *repository.BacktestRepository) *BacktestHandler {
 	return &BacktestHandler{
-		db: database,
+		repo: repo,
 	}
 }
 
@@ -53,7 +52,6 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 
-	// Convert run_id to int for validation
 	runIDInt, err := strconv.Atoi(runID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
@@ -64,9 +62,9 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 		return
 	}
 
-	// Verify run exists
-	var run models.BacktestRun
-	if err := h.db.DB.QueryRow("SELECT id FROM backtest_runs WHERE run_id = $1", runID).Scan(&run.ID); err != nil {
+	// Verify run exists using repository
+	run, err := h.repo.GetRunByID(runID)
+	if err != nil || run == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
@@ -103,32 +101,15 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 		endDt = &t
 	}
 
-	// Build query
-	query := "SELECT id, run_id, market, timestamp, resolution, open_price, high_price, low_price, close_price, volume, trades_count FROM backtest_candles WHERE run_id = $1"
-	args := []interface{}{runIDInt}
-	argNum := 2
-
-	if market != "" {
-		query += fmt.Sprintf(" AND market = $%d", argNum)
-		args = append(args, market)
-		argNum++
+	// Get candles using repository
+	filter := repository.CandleFilter{
+		RunID:     runIDInt,
+		Market:    market,
+		StartDate: startDt,
+		EndDate:   endDt,
 	}
 
-	if startDt != nil {
-		query += fmt.Sprintf(" AND timestamp >= $%d", argNum)
-		args = append(args, startDt)
-		argNum++
-	}
-
-	if endDt != nil {
-		query += fmt.Sprintf(" AND timestamp <= $%d", argNum)
-		args = append(args, endDt)
-		argNum++
-	}
-
-	query += " ORDER BY timestamp"
-
-	rows, err := h.db.DB.Query(query, args...)
+	dbCandles, err := h.repo.GetCandles(filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -137,17 +118,11 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 		})
 		return
 	}
-	defer rows.Close()
 
 	var candles []CandleResponse
 	var uniqueMarkets map[string]bool = make(map[string]bool)
 
-	for rows.Next() {
-		var candle models.BacktestCandle
-		if err := rows.Scan(&candle.ID, &candle.RunID, &candle.Market, &candle.Timestamp, &candle.Resolution, &candle.OpenPrice, &candle.HighPrice, &candle.LowPrice, &candle.ClosePrice, &candle.Volume, &candle.TradesCount); err != nil {
-			continue
-		}
-
+	for _, candle := range dbCandles {
 		uniqueMarkets[candle.Market] = true
 
 		timestamp := candle.Timestamp.Format(time.RFC3339)
@@ -228,9 +203,9 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 		return
 	}
 
-	// Verify run exists
-	var run models.BacktestRun
-	if err := h.db.DB.QueryRow("SELECT id FROM backtest_runs WHERE run_id = $1", runID).Scan(&run.ID); err != nil {
+	// Verify run exists using repository
+	run, err := h.repo.GetRunByID(runID)
+	if err != nil || run == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
@@ -239,32 +214,15 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 		return
 	}
 
-	// Build query
-	query := "SELECT id, run_id, market_1, market_2, entry_price_1, exit_price_1, entry_price_2, exit_price_2, entry_timestamp, exit_timestamp FROM backtest_positions WHERE run_id = $1"
-	args := []interface{}{runIDInt}
-	argNum := 2
-
-	if status != "" && strings.ToUpper(status) != "ALL" {
-		query += fmt.Sprintf(" AND status = $%d", argNum)
-		args = append(args, strings.ToUpper(status))
-		argNum++
+	// Get positions using repository
+	filter := repository.PositionFilter{
+		RunID:   runIDInt,
+		Status:  strings.ToUpper(status),
+		Market1: market1,
+		Market2: market2,
 	}
 
-	if market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
-		args = append(args, market1)
-		argNum++
-	}
-
-	if market2 != "" {
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
-		args = append(args, market2)
-		argNum++
-	}
-
-	query += " ORDER BY entry_timestamp"
-
-	rows, err := h.db.DB.Query(query, args...)
+	dbPositions, err := h.repo.GetPositions(filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -273,16 +231,10 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 		})
 		return
 	}
-	defer rows.Close()
 
 	var positions []PositionResponse
 
-	for rows.Next() {
-		var pos models.BacktestPosition
-		if err := rows.Scan(&pos.ID, &pos.RunID, &pos.Market1, &pos.Market2, &pos.EntryPrice1, &pos.ExitPrice1, &pos.EntryPrice2, &pos.ExitPrice2, &pos.EntryTimestamp, &pos.ExitTimestamp); err != nil {
-			continue
-		}
-
+	for _, pos := range dbPositions {
 		entryTimestamp := pos.EntryTimestamp.Format(time.RFC3339)
 		if !strings.HasSuffix(entryTimestamp, "Z") {
 			entryTimestamp += "Z"
@@ -312,16 +264,16 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 			PnLM1USD:       pnlM1,
 			PnLM2USD:       pnlM2,
 			TotalPnLUSD:    pnlM1 + pnlM2,
-			Status:         "CLOSED",
+			Status:         pos.Status,
 		})
 	}
 
-	// Get counts
-	openCount := 0
-	closedCount := 0
-
-	h.db.DB.QueryRow("SELECT COUNT(*) FROM backtest_positions WHERE run_id = $1 AND status = 'OPEN'", runIDInt).Scan(&openCount)
-	h.db.DB.QueryRow("SELECT COUNT(*) FROM backtest_positions WHERE run_id = $1 AND status = 'CLOSED'", runIDInt).Scan(&closedCount)
+	// Get counts using repository
+	openCount, closedCount, err := h.repo.GetPositionCountsByStatus(runIDInt)
+	if err != nil {
+		openCount = 0
+		closedCount = 0
+	}
 
 	data := PositionsData{
 		RunID:       runIDInt,
@@ -397,9 +349,9 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 		return
 	}
 
-	// Verify run exists
-	var run models.BacktestRun
-	if err := h.db.DB.QueryRow("SELECT id FROM backtest_runs WHERE run_id = $1", runID).Scan(&run.ID); err != nil {
+	// Verify run exists using repository
+	run, err := h.repo.GetRunByID(runID)
+	if err != nil || run == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
@@ -408,46 +360,22 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 		return
 	}
 
-	// Build count query
-	countQuery := "SELECT COUNT(*) FROM backtest_trades WHERE run_id = $1"
-	countArgs := []interface{}{runIDInt}
-	countArgNum := 2
-
-	// Build data query
-	query := "SELECT id, run_id, trade_id, market_1, market_2, entry_price_1, exit_price_1, entry_price_2, exit_price_2, hedge_ratio, entry_z_score, exit_z_score, entry_timestamp, exit_timestamp, pnl, pnl_pct, duration_hours FROM backtest_trades WHERE run_id = $1"
-	args := []interface{}{runIDInt}
-	argNum := 2
-
-	if market1 != "" {
-		countQuery += fmt.Sprintf(" AND market_1 = $%d", countArgNum)
-		countArgs = append(countArgs, market1)
-		countArgNum++
-
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
-		args = append(args, market1)
-		argNum++
-	}
-
-	if market2 != "" {
-		countQuery += fmt.Sprintf(" AND market_2 = $%d", countArgNum)
-		countArgs = append(countArgs, market2)
-		countArgNum++
-
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
-		args = append(args, market2)
-		argNum++
-	}
-
-	// Get total count
-	total := 0
-	if err := h.db.DB.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+	// Get total count using repository
+	total, err := h.repo.GetTradesCount(runIDInt, market1, market2)
+	if err != nil {
 		total = 0
 	}
 
-	query += " ORDER BY entry_timestamp"
-	query += fmt.Sprintf(" OFFSET %d LIMIT %d", skip, limit)
+	// Get trades using repository
+	filter := repository.TradeFilter{
+		RunID:   runIDInt,
+		Market1: market1,
+		Market2: market2,
+		Skip:    skip,
+		Limit:   limit,
+	}
 
-	rows, err := h.db.DB.Query(query, args...)
+	dbTrades, err := h.repo.GetTrades(filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -456,16 +384,10 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 		})
 		return
 	}
-	defer rows.Close()
 
 	var trades []TradeResponse
 
-	for rows.Next() {
-		var trade models.BacktestTrade
-		if err := rows.Scan(&trade.ID, &trade.RunID, &trade.TradeID, &trade.Market1, &trade.Market2, &trade.EntryPrice1, &trade.ExitPrice1, &trade.EntryPrice2, &trade.ExitPrice2, &trade.HedgeRatio, &trade.EntryZScore, &trade.ExitZScore, &trade.EntryTimestamp, &trade.ExitTimestamp, &trade.Pnl, &trade.PnlPct, &trade.DurationHours); err != nil {
-			continue
-		}
-
+	for _, trade := range dbTrades {
 		entryTimestamp := trade.EntryTimestamp.Format(time.RFC3339)
 		if !strings.HasSuffix(entryTimestamp, "Z") {
 			entryTimestamp += "Z"
@@ -496,19 +418,24 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 
 		win := pnlUSD > 0
 
+		// Convert to pointers for response
+		entryZScore := trade.EntryZScore
+		exitZScore := trade.ExitZScore
+		hedgeRatio := trade.HedgeRatio
+
 		trades = append(trades, TradeResponse{
 			TradeID:        trade.TradeID,
 			Market1:        trade.Market1,
 			Market2:        trade.Market2,
 			EntryTimestamp: entryTimestamp,
 			ExitTimestamp:  exitTimestamp,
-			EntryZScore:    &trade.EntryZScore,
-			ExitZScore:     trade.ExitZScore,
+			EntryZScore:    &entryZScore,
+			ExitZScore:     exitZScore,
 			EntryPrice1:    trade.EntryPrice1,
 			ExitPrice1:     trade.ExitPrice1,
 			EntryPrice2:    trade.EntryPrice2,
 			ExitPrice2:     trade.ExitPrice2,
-			HedgeRatio:     &trade.HedgeRatio,
+			HedgeRatio:     &hedgeRatio,
 			PnLUSD:         pnlUSD,
 			PnLPct:         pnlPct,
 			DurationHours:  durationHours,

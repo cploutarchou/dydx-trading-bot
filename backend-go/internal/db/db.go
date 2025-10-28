@@ -32,13 +32,13 @@ type Config struct {
 
 // Database wraps the SQL DB connection
 type Database struct {
-	conn *sql.DB
+	DB *sql.DB
 }
 
 // New creates a new database connection with pure SQL
 func New(cfg Config) (*Database, error) {
 	if cfg.Driver == "" {
-		cfg.Driver = "postgres"
+		cfg.Driver = "sqlite3"
 	}
 
 	conn, err := sql.Open(cfg.Driver, cfg.DSN)
@@ -111,35 +111,35 @@ func New(cfg Config) (*Database, error) {
 	}
 
 	log.Printf("✅ Database connected successfully (%s)", cfg.Driver)
-	return &Database{conn: conn}, nil
+	return &Database{DB: conn}, nil
 }
 
 // GetConnection returns the raw SQL DB connection
 func (d *Database) GetConnection() *sql.DB {
-	return d.conn
+	return d.DB
 }
 
 // Close closes the database connection
 func (d *Database) Close() error {
-	if d.conn != nil {
-		return d.conn.Close()
+	if d.DB != nil {
+		return d.DB.Close()
 	}
 	return nil
 }
 
 // Ping checks if the database is still accessible
 func (d *Database) Ping() error {
-	if d.conn == nil {
+	if d.DB == nil {
 		return fmt.Errorf("database connection is nil")
 	}
 	ctx, cancel := contextWithTimeout(5 * time.Second)
 	defer cancel()
-	return d.conn.PingContext(ctx)
+	return d.DB.PingContext(ctx)
 }
 
 // Health checks database health and returns detailed info
 func (d *Database) Health() map[string]interface{} {
-	stats := d.conn.Stats()
+	stats := d.DB.Stats()
 	return map[string]interface{}{
 		"connected":           d.Ping() == nil,
 		"open_connections":    stats.OpenConnections,
@@ -161,28 +161,28 @@ func contextWithTimeout(timeout time.Duration) (context.Context, context.CancelF
 func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
-	return d.conn.QueryContext(ctx, query, args...)
+	return d.DB.QueryContext(ctx, query, args...)
 }
 
 // QueryRow executes a SELECT query returning a single row
 func (d *Database) QueryRow(query string, args ...interface{}) *sql.Row {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
-	return d.conn.QueryRowContext(ctx, query, args...)
+	return d.DB.QueryRowContext(ctx, query, args...)
 }
 
 // Exec executes an INSERT, UPDATE, or DELETE query
 func (d *Database) Exec(query string, args ...interface{}) (sql.Result, error) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
-	return d.conn.ExecContext(ctx, query, args...)
+	return d.DB.ExecContext(ctx, query, args...)
 }
 
 // BeginTx starts a new database transaction
 func (d *Database) BeginTx() (*sql.Tx, error) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
-	return d.conn.BeginTx(ctx, nil)
+	return d.DB.BeginTx(ctx, nil)
 }
 
 // Database initialization handles migrations via golang-migrate

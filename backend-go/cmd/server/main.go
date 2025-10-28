@@ -2,13 +2,20 @@ package main
 
 import (
 	"fmt"
+	"github.com/dydx-trading-bot/backend-go/config"
+	database2 "github.com/golang-migrate/migrate/v4/database"
 	"log"
 	"os"
 
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/database/sqlite3"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -16,35 +23,17 @@ func main() {
 	// Load environment variables
 	_ = godotenv.Load()
 
-	// Get configuration from environment
-	dbDriver := os.Getenv("DB_DRIVER")
-	if dbDriver == "" {
-		dbDriver = "sqlite"
-	}
+	config.LoadConfig()
+	log.Printf("Loaded config: %+v", config.ConfigInstance)
 
-	// Normalize common shorthand to the actual driver name used by database/sql
-	if dbDriver == "sqlite" {
-		dbDriver = "sqlite3"
-	}
-
-	dbDSN := os.Getenv("DB_DSN")
-	if dbDSN == "" {
-		if dbDriver == "sqlite3" {
-			dbDSN = "trading_bot.db"
-		} else {
-			dbDSN = "postgres://user:password@localhost/trading_bot"
-		}
-	}
-
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "your-super-secret-key-change-in-production"
+	if config.ConfigInstance.Database.Type == "postgresql" {
+		config.ConfigInstance.Database.Type = "postgres"
 	}
 
 	// Initialize database with automatic migrations
 	database, err := db.New(db.Config{
-		Driver:       dbDriver,
-		DSN:          dbDSN,
+		Driver:       config.ConfigInstance.Database.Type,
+		DSN:          config.ConfigInstance.Database.DSN(),
 		AutoMigrate:  true, // Automatically run pending migrations on startup
 		MaxOpenConns: 25,
 		MaxIdleConns: 5,
@@ -54,7 +43,13 @@ func main() {
 	}
 	defer database.Close()
 
-	runMigrations(database)
+	if database == nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+
+	if err = runMigrations(database, config.ConfigInstance.Database.Type); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 	// Create Gin router
 	router := gin.Default()
 
@@ -101,7 +96,34 @@ func main() {
 	}
 }
 
-func runMigrations(database *db.Database) error {
-	panic("implement me")
+func runMigrations(database *db.Database, dbDriver string) error {
+	var driverInstance database2.Driver
+	var err error
 
+	if dbDriver == "sqlite3" || dbDriver == "sqlite" {
+		driverInstance, err = sqlite3.WithInstance(database.DB, &sqlite3.Config{})
+		if err != nil {
+			return fmt.Errorf("failed to create sqlite3 driver: %w", err)
+		}
+	} else if dbDriver == "postgres" {
+		driverInstance, err = postgres.WithInstance(database.DB, &postgres.Config{})
+		if err != nil {
+			return fmt.Errorf("failed to create postgres driver: %w", err)
+		}
+	} else {
+		return fmt.Errorf("unsupported driver: %s", dbDriver)
+	}
+
+	m, err := migrate.NewWithDatabaseInstance("file://migrations", dbDriver, driverInstance)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+	defer m.Close()
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	log.Println("Migrations completed successfully")
+	return nil
 }

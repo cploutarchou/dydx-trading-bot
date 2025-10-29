@@ -342,6 +342,7 @@ type StrategyVersionHistory struct {
 	StrategyData    sql.NullString `db:"strategy_data" json:"strategy_data"`
 	ChangeLog       string         `db:"change_log" json:"change_log"`
 	CreatedAt       time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // ==================== COINTEGRATION MODELS ====================

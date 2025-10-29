@@ -22,7 +22,10 @@ import (
 
 func main() {
 	// Load environment variables
-	_ = godotenv.Load()
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Failed to load .env file: %v", err)
+	}
 
 	config.LoadConfig()
 	log.Printf("Loaded config: %+v", config.ConfigInstance)

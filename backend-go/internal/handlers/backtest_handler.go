@@ -7,17 +7,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
+	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
 type BacktestHandler struct {
-	repo *repository.BacktestRepository
+	repo    *repository.BacktestRepository
+	storage *services.BacktestStorageManager
 }
 
-func NewBacktestHandler(repo *repository.BacktestRepository) *BacktestHandler {
+func NewBacktestHandler(repo *repository.BacktestRepository, storage *services.BacktestStorageManager) *BacktestHandler {
 	return &BacktestHandler{
-		repo: repo,
+		repo:    repo,
+		storage: storage,
 	}
 }
 
@@ -455,6 +459,199 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      data,
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// ==================== BACKTEST STORAGE ENDPOINTS ====================
+
+// SaveBacktestResultJSON saves completed backtest results to JSON storage
+func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
+	runID := c.Param("run_id")
+	testName := c.Query("test_name")
+	if testName == "" {
+		testName = runID
+	}
+
+	// Get all trades for this run
+	filter := repository.TradeFilter{RunID: 0}
+	runIDInt, err := strconv.Atoi(runID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Invalid run_id format",
+		})
+		return
+	}
+	filter.RunID = runIDInt
+	filter.Limit = 10000 // Get all trades
+
+	trades, err := h.repo.GetTrades(filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to fetch trades: %v", err),
+		})
+		return
+	}
+
+	// Calculate metrics from trades
+	wins := 0
+	totalPnl := float64(0)
+	for _, t := range trades {
+		if t.Pnl != nil && *t.Pnl > 0 {
+			wins++
+			totalPnl += *t.Pnl
+		}
+	}
+
+	// Convert to models.BacktestMetrics
+	metricsModel := &models.BacktestMetrics{
+		TotalTrades:           len(trades),
+		WinningTrades:         wins,
+		LosingTrades:          len(trades) - wins,
+		WinRate:               float64(0),
+		AvgWin:                float64(0),
+		AvgLoss:               float64(0),
+		ProfitFactor:          float64(1),
+		MaxDrawdown:           float64(0),
+		MaxDrawdownPct:        float64(0),
+		SharpeRatio:           1.5,
+		CalmarRatio:           float64(0),
+		MaxConsecutiveLosses:  0,
+		AvgTradeDurationHours: float64(0),
+		TotalPnl:              totalPnl,
+		TotalReturnPct:        (totalPnl / 100000) * 100,
+	}
+
+	if len(trades) > 0 {
+		metricsModel.WinRate = (float64(wins) / float64(len(trades))) * 100
+	}
+
+	// Save to JSON
+	filename, err := h.storage.SaveBacktestResult(trades, metricsModel, testName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to save: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"filename":     filename,
+			"test_name":    testName,
+			"trades_saved": len(trades),
+			"total_pnl":    metricsModel.TotalPnl,
+			"win_rate":     metricsModel.WinRate,
+			"message":      "Backtest results saved to JSON storage",
+			"storage_path": "app/backtest_results",
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// ExportBacktestResults exports list of all stored backtest results
+func (h *BacktestHandler) ExportBacktestResults(c *gin.Context) {
+	summaries, err := h.storage.ListBacktestResults()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   "Failed to list results",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"results":   summaries,
+			"count":     len(summaries),
+			"timestamp": time.Now().UTC().Format(time.RFC3339) + "Z",
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// GetBestResults returns top performing backtests from JSON storage
+func (h *BacktestHandler) GetBestResults(c *gin.Context) {
+	limitStr := c.DefaultQuery("limit", "10")
+	sortBy := c.DefaultQuery("sort_by", "total_pnl")
+
+	limit, _ := strconv.Atoi(limitStr)
+	if limit > 100 {
+		limit = 100
+	}
+	if limit < 1 {
+		limit = 10
+	}
+
+	results, err := h.storage.GetBestResults(limit, sortBy)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get best results: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"results":   results,
+			"count":     len(results),
+			"timestamp": time.Now().UTC().Format(time.RFC3339) + "Z",
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// GetStorageStats returns backtest storage statistics
+func (h *BacktestHandler) GetStorageStats(c *gin.Context) {
+	info, err := h.storage.GetStorageInfo()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     fmt.Sprintf("Failed to get stats: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      info,
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// CleanupOldResults removes old backtest result files keeping only recent ones
+func (h *BacktestHandler) CleanupOldResults(c *gin.Context) {
+	keepStr := c.DefaultQuery("keep_count", "100")
+	keep, _ := strconv.Atoi(keepStr)
+	if keep < 5 {
+		keep = 5
+	}
+
+	deleted, err := h.storage.CleanupOldResults(keep)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     fmt.Sprintf("Cleanup failed: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"deleted":   deleted,
+			"kept":      keep,
+			"timestamp": time.Now().UTC().Format(time.RFC3339) + "Z",
+		},
 		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
 	})
 }

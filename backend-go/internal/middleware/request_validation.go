@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -228,6 +229,167 @@ func PhoneValidationRule(fieldName string, required bool) ValidationRule {
 		MaxLength: 15,
 		Pattern:   `^\+?[0-9]{10,15}$`,
 	}
+}
+
+// StrategyValidationRule returns a rule for strategy name validation
+func StrategyValidationRule(fieldName string, required bool) ValidationRule {
+	return ValidationRule{
+		Field:     fieldName,
+		Required:  required,
+		Type:      "string",
+		MinLength: 1,
+		MaxLength: 100,
+		Pattern:   `^[a-zA-Z0-9_\-\s]+$`,
+	}
+}
+
+// ValidateStrategyConfig validates backtest strategy configuration
+func ValidateStrategyConfig(config map[string]interface{}) error {
+	requiredFields := []string{"name", "zscore_threshold", "stats_window"}
+
+	for _, field := range requiredFields {
+		if _, exists := config[field]; !exists {
+			return fmt.Errorf("required field '%s' missing from strategy config", field)
+		}
+	}
+
+	// Validate zscore_threshold (should be between 0.5 and 5.0)
+	if zscore, ok := config["zscore_threshold"].(float64); ok {
+		if zscore < 0.5 || zscore > 5.0 {
+			return fmt.Errorf("zscore_threshold must be between 0.5 and 5.0, got %.2f", zscore)
+		}
+	} else {
+		return fmt.Errorf("zscore_threshold must be a float")
+	}
+
+	// Validate stats_window (should be between 1 and 100)
+	if statsWindow, ok := config["stats_window"].(float64); ok {
+		if statsWindow < 1 || statsWindow > 100 {
+			return fmt.Errorf("stats_window must be between 1 and 100, got %.0f", statsWindow)
+		}
+	} else {
+		return fmt.Errorf("stats_window must be an integer")
+	}
+
+	// Validate max_positions if present
+	if maxPos, ok := config["max_positions"].(float64); ok {
+		if maxPos < 1 || maxPos > 100 {
+			return fmt.Errorf("max_positions must be between 1 and 100")
+		}
+	}
+
+	return nil
+}
+
+// ValidateBacktestParams validates backtest parameters
+func ValidateBacktestParams(params map[string]interface{}) error {
+	requiredFields := []string{"start_date", "end_date", "num_pairs"}
+
+	for _, field := range requiredFields {
+		if _, exists := params[field]; !exists {
+			return fmt.Errorf("required field '%s' missing from backtest params", field)
+		}
+	}
+
+	// Validate date format (YYYY-MM-DD)
+	if startDate, ok := params["start_date"].(string); ok {
+		if _, err := time.Parse("2006-01-02", startDate); err != nil {
+			return fmt.Errorf("invalid start_date format, expected YYYY-MM-DD: %v", err)
+		}
+	} else {
+		return fmt.Errorf("start_date must be a string")
+	}
+
+	if endDate, ok := params["end_date"].(string); ok {
+		if _, err := time.Parse("2006-01-02", endDate); err != nil {
+			return fmt.Errorf("invalid end_date format, expected YYYY-MM-DD: %v", err)
+		}
+	} else {
+		return fmt.Errorf("end_date must be a string")
+	}
+
+	// Validate num_pairs
+	if numPairs, ok := params["num_pairs"].(float64); ok {
+		if numPairs < 1 || numPairs > 1000 {
+			return fmt.Errorf("num_pairs must be between 1 and 1000")
+		}
+	} else {
+		return fmt.Errorf("num_pairs must be an integer")
+	}
+
+	// Validate start_date is before end_date
+	if startDate, ok := params["start_date"].(string); ok {
+		if endDate, ok := params["end_date"].(string); ok {
+			start, _ := time.Parse("2006-01-02", startDate)
+			end, _ := time.Parse("2006-01-02", endDate)
+			if !start.Before(end) {
+				return fmt.Errorf("start_date must be before end_date")
+			}
+		}
+	}
+
+	return nil
+}
+
+// ValidateUserInput performs general user input validation
+func ValidateUserInput(input map[string]interface{}) error {
+	for key, value := range input {
+		if str, ok := value.(string); ok {
+			// Check length
+			if len(str) > 5000 {
+				return fmt.Errorf("field '%s' exceeds maximum length of 5000 characters", key)
+			}
+
+			// Check for null bytes
+			if strings.Contains(str, "\x00") {
+				return fmt.Errorf("field '%s' contains null bytes", key)
+			}
+
+			// Check for excessive whitespace
+			if len(strings.TrimSpace(str)) == 0 {
+				return fmt.Errorf("field '%s' cannot be empty or whitespace only", key)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateJSONFormat validates JSON format
+func ValidateJSONFormat(data []byte) error {
+	var jsonData interface{}
+	if err := json.Unmarshal(data, &jsonData); err != nil {
+		return fmt.Errorf("invalid JSON format: %w", err)
+	}
+	return nil
+}
+
+// ValidateAPIKey validates API key format
+func ValidateAPIKey(key string) error {
+	if len(key) == 0 {
+		return fmt.Errorf("API key cannot be empty")
+	}
+	if len(key) > 255 {
+		return fmt.Errorf("API key too long")
+	}
+	// Check for valid characters (alphanumeric, dash, underscore)
+	if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_\-]+$`, key); !matched {
+		return fmt.Errorf("API key contains invalid characters")
+	}
+	return nil
+}
+
+// ValidateNetworkAddress validates blockchain network address
+func ValidateNetworkAddress(address string, expectedPrefix string) error {
+	if len(address) == 0 {
+		return fmt.Errorf("address cannot be empty")
+	}
+	if len(address) > 255 {
+		return fmt.Errorf("address too long")
+	}
+	if expectedPrefix != "" && !strings.HasPrefix(address, expectedPrefix) {
+		return fmt.Errorf("address must start with '%s'", expectedPrefix)
+	}
+	return nil
 }
 
 // SafeStringValidationMiddleware prevents common injection attacks

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -21,15 +22,17 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		authRoutes.POST("/refresh", refreshHandler)
 	}
 
-	// User routes
+	// User routes (require authentication)
 	userRoutes := router.Group("/api/v1/users")
 	{
+		userRoutes.Use(middleware.RequireAuth())
 		userRoutes.GET("/me", getCurrentUserHandler)
 	}
 
-	// Profile routes
+	// Profile routes (require authentication)
 	profileRoutes := router.Group("/api/v1/profile")
 	{
+		profileRoutes.Use(middleware.RequireAuth())
 		profileRoutes.PUT("", updateProfileHandler(database))
 	}
 }

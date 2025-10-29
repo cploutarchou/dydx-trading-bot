@@ -46,7 +46,12 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	// Defer close to execute at the very end of main
-	defer database.Close()
+	defer func(database *db.Database) {
+		err := database.Close()
+		if err != nil {
+			log.Fatalf("Failed to close database: %v", err)
+		}
+	}(database)
 
 	if database == nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -58,6 +63,12 @@ func main() {
 
 	// Initialize auth middleware with config
 	middleware.InitAuthMiddleware(config.ConfigInstance)
+	// Log masked secret length to help verify correct env var is loaded
+	if config.ConfigInstance.Auth.JWTSecretKey != "" {
+		log.Printf("Auth middleware initialized (JWT secret length=%d)", len(config.ConfigInstance.Auth.JWTSecretKey))
+	} else {
+		log.Printf("Auth middleware initialized with empty JWT secret")
+	}
 
 	// Create Gin router
 	router := gin.Default()
@@ -65,6 +76,8 @@ func main() {
 	// Add middleware in order
 	router.Use(middleware.ErrorHandlingMiddleware())
 	router.Use(middleware.CORSMiddleware())
+	// Header logging middleware (masks Authorization/Cookie)
+	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 
 	// Add rate limiting middleware (100 requests/second per IP, burst of 200)
@@ -108,6 +121,31 @@ func main() {
 	routes.RegisterTradeLogRoutes(router, database)
 	routes.RegisterAuditLogRoutes(router, database)
 
+	// Debug endpoints
+	// Echo request headers - public (useful to see what client sends)
+	router.GET("/api/v1/debug/headers", func(c *gin.Context) {
+		c.JSON(200, gin.H{"headers": c.Request.Header})
+	})
+
+	// Whoami - protected by auth middleware and returns claims stored in context
+	router.GET("/api/v1/debug/whoami", middleware.RequireAuth(), func(c *gin.Context) {
+		userID, _ := c.Get("user_id")
+		username := c.GetString("username")
+		email := c.GetString("email")
+		isAdmin := c.GetBool("is_admin")
+		c.JSON(200, gin.H{
+			"user_id":  userID,
+			"username": username,
+			"email":    email,
+			"is_admin": isAdmin,
+		})
+	})
+
+	// Print registered routes for debugging (method + path)
+	for _, r := range router.Routes() {
+		log.Printf("Registered route: %s %s", r.Method, r.Path)
+	}
+
 	// Start server
 	port := os.Getenv("API_PORT")
 	if port == "" {
@@ -142,7 +180,12 @@ func runMigrations(database *db.Database, dbDriver string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
-	defer m.Close()
+	defer func(m *migrate.Migrate) {
+		err, _ := m.Close()
+		if err != nil {
+			log.Printf("Failed to close migrate instance: %v", err)
+		}
+	}(m)
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("failed to run migrations: %w", err)

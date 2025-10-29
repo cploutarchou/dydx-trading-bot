@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -494,14 +495,7 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 		return
 	}
 
-	// Get metrics for this run (placeholder - use first trade for now)
-	metrics := &services.BacktestMetricsData{
-		TotalTrades: len(trades),
-		WinRate:     50.0,
-		SharpeRatio: 1.5,
-	}
-
-	// Count wins
+	// Calculate metrics from trades
 	wins := 0
 	totalPnl := float64(0)
 	for _, t := range trades {
@@ -510,16 +504,32 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 			totalPnl += *t.Pnl
 		}
 	}
+
+	// Convert to models.BacktestMetrics
+	metricsModel := &models.BacktestMetrics{
+		TotalTrades:           len(trades),
+		WinningTrades:         wins,
+		LosingTrades:          len(trades) - wins,
+		WinRate:               float64(0),
+		AvgWin:                float64(0),
+		AvgLoss:               float64(0),
+		ProfitFactor:          float64(1),
+		MaxDrawdown:           float64(0),
+		MaxDrawdownPct:        float64(0),
+		SharpeRatio:           1.5,
+		CalmarRatio:           float64(0),
+		MaxConsecutiveLosses:  0,
+		AvgTradeDurationHours: float64(0),
+		TotalPnl:              totalPnl,
+		TotalReturnPct:        (totalPnl / 100000) * 100,
+	}
+
 	if len(trades) > 0 {
-		metrics.WinningTrades = wins
-		metrics.LosingTrades = len(trades) - wins
-		metrics.WinRate = (float64(wins) / float64(len(trades))) * 100
-		metrics.TotalPnl = totalPnl
-		metrics.TotalReturnPct = (totalPnl / 100000) * 100 // Assume 100k starting balance
+		metricsModel.WinRate = (float64(wins) / float64(len(trades))) * 100
 	}
 
 	// Save to JSON
-	filename, err := h.storage.SaveBacktestResult(trades, metrics, testName)
+	filename, err := h.storage.SaveBacktestResult(trades, metricsModel, testName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success: false,
@@ -534,8 +544,8 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 			"filename":     filename,
 			"test_name":    testName,
 			"trades_saved": len(trades),
-			"total_pnl":    metrics.TotalPnl,
-			"win_rate":     metrics.WinRate,
+			"total_pnl":    metricsModel.TotalPnl,
+			"win_rate":     metricsModel.WinRate,
 			"message":      "Backtest results saved to JSON storage",
 			"storage_path": "app/backtest_results",
 		},

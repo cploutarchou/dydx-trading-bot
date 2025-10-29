@@ -110,7 +110,7 @@ func main() {
 	// Start server
 	port := os.Getenv("API_PORT")
 	if port == "" {
-		port = "8080"
+		port = "8888"
 	}
 
 	log.Printf("🚀 Backend server starting on port %s", port)

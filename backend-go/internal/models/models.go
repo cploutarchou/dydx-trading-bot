@@ -328,3 +328,21 @@ type StrategyVersionHistory struct {
 	ChangeLog       string         `db:"change_log" json:"change_log"`
 	CreatedAt       time.Time      `db:"created_at" json:"created_at"`
 }
+
+// ==================== COINTEGRATION MODELS ====================
+
+type CointegrationResult struct {
+	ID                int       `db:"id" json:"id"`
+	BaseMarket        string    `db:"base_market" json:"base_market"`
+	QuoteMarket       string    `db:"quote_market" json:"quote_market"`
+	HedgeRatio        float64   `db:"hedge_ratio" json:"hedge_ratio"`
+	HalfLife          float64   `db:"half_life" json:"half_life"`
+	ZeroCrossings     int       `db:"zero_crossings" json:"zero_crossings"`
+	PValue            float64   `db:"p_value" json:"p_value"`
+	ZScoreMean        float64   `db:"z_score_mean" json:"z_score_mean"`
+	ZScoreStd         float64   `db:"z_score_std" json:"zscore_std"`
+	AnalysisTimestamp string    `db:"analysis_timestamp" json:"analysis_timestamp"`
+	ConfidenceScore   float64   `db:"confidence_score" json:"confidence_score"`
+	CreatedAt         time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
+}

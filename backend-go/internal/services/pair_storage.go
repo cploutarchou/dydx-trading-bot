@@ -223,8 +223,8 @@ func (psm *PairStorageManager) GetPairByMarkets(baseMarket, quoteMarket string) 
 	return nil, nil
 }
 
-// StorageInfo represents storage state information
-type StorageInfo struct {
+// PairStorageInfo represents storage state information
+type PairStorageInfo struct {
 	TotalPairs          int    `json:"total_pairs"`
 	HighConfidencePairs int    `json:"high_confidence_pairs"`
 	StorageFormat       string `json:"storage_format"`
@@ -235,7 +235,7 @@ type StorageInfo struct {
 }
 
 // GetStorageInfo returns information about current storage state
-func (psm *PairStorageManager) GetStorageInfo() StorageInfo {
+func (psm *PairStorageManager) GetStorageInfo() PairStorageInfo {
 	psm.mu.RLock()
 	defer psm.mu.RUnlock()
 
@@ -264,7 +264,7 @@ func (psm *PairStorageManager) GetStorageInfo() StorageInfo {
 		backupCount = len(entries)
 	}
 
-	return StorageInfo{
+	return PairStorageInfo{
 		TotalPairs:          len(pairs),
 		HighConfidencePairs: highConfidenceCount,
 		StorageFormat:       storageFormat,

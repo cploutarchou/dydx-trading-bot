@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,6 +91,12 @@ func RateLimitMiddleware(requestsPerSecond float64, burstSize int) gin.HandlerFu
 
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
+
+		// Bypass rate limiting for local requests to avoid development-time 429s
+		if clientIP == "::1" || clientIP == "127.0.0.1" || strings.HasPrefix(clientIP, "127.") {
+			c.Next()
+			return
+		}
 
 		if !limiter.Allow(clientIP) {
 			c.JSON(http.StatusTooManyRequests, gin.H{

@@ -58,23 +58,50 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
-	// Add middleware
+	// Add middleware in order
 	router.Use(middleware.ErrorHandlingMiddleware())
 	router.Use(middleware.CORSMiddleware())
-	router.Use(middleware.LoggingMiddleware())
+	router.Use(middleware.RequestLoggingMiddleware())
 
-	// Health check
+	// Add rate limiting middleware (100 requests/second per IP, burst of 200)
+	router.Use(middleware.RateLimitMiddleware(100, 200))
+
+	// Add content type validation for JSON requests
+	router.Use(middleware.ContentTypeValidationMiddleware([]string{"application/json"}))
+
+	// Add safe string validation middleware to prevent injection attacks
+	router.Use(middleware.SafeStringValidationMiddleware())
+
+	// Health check endpoint (includes database stats)
 	router.GET("/health", func(c *gin.Context) {
 		if err := database.Health(); err != nil {
-			c.JSON(503, gin.H{"status": "unhealthy", "error": err})
+			c.JSON(503, gin.H{
+				"status": "unhealthy",
+				"error":  err.Error(),
+			})
 			return
 		}
-		c.JSON(200, gin.H{"status": "healthy"})
+
+		// Get database stats
+		stats := database.GetStats()
+		c.JSON(200, gin.H{
+			"status": "healthy",
+			"database": gin.H{
+				"open_connections":    stats.OpenConnections,
+				"in_use":              stats.InUse,
+				"idle":                stats.Idle,
+				"wait_count":          stats.WaitCount,
+				"wait_duration":       stats.WaitDuration.String(),
+				"max_idle_closed":     stats.MaxIdleClosed,
+				"max_lifetime_closed": stats.MaxLifetimeClosed,
+			},
+		})
 	})
 
 	// Register routes
 	routes.RegisterBacktestRoutes(router, database)
 	routes.RegisterKeyRoutes(router, database)
+	routes.RegisterPairStorageRoutes(router)
 
 	// Start server
 	port := os.Getenv("API_PORT")

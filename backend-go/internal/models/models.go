@@ -206,18 +206,25 @@ type BacktestCandle struct {
 type BacktestPosition struct {
 	ID             int        `db:"id" json:"id"`
 	RunID          int        `db:"run_id" json:"run_id"`
+	PositionID     string     `db:"position_id" json:"position_id"`
 	Market1        string     `db:"market_1" json:"market_1"`
 	Market2        string     `db:"market_2" json:"market_2"`
 	Status         string     `db:"status" json:"status"`
 	EntryPrice1    float64    `db:"entry_price_1" json:"entry_price_1"`
 	EntryPrice2    float64    `db:"entry_price_2" json:"entry_price_2"`
+	EntryZScore    *float64   `db:"entry_z_score" json:"entry_z_score"`
 	ExitPrice1     *float64   `db:"exit_price_1" json:"exit_price_1"`
 	ExitPrice2     *float64   `db:"exit_price_2" json:"exit_price_2"`
+	CurrentPrice1  *float64   `db:"current_price_1" json:"current_price_1"`
+	CurrentPrice2  *float64   `db:"current_price_2" json:"current_price_2"`
+	CurrentZScore  *float64   `db:"current_z_score" json:"current_z_score"`
 	Side1          string     `db:"side_1" json:"side_1"`
 	Side2          string     `db:"side_2" json:"side_2"`
 	Size1          float64    `db:"size_1" json:"size_1"`
 	Size2          float64    `db:"size_2" json:"size_2"`
-	Pnl            *float64   `db:"pnl" json:"pnl"`
+	HedgeRatio     float64    `db:"hedge_ratio" json:"hedge_ratio"`
+	UnrealizedPnl  *float64   `db:"unrealized_pnl" json:"unrealized_pnl"`
+	RealizedPnl    *float64   `db:"realized_pnl" json:"realized_pnl"`
 	EntryTimestamp time.Time  `db:"entry_timestamp" json:"entry_timestamp"`
 	ExitTimestamp  *time.Time `db:"exit_timestamp" json:"exit_timestamp"`
 }

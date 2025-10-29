@@ -42,6 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
+	// Defer close to execute at the very end of main
 	defer database.Close()
 
 	if database == nil {
@@ -65,12 +66,6 @@ func main() {
 
 	// Add rate limiting middleware (100 requests/second per IP, burst of 200)
 	router.Use(middleware.RateLimitMiddleware(100, 200))
-
-	// Add content type validation for JSON requests
-	router.Use(middleware.ContentTypeValidationMiddleware([]string{"application/json"}))
-
-	// Add safe string validation middleware to prevent injection attacks
-	router.Use(middleware.SafeStringValidationMiddleware())
 
 	// Health check endpoint (includes database stats)
 	router.GET("/health", func(c *gin.Context) {
@@ -98,7 +93,10 @@ func main() {
 		})
 	})
 
-	// Register routes
+	// Register auth routes (bypasses strict validation)
+	routes.RegisterAuthRoutes(router, database.DB)
+
+	// Register all other routes on main router
 	routes.RegisterBacktestRoutes(router, database)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)

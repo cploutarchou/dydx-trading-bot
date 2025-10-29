@@ -287,14 +287,29 @@ type TradeLog struct {
 }
 
 type BotSetting struct {
-	ID          int       `db:"id" json:"id"`
-	UpdatedByID int       `db:"updated_by_id" json:"updated_by_id"`
-	Key         string    `db:"key" json:"key"`
-	Value       string    `db:"value" json:"value"`
-	Description string    `db:"description" json:"description"`
-	Category    string    `db:"category" json:"category"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID           int       `db:"id" json:"id"`
+	Section      string    `db:"section" json:"section"`
+	Key          string    `db:"key" json:"key"`
+	Value        string    `db:"value" json:"value"`
+	ValueType    string    `db:"value_type" json:"value_type"`
+	Description  string    `db:"description" json:"description"`
+	DefaultValue string    `db:"default_value" json:"default_value"`
+	IsActive     bool      `db:"is_active" json:"is_active"`
+	Version      int       `db:"version" json:"version"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type RedisSetting struct {
+	ID        int       `db:"id" json:"id"`
+	Enabled   bool      `db:"enabled" json:"enabled"`
+	Host      string    `db:"host" json:"host"`
+	Port      int       `db:"port" json:"port"`
+	Db        int       `db:"db" json:"db"`
+	Password  string    `db:"password" json:"password"`
+	SSL       bool      `db:"ssl" json:"ssl"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type BacktestComparison struct {

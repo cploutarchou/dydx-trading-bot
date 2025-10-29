@@ -1,0 +1,241 @@
+package models
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// ============ BacktestStrategy Methods ============
+
+// ToDict converts BacktestStrategy to dictionary
+func (b *BacktestStrategy) ToDict() map[string]interface{} {
+	return map[string]interface{}{
+		"id":                       b.ID,
+		"user_id":                  b.UserID,
+		"name":                     b.Name,
+		"description":              b.Description,
+		"category":                 b.Category,
+		"is_public":                b.IsPublic,
+		"is_default":               b.IsDefault,
+		"zscore_threshold":         b.ZscoreThreshold,
+		"stats_window":             b.StatsWindow,
+		"max_half_life":            b.MaxHalfLife,
+		"usd_per_trade":            b.UsdPerTrade,
+		"usd_min_collateral":       b.UsdMinCollateral,
+		"close_at_zscore_cross":    b.CloseAtZscoreCross,
+		"find_cointegrated_pairs":  b.FindCointegratedPairs,
+		"manage_exits":             b.ManageExits,
+		"place_trades":             b.PlaceTrades,
+		"abort_all_positions":      b.AbortAllPositions,
+		"max_positions":            b.MaxPositions,
+		"max_drawdown_pct":         b.MaxDrawdownPct,
+		"stop_loss_pct":            b.StopLossPct,
+		"take_profit_pct":          b.TakeProfitPct,
+		"trailing_stop_pct":        b.TrailingStopPct,
+		"rebalance_interval_hours": b.RebalanceIntervalHours,
+		"position_timeout_hours":   b.PositionTimeoutHours,
+		"transaction_fee":          b.TransactionFee,
+		"slippage":                 b.Slippage,
+		"starting_balance":         b.StartingBalance,
+		"candle_resolution":        b.CandleResolution,
+		"max_history_days":         b.MaxHistoryDays,
+		"benchmark_symbol":         b.BenchmarkSymbol,
+		"risk_free_rate":           b.RiskFreeRate,
+		"initial_amount":           b.InitialAmount,
+		"usage_count":              b.UsageCount,
+		"last_used_at":             b.LastUsedAt,
+		"deleted_at":               b.DeletedAt,
+		"created_at":               b.CreatedAt,
+		"updated_at":               b.UpdatedAt,
+	}
+}
+
+// FromDict populates BacktestStrategy from a dictionary
+func (b *BacktestStrategy) FromDict(data map[string]interface{}) {
+	if id, ok := data["id"].(float64); ok {
+		b.ID = int(id)
+	}
+	if userID, ok := data["user_id"].(float64); ok {
+		b.UserID = int(userID)
+	}
+	if name, ok := data["name"].(string); ok {
+		b.Name = name
+	}
+	if description, ok := data["description"].(string); ok {
+		b.Description = description
+	}
+	if category, ok := data["category"].(string); ok {
+		b.Category = category
+	}
+	if isPublic, ok := data["is_public"].(bool); ok {
+		b.IsPublic = isPublic
+	}
+	if isDefault, ok := data["is_default"].(bool); ok {
+		b.IsDefault = isDefault
+	}
+	if zscore, ok := data["zscore_threshold"].(float64); ok {
+		b.ZscoreThreshold = zscore
+	}
+	if statsWindow, ok := data["stats_window"].(float64); ok {
+		b.StatsWindow = int(statsWindow)
+	}
+	if maxHalfLife, ok := data["max_half_life"].(float64); ok {
+		b.MaxHalfLife = maxHalfLife
+	}
+	if usageCount, ok := data["usage_count"].(float64); ok {
+		b.UsageCount = int(usageCount)
+	}
+	if lastUsedAt, ok := data["last_used_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, lastUsedAt); err == nil {
+			b.LastUsedAt = &t
+		}
+	}
+	if deletedAt, ok := data["deleted_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, deletedAt); err == nil {
+			b.DeletedAt = &t
+		}
+	}
+	if createdAt, ok := data["created_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+			b.CreatedAt = t
+		}
+	}
+	if updatedAt, ok := data["updated_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+			b.UpdatedAt = t
+		}
+	}
+}
+
+// ToJSON converts BacktestStrategy to JSON
+func (b *BacktestStrategy) ToJSON() ([]byte, error) {
+	return json.Marshal(b.ToDict())
+}
+
+// FromJSON populates BacktestStrategy from JSON
+func (b *BacktestStrategy) FromJSON(data []byte) error {
+	var dict map[string]interface{}
+	if err := json.Unmarshal(data, &dict); err != nil {
+		return err
+	}
+	b.FromDict(dict)
+	return nil
+}
+
+// ============ StrategyVersionHistory Methods ============
+
+// ToDict converts StrategyVersionHistory to dictionary
+func (s *StrategyVersionHistory) ToDict() map[string]interface{} {
+	return map[string]interface{}{
+		"id":                 s.ID,
+		"strategy_id":        s.StrategyID,
+		"created_by_user_id": s.CreatedByUserID,
+		"version":            s.Version,
+		"strategy_data":      s.StrategyData,
+		"change_log":         s.ChangeLog,
+		"created_at":         s.CreatedAt,
+	}
+}
+
+// FromDict populates StrategyVersionHistory from a dictionary
+func (s *StrategyVersionHistory) FromDict(data map[string]interface{}) {
+	if id, ok := data["id"].(float64); ok {
+		s.ID = int(id)
+	}
+	if strategyID, ok := data["strategy_id"].(float64); ok {
+		s.StrategyID = int(strategyID)
+	}
+	if createdByUserID, ok := data["created_by_user_id"].(float64); ok {
+		s.CreatedByUserID = int(createdByUserID)
+	}
+	if version, ok := data["version"].(float64); ok {
+		s.Version = int(version)
+	}
+	if changeLog, ok := data["change_log"].(string); ok {
+		s.ChangeLog = changeLog
+	}
+	if createdAt, ok := data["created_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+			s.CreatedAt = t
+		}
+	}
+}
+
+// ToJSON converts StrategyVersionHistory to JSON
+func (s *StrategyVersionHistory) ToJSON() ([]byte, error) {
+	return json.Marshal(s.ToDict())
+}
+
+// FromJSON populates StrategyVersionHistory from JSON
+func (s *StrategyVersionHistory) FromJSON(data []byte) error {
+	var dict map[string]interface{}
+	if err := json.Unmarshal(data, &dict); err != nil {
+		return err
+	}
+	s.FromDict(dict)
+	return nil
+}
+
+// ============ StrategyExecutionState Methods ============
+
+// ToDict converts StrategyExecutionState to dictionary
+func (s *StrategyExecutionState) ToDict() map[string]interface{} {
+	return map[string]interface{}{
+		"id":          s.ID,
+		"strategy_id": s.StrategyID,
+		"is_running":  s.IsRunning,
+		"last_run_at": s.LastRunAt,
+		"next_run_at": s.NextRunAt,
+		"state":       s.State,
+		"created_at":  s.CreatedAt,
+		"updated_at":  s.UpdatedAt,
+	}
+}
+
+// FromDict populates StrategyExecutionState from a dictionary
+func (s *StrategyExecutionState) FromDict(data map[string]interface{}) {
+	if id, ok := data["id"].(float64); ok {
+		s.ID = int(id)
+	}
+	if strategyID, ok := data["strategy_id"].(float64); ok {
+		s.StrategyID = int(strategyID)
+	}
+	if isRunning, ok := data["is_running"].(bool); ok {
+		s.IsRunning = isRunning
+	}
+	if lastRunAt, ok := data["last_run_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, lastRunAt); err == nil {
+			s.LastRunAt = &t
+		}
+	}
+	if nextRunAt, ok := data["next_run_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, nextRunAt); err == nil {
+			s.NextRunAt = &t
+		}
+	}
+	if createdAt, ok := data["created_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+			s.CreatedAt = t
+		}
+	}
+	if updatedAt, ok := data["updated_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+			s.UpdatedAt = t
+		}
+	}
+}
+
+// ToJSON converts StrategyExecutionState to JSON
+func (s *StrategyExecutionState) ToJSON() ([]byte, error) {
+	return json.Marshal(s.ToDict())
+}
+
+// FromJSON populates StrategyExecutionState from JSON
+func (s *StrategyExecutionState) FromJSON(data []byte) error {
+	var dict map[string]interface{}
+	if err := json.Unmarshal(data, &dict); err != nil {
+		return err
+	}
+	s.FromDict(dict)
+	return nil
+}

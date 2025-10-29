@@ -1,5 +1,84 @@
-.idea
-server.log
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+coverage.html
+*.coverprofile
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# Air tmp directory
+tmp/
+
+# Build artifacts
+build/
+dist/
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# IDE - JetBrains
+.idea/
+*.iml
+*.iws
+
+# Environment variables
 .env
-app
-/server
+.env.local
+.env.*.local
+!.env.example
+!.env.test
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+build-errors.log
+
+# Security reports
+gosec-report.json
+trivy-report.json
+
+# Temporary files
+*~
+*.swp
+*.swo
+
+# Generated files
+*_gen.go
+*_generated.go
+*.pb.go
+mock_*.go
+
+# Application specific
+app/backtest_results/*.json
+app/pair_history/*.json
+

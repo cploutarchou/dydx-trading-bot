@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
-	"github.com/redis/go-redis/v9"
 )
 
 // CandleCacheService manages candle data caching
@@ -170,7 +168,6 @@ func (ccs *CandleCacheService) PrefetchCandlesForRun(runID int, ttlSeconds int) 
 
 // WarmCache warms up the cache with frequently accessed data
 func (ccs *CandleCacheService) WarmCache(runID int, markets []string, durationHours int) error {
-	ttl := durationHours * 3600
 
 	for _, market := range markets {
 		// In a real implementation, fetch from database and cache

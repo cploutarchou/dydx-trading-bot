@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -23,7 +24,7 @@ func NewCacheService(redisHost string, redisPort int, redisPassword string, redi
 	})
 
 	// Test connection
-	ctx := redis.NewContext()
+	ctx := context.Background()
 	if err := client.Ping(ctx).Err(); err != nil {
 		log.Printf("Warning: Redis connection failed: %v", err)
 	}
@@ -40,7 +41,7 @@ func (cs *CacheService) SetCache(key string, value interface{}, ttlSeconds int) 
 		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
-	ctx := redis.NewContext()
+	ctx := context.Background()
 	ttl := time.Duration(ttlSeconds) * time.Second
 
 	err = cs.client.Set(ctx, key, jsonData, ttl).Err()
@@ -54,7 +55,7 @@ func (cs *CacheService) SetCache(key string, value interface{}, ttlSeconds int) 
 
 // GetCache retrieves a value from cache
 func (cs *CacheService) GetCache(key string) (interface{}, error) {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	val, err := cs.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -75,7 +76,7 @@ func (cs *CacheService) GetCache(key string) (interface{}, error) {
 
 // GetCacheString retrieves a string value from cache
 func (cs *CacheService) GetCacheString(key string) (string, error) {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	val, err := cs.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -90,7 +91,7 @@ func (cs *CacheService) GetCacheString(key string) (string, error) {
 
 // DeleteCache deletes a key from cache
 func (cs *CacheService) DeleteCache(key string) error {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	err := cs.client.Del(ctx, key).Err()
 	if err != nil {
@@ -103,7 +104,7 @@ func (cs *CacheService) DeleteCache(key string) error {
 
 // DeleteCachePattern deletes all keys matching a pattern
 func (cs *CacheService) DeleteCachePattern(pattern string) error {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	keys, err := cs.client.Keys(ctx, pattern).Result()
 	if err != nil {
@@ -123,7 +124,7 @@ func (cs *CacheService) DeleteCachePattern(pattern string) error {
 
 // ClearAllCache clears entire cache
 func (cs *CacheService) ClearAllCache() error {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	err := cs.client.FlushDB(ctx).Err()
 	if err != nil {
@@ -136,7 +137,7 @@ func (cs *CacheService) ClearAllCache() error {
 
 // GetCacheStats returns cache statistics
 func (cs *CacheService) GetCacheStats() map[string]interface{} {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	info := cs.client.Info(ctx, "stats")
 	keys := cs.client.DBSize(ctx)
@@ -150,7 +151,7 @@ func (cs *CacheService) GetCacheStats() map[string]interface{} {
 
 // ExistsInCache checks if a key exists in cache
 func (cs *CacheService) ExistsInCache(key string) (bool, error) {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	exists, err := cs.client.Exists(ctx, key).Result()
 	if err != nil {
@@ -162,7 +163,7 @@ func (cs *CacheService) ExistsInCache(key string) (bool, error) {
 
 // GetCacheTTL gets the remaining TTL for a key
 func (cs *CacheService) GetCacheTTL(key string) (time.Duration, error) {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	ttl, err := cs.client.TTL(ctx, key).Result()
 	if err != nil {
@@ -174,7 +175,7 @@ func (cs *CacheService) GetCacheTTL(key string) (time.Duration, error) {
 
 // IncrementCounter increments a counter in cache
 func (cs *CacheService) IncrementCounter(key string, increment int64) error {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	err := cs.client.IncrBy(ctx, key, increment).Err()
 	if err != nil {
@@ -186,7 +187,7 @@ func (cs *CacheService) IncrementCounter(key string, increment int64) error {
 
 // GetCounter gets a counter value from cache
 func (cs *CacheService) GetCounter(key string) (int64, error) {
-	ctx := redis.NewContext()
+	ctx := context.Background()
 
 	val, err := cs.client.Get(ctx, key).Int64()
 	if err == redis.Nil {

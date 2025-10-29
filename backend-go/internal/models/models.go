@@ -266,13 +266,15 @@ type BacktestLog struct {
 }
 
 type AuditLog struct {
-	ID         int            `db:"id" json:"id"`
-	UserID     int            `db:"user_id" json:"user_id"`
-	Action     string         `db:"action" json:"action"`
-	Resource   string         `db:"resource" json:"resource"`
-	ResourceID int            `db:"resource_id" json:"resource_id"`
-	Details    sql.NullString `db:"details" json:"details"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
+	ID           int         `db:"id" json:"id"`
+	UserID       *int        `db:"user_id" json:"user_id"`
+	Action       string      `db:"action" json:"action"`
+	ResourceType string      `db:"resource_type" json:"resource_type"`
+	ResourceID   *string     `db:"resource_id" json:"resource_id"`
+	Details      interface{} `db:"details" json:"details"`
+	Status       *string     `db:"status" json:"status"`
+	IPAddress    *string     `db:"ip_address" json:"ip_address"`
+	CreatedAt    *time.Time  `db:"created_at" json:"created_at"`
 }
 
 type TradeLog struct {

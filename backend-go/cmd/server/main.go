@@ -46,7 +46,12 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	// Defer close to execute at the very end of main
-	defer database.Close()
+	defer func(database *db.Database) {
+		err := database.Close()
+		if err != nil {
+			log.Fatalf("Failed to close database: %v", err)
+		}
+	}(database)
 
 	if database == nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -142,7 +147,12 @@ func runMigrations(database *db.Database, dbDriver string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
-	defer m.Close()
+	defer func(m *migrate.Migrate) {
+		err, _ := m.Close()
+		if err != nil {
+			log.Printf("Failed to close migrate instance: %v", err)
+		}
+	}(m)
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("failed to run migrations: %w", err)

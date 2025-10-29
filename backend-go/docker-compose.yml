@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8888:8888"
+    environment:
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=dydx_bot
+      - DB_PASSWORD=secure_password
+      - DB_NAME=dydx_bot
+      - JWT_SECRET_KEY=your-super-secret-key-change-in-production-min-32-chars
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - API_PORT=8888
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - dydx-network
+    volumes:
+      - ./migrations:/root/migrations
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=dydx_bot
+      - POSTGRES_PASSWORD=secure_password
+      - POSTGRES_DB=dydx_bot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - dydx-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - dydx-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+networks:
+  dydx-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+

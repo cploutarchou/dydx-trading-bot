@@ -1,0 +1,229 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  build-tags:
+    - integration
+  skip-dirs:
+    - vendor
+    - .idea
+    - migrations
+  skip-files:
+    - ".*\\.pb\\.go$"
+    - ".*_generated\\.go$"
+  modules-download-mode: readonly
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      - (*database/sql.Rows).Close
+      - (*database/sql.DB).Close
+
+  govet:
+    check-shadowing: true
+    enable-all: true
+    disable:
+      - fieldalignment
+
+  gofmt:
+    simplify: true
+
+  goimports:
+    local-prefixes: github.com/dydx-trading-bot/backend-go
+
+  golint:
+    min-confidence: 0.8
+
+  gocyclo:
+    min-complexity: 15
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  misspell:
+    locale: US
+
+  lll:
+    line-length: 140
+    tab-width: 4
+
+  unused:
+    check-exported: false
+
+  unparam:
+    check-exported: false
+
+  nakedret:
+    max-func-lines: 30
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - whyNoLint
+      - unnamedResult
+      - hugeParam
+
+  godox:
+    keywords:
+      - TODO
+      - FIXME
+      - BUG
+      - HACK
+      - OPTIMIZE
+
+  revive:
+    rules:
+      - name: exported
+        disabled: false
+      - name: package-comments
+        disabled: true
+      - name: var-naming
+        disabled: false
+      - name: context-as-argument
+        disabled: false
+      - name: error-return
+        disabled: false
+      - name: error-strings
+        disabled: false
+      - name: increment-decrement
+        disabled: false
+      - name: var-declaration
+        disabled: false
+      - name: range
+        disabled: false
+      - name: receiver-naming
+        disabled: false
+      - name: time-naming
+        disabled: false
+      - name: indent-error-flow
+        disabled: false
+      - name: errorf
+        disabled: false
+      - name: empty-block
+        disabled: false
+      - name: superfluous-else
+        disabled: false
+      - name: unused-parameter
+        disabled: false
+      - name: unreachable-code
+        disabled: false
+      - name: redefines-builtin-id
+        disabled: false
+
+  staticcheck:
+    go: "1.23"
+    checks: ["all"]
+
+linters:
+  disable-all: true
+  enable:
+    # Default linters
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Reports suspicious constructs
+    - ineffassign   # Detects ineffectual assignments
+    - staticcheck   # Advanced static analysis
+    - typecheck     # Type-checks Go code
+    - unused        # Checks for unused code
+
+    # Additional recommended linters
+    - gofmt         # Check code formatting
+    - goimports     # Check import organization
+    - goconst       # Find repeated strings that could be constants
+    - gocyclo       # Computes cyclomatic complexity
+    - misspell      # Finds commonly misspelled words
+    - revive        # Fast, configurable, extensible, flexible, and beautiful linter
+    - unconvert     # Remove unnecessary type conversions
+    - unparam       # Reports unused function parameters
+    - nakedret      # Finds naked returns in functions
+    - prealloc      # Find slice declarations that could be preallocated
+    - exportloopref # Checks for pointers to enclosing loop variables
+    - nolintlint    # Reports ill-formed or insufficient nolint directives
+    - gocritic      # The most opinionated Go linter
+    - godox         # Tool for detection of FIXME, TODO and other comment keywords
+    - bodyclose     # Checks whether HTTP response body is closed
+    - noctx         # Finds sending http request without context.Context
+    - gosec         # Inspects source code for security problems
+    - sqlclosecheck # Checks that sql.Rows and sql.Stmt are closed
+    - rowserrcheck  # Checks whether Err of rows is checked successfully
+    - errname       # Checks that sentinel errors are prefixed with Err
+    - errorlint     # Find code that will cause problems with error wrapping
+    - gomodguard    # Check for blocked dependencies
+    - tparallel     # Detects inappropriate usage of t.Parallel()
+    - thelper       # Detects test helpers without t.Helper()
+    - wastedassign  # Finds wasted assignment statements
+    - whitespace    # Detection of leading and trailing whitespace
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - goconst
+
+    # Exclude known linters from partially hard-vendored code
+    - path: internal/hmac/
+      linters:
+        - gosec
+
+    # Exclude linters for migration files
+    - path: migrations/
+      linters:
+        - gofmt
+        - goimports
+
+    # Exclude shadow checking on err variable in some cases
+    - text: "shadow: declaration of \"err\""
+      linters:
+        - govet
+
+    # Exclude some staticcheck messages
+    - linters:
+        - staticcheck
+      text: "SA9003:"
+
+    # Exclude linters that are annoying in main/setup functions
+    - path: cmd/
+      linters:
+        - gocyclo
+        - funlen
+
+severity:
+  default-severity: error
+  rules:
+    - linters:
+        - godox
+      severity: warning
+

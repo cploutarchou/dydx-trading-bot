@@ -2,7 +2,7 @@
 
 A high-performance REST API backend written in Go for managing dYdX trading credentials and accessing backtest data.
 
-## Features
+## ⭐ Features
 
 ✅ **Secure Key Management**
 - Encrypted storage of dYdX mnemonic phrases
@@ -11,6 +11,7 @@ A high-performance REST API backend written in Go for managing dYdX trading cred
 
 ✅ **JWT Authentication**
 - Secure token-based authentication
+- Cookie-based authentication for browsers
 - Configurable token expiration
 - Refresh token support
 
@@ -26,20 +27,47 @@ A high-performance REST API backend written in Go for managing dYdX trading cred
 - Pagination support
 
 ✅ **Production Ready**
-- CORS support
+- CORS support with credential handling
 - Error handling middleware
+- Rate limiting (with localhost bypass for dev)
 - Logging and monitoring
 - Health check endpoint
+- Security scanning
 
-## Prerequisites
+✅ **Developer Experience**
+- Hot reload with Air
+- Comprehensive linting (30+ linters)
+- VS Code debug configurations
+- Docker support
+- Automated testing
+- Pre-commit hooks
+- CI/CD ready
 
-- Go 1.23.0 or higher
+## 🚀 Quick Start
+
+```bash
+# Install development tools (linters, hot reload, etc.)
+make install-tools
+
+# Run with hot reload
+make dev
+
+# Or run normally
+make run
+```
+
+That's it! The server will start on http://localhost:8888
+
+## 📋 Prerequisites
+
+- **Go 1.23.0 or higher**
 - PostgreSQL 12+ (for production) OR SQLite (for development)
 - Redis (optional, for caching)
+- Make (for using Makefile commands)
 
-## Installation
+## 📦 Installation
 
-### 1. Clone the repository
+### 1. Navigate to project
 
 ```bash
 cd /Users/chris/workspace/dydx-trading-bot/backend-go
@@ -48,6 +76,8 @@ cd /Users/chris/workspace/dydx-trading-bot/backend-go
 ### 2. Install dependencies
 
 ```bash
+make deps
+# or
 go mod download
 go mod tidy
 ```

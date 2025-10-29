@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -214,6 +215,15 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		// Update last_login
 		_ = userRepo.UpdateLastLogin(user.ID)
+
+		// Set access token as HttpOnly cookie (for browser clients)
+		// Cookie expiry matches access token lifetime (30 minutes)
+		cookieMaxAge := 30 * 60 // seconds
+		secure := false
+		if os.Getenv("APP_ENV") == "production" {
+			secure = true
+		}
+		c.SetCookie("access_token", accessToken, cookieMaxAge, "/", "", secure, true)
 
 		c.JSON(http.StatusOK, TokenResponse{
 			AccessToken:  accessToken,

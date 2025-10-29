@@ -266,35 +266,62 @@ type BacktestLog struct {
 }
 
 type AuditLog struct {
-	ID         int            `db:"id" json:"id"`
-	UserID     int            `db:"user_id" json:"user_id"`
-	Action     string         `db:"action" json:"action"`
-	Resource   string         `db:"resource" json:"resource"`
-	ResourceID int            `db:"resource_id" json:"resource_id"`
-	Details    sql.NullString `db:"details" json:"details"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
+	ID           int         `db:"id" json:"id"`
+	UserID       *int        `db:"user_id" json:"user_id"`
+	Action       string      `db:"action" json:"action"`
+	ResourceType string      `db:"resource_type" json:"resource_type"`
+	ResourceID   *string     `db:"resource_id" json:"resource_id"`
+	Details      interface{} `db:"details" json:"details"`
+	Status       *string     `db:"status" json:"status"`
+	IPAddress    *string     `db:"ip_address" json:"ip_address"`
+	CreatedAt    *time.Time  `db:"created_at" json:"created_at"`
 }
 
 type TradeLog struct {
-	ID        int            `db:"id" json:"id"`
-	ResultID  int            `db:"result_id" json:"result_id"`
-	TradeID   string         `db:"trade_id" json:"trade_id"`
-	EntryTime time.Time      `db:"entry_time" json:"entry_time"`
-	ExitTime  *time.Time     `db:"exit_time" json:"exit_time"`
-	Pnl       *float64       `db:"pnl" json:"pnl"`
-	Details   sql.NullString `db:"details" json:"details"`
-	CreatedAt time.Time      `db:"created_at" json:"created_at"`
+	ID             int        `db:"id" json:"id"`
+	ResultIDFK     int        `db:"result_id_fk" json:"result_id_fk"`
+	TradeNumber    *int       `db:"trade_number" json:"trade_number"`
+	EntryPrice1    *float64   `db:"entry_price_1" json:"entry_price_1"`
+	EntryPrice2    *float64   `db:"entry_price_2" json:"entry_price_2"`
+	ExitPrice1     *float64   `db:"exit_price_1" json:"exit_price_1"`
+	ExitPrice2     *float64   `db:"exit_price_2" json:"exit_price_2"`
+	Quantity1      *float64   `db:"quantity_1" json:"quantity_1"`
+	Quantity2      *float64   `db:"quantity_2" json:"quantity_2"`
+	Side1          *string    `db:"side_1" json:"side_1"`
+	Side2          *string    `db:"side_2" json:"side_2"`
+	Pnl            *float64   `db:"pnl" json:"pnl"`
+	PnlUSD         *float64   `db:"pnl_usd" json:"pnl_usd"`
+	EntryZScore    *float64   `db:"entry_zscore" json:"entry_zscore"`
+	ExitZScore     *float64   `db:"exit_zscore" json:"exit_zscore"`
+	EntryTimestamp *time.Time `db:"entry_timestamp" json:"entry_timestamp"`
+	ExitTimestamp  *time.Time `db:"exit_timestamp" json:"exit_timestamp"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
 }
 
 type BotSetting struct {
-	ID          int       `db:"id" json:"id"`
-	UpdatedByID int       `db:"updated_by_id" json:"updated_by_id"`
-	Key         string    `db:"key" json:"key"`
-	Value       string    `db:"value" json:"value"`
-	Description string    `db:"description" json:"description"`
-	Category    string    `db:"category" json:"category"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID           int       `db:"id" json:"id"`
+	Section      string    `db:"section" json:"section"`
+	Key          string    `db:"key" json:"key"`
+	Value        string    `db:"value" json:"value"`
+	ValueType    string    `db:"value_type" json:"value_type"`
+	Description  string    `db:"description" json:"description"`
+	DefaultValue string    `db:"default_value" json:"default_value"`
+	IsActive     bool      `db:"is_active" json:"is_active"`
+	Version      int       `db:"version" json:"version"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type RedisSetting struct {
+	ID        int       `db:"id" json:"id"`
+	Enabled   bool      `db:"enabled" json:"enabled"`
+	Host      string    `db:"host" json:"host"`
+	Port      int       `db:"port" json:"port"`
+	Db        int       `db:"db" json:"db"`
+	Password  string    `db:"password" json:"password"`
+	SSL       bool      `db:"ssl" json:"ssl"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type BacktestComparison struct {
@@ -327,6 +354,7 @@ type StrategyVersionHistory struct {
 	StrategyData    sql.NullString `db:"strategy_data" json:"strategy_data"`
 	ChangeLog       string         `db:"change_log" json:"change_log"`
 	CreatedAt       time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // ==================== COINTEGRATION MODELS ====================

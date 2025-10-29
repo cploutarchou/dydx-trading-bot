@@ -102,6 +102,10 @@ func main() {
 	routes.RegisterBacktestRoutes(router, database)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
+	routes.RegisterSettingsRoutes(router, database)
+	routes.RegisterStrategyRoutes(router, database)
+	routes.RegisterTradeLogRoutes(router, database)
+	routes.RegisterAuditLogRoutes(router, database)
 
 	// Start server
 	port := os.Getenv("API_PORT")

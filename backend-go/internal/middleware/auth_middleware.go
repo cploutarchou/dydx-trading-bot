@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/dydx-trading-bot/backend-go/config"
@@ -22,6 +23,8 @@ func InitAuthMiddleware(cfg *config.Config) {
 func RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
+		// Debug logging to help diagnose missing/invalid tokens
+		log.Printf("RequireAuth: Authorization header=%q, RemoteAddr=%s, ClientIP=%s", authHeader, c.Request.RemoteAddr, c.ClientIP())
 		if authHeader == "" {
 			c.JSON(401, gin.H{"error": "missing authorization header"})
 			c.Abort()
@@ -38,6 +41,8 @@ func RequireAuth() gin.HandlerFunc {
 		tokenString := parts[1]
 		claims, err := jwtManager.VerifyToken(tokenString, "access")
 		if err != nil {
+			// Log underlying verification error as well
+			log.Printf("RequireAuth: token verification failed: %v", err)
 			c.JSON(401, gin.H{"error": fmt.Sprintf("invalid token: %v", err)})
 			c.Abort()
 			return

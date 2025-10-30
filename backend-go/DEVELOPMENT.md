@@ -3,6 +3,7 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Go 1.23 or higher
 - Make (for using Makefile commands)
 - Docker & Docker Compose (optional)
@@ -10,22 +11,26 @@
 ### Installation
 
 1. **Install development tools:**
+
 ```bash
 make install-tools
 ```
 
 This installs:
+
 - `golangci-lint` - Fast Go linters runner
 - `air` - Live reload for Go apps
 - `migrate` - Database migration tool
 - `mockgen` - Mock generator for testing
 
 2. **Install dependencies:**
+
 ```bash
 make deps
 ```
 
 3. **Run database migrations:**
+
 ```bash
 make migrate-up
 ```
@@ -33,16 +38,19 @@ make migrate-up
 ### Running the Application
 
 **Development mode (with hot reload):**
+
 ```bash
 make dev
 ```
 
 **Standard run:**
+
 ```bash
 make run
 ```
 
 **Build and run binary:**
+
 ```bash
 make build
 ./bin/dydx-bot
@@ -58,32 +66,34 @@ make help
 
 ### Common Commands
 
-| Command | Description |
-|---------|-------------|
-| `make build` | Build the application binary |
-| `make run` | Run the application |
-| `make dev` | Run with hot-reload (requires air) |
-| `make test` | Run all tests |
-| `make test-coverage` | Run tests and generate coverage report |
-| `make lint` | Run golangci-lint |
-| `make lint-fix` | Run linter and auto-fix issues |
-| `make fmt` | Format code with gofmt |
-| `make vet` | Run go vet |
-| `make check` | Quick check (fmt + vet + build) |
-| `make verify` | Full verification (fmt + vet + lint + test) |
-| `make security` | Run security checks with gosec |
-| `make clean` | Clean build artifacts |
+| Command              | Description                                 |
+|----------------------|---------------------------------------------|
+| `make build`         | Build the application binary                |
+| `make run`           | Run the application                         |
+| `make dev`           | Run with hot-reload (requires air)          |
+| `make test`          | Run all tests                               |
+| `make test-coverage` | Run tests and generate coverage report      |
+| `make lint`          | Run golangci-lint                           |
+| `make lint-fix`      | Run linter and auto-fix issues              |
+| `make fmt`           | Format code with gofmt                      |
+| `make vet`           | Run go vet                                  |
+| `make check`         | Quick check (fmt + vet + build)             |
+| `make verify`        | Full verification (fmt + vet + lint + test) |
+| `make security`      | Run security checks with gosec              |
+| `make clean`         | Clean build artifacts                       |
 
 ## 🔍 Linting & Code Quality
 
 ### Running Linters
 
 **Check for issues:**
+
 ```bash
 make lint
 ```
 
 **Auto-fix issues:**
+
 ```bash
 make lint-fix
 ```
@@ -110,26 +120,31 @@ Linting configuration is in `.golangci.yml`. Adjust settings there to customize 
 ### Run Tests
 
 **All tests:**
+
 ```bash
 make test
 ```
 
 **With coverage:**
+
 ```bash
 make test-coverage
 ```
 
 **Benchmarks:**
+
 ```bash
 make bench
 ```
 
 **Specific package:**
+
 ```bash
 go test -v ./internal/auth/...
 ```
 
 **Specific test:**
+
 ```bash
 go test -v -run TestFunctionName ./internal/auth
 ```
@@ -151,6 +166,7 @@ The project includes VS Code debug configurations in `.vscode/launch.json`:
 5. **Debug Current File** - Debug current file
 
 **To debug:**
+
 1. Open VS Code
 2. Set breakpoints
 3. Press F5 or go to Run & Debug panel
@@ -175,20 +191,24 @@ dlv test ./internal/auth
 ## 📊 Code Coverage
 
 **Generate coverage report:**
+
 ```bash
 make test-coverage
 ```
 
 This creates:
+
 - `coverage.out` - Coverage profile
 - `coverage.html` - HTML coverage report (open in browser)
 
 **View coverage in terminal:**
+
 ```bash
 go test -cover ./...
 ```
 
 **Detailed coverage per function:**
+
 ```bash
 go test -coverprofile=coverage.out ./...
 go tool cover -func=coverage.out
@@ -197,6 +217,7 @@ go tool cover -func=coverage.out
 ## 🔐 Security Scanning
 
 **Run security checks:**
+
 ```bash
 make security
 ```
@@ -204,6 +225,7 @@ make security
 This runs `gosec` and generates `gosec-report.json`.
 
 **Fix common security issues:**
+
 - Always validate input
 - Use parameterized queries
 - Don't log sensitive data
@@ -219,17 +241,20 @@ make migrate-create NAME=add_users_table
 ```
 
 This creates two files:
+
 - `migrations/NNNNNN_add_users_table.up.sql`
 - `migrations/NNNNNN_add_users_table.down.sql`
 
 ### Run Migrations
 
 **Up (apply):**
+
 ```bash
 make migrate-up
 ```
 
 **Down (rollback one):**
+
 ```bash
 make migrate-down
 ```
@@ -249,16 +274,19 @@ docker-compose up -d
 ```
 
 **Services:**
+
 - Backend API (port 8888)
 - PostgreSQL (port 5432)
 - Redis (port 6379)
 
 **Stop services:**
+
 ```bash
 docker-compose down
 ```
 
 **View logs:**
+
 ```bash
 docker-compose logs -f backend
 ```
@@ -270,12 +298,12 @@ docker-compose logs -f backend
 1. **Use gofmt/goimports** - Always format code
 2. **Error handling** - Always check errors
 3. **Naming conventions:**
-   - Packages: lowercase, single word
-   - Functions/methods: camelCase (exported: PascalCase)
-   - Constants: PascalCase or UPPER_CASE
+    - Packages: lowercase, single word
+    - Functions/methods: camelCase (exported: PascalCase)
+    - Constants: PascalCase or UPPER_CASE
 4. **Comments:**
-   - Exported functions must have doc comments
-   - Start with function name: `// FunctionName does...`
+    - Exported functions must have doc comments
+    - Start with function name: `// FunctionName does...`
 5. **Keep functions small** - Aim for <50 lines
 6. **Avoid naked returns** - Be explicit
 
@@ -310,6 +338,7 @@ Uses `air` for automatic reloading during development.
 **Configuration:** `.air.toml`
 
 **Run:**
+
 ```bash
 make dev
 ```
@@ -328,11 +357,13 @@ Air will watch for file changes and automatically rebuild and restart the applic
 ### Linter Issues
 
 **"golangci-lint not found":**
+
 ```bash
 make install-tools
 ```
 
 **Too many linter errors:**
+
 ```bash
 # Fix auto-fixable issues
 make lint-fix
@@ -343,12 +374,14 @@ make lint-fix
 ### Build Issues
 
 **Missing dependencies:**
+
 ```bash
 make deps
 make tidy
 ```
 
 **Cache issues:**
+
 ```bash
 make clean
 go clean -cache -modcache -testcache
@@ -357,11 +390,13 @@ go clean -cache -modcache -testcache
 ### Migration Issues
 
 **"migrate command not found":**
+
 ```bash
 make install-tools
 ```
 
 **Migration failed:**
+
 ```bash
 # Check migration SQL syntax
 # Manually rollback if needed
@@ -371,6 +406,7 @@ make migrate-down
 ## 📞 Getting Help
 
 If you encounter issues:
+
 1. Check this documentation
 2. Run `make help` for available commands
 3. Check logs for error details

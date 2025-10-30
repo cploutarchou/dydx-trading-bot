@@ -1,6 +1,7 @@
 # Database Migrations
 
-This directory contains all database schema migrations using [golang-migrate](https://github.com/golang-migrate/migrate).
+This directory contains all database schema migrations
+using [golang-migrate](https://github.com/golang-migrate/migrate).
 
 ## Migration Files
 
@@ -34,26 +35,31 @@ Current migrations:
 ### Using the Migration CLI
 
 Build the migration tool:
+
 ```bash
 go build -o bin/migrate ./cmd/migrate
 ```
 
 Run all pending migrations:
+
 ```bash
 ./bin/migrate -path migrations -direction up
 ```
 
 Rollback all migrations:
+
 ```bash
 ./bin/migrate -path migrations -direction down
 ```
 
 Migrate to a specific version:
+
 ```bash
 ./bin/migrate -path migrations -version 5
 ```
 
 Step forward by N migrations:
+
 ```bash
 ./bin/migrate -path migrations -steps 3
 ```
@@ -142,7 +148,8 @@ migrate -path migrations -database "sqlite3:trading_bot.db" version
 
 ### Migration fails with "table already exists"
 
-This usually happens if running migrations on an existing database. The `CREATE TABLE IF NOT EXISTS` clauses should handle this, but if you have existing tables, migrations will skip them gracefully.
+This usually happens if running migrations on an existing database. The `CREATE TABLE IF NOT EXISTS` clauses should
+handle this, but if you have existing tables, migrations will skip them gracefully.
 
 ### SQLite database locked
 

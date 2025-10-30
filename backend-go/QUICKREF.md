@@ -88,8 +88,9 @@ curl -H "Authorization: Bearer TOKEN" \
 ## Authentication Methods
 
 The server accepts tokens via:
+
 1. **Authorization header** (preferred): `Authorization: Bearer <token>`
-2. **Cookie**: `access_token=<token>`  
+2. **Cookie**: `access_token=<token>`
 3. **Query param** (debug only): `?access_token=<token>`
 
 ## API Endpoints
@@ -139,12 +140,14 @@ curl -H "Authorization: Bearer $TOKEN" \
 ## Logging
 
 The server logs:
+
 - Request headers (masked Authorization/Cookie)
 - Auth middleware activity (token source: header/cookie/query)
 - Token verification errors
 - Request/response details
 
 Example log:
+
 ```
 Headers: GET /api/v1/users/me from ::1 - map[Authorization:[Bearer <masked>] ...]
 RequireAuth: Authorization header="Bearer ...", RemoteAddr=[::1]:54131, ClientIP=::1
@@ -155,6 +158,7 @@ RequireAuth: using token from cookie 'access_token' (masked)
 ## Environment Variables
 
 Key variables (.env):
+
 ```bash
 # Database
 DB_TYPE=sqlite3                    # or postgres
@@ -179,37 +183,39 @@ REDIS_PORT=6379
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| 401 Unauthorized | Check Authorization header is sent; check logs for token verification errors |
-| 429 Too Many Requests | Rate limit hit (localhost is bypassed in dev) |
-| 404 Not Found | Check registered routes in startup logs |
-| Build errors | `make clean && make deps && make build` |
-| Linter not found | `make install-tools` |
-| Migration failed | Check SQL syntax; rollback: `make migrate-down` |
+| Issue                 | Solution                                                                     |
+|-----------------------|------------------------------------------------------------------------------|
+| 401 Unauthorized      | Check Authorization header is sent; check logs for token verification errors |
+| 429 Too Many Requests | Rate limit hit (localhost is bypassed in dev)                                |
+| 404 Not Found         | Check registered routes in startup logs                                      |
+| Build errors          | `make clean && make deps && make build`                                      |
+| Linter not found      | `make install-tools`                                                         |
+| Migration failed      | Check SQL syntax; rollback: `make migrate-down`                              |
 
 ## VS Code Keyboard Shortcuts
 
-| Action | Shortcut |
-|--------|----------|
-| Start debugging | F5 |
-| Toggle breakpoint | F9 |
-| Step over | F10 |
-| Step into | F11 |
-| Continue | F5 |
-| Format document | Shift+Alt+F |
-| Go to definition | F12 |
-| Show references | Shift+F12 |
+| Action            | Shortcut    |
+|-------------------|-------------|
+| Start debugging   | F5          |
+| Toggle breakpoint | F9          |
+| Step over         | F10         |
+| Step into         | F11         |
+| Continue          | F5          |
+| Format document   | Shift+Alt+F |
+| Go to definition  | F12         |
+| Show references   | Shift+F12   |
 
 ## Git Hooks
 
 Install pre-commit hook:
+
 ```bash
 cp scripts/pre-commit.sh .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```
 
 Now every commit will:
+
 1. Check formatting
 2. Run go vet
 3. Run linter

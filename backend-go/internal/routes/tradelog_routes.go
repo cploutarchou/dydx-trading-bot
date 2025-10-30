@@ -3,6 +3,7 @@ package routes
 import (
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/handlers"
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,9 @@ func RegisterTradeLogRoutes(router *gin.Engine, database *db.Database) {
 	{
 		tradeLogs := v1.Group("/trade-logs")
 		{
+			// Require authentication for all trade log routes
+			tradeLogs.Use(middleware.RequireAuth())
+
 			// CRUD operations
 			tradeLogs.POST("", tradeLogHandler.CreateTradeLog)
 			tradeLogs.GET("/:id", tradeLogHandler.GetTradeLog)

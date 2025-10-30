@@ -3,6 +3,7 @@ package routes
 import (
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/handlers"
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,9 @@ func RegisterBacktestRoutes(router *gin.Engine, database *db.Database) {
 	{
 		backtests := v1.Group("/backtests")
 		{
+			// Require authentication for all backtest routes
+			backtests.Use(middleware.RequireAuth())
+
 			// Existing endpoints - query from database
 			backtests.GET("/:run_id/candles", backtestHandler.GetBacktestCandles)
 			backtests.GET("/:run_id/positions", backtestHandler.GetBacktestPositions)

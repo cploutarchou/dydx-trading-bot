@@ -3,6 +3,7 @@ package routes
 import (
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/handlers"
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -18,11 +19,20 @@ func RegisterSettingsRoutes(router *gin.Engine, database *db.Database) {
 	{
 		settings := v1.Group("/settings")
 		{
+			// Public initialization endpoint (no auth required)
+			settings.POST("/initialize", settingsHandler.Initialize)
+			settings.GET("/schema", settingsHandler.GetSchema)
+
+			// Require authentication for all other settings routes
+			settings.Use(middleware.RequireAuth())
+
+			// Get all settings
+			settings.GET("", settingsHandler.GetSettings)
+
 			// BotSetting routes
 			settings.POST("/bot", settingsHandler.CreateBotSetting)
 			settings.GET("/bot", settingsHandler.GetBotSetting)
 			settings.GET("/bot/section", settingsHandler.GetBotSettingsBySection)
-			settings.GET("/bot/all", settingsHandler.ListAllBotSettings)
 			settings.PUT("/bot/:id", settingsHandler.UpdateBotSetting)
 			settings.DELETE("/bot/:id", settingsHandler.DeleteBotSetting)
 

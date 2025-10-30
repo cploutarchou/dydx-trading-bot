@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -21,15 +23,17 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		authRoutes.POST("/refresh", refreshHandler)
 	}
 
-	// User routes
+	// User routes (require authentication)
 	userRoutes := router.Group("/api/v1/users")
 	{
+		userRoutes.Use(middleware.RequireAuth())
 		userRoutes.GET("/me", getCurrentUserHandler)
 	}
 
-	// Profile routes
+	// Profile routes (require authentication)
 	profileRoutes := router.Group("/api/v1/profile")
 	{
+		profileRoutes.Use(middleware.RequireAuth())
 		profileRoutes.PUT("", updateProfileHandler(database))
 	}
 }
@@ -178,6 +182,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		// Verify password
+
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
 			log.Printf("Password mismatch for user: %s", req.Username)
@@ -211,6 +216,15 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		// Update last_login
 		_ = userRepo.UpdateLastLogin(user.ID)
+
+		// Set access token as HttpOnly cookie (for browser clients)
+		// Cookie expiry matches access token lifetime (30 minutes)
+		cookieMaxAge := 30 * 60 // seconds
+		secure := false
+		if os.Getenv("APP_ENV") == "production" {
+			secure = true
+		}
+		c.SetCookie("access_token", accessToken, cookieMaxAge, "/", "", secure, true)
 
 		c.JSON(http.StatusOK, TokenResponse{
 			AccessToken:  accessToken,

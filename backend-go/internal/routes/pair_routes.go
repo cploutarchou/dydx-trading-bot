@@ -2,6 +2,7 @@ package routes
 
 import (
 	"github.com/dydx-trading-bot/backend-go/internal/handlers"
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,6 +14,9 @@ func RegisterPairStorageRoutes(router *gin.Engine) {
 	{
 		pairs := v1.Group("/pairs")
 		{
+			// Require authentication for all pair storage routes
+			pairs.Use(middleware.RequireAuth())
+
 			// Save and load operations
 			pairs.POST("/save", pairHandler.SavePairs)
 			pairs.GET("/load", pairHandler.LoadPairs)

@@ -699,7 +699,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 		settingsBySection[section] = append(settingsBySection[section], dict)
 	}
 
-	// Convert to sections array format matching frontend structure
+	// Convert to section array format matching frontend structure
 	var sections []map[string]interface{}
 	for sectionName, settings := range settingsBySection {
 		sections = append(sections, map[string]interface{}{

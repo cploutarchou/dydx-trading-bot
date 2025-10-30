@@ -73,6 +73,12 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
+	// Configure trusted proxies to avoid proxy warning
+	// Trust localhost and internal networks for development
+	if err := router.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+		log.Printf("Warning: failed to set trusted proxies: %v", err)
+	}
+
 	// Add middleware in order
 	router.Use(middleware.ErrorHandlingMiddleware())
 	router.Use(middleware.CORSMiddleware())

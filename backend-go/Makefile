@@ -120,7 +120,7 @@ install-tools:
 	fi
 	@echo "Installing air (hot reload)..."
 	@if ! command -v air > /dev/null; then \
-		go install github.com/cosmtrek/air@latest; \
+		go install github.com/air-verse/air@latest; \
 	fi
 	@echo "Installing golang-migrate..."
 	@if ! command -v migrate > /dev/null; then \
@@ -223,4 +223,3 @@ all: clean deps verify build
 	@echo "$(GREEN)✓ Full build complete$(NC)"
 
 .DEFAULT_GOAL := help
-

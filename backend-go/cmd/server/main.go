@@ -180,12 +180,9 @@ func runMigrations(database *db.Database, dbDriver string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
-	defer func(m *migrate.Migrate) {
-		err, _ := m.Close()
-		if err != nil {
-			log.Printf("Failed to close migrate instance: %v", err)
-		}
-	}(m)
+	// Note: We don't defer m.Close() here because it would close the database connection
+	// The migrate instance will be garbage collected, and the database connection
+	// will be properly closed in main's defer statement
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("failed to run migrations: %w", err)

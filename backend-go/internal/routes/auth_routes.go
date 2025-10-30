@@ -182,6 +182,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		// Verify password
+
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
 			log.Printf("Password mismatch for user: %s", req.Username)

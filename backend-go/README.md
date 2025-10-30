@@ -5,28 +5,33 @@ A high-performance REST API backend written in Go for managing dYdX trading cred
 ## ⭐ Features
 
 ✅ **Secure Key Management**
+
 - Encrypted storage of dYdX mnemonic phrases
 - Support for testnet and mainnet keys
 - Per-user key isolation
 
 ✅ **JWT Authentication**
+
 - Secure token-based authentication
 - Cookie-based authentication for browsers
 - Configurable token expiration
 - Refresh token support
 
 ✅ **Database Support**
+
 - PostgreSQL for production
 - SQLite for development/testing
 - Automatic schema migrations
 
 ✅ **Backtest Data API**
+
 - Historical price candles
 - Position data with P&L metrics
 - Individual trade records
 - Pagination support
 
 ✅ **Production Ready**
+
 - CORS support with credential handling
 - Error handling middleware
 - Rate limiting (with localhost bypass for dev)
@@ -35,6 +40,7 @@ A high-performance REST API backend written in Go for managing dYdX trading cred
 - Security scanning
 
 ✅ **Developer Experience**
+
 - Hot reload with Air
 - Comprehensive linting (30+ linters)
 - VS Code debug configurations

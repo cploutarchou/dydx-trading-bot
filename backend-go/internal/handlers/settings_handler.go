@@ -336,3 +336,385 @@ func (h *SettingsHandler) GetCacheStats(c *gin.Context) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
 	})
 }
+
+// ============ Additional Endpoints ============
+
+// Initialize initializes default settings (idempotent)
+func (h *SettingsHandler) Initialize(c *gin.Context) {
+	// Define default settings to initialize
+	defaultSettings := []struct {
+		section      string
+		key          string
+		value        string
+		valueType    string
+		description  string
+		defaultValue string
+		isActive     bool
+	}{
+		{
+			section:      "trading",
+			key:          "max_position_size",
+			value:        "1000",
+			valueType:    "integer",
+			description:  "Maximum position size per trade",
+			defaultValue: "1000",
+			isActive:     true,
+		},
+		{
+			section:      "trading",
+			key:          "stop_loss_percentage",
+			value:        "5",
+			valueType:    "float",
+			description:  "Stop loss percentage for trades",
+			defaultValue: "5",
+			isActive:     true,
+		},
+		{
+			section:      "trading",
+			key:          "take_profit_percentage",
+			value:        "10",
+			valueType:    "float",
+			description:  "Take profit percentage for trades",
+			defaultValue: "10",
+			isActive:     true,
+		},
+		{
+			section:      "api",
+			key:          "request_timeout",
+			value:        "30",
+			valueType:    "integer",
+			description:  "API request timeout in seconds",
+			defaultValue: "30",
+			isActive:     true,
+		},
+		{
+			section:      "api",
+			key:          "retry_attempts",
+			value:        "3",
+			valueType:    "integer",
+			description:  "Number of retry attempts for failed requests",
+			defaultValue: "3",
+			isActive:     true,
+		},
+		{
+			section:      "bot",
+			key:          "enabled",
+			value:        "false",
+			valueType:    "boolean",
+			description:  "Enable or disable the trading bot",
+			defaultValue: "false",
+			isActive:     true,
+		},
+		{
+			section:      "bot",
+			key:          "log_level",
+			value:        "info",
+			valueType:    "string",
+			description:  "Logging level (debug, info, warn, error)",
+			defaultValue: "info",
+			isActive:     true,
+		},
+	}
+
+	// Try to create default settings
+	for _, setting := range defaultSettings {
+		// Check if setting already exists
+		existing, _ := h.service.GetBotSetting(setting.section, setting.key)
+		if existing != nil {
+			// Setting already exists, skip
+			continue
+		}
+
+		// Try to create the setting
+		_, _ = h.service.CreateBotSetting(
+			setting.section,
+			setting.key,
+			setting.value,
+			setting.valueType,
+			setting.description,
+			setting.defaultValue,
+			setting.isActive,
+		)
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"message": "Settings initialized successfully",
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// GetSchema returns the settings schema
+func (h *SettingsHandler) GetSchema(c *gin.Context) {
+	// Return the schema for settings with sections array matching frontend structure
+	schema := map[string]interface{}{
+		"sections": []map[string]interface{}{
+			{
+				"section":     "trading",
+				"title":       "Trading",
+				"description": "Trading configuration settings",
+				"fields": []map[string]interface{}{
+					{
+						"key":           "max_position_size",
+						"label":         "Max Position Size",
+						"value_type":    "integer",
+						"description":   "Maximum position size per trade",
+						"default_value": "1000",
+						"required":      false,
+					},
+					{
+						"key":           "stop_loss_percentage",
+						"label":         "Stop Loss Percentage",
+						"value_type":    "float",
+						"description":   "Stop loss percentage for trades",
+						"default_value": "5",
+						"required":      false,
+					},
+					{
+						"key":           "take_profit_percentage",
+						"label":         "Take Profit Percentage",
+						"value_type":    "float",
+						"description":   "Take profit percentage for trades",
+						"default_value": "10",
+						"required":      false,
+					},
+				},
+			},
+			{
+				"section":     "api",
+				"title":       "API",
+				"description": "API configuration settings",
+				"fields": []map[string]interface{}{
+					{
+						"key":           "request_timeout",
+						"label":         "Request Timeout",
+						"value_type":    "integer",
+						"description":   "API request timeout in seconds",
+						"default_value": "30",
+						"required":      false,
+					},
+					{
+						"key":           "retry_attempts",
+						"label":         "Retry Attempts",
+						"value_type":    "integer",
+						"description":   "Number of retry attempts for failed requests",
+						"default_value": "3",
+						"required":      false,
+					},
+				},
+			},
+			{
+				"section":     "redis",
+				"title":       "Redis",
+				"description": "Redis connection settings",
+				"fields": []map[string]interface{}{
+					{
+						"key":           "host",
+						"label":         "Host",
+						"value_type":    "string",
+						"description":   "Redis server host",
+						"default_value": "localhost",
+						"required":      false,
+					},
+					{
+						"key":           "port",
+						"label":         "Port",
+						"value_type":    "integer",
+						"description":   "Redis server port",
+						"default_value": "6379",
+						"required":      false,
+					},
+					{
+						"key":           "password",
+						"label":         "Password",
+						"value_type":    "string",
+						"description":   "Redis server password (optional)",
+						"default_value": "",
+						"required":      false,
+					},
+					{
+						"key":           "db",
+						"label":         "Database",
+						"value_type":    "integer",
+						"description":   "Redis database number",
+						"default_value": "0",
+						"required":      false,
+					},
+				},
+			},
+		},
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      schema,
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// GetSettings retrieves all settings
+func (h *SettingsHandler) GetSettings(c *gin.Context) {
+	// Retrieve all bot and redis settings
+	allSettings, err := h.service.GetAllBotSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     fmt.Sprintf("Failed to retrieve settings: %v", err),
+		})
+		return
+	}
+
+	// If no settings exist, initialize defaults
+	if len(allSettings) == 0 {
+		// Create default settings
+		defaultSettings := []struct {
+			section      string
+			key          string
+			value        string
+			valueType    string
+			description  string
+			defaultValue string
+			isActive     bool
+		}{
+			{
+				section:      "trading",
+				key:          "max_position_size",
+				value:        "1000",
+				valueType:    "integer",
+				description:  "Maximum position size per trade",
+				defaultValue: "1000",
+				isActive:     true,
+			},
+			{
+				section:      "trading",
+				key:          "stop_loss_percentage",
+				value:        "5",
+				valueType:    "float",
+				description:  "Stop loss percentage for trades",
+				defaultValue: "5",
+				isActive:     true,
+			},
+			{
+				section:      "trading",
+				key:          "take_profit_percentage",
+				value:        "10",
+				valueType:    "float",
+				description:  "Take profit percentage for trades",
+				defaultValue: "10",
+				isActive:     true,
+			},
+			{
+				section:      "api",
+				key:          "request_timeout",
+				value:        "30",
+				valueType:    "integer",
+				description:  "API request timeout in seconds",
+				defaultValue: "30",
+				isActive:     true,
+			},
+			{
+				section:      "api",
+				key:          "retry_attempts",
+				value:        "3",
+				valueType:    "integer",
+				description:  "Number of retry attempts for failed requests",
+				defaultValue: "3",
+				isActive:     true,
+			},
+			{
+				section:      "bot",
+				key:          "enabled",
+				value:        "false",
+				valueType:    "boolean",
+				description:  "Enable or disable the trading bot",
+				defaultValue: "false",
+				isActive:     true,
+			},
+			{
+				section:      "bot",
+				key:          "log_level",
+				value:        "info",
+				valueType:    "string",
+				description:  "Logging level (debug, info, warn, error)",
+				defaultValue: "info",
+				isActive:     true,
+			},
+		}
+
+		// Create all defaults
+		for _, setting := range defaultSettings {
+			h.service.CreateBotSetting(
+				setting.section,
+				setting.key,
+				setting.value,
+				setting.valueType,
+				setting.description,
+				setting.defaultValue,
+				setting.isActive,
+			)
+		}
+
+		// Fetch again after creation
+		allSettings, _ = h.service.GetAllBotSettings()
+	}
+
+	// Convert to sections structure matching the schema
+	settingsBySection := make(map[string][]map[string]interface{})
+
+	for _, setting := range allSettings {
+		dict := setting.ToDict()
+
+		// Ensure all fields have non-null values
+		if dict["section"] == nil || dict["section"] == "" {
+			dict["section"] = "general"
+		}
+		if dict["key"] == nil {
+			dict["key"] = ""
+		}
+		if dict["value"] == nil {
+			dict["value"] = ""
+		}
+		if dict["value_type"] == nil {
+			dict["value_type"] = "string"
+		}
+		if dict["description"] == nil {
+			dict["description"] = ""
+		}
+		if dict["default_value"] == nil {
+			dict["default_value"] = ""
+		}
+		if dict["is_active"] == nil {
+			dict["is_active"] = true
+		}
+
+		// Get section name, ensuring it's a string
+		section := "general"
+		if sectionVal, ok := dict["section"].(string); ok && sectionVal != "" {
+			section = sectionVal
+		}
+
+		settingsBySection[section] = append(settingsBySection[section], dict)
+	}
+
+	// Convert to sections array format matching frontend structure
+	var sections []map[string]interface{}
+	for sectionName, settings := range settingsBySection {
+		sections = append(sections, map[string]interface{}{
+			"section":  sectionName,
+			"settings": settings,
+		})
+	}
+
+	response := map[string]interface{}{
+		"sections": sections,
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      response,
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}

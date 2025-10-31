@@ -42,6 +42,19 @@ export const useAuthStore = create<AuthStore>()(
                     console.log('🔐 auth.ts: Calling api.login()');
                     const loginResult = await api.login({ username, password });
                     console.log('🔐 auth.ts: api.login() succeeded:', loginResult);
+
+                    // Ensure token is set in api client (api.login already does this but be explicit)
+                    if (loginResult?.access_token) {
+                        api.setToken(loginResult.access_token, true);
+                        if (loginResult.refresh_token) {
+                            try {
+                                localStorage.setItem('refresh_token', loginResult.refresh_token);
+                            } catch (e) {
+                                console.warn('❌ auth.ts: Failed to persist refresh_token', e);
+                            }
+                        }
+                    }
+
                     console.log('🔐 auth.ts: Calling getCurrentUser()');
                     await get().getCurrentUser();
                     console.log('🔐 auth.ts: getCurrentUser() succeeded');
@@ -66,6 +79,7 @@ export const useAuthStore = create<AuthStore>()(
             },
 
             logout: () => {
+                console.log('🔐 auth.ts: logout called');
                 api.logout();
                 set({ user: null });
             },

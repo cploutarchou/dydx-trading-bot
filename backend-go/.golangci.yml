@@ -15,13 +15,16 @@ run:
     - ".*\\.pb\\.go$"
     - ".*_generated\\.go$"
   modules-download-mode: readonly
+  go: "1.23"
 
 output:
-  format: colored-line-number
+  formats:
+    - format: colored-line-number
   print-issued-lines: true
   print-linter-name: true
   uniq-by-line: true
   sort-results: true
+  show-stats: true
 
 linters-settings:
   errcheck:
@@ -30,21 +33,22 @@ linters-settings:
     exclude-functions:
       - (*database/sql.Rows).Close
       - (*database/sql.DB).Close
+      - (io.Closer).Close
 
   govet:
-    check-shadowing: true
     enable-all: true
     disable:
       - fieldalignment
+      - shadow
 
   gofmt:
     simplify: true
+    rewrite-rules:
+      - pattern: 'interface{}'
+        replacement: 'any'
 
   goimports:
     local-prefixes: github.com/dydx-trading-bot/backend-go
-
-  golint:
-    min-confidence: 0.8
 
   gocyclo:
     min-complexity: 15
@@ -52,9 +56,12 @@ linters-settings:
   goconst:
     min-len: 3
     min-occurrences: 3
+    ignore-tests: true
 
   misspell:
     locale: US
+    ignore-words:
+      - cancelled
 
   lll:
     line-length: 140
@@ -62,6 +69,8 @@ linters-settings:
 
   unused:
     check-exported: false
+    field-writes-are-uses: true
+    exported-is-used: true
 
   unparam:
     check-exported: false
@@ -85,6 +94,7 @@ linters-settings:
       - whyNoLint
       - unnamedResult
       - hugeParam
+      - commentedOutCode
 
   godox:
     keywords:
@@ -93,8 +103,11 @@ linters-settings:
       - BUG
       - HACK
       - OPTIMIZE
+      - XXX
 
   revive:
+    severity: warning
+    confidence: 0.8
     rules:
       - name: exported
         disabled: false
@@ -132,62 +145,131 @@ linters-settings:
         disabled: false
       - name: redefines-builtin-id
         disabled: false
+      - name: context-keys-type
+        disabled: false
+      - name: defer
+        disabled: false
 
   staticcheck:
-    go: "1.23"
     checks: ["all"]
+
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G104 # Audit errors not checked - covered by errcheck
+      - G304 # File path provided as taint input
+
+  cyclop:
+    max-complexity: 15
+    skip-tests: true
+
+  funlen:
+    lines: 100
+    statements: 50
+    ignore-comments: true
+
+  nestif:
+    min-complexity: 4
+
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/dydx-trading-bot/backend-go)
+    skip-generated: true
+
+  nilnil:
+    checked-types:
+      - ptr
+      - func
+      - iface
+      - map
+      - chan
+
+  exhaustive:
+    check:
+      - switch
+      - map
+    default-signifies-exhaustive: true
+
+  nolintlint:
+    allow-unused: false
+    require-explanation: true
+    require-specific: true
 
 linters:
   disable-all: true
   enable:
     # Default linters
-    - errcheck      # Check for unchecked errors
-    - gosimple      # Simplify code
-    - govet         # Reports suspicious constructs
-    - ineffassign   # Detects ineffectual assignments
-    - staticcheck   # Advanced static analysis
-    - typecheck     # Type-checks Go code
-    - unused        # Checks for unused code
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
 
-    # Additional recommended linters
-    - gofmt         # Check code formatting
-    - goimports     # Check import organization
-    - goconst       # Find repeated strings that could be constants
-    - gocyclo       # Computes cyclomatic complexity
-    - misspell      # Finds commonly misspelled words
-    - revive        # Fast, configurable, extensible, flexible, and beautiful linter
-    - unconvert     # Remove unnecessary type conversions
-    - unparam       # Reports unused function parameters
-    - nakedret      # Finds naked returns in functions
-    - prealloc      # Find slice declarations that could be preallocated
-    - exportloopref # Checks for pointers to enclosing loop variables
-    - nolintlint    # Reports ill-formed or insufficient nolint directives
-    - gocritic      # The most opinionated Go linter
-    - godox         # Tool for detection of FIXME, TODO and other comment keywords
-    - bodyclose     # Checks whether HTTP response body is closed
-    - noctx         # Finds sending http request without context.Context
-    - gosec         # Inspects source code for security problems
-    - sqlclosecheck # Checks that sql.Rows and sql.Stmt are closed
-    - rowserrcheck  # Checks whether Err of rows is checked successfully
-    - errname       # Checks that sentinel errors are prefixed with Err
-    - errorlint     # Find code that will cause problems with error wrapping
-    - gomodguard    # Check for blocked dependencies
-    - tparallel     # Detects inappropriate usage of t.Parallel()
-    - thelper       # Detects test helpers without t.Helper()
-    - wastedassign  # Finds wasted assignment statements
-    - whitespace    # Detection of leading and trailing whitespace
+    # Code quality
+    - gofmt
+    - goimports
+    - goconst
+    - gocyclo
+    - cyclop
+    - funlen
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+    - nakedret
+    - prealloc
+    - exportloopref
+    - nolintlint
+    - gocritic
+    - godox
+    - nestif
+    - gci
+
+    # Bug detection
+    - bodyclose
+    - noctx
+    - sqlclosecheck
+    - rowserrcheck
+    - errname
+    - errorlint
+    - wastedassign
+    - nilnil
+    - exhaustive
+
+    # Security
+    - gosec
+
+    # Style
+    - whitespace
+    - gofumpt
+    - stylecheck
+
+    # Testing
+    - tparallel
+    - thelper
+
+    # Dependencies
+    - gomodguard
 
 issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
   new: false
+  fix: false
 
   exclude-rules:
     # Exclude some linters from running on tests files
     - path: _test\.go
       linters:
         - gocyclo
+        - cyclop
+        - funlen
         - errcheck
         - dupl
         - gosec
@@ -203,8 +285,9 @@ issues:
       linters:
         - gofmt
         - goimports
+        - gofumpt
 
-    # Exclude shadow checking on err variable in some cases
+    # Exclude shadow checking on err variable
     - text: "shadow: declaration of \"err\""
       linters:
         - govet
@@ -218,12 +301,28 @@ issues:
     - path: cmd/
       linters:
         - gocyclo
+        - cyclop
         - funlen
+
+    # Exclude godox from being an error in development
+    - linters:
+        - godox
+      text: "TODO"
+
+    # Allow blank imports in main packages
+    - path: cmd/
+      text: "blank import"
+      linters:
+        - revive
+        - stylecheck
 
 severity:
   default-severity: error
   rules:
     - linters:
         - godox
+      severity: warning
+    - linters:
+        - stylecheck
       severity: warning
 

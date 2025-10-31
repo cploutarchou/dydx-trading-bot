@@ -34,6 +34,8 @@ interface RegisterRequest {
 class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
+  private isRefreshing: boolean = false;
+  private refreshSubscribers: Array<(token: string) => void> = [];
 
   constructor() {
     console.log('🔌 api.ts: ApiClient constructor, API_BASE_URL:', API_BASE_URL);
@@ -44,15 +46,19 @@ class ApiClient {
       },
     });
 
-    // Load token from localStorage
+    // Load token from localStorage/cookie
     this.loadToken();
     console.log('🔌 api.ts: Token loaded, present:', !!this.accessToken);
 
     // Request interceptor to add auth token
     this.client.interceptors.request.use((config) => {
       console.log('📤 Request to:', config.url);
-      if (this.accessToken) {
-        config.headers.Authorization = `Bearer ${this.accessToken}`;
+      // Prefer in-memory accessToken, but fall back to storage (localStorage or cookie)
+      const token = this.accessToken || this.getTokenFromStorage();
+      if (token) {
+        // Ensure headers object exists
+        if (!config.headers) config.headers = {} as any;
+        (config.headers as any).Authorization = `Bearer ${token}`;
         console.log('✅ Authorization header added for request to:', config.url);
       } else {
         console.warn('⚠️ NO TOKEN - Request to', config.url, 'will fail if auth is required');
@@ -60,7 +66,7 @@ class ApiClient {
       return config;
     });
 
-    // Response interceptor for error handling
+    // Response interceptor for error handling with refresh-token support
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
@@ -68,33 +74,72 @@ class ApiClient {
         const url = error.config?.url || '';
         const status = error.response?.status;
         console.warn('🚨 API Error:', { url, status, message: error.message });
-        
-        // Handle 401 Unauthorized - token likely expired
-        if (status === 401 && url && !url.includes('/auth/login')) {
-          console.warn('⚠️ Token expired or invalid, attempting refresh...');
-          
-          // Try to get current user to refresh session
+
+        // Handle 401 Unauthorized - attempt silent refresh
+        if (status === 401 && url && !url.includes('/auth/login') && !url.includes('/auth/refresh')) {
+          console.warn('⏳ 401 Unauthorized detected, attempting silent refresh...');
+
+          // If already refreshing, queue this request to retry after refresh completes
+          if (this.isRefreshing) {
+            console.log('🔄 api.ts: Refresh already in progress, queuing request retry');
+            return new Promise((resolve) => {
+              this.refreshSubscribers.push((newToken: string) => {
+                // Update auth header with new token
+                if (error.config && error.config.headers) {
+                  (error.config.headers as any).Authorization = `Bearer ${newToken}`;
+                  resolve(this.client(error.config));
+                }
+              });
+            });
+          }
+
+          // Mark as refreshing and attempt to get new token
+          this.isRefreshing = true;
           try {
-            await this.client.get('/api/v1/users/me');
-            // If we got here, session is still valid, retry original request
-            if (error.config) {
-              console.log('✅ Session refreshed, retrying original request:', url);
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) {
+              throw new Error('No refresh token available');
+            }
+
+            console.log('🔐 api.ts: Calling refresh endpoint...');
+            // Attempt refresh using the refresh token (depends on backend implementation)
+            // This assumes backend has POST /api/v1/auth/refresh endpoint
+            const refreshResponse = await axios.post<Token>(
+              `${API_BASE_URL}/api/v1/auth/refresh`,
+              { refresh_token: refreshToken }
+            );
+
+            const newAccessToken = refreshResponse.data.access_token;
+            console.log('✅ api.ts: Token refreshed successfully');
+            this.setToken(newAccessToken);
+
+            // Notify all queued requests of the new token
+            this.refreshSubscribers.forEach((callback) => callback(newAccessToken));
+            this.refreshSubscribers = [];
+
+            // Retry original request with new token
+            if (error.config && error.config.headers) {
+              (error.config.headers as any).Authorization = `Bearer ${newAccessToken}`;
+              console.log('🔄 api.ts: Retrying original request with new token');
               return this.client(error.config);
             }
           } catch (refreshError: any) {
-            // Session truly invalid, logout and redirect to login
-            console.error('❌ Session invalid, logging out');
+            // Refresh failed - session truly invalid
+            console.error('❌ api.ts: Token refresh failed, logging out');
+            this.refreshSubscribers = [];
             this.logout();
-            // Trigger login redirect via localStorage event
             localStorage.setItem('auth_redirect', 'true');
             window.location.href = '/login';
+            return Promise.reject(refreshError);
+          } finally {
+            this.isRefreshing = false;
           }
         }
-        
+
         // DO NOT auto-logout on OTHER errors here
         // Let components handle their own errors and decide what to do
         // Only logout should happen via explicit user action or auth page
-        
+
         return Promise.reject(error);
       }
     );
@@ -105,28 +150,71 @@ class ApiClient {
     if (token) {
       this.accessToken = token;
       console.log('✅ Token loaded from localStorage');
-    } else {
-      console.warn('⚠️ No token in localStorage');
+      return;
+    }
+
+    // Fallback to cookie (non-HttpOnly); useful for some cross-tab setups
+    const cookieToken = this.getTokenFromCookie();
+    if (cookieToken) {
+      this.accessToken = cookieToken;
+      console.log('✅ Token loaded from cookie');
+      return;
+    }
+
+    console.warn('⚠️ No token in localStorage or cookie');
+  }
+
+  private getTokenFromCookie(): string | null {
+    try {
+      const match = document.cookie.match(/(^|; )access_token=([^;]+)/);
+      return match ? decodeURIComponent(match[2]) : null;
+    } catch (e) {
+      console.warn('❌ api.ts: error reading cookie for token', e);
+      return null;
     }
   }
 
-  setToken(token: string): void {
+  private getTokenFromStorage(): string | null {
+    const token = localStorage.getItem('access_token');
+    if (token) return token;
+    return this.getTokenFromCookie();
+  }
+
+  // Allow callers to set token; optional remember flag to persist longer (not used right now)
+  setToken(token: string, remember: boolean = true): void {
     this.accessToken = token;
-    localStorage.setItem('access_token', token);
-    console.log('✅ Token set and saved to localStorage');
+    try {
+      // Store in localStorage for fast access
+      localStorage.setItem('access_token', token);
+      console.log('✅ Token set and saved to localStorage');
+
+      // Also set a non-HttpOnly cookie for cross-tab compatibility (expires in 7 days)
+      const maxAge = remember ? 7 * 24 * 60 * 60 : undefined; // seconds
+      if (typeof document !== 'undefined') {
+        let cookieStr = `access_token=${encodeURIComponent(token)}; path=/`;
+        if (maxAge) cookieStr += `; max-age=${maxAge}`;
+        // Set SameSite lax for decent CSRF protection; secure only on https
+        cookieStr += `; samesite=lax`;
+        if (window.location.protocol === 'https:') cookieStr += `; secure`;
+        document.cookie = cookieStr;
+        console.log('✅ Token saved in cookie for cross-tab usage');
+      }
+    } catch (e) {
+      console.error('❌ api.ts: Failed to persist token:', e);
+    }
   }
 
   // Helper: Check if token is present
   hasToken(): boolean {
-    const hasToken = !!this.accessToken;
-    console.log('🔍 Token check:', { hasToken, tokenLength: this.accessToken?.length || 0 });
+    const hasToken = !!(this.accessToken || this.getTokenFromStorage());
+    console.log('🔍 Token check:', { hasToken, tokenLength: (this.accessToken || this.getTokenFromStorage())?.length || 0 });
     return hasToken;
   }
 
   // Helper: Ensure token is loaded from localStorage
   ensureTokenLoaded(): void {
     if (!this.accessToken) {
-      console.log('🔄 Token not in memory, reloading from localStorage');
+      console.log('🔄 Token not in memory, reloading from localStorage/cookie');
       this.loadToken();
     }
   }
@@ -135,6 +223,15 @@ class ApiClient {
     this.accessToken = null;
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
+    // Remove cookie
+    try {
+      if (typeof document !== 'undefined') {
+        document.cookie = 'access_token=; path=/; max-age=0';
+        console.log('✅ access_token cookie removed');
+      }
+    } catch (e) {
+      console.warn('❌ api.ts: failed to remove cookie', e);
+    }
   }
 
   // Auth endpoints
@@ -151,8 +248,16 @@ class ApiClient {
       const response = await this.client.post<Token>('/api/v1/auth/login', data);
       console.log('🔌 api.ts: login response:', response.data);
       if (response.data.access_token) {
+        // Use setToken so we persist in both localStorage and cookie
         this.setToken(response.data.access_token);
-        console.log('🔌 api.ts: token saved to localStorage');
+        if (response.data.refresh_token) {
+          try {
+            localStorage.setItem('refresh_token', response.data.refresh_token);
+          } catch (e) {
+            console.warn('❌ api.ts: Could not save refresh_token to localStorage', e);
+          }
+        }
+        console.log('🔌 api.ts: token saved to storage');
       }
       return response.data;
     } catch (error: any) {
@@ -385,7 +490,6 @@ class ApiClient {
     }
   }
 
-  // Backtest to strategy
   async createStrategyFromBacktest(data: {
     name: string;
     description: string;
@@ -465,11 +569,92 @@ class ApiClient {
   }
 
   // WebSocket connection for real-time updates
-  connectBacktestSocket(runId: string, token: string): WebSocket {
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/backtest/${runId}?token=${token}`;
-    return new WebSocket(wsUrl);
+  connectSocket(path: string, token?: string): WebSocket {
+    // If token not supplied, try stored token
+    const useToken = token || this.getTokenFromStorage() || '';
+
+    // Build WebSocket URL from API_BASE_URL so it points to the backend configured in env
+    try {
+      const apiUrl = new URL(API_BASE_URL);
+      const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      const backendHost = apiUrl.host; // e.g. localhost:8888
+      // Ensure path starts with '/'
+      const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+      const wsUrl = `${wsProtocol}//${backendHost}${normalizedPath}${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
+      console.log('🔌 api.ts: connectSocket ->', wsUrl);
+      return new WebSocket(wsUrl);
+    } catch (e) {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+      const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
+      console.warn('⚠️ api.ts: Failed to parse API_BASE_URL, falling back to window.location.host for WS', e);
+      return new WebSocket(wsUrl);
+    }
   }
+
+  // Backwards-compatible helper specifically for backtest progress
+  connectBacktestSocket(runId: string, token?: string): WebSocket {
+    return this.connectSocket(`/ws/backtest/${runId}`, token);
+  }
+
+  // Keys Management (centralized from DYDXKeyManager.tsx)
+  async getKeys(): Promise<ApiResponse<{ keys: any[]; total: number }>> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getKeys() called');
+    const response = await this.client.get('/api/v1/keys/list');
+    return response.data;
+  }
+
+  async createKey(data: any): Promise<ApiResponse<any>> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: createKey() called with:', data);
+    const response = await this.client.post('/api/v1/keys/create', data);
+    return response.data;
+  }
+
+  async deleteKey(network: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: deleteKey() called for network:', network);
+    const response = await this.client.delete(`/api/v1/keys/${network}`);
+    return response.data;
+  }
+
+  // Redis Settings (centralized from RedisSettings.tsx)
+  async getRedisStatus(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getRedisStatus() called');
+    const response = await this.client.get('/api/v1/redis/status');
+    return response.data;
+  }
+
+  async testRedisConnection(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: testRedisConnection() called');
+    const response = await this.client.post('/api/v1/redis/test-connection', {});
+    return response.data;
+  }
+
+  async toggleRedis(enabled: boolean): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: toggleRedis() called with enabled:', enabled);
+    const response = await this.client.post('/api/v1/redis/toggle', { enabled });
+    return response.data;
+  }
+
+  async flushRedis(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: flushRedis() called');
+    const response = await this.client.post('/api/v1/redis/flush', {});
+    return response.data;
+  }
+
+  async getRedisSettings(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getRedisSettings() called');
+    const response = await this.client.get('/api/v1/redis/settings');
+    return response.data;
+  }
+
 }
 
 export default new ApiClient();

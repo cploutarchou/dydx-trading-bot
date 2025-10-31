@@ -1,5 +1,6 @@
-import axios from "axios";
 import React, { useEffect, useState } from "react";
+import { AxiosError } from "axios";
+import api from "../api";
 
 interface DYDXKey {
   id: number;
@@ -16,12 +17,6 @@ interface CreateKeyPayload {
   secret_phrase: string;
 }
 
-interface ApiResponse<T> {
-  success: boolean;
-  message: string;
-  data?: T;
-  timestamp: string;
-}
 
 /**
  * DYDXKeyManager Component
@@ -84,21 +79,21 @@ export const DYDXKeyManager: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get<ApiResponse<{ keys: DYDXKey[]; total: number }>>(
-        "/api/v1/keys/list"
-      );
-      
-      if (response.data.success && response.data.data) {
-        setKeys(response.data.data.keys);
+      const response = await api.getKeys();
+
+      if (response.success && response.data?.keys) {
+        setKeys(response.data.keys);
       } else {
         setKeys([]);
       }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || 
-                          err.response?.data?.message || 
+    } catch (err) {
+      const axiosError = err as AxiosError<{ detail?: string; message?: string }>;
+      const errorMessage = axiosError.response?.data?.detail ||
+                          axiosError.response?.data?.message ||
                           "Failed to load keys";
       setError(errorMessage);
       console.error("Failed to load keys:", err);
+      setKeys([]);
     } finally {
       setLoading(false);
     }
@@ -148,12 +143,9 @@ export const DYDXKeyManager: React.FC = () => {
     setSuccessMessage(null);
 
     try {
-      const response = await axios.post<ApiResponse<DYDXKey>>(
-        "/api/v1/keys/create",
-        formData
-      );
+      const response = await api.createKey(formData);
 
-      if (response.data.success) {
+      if (response.success) {
         setSuccessMessage(
           `✅ ${formData.network.charAt(0).toUpperCase() + formData.network.slice(1)} key saved successfully!`
         );
@@ -162,9 +154,10 @@ export const DYDXKeyManager: React.FC = () => {
         setShowAddForm(false);
         await loadKeys();
       }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || 
-                          err.response?.data?.message || 
+    } catch (err) {
+      const axiosError = err as AxiosError<{ detail?: string; message?: string }>;
+      const errorMessage = axiosError.response?.data?.detail ||
+                          axiosError.response?.data?.message ||
                           "Failed to save key";
       setError(`❌ ${errorMessage}`);
       console.error("Failed to add key:", err);
@@ -185,12 +178,13 @@ export const DYDXKeyManager: React.FC = () => {
     setError(null);
 
     try {
-      await axios.delete(`/api/v1/keys/${network}`);
+      await api.deleteKey(network);
       setSuccessMessage(`✅ ${network} key deleted successfully!`);
       await loadKeys();
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || 
-                          err.response?.data?.message || 
+    } catch (err) {
+      const axiosError = err as AxiosError<{ detail?: string; message?: string }>;
+      const errorMessage = axiosError.response?.data?.detail ||
+                          axiosError.response?.data?.message ||
                           "Failed to delete key";
       setError(`❌ ${errorMessage}`);
       console.error("Failed to delete key:", err);

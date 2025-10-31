@@ -49,8 +49,10 @@ export default function StrategyManager() {
         const token = localStorage.getItem('access_token');
         if (!token) return;
 
-        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/strategies?token=${token}`;
-        ws = new WebSocket(wsUrl);
+        // Use centralized api helper to build WebSocket URL
+        ws = apiClient.connectSocket ? apiClient.connectSocket('/ws/strategies', token) : null;
+
+        if (!ws) return;
 
         ws.onopen = () => {
           setWebSocketConnected(true);

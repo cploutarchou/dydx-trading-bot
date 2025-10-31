@@ -3,6 +3,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import api from '../api';
 
 interface BacktestProgressState {
   progress: number;
@@ -32,19 +33,9 @@ export const useBacktestProgress = (runId: string, token: string | null) => {
     }
 
     try {
-      // Determine WebSocket protocol and backend host
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      
-      // Extract backend host from API base URL
-      // API_BASE_URL is like http://localhost:8888, we need localhost:8888
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8888';
-      const apiUrl = new URL(apiBaseUrl);
-      const backendHost = apiUrl.host; // This gives us "localhost:8888"
-      
-      const wsUrl = `${wsProtocol}//${backendHost}/ws/backtest/${runId}?token=${token}`;
-
-      console.log('[useBacktestProgress] Connecting to WebSocket:', wsUrl);
-      const ws = new WebSocket(wsUrl);
+      // Use centralized api helper which builds WS url from VITE_API_URL
+      console.log('[useBacktestProgress] Connecting via api.connectBacktestSocket');
+      const ws = api.connectBacktestSocket(runId, token);
 
       ws.onopen = () => {
         console.log('[useBacktestProgress] WebSocket connected');

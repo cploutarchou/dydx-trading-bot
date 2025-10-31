@@ -1,5 +1,7 @@
 import { AlertCircle, Check, RefreshCw, Trash2, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { AxiosError } from "axios";
+import api from "../api";
 
 interface RedisSettings {
   id: number;
@@ -61,8 +63,6 @@ const RedisSettings: React.FC = () => {
     {}
   );
 
-  const token = localStorage.getItem("token");
-
   useEffect(() => {
     fetchRedisStatus();
   }, []);
@@ -70,22 +70,16 @@ const RedisSettings: React.FC = () => {
   const fetchRedisStatus = async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/v1/redis/status", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await api.getRedisStatus();
 
-      if (!response.ok) throw new Error("Failed to fetch Redis status");
-
-      const data = await response.json();
-      if (data.success && data.data) {
-        setSettings(data.data.settings);
-        setConnectionStatus(data.data.connection);
-        setCacheStats(data.data.cache_stats);
+      if (response.success && response.data) {
+        setSettings(response.data.settings || null);
+        setConnectionStatus(response.data.connection || null);
+        setCacheStats(response.data.cache_stats || null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load settings");
+      const axiosError = err as AxiosError<{ message?: string }>;
+      setError(axiosError.message || "Failed to load settings");
     } finally {
       setLoading(false);
     }
@@ -94,21 +88,16 @@ const RedisSettings: React.FC = () => {
   const handleTestConnection = async () => {
     try {
       setTestingConnection(true);
-      const response = await fetch("/api/v1/redis/test-connection", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await api.testRedisConnection();
 
-      const data = await response.json();
-      if (data.success) {
-        setConnectionStatus(data.data);
+      if (response.success) {
+        setConnectionStatus(response.data);
       } else {
-        setError(data.message || "Connection test failed");
+        setError(response.message || "Connection test failed");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Connection test failed");
+      const axiosError = err as AxiosError<{ message?: string }>;
+      setError(axiosError.message || "Connection test failed");
     } finally {
       setTestingConnection(false);
     }
@@ -116,23 +105,16 @@ const RedisSettings: React.FC = () => {
 
   const handleToggleRedis = async () => {
     try {
-      const response = await fetch("/api/v1/redis/toggle", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ enabled: !settings?.enabled }),
-      });
+      const response = await api.toggleRedis(!settings?.enabled);
 
-      const data = await response.json();
-      if (data.success) {
-        setSettings(data.data);
+      if (response.success) {
+        setSettings(response.data);
       } else {
-        setError(data.message || "Failed to toggle Redis");
+        setError(response.message || "Failed to toggle Redis");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to toggle Redis");
+      const axiosError = err as AxiosError<{ message?: string }>;
+      setError(axiosError.message || "Failed to toggle Redis");
     }
   };
 
@@ -143,21 +125,16 @@ const RedisSettings: React.FC = () => {
 
     try {
       setFlushingCache(true);
-      const response = await fetch("/api/v1/redis/flush", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await api.flushRedis();
 
-      const data = await response.json();
-      if (data.success) {
+      if (response.success) {
         setCacheStats({ enabled: true, total_keys: 0 });
       } else {
-        setError(data.message || "Failed to flush cache");
+        setError(response.message || "Failed to flush cache");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to flush cache");
+      const axiosError = err as AxiosError<{ message?: string }>;
+      setError(axiosError.message || "Failed to flush cache");
     } finally {
       setFlushingCache(false);
     }
@@ -165,24 +142,18 @@ const RedisSettings: React.FC = () => {
 
   const handleSaveSettings = async () => {
     try {
-      const response = await fetch("/api/v1/redis/settings", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(editedSettings),
-      });
+      const response = await api.getRedisSettings();
 
-      const data = await response.json();
-      if (data.success) {
-        setSettings(data.data);
+      if (response.success) {
+        setSettings(response.data);
         setIsEditing(false);
+        setError(null);
       } else {
-        setError(data.message || "Failed to save settings");
+        setError(response.message || "Failed to save settings");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save settings");
+      const axiosError = err as AxiosError<{ message?: string }>;
+      setError(axiosError.message || "Failed to save settings");
     }
   };
 

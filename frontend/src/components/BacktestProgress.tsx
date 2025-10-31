@@ -9,7 +9,7 @@ import { useBacktestProgress } from "../hooks/useBacktestProgress";
 interface BacktestProgressProps {
   runId: string;
   onComplete?: () => void;
-  onError?: (error: string) => void;
+  onError?: (_error: string) => void;
 }
 
 export const BacktestProgress: React.FC<BacktestProgressProps> = ({

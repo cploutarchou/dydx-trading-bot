@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS bot_settings
   created_at    DATETIME DEFAULT NULL,
   updated_at    DATETIME DEFAULT NULL,
   updated_by    INTEGER  DEFAULT NULL,
-  FOREIGN KEY (updated_by) REFERENCES users (id)
+  FOREIGN KEY (updated_by) REFERENCES users (id),
+  UNIQUE(section, key)
 );
 
 CREATE INDEX idx_bot_setting_active ON bot_settings (is_active);
@@ -34,7 +35,4 @@ VALUES
   ('bot', 'enabled', 'false', 'boolean', 'Enable or disable the trading bot', 'false', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   ('bot', 'log_level', 'info', 'string', 'Logging level (debug, info, warn, error)', 'info', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT(section, key) DO NOTHING;
-
--- Drop backtest_strategies table
-DROP TABLE IF EXISTS backtest_strategies;
 

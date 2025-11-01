@@ -30,6 +30,7 @@ interface CreateKeyPayload {
  * - Comprehensive error handling
  */
 export const DYDXKeyManager: React.FC = () => {
+  // Ensure keys is always an array to avoid null access errors
   const [keys, setKeys] = useState<DYDXKey[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -81,8 +82,8 @@ export const DYDXKeyManager: React.FC = () => {
     try {
       const response = await api.getKeys();
 
-      if (response.success && response.data?.keys) {
-        setKeys(response.data.keys);
+      if (response && response.success && Array.isArray(response.data?.keys)) {
+        setKeys(response.data.keys || []);
       } else {
         setKeys([]);
       }
@@ -222,8 +223,8 @@ export const DYDXKeyManager: React.FC = () => {
         {/* Status Summary */}
         <div className="mt-4 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
           <p className="text-slate-300 text-sm">
-            <span className="font-medium">{keys.length}</span> key(s) configured
-            {keys.length > 0 && (
+            <span className="font-medium">{Array.isArray(keys) ? keys.length : 0}</span> key(s) configured
+            {Array.isArray(keys) && keys.length > 0 && (
               <>
                 {" • "}
                 <span className="text-green-400">All active</span>
@@ -382,7 +383,7 @@ export const DYDXKeyManager: React.FC = () => {
               <div className="inline-block w-8 h-8 border-3 border-slate-600 border-t-blue-500 rounded-full animate-spin mb-4"></div>
               <p className="text-slate-400">Loading keys...</p>
             </div>
-          ) : keys.length === 0 ? (
+          ) : Array.isArray(keys) && keys.length === 0 ? (
             <div className="text-center py-12 bg-slate-800/50 rounded-lg border border-dashed border-slate-600">
               <p className="text-slate-400 mb-2">🔑 No keys configured yet</p>
               <p className="text-slate-500 text-sm">Click "Add Key" to get started</p>

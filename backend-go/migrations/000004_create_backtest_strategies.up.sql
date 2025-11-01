@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS backtest_strategies
   benchmark_symbol         VARCHAR(20)  DEFAULT NULL,
   risk_free_rate           REAL         NOT NULL,
   initial_amount           REAL         NOT NULL,
-  usage_count              INTEGER      DEFAULT NULL,
+  usage_count              INTEGER      DEFAULT 0,
   last_used_at             DATETIME     DEFAULT NULL,
   created_at               DATETIME     DEFAULT NULL,
   updated_at               DATETIME     DEFAULT NULL,

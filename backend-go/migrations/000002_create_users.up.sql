@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users
   email           VARCHAR(100) NOT NULL UNIQUE,
   hashed_password VARCHAR(500) NOT NULL,
   full_name       VARCHAR(100) DEFAULT NULL,
-  avatar          TEXT         DEFAULT NULL,
+  avatar          TEXT         DEFAULT '',
   is_active       BOOLEAN      DEFAULT NULL,
   is_admin        BOOLEAN      DEFAULT NULL,
   created_at      DATETIME     DEFAULT NULL,

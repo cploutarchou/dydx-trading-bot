@@ -1,0 +1,107 @@
+version: "3.8"
+
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    container_name: dydx-bot-dev
+    image: dydx-bot-dev:latest
+    volumes:
+      - ..:/workspace
+      - /workspace/venv:/workspace/venv
+      - ~/.ssh:/home/vscode/.ssh:ro
+      - ~/.gitconfig:/home/vscode/.gitconfig:ro
+    ports:
+      - "8889:8889" # Bot API Server
+      - "8000:8000" # FastAPI app
+      - "5432:5432" # PostgreSQL
+      - "6379:6379" # Redis
+      - "8888:8888" # Jupyter
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/dydx_bot
+      - REDIS_URL=redis://redis:6379
+      - ENV=development
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - dydx-network
+    command: /bin/bash -c "while sleep 1000; do :; done"
+    user: vscode
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: dydx-postgres
+    environment:
+      POSTGRES_DB: dydx_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "-c max_connections=100 -c shared_buffers=256MB"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: dydx-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-network
+    command: redis-server --appendonly yes
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: dydx-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@dydx.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - dydx-network
+
+  # Optional: Redis Commander for Redis management
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: dydx-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - dydx-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  dydx-network:
+    driver: bridge

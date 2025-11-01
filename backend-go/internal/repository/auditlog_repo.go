@@ -24,7 +24,7 @@ func (r *AuditLogRepository) CreateAuditLog(auditLog *models.AuditLog) error {
 	query := `
 		INSERT INTO audit_logs (
 			user_id, action, resource_type, resource_id, details, status, ip_address, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at
 	`
 
@@ -54,7 +54,7 @@ func (r *AuditLogRepository) GetAuditLogByID(id int) (*models.AuditLog, error) {
 	query := `
 		SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 		FROM audit_logs
-		WHERE id = ?
+		WHERE id = $1
 		LIMIT 1
 	`
 
@@ -89,7 +89,7 @@ func (r *AuditLogRepository) GetAuditLogsByUser(userID int) ([]models.AuditLog, 
 	query := `
 		SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 		FROM audit_logs
-		WHERE user_id = ?
+		WHERE user_id = $1
 		ORDER BY created_at DESC
 	`
 
@@ -131,9 +131,9 @@ func (r *AuditLogRepository) GetAuditLogsByAction(action string, limit int) ([]m
 	query := `
 		SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 		FROM audit_logs
-		WHERE action = ?
+		WHERE action = $1
 		ORDER BY created_at DESC
-		LIMIT ?
+		LIMIT $2
 	`
 
 	rows, err := r.db.Query(query, action, limit)
@@ -175,7 +175,7 @@ func (r *AuditLogRepository) ListAllAuditLogs(limit int, offset int) ([]models.A
 		SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 		FROM audit_logs
 		ORDER BY created_at DESC
-		LIMIT ? OFFSET ?
+		LIMIT $1 OFFSET $2
 	`
 
 	rows, err := r.db.Query(query, limit, offset)

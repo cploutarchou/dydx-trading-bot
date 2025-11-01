@@ -36,11 +36,12 @@ func main() {
 
 	// Initialize database with automatic migrations
 	database, err := db.New(db.Config{
-		Driver:       config.ConfigInstance.Database.Type,
-		DSN:          config.ConfigInstance.Database.DSN(),
-		AutoMigrate:  true, // Automatically run pending migrations on startup
-		MaxOpenConns: 25,
-		MaxIdleConns: 5,
+		Driver:         config.ConfigInstance.Database.Type,
+		DSN:            config.ConfigInstance.Database.DSN(),
+		AutoMigrate:    true, // Automatically run pending migrations on startup
+		MigrationsPath: config.ConfigInstance.Database.MigrationsPath(),
+		MaxOpenConns:   25,
+		MaxIdleConns:   5,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)

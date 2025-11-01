@@ -25,6 +25,54 @@ func NewBacktestHandler(repo *repository.BacktestRepository, storage *services.B
 	}
 }
 
+// ListBacktests retrieves all backtest runs for the current user with pagination
+func (h *BacktestHandler) ListBacktests(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     "User ID not found in context",
+		})
+		return
+	}
+
+	skip := 0
+	limit := 100
+
+	if skipStr := c.Query("skip"); skipStr != "" {
+		if s, err := strconv.Atoi(skipStr); err == nil && s >= 0 {
+			skip = s
+		}
+	}
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 500 {
+			limit = l
+		}
+	}
+
+	runs, err := h.repo.GetRunsByUserID(userID.(int), skip, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     fmt.Sprintf("Failed to retrieve backtests: %v", err),
+		})
+		return
+	}
+
+	if runs == nil {
+		runs = []models.BacktestRun{}
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      runs,
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
 type CandleResponse struct {
 	Market    string  `json:"market"`
 	Timestamp string  `json:"timestamp"`

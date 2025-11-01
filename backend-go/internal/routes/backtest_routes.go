@@ -21,6 +21,9 @@ func RegisterBacktestRoutes(router *gin.Engine, database *db.Database) {
 			// Require authentication for all backtest routes
 			backtests.Use(middleware.RequireAuth())
 
+			// List all backtests with pagination
+			backtests.GET("", backtestHandler.ListBacktests)
+
 			// Existing endpoints - query from database
 			backtests.GET("/:run_id/candles", backtestHandler.GetBacktestCandles)
 			backtests.GET("/:run_id/positions", backtestHandler.GetBacktestPositions)

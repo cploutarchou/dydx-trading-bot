@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
+	"net/url"
+	_ "os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -66,7 +67,7 @@ func New(cfg Config) (*Database, error) {
 	var conn *sql.DB
 	var err error
 
-	// Retry logic for connection establishment
+	// Retry logic for a connection establishment
 	maxRetries := cfg.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 3
@@ -90,7 +91,10 @@ func New(cfg Config) (*Database, error) {
 		cancel()
 
 		if err != nil {
-			conn.Close()
+			// try to close the opened connection, ignore error
+			if conn != nil {
+				_ = conn.Close()
+			}
 			if attempt < maxRetries {
 				log.Printf("⚠️  Database ping attempt %d/%d failed: %v. Retrying in %v...",
 					attempt, maxRetries, err, cfg.RetryDelay)
@@ -107,13 +111,17 @@ func New(cfg Config) (*Database, error) {
 	// Run migrations if requested
 	if cfg.AutoMigrate {
 		if err := runMigrations(cfg); err != nil {
-			conn.Close()
+			if conn != nil {
+				_ = conn.Close()
+			}
 			return nil, fmt.Errorf("migration failed: %w", err)
 		}
 	}
 
 	// Configure connection pool
-	configureConnectionPool(conn, cfg)
+	if conn != nil {
+		configureConnectionPool(conn, cfg)
+	}
 
 	db := &Database{
 		DB:     conn,
@@ -124,9 +132,13 @@ func New(cfg Config) (*Database, error) {
 	// Log successful connection with sanitized DSN
 	sanitizedDSN := sanitizeDSN(cfg.DSN)
 	log.Printf("✅ Database connected successfully (%s): %s", cfg.Driver, sanitizedDSN)
-	stats := conn.Stats()
-	log.Printf("📊 Connection pool: max_open=%d, max_idle=%d, lifetime=%v, idle_timeout=%v, current_open=%d",
-		cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime, stats.OpenConnections)
+	if conn != nil {
+		stats := conn.Stats()
+		log.Printf("📊 Connection pool: max_open=%d, max_idle=%d, lifetime=%v, idle_timeout=%v, current_open=%d",
+			cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime, stats.OpenConnections)
+	} else {
+		log.Printf("📊 Connection pool: connection is nil (unexpected)")
+	}
 
 	return db, nil
 }
@@ -373,28 +385,16 @@ func configureConnectionPool(conn *sql.DB, cfg Config) {
 // runMigrations runs database migrations
 func runMigrations(cfg Config) error {
 	sourceURL := "file://" + cfg.MigrationsPath
-	var dbURL string
 
 	// Build database URL based on driver
-	if strings.HasPrefix(cfg.Driver, "sqlite") || strings.Contains(cfg.Driver, "sqlite") {
-		dsn := cfg.DSN
-		if !strings.HasPrefix(dsn, "/") && !strings.HasPrefix(dsn, ":memory:") {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("failed to get working directory: %w", err)
-			}
-			dsn = filepath.Join(cwd, dsn)
-		}
-		dbURL = "sqlite3://" + dsn
-	} else if strings.HasPrefix(cfg.Driver, "postgres") || strings.Contains(cfg.Driver, "postgres") {
-		dbURL = cfg.DSN
-	} else {
-		return fmt.Errorf("unsupported driver for migrations: %s", cfg.Driver)
+	dbURL, err := BuildMigrateDatabaseURL(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to build migrate database url: %w", err)
 	}
 
 	m, err := migrate.New(sourceURL, dbURL)
 	if err != nil {
-		return fmt.Errorf("migration setup failed: %w", err)
+		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
 	defer func() {
 		srcErr, dbErr := m.Close()
@@ -403,12 +403,144 @@ func runMigrations(cfg Config) error {
 		}
 	}()
 
+	// Run migrations with handling for dirty database state
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		// If the DB is left dirty from a previous failed migration, migrate returns an error like:
+		// "dirty database version X. Fix and force version." In that case we try to recover by
+		// reading the current version and forcing it (which clears the dirty flag), then retrying once.
+		errStr := err.Error()
+		if strings.Contains(strings.ToLower(errStr), "dirty") {
+			ver, dirty, vErr := m.Version()
+			if vErr != nil {
+				return fmt.Errorf("migration failed and could not read version: %w (original: %v)", vErr, err)
+			}
+			if dirty {
+				log.Printf("⚠️  Detected dirty migration at version %d. Forcing version to clear dirty flag...", ver)
+				// Force expects an int version. Use int(ver) to set the migration version and clear dirty state.
+				if fErr := m.Force(int(ver)); fErr != nil {
+					return fmt.Errorf("failed to force migration version %d: %w (original: %v)", ver, fErr, err)
+				}
+				// Retry Up once after forcing
+				if rErr := m.Up(); rErr != nil && rErr != migrate.ErrNoChange {
+					return fmt.Errorf("migration retry failed after forcing version %d: %w", ver, rErr)
+				}
+				log.Printf("✅ Migration recovered after forcing version %d", ver)
+				return nil
+			}
+		}
+
 		return fmt.Errorf("migration execution failed: %w", err)
 	}
 
 	log.Println("✅ Database migrations applied successfully")
 	return nil
+}
+
+// BuildMigrateDatabaseURL converts cfg.Driver and cfg.DSN into a URL acceptable by golang-migrate
+func BuildMigrateDatabaseURL(cfg Config) (string, error) {
+	driver := strings.ToLower(cfg.Driver)
+	dsn := strings.TrimSpace(cfg.DSN)
+
+	if strings.Contains(driver, "sqlite") {
+		// Normalize SQLite path. Support :memory: and relative paths.
+		if dsn == ":memory:" || dsn == "file::memory:?cache=shared" {
+			return "sqlite3://" + dsn, nil
+		}
+
+		// If not absolute, make absolute relative to cwd
+		if !filepath.IsAbs(dsn) {
+			abs, err := filepath.Abs(dsn)
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve sqlite path: %w", err)
+			}
+			dsn = abs
+		}
+		// golang-migrate expects sqlite3://<path> (leading slash already in abs)
+		return "sqlite3://" + dsn, nil
+	}
+
+	if strings.Contains(driver, "postgres") || strings.Contains(driver, "pgx") {
+		// If already a URL, return as-is
+		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+			return dsn, nil
+		}
+
+		// Attempt to parse typical lib/pq key=value DSN and convert to URL form
+		u, err := parsePostgresKeyValueDSN(dsn)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse postgres dsn: %w", err)
+		}
+		return u, nil
+	}
+
+	return "", fmt.Errorf("unsupported driver for migrations: %s", cfg.Driver)
+}
+
+// parsePostgresKeyValueDSN converts a lib/pq-style DSN (key=value ...) into a postgres:// URL
+func parsePostgresKeyValueDSN(dsn string) (string, error) {
+	// Split tokens by space, simple approach since DSNs are usually tokenized by spaces
+	tokens := strings.Fields(dsn)
+	m := map[string]string{}
+	for _, t := range tokens {
+		parts := strings.SplitN(t, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		k := strings.TrimSpace(parts[0])
+		v := strings.Trim(parts[1], "'\" ")
+		m[k] = v
+	}
+
+	host := m["host"]
+	port := m["port"]
+	user := m["user"]
+	password := m["password"]
+	dbname := m["dbname"]
+	sslmode := m["sslmode"]
+
+	if host == "" {
+		host = "localhost"
+	}
+	if port == "" {
+		port = "5432"
+	}
+	if dbname == "" {
+		return "", fmt.Errorf("dbname is required in postgres DSN")
+	}
+
+	u := &url.URL{
+		Scheme: "postgres",
+		Host:   fmt.Sprintf("%s:%s", host, port),
+		Path:   "/" + dbname,
+	}
+	if user != "" {
+		if password != "" {
+			u.User = url.UserPassword(user, password)
+		} else {
+			u.User = url.User(user)
+		}
+	}
+
+	q := url.Values{}
+	if sslmode != "" {
+		q.Set("sslmode", sslmode)
+	}
+	// Preserve additional params like connect_timeout
+	for k, v := range m {
+		if k == "host" || k == "port" || k == "user" || k == "password" || k == "dbname" {
+			continue
+		}
+		if v == "" {
+			continue
+		}
+		// only add known params or keep others as query params
+		q.Set(k, v)
+	}
+	if len(q) > 0 {
+		u.RawQuery = q.Encode()
+	}
+
+	return u.String(), nil
 }
 
 // sanitizeDSN removes sensitive information from DSN for logging

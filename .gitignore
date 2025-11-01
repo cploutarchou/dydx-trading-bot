@@ -214,3 +214,7 @@ build/
 *~
 
 backend/app/pair_history/pairs*
+.github/copilot-instructions-fullstack.md.backup
+.github/copilot-instructions.md
+.github/copilot-instructions.md.backup
+.github/copilot-instructions.md

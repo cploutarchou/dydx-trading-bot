@@ -316,3 +316,74 @@ func (r *BacktestRepository) GetUniqueMarkets(runID int) ([]string, error) {
 
 	return markets, nil
 }
+
+func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([]models.BacktestRun, error) {
+	query := `
+		SELECT id, user_id, strategy_id, strategy_version_id, run_id, status, start_date, end_date,
+		       num_pairs, total_markets, resolution, total_trades, profitable_trades, losing_trades,
+		       win_rate, total_pnl, total_pnl_usd, sharpe_ratio, sortino_ratio, calmar_ratio,
+		       max_drawdown, profit_factor, starting_balance, ending_balance, max_balance, min_balance,
+		       error_message, started_at, completed_at, duration_seconds, config, strategy_snapshot,
+		       created_at
+		FROM backtest_runs
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.Query(query, userID, limit, skip)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query backtest runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []models.BacktestRun
+	for rows.Next() {
+		run := models.BacktestRun{}
+		err := rows.Scan(
+			&run.ID,
+			&run.UserID,
+			&run.StrategyID,
+			&run.StrategyVersionID,
+			&run.RunID,
+			&run.Status,
+			&run.StartDate,
+			&run.EndDate,
+			&run.NumPairs,
+			&run.TotalMarkets,
+			&run.Resolution,
+			&run.TotalTrades,
+			&run.ProfitableTrades,
+			&run.LosingTrades,
+			&run.WinRate,
+			&run.TotalPnL,
+			&run.TotalPnLUSD,
+			&run.SharpeRatio,
+			&run.SortinoRatio,
+			&run.CalmarRatio,
+			&run.MaxDrawdown,
+			&run.ProfitFactor,
+			&run.StartingBalance,
+			&run.EndingBalance,
+			&run.MaxBalance,
+			&run.MinBalance,
+			&run.ErrorMessage,
+			&run.StartedAt,
+			&run.CompletedAt,
+			&run.DurationSeconds,
+			&run.Config,
+			&run.StrategySnapshot,
+			&run.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan backtest run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating backtest runs: %w", err)
+	}
+
+	return runs, nil
+}

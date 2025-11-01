@@ -24,7 +24,7 @@ func NewSettingsRepository(db *sql.DB) *SettingsRepository {
 func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error {
 	query := `
 		INSERT INTO bot_settings (section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -55,7 +55,7 @@ func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, erro
 	query := `
 		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
 		FROM bot_settings
-		WHERE id = ?
+		WHERE id = $1
 		LIMIT 1
 	`
 
@@ -89,7 +89,7 @@ func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (
 	query := `
 		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
 		FROM bot_settings
-		WHERE section = ? AND key = ?
+		WHERE section = $1 AND key = $2
 		LIMIT 1
 	`
 
@@ -123,7 +123,7 @@ func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.B
 	query := `
 		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
 		FROM bot_settings
-		WHERE section = ?
+		WHERE section = $1
 		ORDER BY key ASC
 	`
 
@@ -201,8 +201,8 @@ func (r *SettingsRepository) GetAllBotSettings() ([]models.BotSetting, error) {
 func (r *SettingsRepository) UpdateBotSetting(setting *models.BotSetting) error {
 	query := `
 		UPDATE bot_settings
-		SET value = ?, description = ?, is_active = ?, version = ?, updated_at = ?
-		WHERE id = ?
+		SET value = $1, description = $2, is_active = $3, version = $4, updated_at = $5
+		WHERE id = $6
 	`
 
 	now := time.Now()
@@ -226,7 +226,7 @@ func (r *SettingsRepository) UpdateBotSetting(setting *models.BotSetting) error 
 
 // DeleteBotSetting deletes a bot setting
 func (r *SettingsRepository) DeleteBotSetting(id int) error {
-	query := `DELETE FROM bot_settings WHERE id = ?`
+	query := `DELETE FROM bot_settings WHERE id = $1`
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {
@@ -251,7 +251,7 @@ func (r *SettingsRepository) DeleteBotSetting(id int) error {
 func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) error {
 	query := `
 		INSERT INTO redis_settings (enabled, host, port, db, password, ssl, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -310,8 +310,8 @@ func (r *SettingsRepository) GetRedisSetting() (*models.RedisSetting, error) {
 func (r *SettingsRepository) UpdateRedisSetting(setting *models.RedisSetting) error {
 	query := `
 		UPDATE redis_settings
-		SET enabled = ?, host = ?, port = ?, db = ?, password = ?, ssl = ?, updated_at = ?
-		WHERE id = ?
+		SET enabled = $1, host = $2, port = $3, db = $4, password = $5, ssl = $6, updated_at = $7
+		WHERE id = $8
 	`
 
 	now := time.Now()

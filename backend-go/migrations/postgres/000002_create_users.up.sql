@@ -1,7 +1,7 @@
 -- Create users table
 CREATE TABLE IF NOT EXISTS users
 (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  id              SERIAL PRIMARY KEY,
   username        VARCHAR(50)  NOT NULL UNIQUE,
   email           VARCHAR(100) NOT NULL UNIQUE,
   hashed_password VARCHAR(500) NOT NULL,
@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS users
   avatar          TEXT         DEFAULT '',
   is_active       BOOLEAN      DEFAULT NULL,
   is_admin        BOOLEAN      DEFAULT NULL,
-  created_at      DATETIME     DEFAULT NULL,
-  updated_at      DATETIME     DEFAULT NULL,
-  last_login      DATETIME     DEFAULT NULL
+  created_at      TIMESTAMP     DEFAULT NULL,
+  updated_at      TIMESTAMP     DEFAULT NULL,
+  last_login      TIMESTAMP     DEFAULT NULL
 );
 
 CREATE INDEX idx_user_active ON users (is_active);

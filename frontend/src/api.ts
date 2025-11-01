@@ -103,27 +103,32 @@ class ApiClient {
 
             console.log('🔐 api.ts: Calling refresh endpoint...');
             // Attempt refresh using the refresh token (depends on backend implementation)
-            // This assumes backend has POST /api/v1/auth/refresh endpoint
-            const refreshResponse = await axios.post<Token>(
+            // This assumes backend has POST /api/v1/auth/refresh endpoint which returns wrapper
+            const refreshResponse = await axios.post<ApiResponse<Token>>(
               `${API_BASE_URL}/api/v1/auth/refresh`,
               { refresh_token: refreshToken }
             );
 
-            const newAccessToken = refreshResponse.data.access_token;
-            console.log('✅ api.ts: Token refreshed successfully');
-            this.setToken(newAccessToken);
-
-            // Notify all queued requests of the new token
-            this.refreshSubscribers.forEach((callback) => callback(newAccessToken));
-            this.refreshSubscribers = [];
-
-            // Retry original request with new token
-            if (error.config && error.config.headers) {
-              (error.config.headers as any).Authorization = `Bearer ${newAccessToken}`;
-              console.log('🔄 api.ts: Retrying original request with new token');
-              return this.client(error.config);
+            const refreshPayload: any = refreshResponse.data?.data || refreshResponse.data;
+            const newAccessToken = refreshPayload?.access_token;
+            if (!newAccessToken) {
+              throw new Error('Refresh endpoint did not return new access_token');
             }
-          } catch (refreshError: any) {
+
+             console.log('✅ api.ts: Token refreshed successfully');
+             this.setToken(newAccessToken);
+
+             // Notify all queued requests of the new token
+             this.refreshSubscribers.forEach((callback) => callback(newAccessToken));
+             this.refreshSubscribers = [];
+
+             // Retry original request with new token
+             if (error.config && error.config.headers) {
+               (error.config.headers as any).Authorization = `Bearer ${newAccessToken}`;
+               console.log('🔄 api.ts: Retrying original request with new token');
+               return this.client(error.config);
+             }
+           } catch (refreshError: any) {
             // Refresh failed - session truly invalid
             console.error('❌ api.ts: Token refresh failed, logging out');
             this.refreshSubscribers = [];
@@ -245,21 +250,29 @@ class ApiClient {
     console.log('🔌 api.ts: baseURL:', API_BASE_URL);
     console.log('🔌 api.ts: request data:', data);
     try {
-      const response = await this.client.post<Token>('/api/v1/auth/login', data);
+      // Backend wraps responses in { success, message, data: { ... } }
+      const response = await this.client.post<ApiResponse<Token>>('/api/v1/auth/login', data);
       console.log('🔌 api.ts: login response:', response.data);
-      if (response.data.access_token) {
+
+      // Extract token payload from nested data when present
+      const payload: any = response.data?.data || response.data;
+
+      if (payload && payload.access_token) {
         // Use setToken so we persist in both localStorage and cookie
-        this.setToken(response.data.access_token);
-        if (response.data.refresh_token) {
+        this.setToken(payload.access_token);
+        if (payload.refresh_token) {
           try {
-            localStorage.setItem('refresh_token', response.data.refresh_token);
+            localStorage.setItem('refresh_token', payload.refresh_token);
           } catch (e) {
             console.warn('❌ api.ts: Could not save refresh_token to localStorage', e);
           }
         }
         console.log('🔌 api.ts: token saved to storage');
+      } else {
+        console.warn('❌ api.ts: login did not return access_token in expected place', payload);
       }
-      return response.data;
+
+      return payload as Token;
     } catch (error: any) {
       console.error('❌ api.ts: login failed');
       console.error('❌ api.ts: error status:', error.response?.status);

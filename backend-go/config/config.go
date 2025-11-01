@@ -74,6 +74,18 @@ func (db *DatabaseSettings) DSN() string {
 	}
 }
 
+// MigrationsPath returns the appropriate migrations directory based on database type
+func (db *DatabaseSettings) MigrationsPath() string {
+	switch db.Type {
+	case "postgresql", "postgres":
+		return "migrations/postgres"
+	case "sqlite3", "sqlite":
+		return "migrations/sqlite"
+	default:
+		return "migrations/sqlite"
+	}
+}
+
 type RedisSettings struct {
 	Host            string
 	Port            int

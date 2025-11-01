@@ -26,7 +26,7 @@ func (r *TradeLogRepository) CreateTradeLog(tradeLog *models.TradeLog) error {
 			exit_price_1, exit_price_2, quantity_1, quantity_2,
 			side_1, side_2, pnl, pnl_usd, entry_zscore, exit_zscore,
 			entry_timestamp, exit_timestamp, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id, created_at
 	`
 
@@ -54,7 +54,7 @@ func (r *TradeLogRepository) GetTradeLogByID(id int) (*models.TradeLog, error) {
 		       pnl, pnl_usd, entry_zscore, exit_zscore, entry_timestamp,
 		       exit_timestamp, created_at
 		FROM trade_logs
-		WHERE id = ?
+		WHERE id = $1
 		LIMIT 1
 	`
 
@@ -85,7 +85,7 @@ func (r *TradeLogRepository) GetTradeLogsByResult(resultIDFK int) ([]models.Trad
 		       pnl, pnl_usd, entry_zscore, exit_zscore, entry_timestamp,
 		       exit_timestamp, created_at
 		FROM trade_logs
-		WHERE result_id_fk = ?
+		WHERE result_id_fk = $1
 		ORDER BY trade_number ASC
 	`
 
@@ -118,11 +118,11 @@ func (r *TradeLogRepository) GetTradeLogsByResult(resultIDFK int) ([]models.Trad
 func (r *TradeLogRepository) UpdateTradeLog(tradeLog *models.TradeLog) error {
 	query := `
 		UPDATE trade_logs
-		SET trade_number = ?, entry_price_1 = ?, entry_price_2 = ?,
-		    exit_price_1 = ?, exit_price_2 = ?, quantity_1 = ?, quantity_2 = ?,
-		    side_1 = ?, side_2 = ?, pnl = ?, pnl_usd = ?, entry_zscore = ?,
-		    exit_zscore = ?, exit_timestamp = ?
-		WHERE id = ?
+		SET trade_number = $1, entry_price_1 = $2, entry_price_2 = $3,
+		    exit_price_1 = $4, exit_price_2 = $5, quantity_1 = $6, quantity_2 = $7,
+		    side_1 = $8, side_2 = $9, pnl = $10, pnl_usd = $11, entry_zscore = $12,
+		    exit_zscore = $13, exit_timestamp = $14
+		WHERE id = $15
 	`
 
 	result, err := r.db.Exec(
@@ -151,7 +151,7 @@ func (r *TradeLogRepository) UpdateTradeLog(tradeLog *models.TradeLog) error {
 
 // DeleteTradeLog deletes a trade log
 func (r *TradeLogRepository) DeleteTradeLog(id int) error {
-	query := `DELETE FROM trade_logs WHERE id = ?`
+	query := `DELETE FROM trade_logs WHERE id = $1`
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {
@@ -179,7 +179,7 @@ func (r *TradeLogRepository) GetTradeLogsByBacktestRun(runID int) ([]models.Trad
 		       tl.entry_timestamp, tl.exit_timestamp, tl.created_at
 		FROM trade_logs tl
 		JOIN backtest_results br ON tl.result_id_fk = br.id
-		WHERE br.run_id = ?
+		WHERE br.run_id = $1
 		ORDER BY tl.entry_timestamp ASC
 	`
 

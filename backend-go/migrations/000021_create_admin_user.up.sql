@@ -7,7 +7,7 @@ INSERT INTO users (username, email, full_name, avatar, is_active, is_admin, hash
 VALUES ('admin',
         'admin@dydx-trading-bot.local',
         'Administrator',
-        NULL,
+        '',
         true,
         true,
         '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra',

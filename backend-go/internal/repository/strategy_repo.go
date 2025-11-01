@@ -32,7 +32,7 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 			rebalance_interval_hours, position_timeout_hours, transaction_fee,
 			slippage, starting_balance, candle_resolution, max_history_days,
 			benchmark_symbol, risk_free_rate, initial_amount, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -72,7 +72,7 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 		       benchmark_symbol, risk_free_rate, initial_amount, usage_count,
 		       last_used_at, deleted_at, created_at, updated_at
 		FROM backtest_strategies
-		WHERE id = ?
+		WHERE id = $1
 		LIMIT 1
 	`
 
@@ -115,7 +115,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 		       benchmark_symbol, risk_free_rate, initial_amount, usage_count,
 		       last_used_at, deleted_at, created_at, updated_at
 		FROM backtest_strategies
-		WHERE user_id = ? AND deleted_at IS NULL
+		WHERE user_id = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`
 
@@ -155,11 +155,11 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) error {
 	query := `
 		UPDATE backtest_strategies
-		SET name = ?, description = ?, category = ?, is_public = ?,
-		    zscore_threshold = ?, max_drawdown_pct = ?, stop_loss_pct = ?,
-		    take_profit_pct = ?, trailing_stop_pct = ?, max_positions = ?,
-		    usage_count = ?, last_used_at = ?, updated_at = ?
-		WHERE id = ?
+		SET name = $1, description = $2, category = $3, is_public = $4,
+		    zscore_threshold = $5, max_drawdown_pct = $6, stop_loss_pct = $7,
+		    take_profit_pct = $8, trailing_stop_pct = $9, max_positions = $10,
+		    usage_count = $11, last_used_at = $12, updated_at = $13
+		WHERE id = $14
 	`
 
 	result, err := r.db.Exec(
@@ -188,7 +188,7 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 
 // DeleteStrategy marks a strategy as deleted
 func (r *StrategyRepository) DeleteStrategy(id int) error {
-	query := `UPDATE backtest_strategies SET deleted_at = ? WHERE id = ?`
+	query := `UPDATE backtest_strategies SET deleted_at = $1 WHERE id = $2`
 
 	result, err := r.db.Exec(query, time.Now(), id)
 	if err != nil {
@@ -214,7 +214,7 @@ func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.Strategy
 	query := `
 		SELECT id, strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at
 		FROM strategy_execution_states
-		WHERE strategy_id = ?
+		WHERE strategy_id = $1
 		LIMIT 1
 	`
 
@@ -238,7 +238,7 @@ func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.Strategy
 func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutionState) error {
 	query := `
 		INSERT INTO strategy_execution_states (strategy_id, is_running, created_at, updated_at)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -258,8 +258,8 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutionState) error {
 	query := `
 		UPDATE strategy_execution_states
-		SET is_running = ?, last_run_at = ?, next_run_at = ?, state = ?, updated_at = ?
-		WHERE id = ?
+		SET is_running = $1, last_run_at = $2, next_run_at = $3, state = $4, updated_at = $5
+		WHERE id = $6
 	`
 
 	result, err := r.db.Exec(
@@ -289,7 +289,7 @@ func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutio
 func (r *StrategyRepository) CreateVersionHistory(history *models.StrategyVersionHistory) error {
 	query := `
 		INSERT INTO strategy_version_history (strategy_id, created_by_user_id, version, change_log, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -312,7 +312,7 @@ func (r *StrategyRepository) GetVersionHistoryByStrategy(strategyID int) ([]mode
 	query := `
 		SELECT id, strategy_id, created_by_user_id, version, change_log, created_at, updated_at
 		FROM strategy_version_history
-		WHERE strategy_id = ?
+		WHERE strategy_id = $1
 		ORDER BY version DESC
 	`
 

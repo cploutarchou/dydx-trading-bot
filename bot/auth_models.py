@@ -23,15 +23,18 @@ from models import Base
 
 # Use String for UUID on SQLite, UUID for PostgreSQL
 DB_TYPE = os.getenv("DB_TYPE", "sqlite")
+
 if DB_TYPE == "postgresql":
     from sqlalchemy.dialects.postgresql import UUID
 
-    def uuid_column():
+    def uuid_column():  # type: ignore[no-redef]
+        """Generate a UUID primary key column for PostgreSQL"""
         return Column(
             UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True
         )
 
-    def uuid_fk_column(fk_table):
+    def uuid_fk_column(fk_table):  # type: ignore[no-redef]
+        """Generate a UUID foreign key column for PostgreSQL"""
         return Column(
             UUID(as_uuid=True),
             ForeignKey(fk_table, ondelete="CASCADE"),
@@ -39,16 +42,20 @@ if DB_TYPE == "postgresql":
             index=True,
         )
 
-    def uuid_regular_column(nullable=True):
+    def uuid_regular_column(nullable=True):  # type: ignore[no-redef]
+        """Generate a regular UUID column for PostgreSQL"""
         return Column(UUID(as_uuid=True), nullable=nullable, index=True)
-else:
 
+else:
+    # SQLite implementation using String(36)
     def uuid_column():
+        """Generate a UUID primary key column for SQLite"""
         return Column(
             String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True
         )
 
     def uuid_fk_column(fk_table):
+        """Generate a UUID foreign key column for SQLite"""
         return Column(
             String(36),
             ForeignKey(fk_table, ondelete="CASCADE"),
@@ -57,6 +64,7 @@ else:
         )
 
     def uuid_regular_column(nullable=True):
+        """Generate a regular UUID column for SQLite"""
         return Column(String(36), nullable=nullable, index=True)
 
 
@@ -64,6 +72,7 @@ class User(Base):
     """User model with authentication and 2FA support"""
 
     __tablename__ = "users"
+    __table_args__ = {"extend_existing": True}
 
     id = uuid_column()
     username = Column(String(50), unique=True, index=True, nullable=False)
@@ -123,6 +132,7 @@ class JWTToken(Base):
     """JWT Token model for refresh token management"""
 
     __tablename__ = "jwt_tokens"
+    __table_args__ = {"extend_existing": True}
 
     id = uuid_column()
     user_id = uuid_fk_column("users.id")
@@ -157,6 +167,7 @@ class PasswordResetToken(Base):
     """Password Reset Token model"""
 
     __tablename__ = "password_reset_tokens"
+    __table_args__ = {"extend_existing": True}
 
     id = uuid_column()
     user_id = uuid_fk_column("users.id")
@@ -187,6 +198,7 @@ class LoginAttempt(Base):
     """Login Attempt model for security tracking"""
 
     __tablename__ = "login_attempts"
+    __table_args__ = {"extend_existing": True}
 
     id = uuid_column()
     username = Column(String(50), nullable=False, index=True)
@@ -216,6 +228,7 @@ class EmailVerification(Base):
     """Email Verification model"""
 
     __tablename__ = "email_verifications"
+    __table_args__ = {"extend_existing": True}
 
     id = uuid_column()
     user_id = uuid_fk_column("users.id")

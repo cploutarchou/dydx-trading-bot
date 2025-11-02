@@ -10,15 +10,16 @@
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)
-3. [Getting Started](#getting-started)
-4. [API Endpoints](#api-endpoints)
-5. [Bot Lifecycle](#bot-lifecycle)
-6. [Trading Parameters](#trading-parameters)
-7. [Backtesting Guide](#backtesting-guide)
-8. [Real-Time Data Streaming](#real-time-data-streaming)
-9. [Examples & Code Samples](#examples--code-samples)
-10. [Error Handling](#error-handling)
-11. [Troubleshooting](#troubleshooting)
+3. [Authentication](#authentication)
+4. [Getting Started](#getting-started)
+5. [API Endpoints](#api-endpoints)
+6. [Bot Lifecycle](#bot-lifecycle)
+7. [Trading Parameters](#trading-parameters)
+8. [Backtesting Guide](#backtesting-guide)
+9. [Real-Time Data Streaming](#real-time-data-streaming)
+10. [Examples & Code Samples](#examples--code-samples)
+11. [Error Handling](#error-handling)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -34,12 +35,374 @@ The dYdX Trading Bot provides a complete API for:
 
 ### Key Features
 
+- **🔐 JWT Authentication**: Secure API access with Bearer tokens and 2FA support
 - **Multi-Instance Support**: Run multiple independent bots simultaneously
 - **API-Driven Control**: Full bot lifecycle management via REST API
 - **WebSocket Streaming**: Real-time position and market data updates
 - **Database Persistence**: Store all transactions, trades, and metrics
 - **Backtesting Engine**: Test strategies without risk using historical data
 - **Comprehensive Logging**: Track all bot activities with detailed audit trails
+
+---
+
+## Authentication
+
+### 🔐 Security Overview
+
+The dYdX Trading Bot API is secured with **JWT (JSON Web Token) authentication**. All bot management endpoints require a valid Bearer token, while authentication endpoints are public.
+
+### Security Features
+
+- **🔑 JWT Tokens**: Industry-standard access and refresh tokens
+- **👥 User Management**: Admin and user roles with proper access control  
+- **🔒 2FA Support**: TOTP and email-based two-factor authentication
+- **📧 Email Integration**: Mailgun/SMTP for notifications and verification
+- **🛡️ Password Security**: bcrypt hashing with salt for password storage
+- **🚫 Rate Limiting**: Protection against brute force attacks
+- **⏰ Token Expiration**: Configurable token lifetimes for enhanced security
+
+### Authentication Flow
+
+```mermaid
+graph TD
+    A[Client] --> B[POST /auth/login]
+    B --> C[Validate Credentials]
+    C -->|Valid| D[Generate JWT Tokens]
+    C -->|Invalid| E[Return Error]
+    D --> F[Return Access + Refresh Token]
+    F --> G[Store Access Token]
+    G --> H[Use Bearer Token for API Calls]
+    H --> I[Token Expires]
+    I --> J[POST /auth/refresh]
+    J --> K[New Access Token]
+```
+
+### Quick Authentication Setup
+
+**1. Initialize Authentication Database:**
+
+```bash
+# Run once to setup auth system
+cd /home/chris/workspace/dydx-trading-bot/bot
+source venv/bin/activate
+python init_auth_db.py
+```
+
+**2. Default Admin Account:**
+
+- **Username:** `admin`
+- **Password:** `admin123` ⚠️ *Change immediately!*
+- **Email:** `admin@localhost`
+
+**3. Login via API:**
+
+```bash
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }'
+```
+
+**4. Use Bearer Token:**
+
+```bash
+# Copy access_token from login response
+export TOKEN="your_access_token_here"
+
+# Use in all subsequent API calls
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/api/v1/bots"
+```
+
+### Authentication Endpoints
+
+#### Login
+
+**`POST /auth/login`** - Authenticate user and get tokens
+
+```json
+{
+  "username": "admin",
+  "password": "admin123"
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "token_type": "Bearer",
+    "expires_in": 1800,
+    "user": {
+      "id": "4ba86029-1692-4221-94f0-091be8f9c638",
+      "username": "admin",
+      "email": "admin@localhost",
+      "role": "admin",
+      "is_2fa_enabled": false
+    }
+  }
+}
+```
+
+#### Refresh Token
+
+**`POST /auth/refresh`** - Get new access token
+
+```json
+{
+  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+}
+```
+
+#### Profile Management
+
+**`GET /auth/profile`** - Get current user profile (🔒 Authenticated)
+
+**`PUT /auth/profile`** - Update user profile (🔒 Authenticated)
+
+#### Password Management
+
+**`POST /auth/change-password`** - Change password with 2FA
+
+**`POST /auth/forgot-password`** - Request password reset email
+
+**`POST /auth/reset-password`** - Reset password with token
+
+#### Two-Factor Authentication
+
+**`POST /auth/2fa/setup`** - Setup TOTP 2FA
+
+**`POST /auth/2fa/verify`** - Verify TOTP code
+
+**`POST /auth/2fa/request-email-verification`** - Request email verification
+
+**`POST /auth/2fa/verify-email`** - Verify email with code
+
+### Using Authentication in Code
+
+#### Python Example
+
+```python
+import requests
+
+class AuthenticatedBotAPI:
+    def __init__(self, base_url="http://localhost:8000"):
+        self.base_url = base_url
+        self.access_token = None
+        self.refresh_token = None
+    
+    def login(self, username, password):
+        """Login and store tokens"""
+        response = requests.post(
+            f"{self.base_url}/auth/login",
+            json={"username": username, "password": password}
+        )
+        
+        if response.status_code == 200:
+            data = response.json()['data']
+            self.access_token = data['access_token']
+            self.refresh_token = data['refresh_token']
+            return data['user']
+        else:
+            raise Exception(f"Login failed: {response.text}")
+    
+    def _get_headers(self):
+        """Get headers with Bearer token"""
+        if not self.access_token:
+            raise Exception("Not authenticated. Please login first.")
+        
+        return {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json"
+        }
+    
+    def refresh_access_token(self):
+        """Refresh access token"""
+        response = requests.post(
+            f"{self.base_url}/auth/refresh",
+            json={"refresh_token": self.refresh_token}
+        )
+        
+        if response.status_code == 200:
+            self.access_token = response.json()['data']['access_token']
+        else:
+            raise Exception(f"Token refresh failed: {response.text}")
+    
+    def get_bots(self):
+        """Get all bots (authenticated endpoint)"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/v1/bots",
+                headers=self._get_headers()
+            )
+            
+            if response.status_code == 401:
+                # Token expired, try refresh
+                self.refresh_access_token()
+                response = requests.get(
+                    f"{self.base_url}/api/v1/bots",
+                    headers=self._get_headers()
+                )
+            
+            return response.json()
+            
+        except Exception as e:
+            raise Exception(f"API call failed: {e}")
+    
+    def create_bot(self, config):
+        """Create new bot (authenticated endpoint)"""
+        response = requests.post(
+            f"{self.base_url}/api/v1/bots",
+            json=config,
+            headers=self._get_headers()
+        )
+        
+        return response.json()
+
+# Usage
+api = AuthenticatedBotAPI()
+
+# 1. Login
+user = api.login("admin", "admin123")
+print(f"Logged in as: {user['username']}")
+
+# 2. Use authenticated endpoints
+bots = api.get_bots()
+print(f"Found {len(bots['data']['instances'])} bots")
+
+# 3. Create new bot
+bot_config = {
+    "instance_id": "secured-bot-01",
+    "instance_name": "Secured Trading Bot",
+    "credentials": {...},
+    "trading_params": {...}
+}
+
+result = api.create_bot(bot_config)
+```
+
+#### JavaScript/Node.js Example
+
+```javascript
+class BotAPI {
+    constructor(baseUrl = 'http://localhost:8000') {
+        this.baseUrl = baseUrl;
+        this.accessToken = null;
+        this.refreshToken = null;
+    }
+    
+    async login(username, password) {
+        const response = await fetch(`${this.baseUrl}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            this.accessToken = data.data.access_token;
+            this.refreshToken = data.data.refresh_token;
+            return data.data.user;
+        } else {
+            throw new Error(`Login failed: ${response.statusText}`);
+        }
+    }
+    
+    getAuthHeaders() {
+        if (!this.accessToken) {
+            throw new Error('Not authenticated. Please login first.');
+        }
+        
+        return {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json'
+        };
+    }
+    
+    async getBots() {
+        const response = await fetch(`${this.baseUrl}/api/v1/bots`, {
+            headers: this.getAuthHeaders()
+        });
+        
+        return await response.json();
+    }
+}
+
+// Usage
+const api = new BotAPI();
+
+async function main() {
+    // Login
+    const user = await api.login('admin', 'admin123');
+    console.log(`Logged in as: ${user.username}`);
+    
+    // Get bots
+    const bots = await api.getBots();
+    console.log(`Found ${bots.data.instances.length} bots`);
+}
+```
+
+### Security Best Practices
+
+#### 🔒 Production Setup
+
+1. **Change Default Password Immediately:**
+
+   ```bash
+   curl -X POST "http://localhost:8000/auth/change-password" \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "current_password": "admin123",
+       "new_password": "your_secure_password_here"
+     }'
+   ```
+
+2. **Enable 2FA for All Users:**
+
+   ```bash
+   # Setup TOTP 2FA
+   curl -X POST "http://localhost:8000/auth/2fa/setup" \
+     -H "Authorization: Bearer $TOKEN"
+   ```
+
+3. **Configure Email Provider (.env):**
+
+   ```bash
+   # Mailgun (recommended)
+   EMAIL_PROVIDER=mailgun
+   MAILGUN_API_KEY=key-your-mailgun-api-key
+   MAILGUN_DOMAIN=your-domain.com
+   
+   # Or SMTP
+   EMAIL_PROVIDER=smtp
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USERNAME=your-email@gmail.com
+   SMTP_PASSWORD=your-app-password
+   ```
+
+4. **Set Strong Secret Key:**
+
+   ```bash
+   # Generate secure secret key
+   SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+   echo "SECRET_KEY=$SECRET_KEY" >> .env
+   ```
+
+#### ⚠️ Security Warnings
+
+- **Never commit credentials** to version control
+- **Use HTTPS in production** - never send tokens over HTTP
+- **Rotate secret keys regularly** in production environments
+- **Monitor failed login attempts** - check logs for suspicious activity
+- **Set appropriate token expiration** - balance security vs user experience
 
 ---
 
@@ -107,51 +470,137 @@ Response + WebSocket Broadcast
 python --version
 
 # Required packages (should be installed)
-pip list | grep -E "fastapi|uvicorn|sqlalchemy|pydantic"
+pip list | grep -E "fastapi|uvicorn|sqlalchemy|pydantic|bcrypt|jose"
 
 # dYdX testnet/mainnet account ready
 ```
 
-### 2. Start the API Server
+### 2. Setup Authentication
+
+**Initialize the authentication database and create admin user:**
 
 ```bash
 # Navigate to bot directory
 cd /home/chris/workspace/dydx-trading-bot/bot
 
-# Start API server (runs on port 8889)
-python bot_api_server.py
+# Activate virtual environment
+source venv/bin/activate
+
+# Initialize authentication database
+python init_auth_db.py
+```
+
+**Expected Output:**
+
+```
+============================================================
+dYdX Trading Bot - Authentication Database Setup
+============================================================
+✅ Database tables created successfully
+✅ Default admin user created:
+   Username: admin
+   Password: admin123
+   Email: admin@localhost
+⚠️  IMPORTANT: Change the default password after first login!
+🎉 Database initialization completed successfully!
+============================================================
+```
+
+### 3. Start the API Server
+
+```bash
+# Start API server (runs on port 8000)
+python start_api.py
 
 # Or with background process
-nohup python bot_api_server.py > api.log 2>&1 &
+nohup python start_api.py > api.log 2>&1 &
 
-# Check if running
-curl http://localhost:8889/health
+# Check if running (public endpoint)
+curl http://localhost:8000/health
 
 # Expected response:
 # {"success": true, "message": "API Server is healthy", ...}
 ```
 
-### 3. Verify Setup
+### 4. Authenticate and Get Token
+
+**Login to get JWT token:**
 
 ```bash
-# Check system status
-curl http://localhost:8889/api/v1/system/status
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }'
+```
+
+**Expected Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "token_type": "Bearer",
+    "expires_in": 1800,
+    "user": {
+      "username": "admin",
+      "email": "admin@localhost",
+      "role": "admin"
+    }
+  }
+}
+```
+
+**Store the access token for subsequent API calls:**
+
+```bash
+export TOKEN="your_access_token_here"
+```
+
+### 5. Verify Authenticated Setup
+
+```bash
+# Check system status (requires authentication)
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/api/v1/system/status"
 
 # List bot instances (should be empty initially)
-curl http://localhost:8889/api/v1/bots
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/api/v1/bots"
 ```
+
+### 6. Access Swagger UI with Authentication
+
+1. **Open Swagger UI:** <http://localhost:8000/docs>
+2. **Click "Authorize" button** (🔒 lock icon at the top)
+3. **Enter Bearer token:** `Bearer your_access_token_here`
+4. **Click "Authorize"**
+5. **All endpoints are now accessible** - you'll see 🔒 icons next to protected endpoints
 
 ---
 
 ## API Endpoints
 
-### Authentication
+### 🔐 Authentication Status
 
-**Note:** Current version has no authentication. For production, add:
+The API uses **JWT Bearer authentication** for all bot management endpoints:
 
-- API Key validation
-- JWT tokens
-- Rate limiting
+- **🟢 Public Endpoints**: No authentication required
+  - `/health` - API health check
+  - `/auth/*` - Authentication endpoints (login, register, etc.)
+
+- **🔒 Protected Endpoints**: Require valid JWT Bearer token
+  - `/api/v1/bots/*` - All bot management endpoints
+  - `/api/v1/system/*` - System status endpoints
+
+**Authentication Header Format:**
+
+```http
+Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+```
 
 ### Response Format
 

@@ -9,9 +9,16 @@ from datetime import datetime
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket
+from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+
+from auth_middleware import get_current_active_user
+from auth_models import User
+
+# Import authentication modules
+from auth_routes import router as auth_router
 
 # Import bot models and manager
 from bot_api_models import (
@@ -27,6 +34,7 @@ from bot_instance_manager import bot_manager
 
 # Import database utilities
 from database import db
+from password_2fa_routes import router as password_2fa_router
 from repository import UnitOfWork
 from repository_realtime import UnitOfWorkRealtime
 from websocket_server import WebSocketServer
@@ -35,14 +43,57 @@ from websocket_server import WebSocketServer
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# Custom OpenAPI schema for JWT Bearer authentication
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title="dYdX Trading Bot API",
+        version="1.0.0",
+        description="API for managing multiple dYdX trading bot instances with JWT Authentication",
+        routes=app.routes,
+    )
+
+    # Add Bearer authentication scheme
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Enter your JWT token",
+        }
+    }
+
+    # Apply Bearer auth to all endpoints
+    for path in openapi_schema["paths"]:
+        for method in openapi_schema["paths"][path]:
+            if method.lower() in ["get", "post", "put", "delete", "patch"]:
+                # Skip auth endpoints from requiring authentication
+                if not any(
+                    skip_path in path
+                    for skip_path in ["/auth/", "/docs", "/redoc", "/openapi.json"]
+                ):
+                    openapi_schema["paths"][path][method]["security"] = [
+                        {"BearerAuth": []}
+                    ]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="dYdX Trading Bot API",
-    description="API for managing multiple dYdX trading bot instances",
+    description="API for managing multiple dYdX trading bot instances with JWT Authentication",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Set custom OpenAPI schema
+app.openapi = custom_openapi
 
 # Add CORS middleware
 app.add_middleware(
@@ -53,6 +104,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include authentication routes
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+app.include_router(password_2fa_router, prefix="/auth", tags=["Authentication"])
 
 # ============================================================================
 # API RESPONSE WRAPPER
@@ -76,7 +130,9 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
 
 
 @app.post("/api/v1/bots", response_model=BotOperationResult)
-async def create_bot_instance(config: BotInstanceConfig):
+async def create_bot_instance(
+    config: BotInstanceConfig, current_user: User = Depends(get_current_active_user)
+):
     """Create a new bot instance"""
     try:
         result = await bot_manager.create_instance(config)
@@ -140,7 +196,7 @@ async def create_bot_instance(config: BotInstanceConfig):
 
 
 @app.get("/api/v1/bots", response_model=BotInstanceList)
-async def list_bot_instances():
+async def list_bot_instances(current_user: User = Depends(get_current_active_user)):
     """Get list of all bot instances"""
     try:
         instances = await bot_manager.list_instances()
@@ -173,7 +229,9 @@ async def list_bot_instances():
 
 
 @app.get("/api/v1/bots/{instance_id}", response_model=BotInstanceStatus)
-async def get_bot_instance(instance_id: str):
+async def get_bot_instance(
+    instance_id: str, current_user: User = Depends(get_current_active_user)
+):
     """Get specific bot instance status"""
     try:
         instance = await bot_manager.get_instance_status(instance_id)
@@ -199,7 +257,9 @@ async def get_bot_instance(instance_id: str):
 
 
 @app.delete("/api/v1/bots/{instance_id}")
-async def delete_bot_instance(instance_id: str, force: bool = False):
+async def delete_bot_instance(
+    instance_id: str, current_user: User = Depends(get_current_active_user)
+):
     """Delete bot instance"""
     try:
         result = await bot_manager.delete_instance(instance_id)
@@ -226,7 +286,11 @@ async def delete_bot_instance(instance_id: str, force: bool = False):
 
 
 @app.post("/api/v1/bots/{instance_id}/start")
-async def start_bot_instance(instance_id: str):
+async def start_bot_instance(
+    instance_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_active_user),
+):
     """Start bot instance"""
     try:
         result = await bot_manager.start_instance(instance_id)
@@ -275,7 +339,11 @@ async def start_bot_instance(instance_id: str):
 
 
 @app.post("/api/v1/bots/{instance_id}/stop")
-async def stop_bot_instance(instance_id: str, force: bool = False):
+async def stop_bot_instance(
+    instance_id: str,
+    force: bool = False,
+    current_user: User = Depends(get_current_active_user),
+):
     """Stop bot instance"""
     try:
         result = await bot_manager.stop_instance(instance_id, force=force)
@@ -318,7 +386,9 @@ async def stop_bot_instance(instance_id: str, force: bool = False):
 
 
 @app.post("/api/v1/bots/{instance_id}/restart")
-async def restart_bot_instance(instance_id: str):
+async def restart_bot_instance(
+    instance_id: str, current_user: User = Depends(get_current_active_user)
+):
     """Restart bot instance"""
     try:
         # Stop first
@@ -362,7 +432,11 @@ async def restart_bot_instance(instance_id: str):
 
 
 @app.get("/api/v1/bots/{instance_id}/history")
-async def get_bot_history(instance_id: str, days: int = 7):
+async def get_bot_history(
+    instance_id: str,
+    days: int = 7,
+    current_user: User = Depends(get_current_active_user),
+):
     """Get bot event history"""
     try:
         session = db.get_session()
@@ -410,7 +484,11 @@ async def get_bot_history(instance_id: str, days: int = 7):
 
 
 @app.get("/api/v1/bots/{instance_id}/jobs")
-async def get_bot_jobs(instance_id: str, days: int = 7):
+async def get_bot_jobs(
+    instance_id: str,
+    days: int = 7,
+    current_user: User = Depends(get_current_active_user),
+):
     """Get bot job history"""
     try:
         session = db.get_session()
@@ -479,7 +557,11 @@ async def get_bot_jobs(instance_id: str, days: int = 7):
 
 
 @app.get("/api/v1/bots/{instance_id}/trades")
-async def get_bot_trades(instance_id: str, status: Optional[str] = None):
+async def get_bot_trades(
+    instance_id: str,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
     """Get bot trades"""
     try:
         session = db.get_session()
@@ -549,7 +631,9 @@ async def get_bot_trades(instance_id: str, status: Optional[str] = None):
 
 
 @app.get("/api/v1/bots/{instance_id}/stats")
-async def get_bot_statistics(instance_id: str):
+async def get_bot_stats(
+    instance_id: str, current_user: User = Depends(get_current_active_user)
+):
     """Get bot statistics"""
     try:
         session = db.get_session()
@@ -621,6 +705,7 @@ async def quick_deploy_bot(
     credentials: BotCredentials,
     trading_params: TradingParameters,
     auto_start: bool = True,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Quick deploy and optionally start a new bot instance"""
     try:
@@ -712,7 +797,7 @@ async def health_check():
 
 
 @app.get("/api/v1/system/status")
-async def system_status():
+async def system_status(current_user: User = Depends(get_current_active_user)):
     """Get system status and statistics"""
     try:
         instances = await bot_manager.list_instances()
@@ -764,7 +849,9 @@ async def system_status():
 
 
 @app.get("/api/v1/bots/{bot_instance_id}/positions/current")
-async def get_current_positions(bot_instance_id: int):
+async def get_current_positions(
+    bot_instance_id: str, current_user: User = Depends(get_current_active_user)
+):
     """Get all currently open positions for a bot"""
     try:
         session = db.get_session()

@@ -21,3 +21,12 @@ aiohttp==3.9.1
 python-decouple==3.8
 # Email validation
 email-validator==2.3.0
+# Data science and analytics (for backtest analytics)
+numpy==1.24.4
+pandas==2.0.3
+scipy==1.11.4
+statsmodels==0.14.0
+# dYdX V4 Client
+dydx-v4-client==2.1.0
+# WebSocket support (for real-time data)
+websockets==11.0.3

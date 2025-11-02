@@ -185,6 +185,99 @@ curl -X POST "http://localhost:8000/bots/quick-deploy" \
   }'
 ```
 
+### 5. 📊 Advanced Analytics & Insights ✨ NEW
+
+The trading bot now includes comprehensive analytics capabilities for sophisticated backtest analysis:
+
+**🎯 Key Analytics Features:**
+
+- **📈 Comprehensive Performance Metrics** - Sharpe ratio, Calmar ratio, VaR, Expected Shortfall
+- **⚡ Real-Time Progress Tracking** - Live backtest execution monitoring with ETA
+- **🔍 Position-Level Analytics** - Detailed position tracking and P&L snapshots  
+- **🆚 Multi-Strategy Comparison** - Side-by-side performance analysis across backtests
+- **✅ Market Data Validation** - Verify backtest accuracy against real dYdX historical data
+- **🎲 Advanced Risk Metrics** - Drawdown analysis, position turnover, correlation matrices
+
+**New Analytics Endpoints:**
+
+```bash
+# Get comprehensive analytics for a backtest
+GET /api/v1/backtests/{run_id}/analytics
+
+# Monitor backtest progress in real-time  
+GET /api/v1/backtests/{run_id}/live-progress
+
+# Get detailed position snapshots
+GET /api/v1/backtests/{run_id}/position-snapshots
+
+# Compare multiple backtest strategies
+POST /api/v1/backtests/compare
+
+# Validate against dYdX market data
+GET /api/v1/backtests/{run_id}/dydx-validation
+
+# Advanced risk-adjusted performance metrics
+GET /api/v1/backtests/{run_id}/performance-metrics
+```
+
+**Example Analytics Response:**
+
+```json
+{
+  "total_return_pct": 12.5,
+  "sharpe_ratio": 1.85,
+  "max_drawdown_pct": -8.2,
+  "win_rate": 0.67,
+  "var_95": -145.20,
+  "calmar_ratio": 1.52,
+  "position_performance_by_pair": {
+    "BTC-USD/ETH-USD": {
+      "total_trades": 45,
+      "total_pnl": 324.50,
+      "win_rate": 0.71
+    }
+  }
+}
+```
+
+### 6. 🔧 Environment Variable Configuration ✨ NEW
+
+The system now uses **`.env` files exclusively** instead of YAML configuration:
+
+```bash
+# Core Configuration
+ENVIRONMENT=development
+IS_TESTNET=true
+
+# dYdX Credentials  
+DYDX_TESTNET_ADDRESS=your_testnet_address
+DYDX_TESTNET_MNEMONIC=your_mnemonic_phrase
+DYDX_MAINNET_ADDRESS=your_mainnet_address  
+DYDX_MAINNET_MNEMONIC=your_mainnet_mnemonic
+
+# Database Configuration
+DB_TYPE=sqlite
+DB_NAME=trading_bot.db
+DB_HOST=localhost
+DB_PORT=5432
+
+# API Server Settings
+BOT_API_HOST=127.0.0.1
+BOT_API_PORT=8889
+BOT_INSTANCE_ID=dev-bot
+
+# Notifications
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
+**Benefits:**
+
+- ✅ Simplified deployment (no more YAML files)
+- ✅ Better security (sensitive data in environment variables)  
+- ✅ Docker-friendly configuration
+- ✅ Consistent with modern DevOps practices
+
 ## 📊 API Endpoints Reference
 
 ### 🔐 Authentication Endpoints (Public)

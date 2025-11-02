@@ -44,11 +44,9 @@ USD_MIN_COLLATERAL = bot_settings.usdMinCollateral
 CLOSE_AT_ZSCORE_CROSS = bot_settings.closeAtZscoreCross
 
 # Endpoint for Account Queries
-INDEXER_ENDPOINT_TESTNET = bot_settings.indexer_endpoint.testnet
-INDEXER_ENDPOINT_MAINNET = bot_settings.indexer_endpoint.mainnet
-INDEXER_ACCOUNT_ENDPOINT = (
-    INDEXER_ENDPOINT_TESTNET if _CONFIG.is_testnet else INDEXER_ENDPOINT_MAINNET
-)
+INDEXER_ENDPOINT_TESTNET = "https://indexer.v4testnet.dydx.exchange"
+INDEXER_ENDPOINT_MAINNET = "https://indexer.dydx.trade"
+INDEXER_ACCOUNT_ENDPOINT = bot_settings.indexer_endpoint
 
 if _CONFIG.is_testnet:
     if _CONFIG.dydx_testnet is None:

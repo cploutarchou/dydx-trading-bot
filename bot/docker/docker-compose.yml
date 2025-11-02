@@ -1,0 +1,262 @@
+# =============================================================================
+# dYdX Trading Bot - Docker Compose Configuration
+# =============================================================================
+# Complete production setup with authentication, database, and monitoring
+# Includes PostgreSQL, Nginx reverse proxy, and security features
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # POSTGRESQL DATABASE
+  # =============================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: dydx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-dydx_trading_bot}
+      POSTGRES_USER: ${DB_USER:-botuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_this_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"  # Remove in production
+    networks:
+      - bot_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-botuser} -d ${DB_NAME:-dydx_trading_bot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+
+  # =============================================================================
+  # REDIS CACHE (Optional for session management)
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: dydx-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"  # Remove in production
+    networks:
+      - bot_network
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-change_redis_password}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # =============================================================================
+  # TRADING BOT API SERVER
+  # =============================================================================
+  bot-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: dydx-bot-api
+    restart: unless-stopped
+    environment:
+      # Database Configuration
+      DB_TYPE: postgresql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-dydx_trading_bot}
+      DB_USER: ${DB_USER:-botuser}
+      DB_PASSWORD: ${DB_PASSWORD:-change_this_password}
+      
+      # JWT Authentication
+      SECRET_KEY: ${SECRET_KEY:-generate-a-secure-secret-key-32-chars-minimum}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      
+      # Email Configuration
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-mailgun}
+      MAILGUN_API_KEY: ${MAILGUN_API_KEY}
+      MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
+      FROM_EMAIL: ${FROM_EMAIL:-noreply@yourdomain.com}
+      
+      # Security Settings
+      MAX_LOGIN_ATTEMPTS: 5
+      LOCKOUT_DURATION_MINUTES: 15
+      
+      # API Configuration
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      
+      # Redis (optional)
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change_redis_password}
+      
+      # Production settings
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      
+      # dYdX Trading Configuration
+      DYDX_NETWORK: ${DYDX_NETWORK:-testnet}
+      
+    volumes:
+      - bot_logs:/app/logs
+      - bot_data:/app/data
+      - bot_states:/app/bot_states
+    ports:
+      - "8000:8000"  # Will be proxied by Nginx in production
+    networks:
+      - bot_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # =============================================================================
+  # NGINX REVERSE PROXY
+  # =============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: dydx-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+    networks:
+      - bot_network
+    depends_on:
+      - bot-api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+
+  # =============================================================================
+  # MONITORING (Optional)
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dydx-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - bot_network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    profiles: ["monitoring"]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dydx-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_USERS_ALLOW_SIGN_UP: false
+    networks:
+      - bot_network
+    profiles: ["monitoring"]
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  bot_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  bot_logs:
+    driver: local
+  bot_data:
+    driver: local
+  bot_states:
+    driver: local
+  nginx_cache:
+    driver: local
+  nginx_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+    profiles: ["monitoring"]
+  grafana_data:
+    driver: local
+    profiles: ["monitoring"]

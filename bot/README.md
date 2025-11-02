@@ -44,28 +44,52 @@ bot/
 
 ## 🔑 Key Features
 
-### 1. API-Controlled Bot Management
+### 1. JWT Authentication & Security
 
-- **POST /bots** - Create new bot instance
-- **GET /bots** - List all bot instances  
-- **GET /bots/{bot_id}** - Get specific bot status
-- **POST /bots/{bot_id}/start** - Start bot instance
-- **POST /bots/{bot_id}/stop** - Stop bot instance
-- **DELETE /bots/{bot_id}** - Remove bot instance
-- **POST /bots/quick-deploy** - One-click bot deployment
+- **🔐 JWT-based Authentication** - Secure API access with Bearer tokens
+- **🔑 2FA Support** - TOTP and email verification for enhanced security
+- **👤 User Management** - Admin and user roles with proper access control
+- **📧 Email Integration** - Mailgun/SMTP support for notifications and verification
+- **🛡️ Password Security** - Secure password hashing and reset functionality
+- **🚫 Rate Limiting** - Protection against brute force attacks
 
-### 2. Multi-Instance Architecture
+### 2. API-Controlled Bot Management
+
+- **POST /bots** - Create new bot instance (🔒 Authenticated)
+- **GET /bots** - List all bot instances (🔒 Authenticated)
+- **GET /bots/{bot_id}** - Get specific bot status (🔒 Authenticated)
+- **POST /bots/{bot_id}/start** - Start bot instance (🔒 Authenticated)
+- **POST /bots/{bot_id}/stop** - Stop bot instance (🔒 Authenticated)
+- **DELETE /bots/{bot_id}** - Remove bot instance (🔒 Authenticated)
+- **POST /bots/quick-deploy** - One-click bot deployment (🔒 Authenticated)
+
+### 3. Multi-Instance Architecture
 
 - Each bot runs as separate process with unique ID
 - Isolated state files: `bot_agents_{instance_id}.json`
 - Independent configuration and logging
 - Process-level isolation for stability
 
-### 3. Configuration Management
+### 4. Configuration Management
 
 **Static (.env file):**
 
 ```bash
+# Authentication & Security
+SECRET_KEY=your_secret_key_here
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# Email Configuration (for 2FA and notifications)
+EMAIL_PROVIDER=mailgun  # or 'smtp'
+MAILGUN_API_KEY=your_mailgun_api_key
+MAILGUN_DOMAIN=your_domain.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your_email@gmail.com
+SMTP_PASSWORD=your_app_password
+
 # Telegram notifications
 TELEGRAM_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
@@ -101,7 +125,23 @@ LOG_FILE=bot_{instance_id}.log
 
 ## 🚀 Quick Start
 
-### 1. Start the API Server
+### 1. Set Up Authentication
+
+```bash
+# Initialize authentication database and create admin user
+source venv/bin/activate
+python init_auth_db.py
+```
+
+**Default Admin Credentials:**
+
+- Username: `admin`
+- Password: `admin123`
+- Email: `admin@localhost`
+
+⚠️ **Important:** Change the default password immediately after first login!
+
+### 2. Start the API Server
 
 ```bash
 # Method 1: Using the startup script
@@ -112,13 +152,21 @@ source venv/bin/activate
 python start_api.py
 ```
 
-### 2. Access the API
+### 3. Access the API
 
-- **Web UI**: <http://localhost:8000>
-- **API Docs**: <http://localhost:8000/docs>
-- **Health Check**: <http://localhost:8000/health>
+- **API Docs with Authentication**: <http://localhost:8000/docs>
+- **Health Check (Public)**: <http://localhost:8000/health>
 
-### 3. Deploy a Bot Instance
+### 4. Authenticate in Swagger UI
+
+1. Open <http://localhost:8000/docs>
+2. Click **"Authorize"** button (🔒 icon)
+3. Login using `/auth/login` endpoint with admin credentials
+4. Copy the `access_token` from the response
+5. In the authorization dialog, enter: `Bearer <your_access_token>`
+6. Click "Authorize" - now all endpoints are accessible!
+
+### 5. Deploy a Bot Instance
 
 ```bash
 curl -X POST "http://localhost:8000/bots/quick-deploy" \
@@ -139,31 +187,55 @@ curl -X POST "http://localhost:8000/bots/quick-deploy" \
 
 ## 📊 API Endpoints Reference
 
-### Bot Management
+### 🔐 Authentication Endpoints (Public)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/bots` | List all bot instances |
-| POST | `/bots` | Create new bot instance |
-| GET | `/bots/{bot_id}` | Get bot status |
-| POST | `/bots/{bot_id}/start` | Start specific bot |
-| POST | `/bots/{bot_id}/stop` | Stop specific bot |
-| DELETE | `/bots/{bot_id}` | Delete bot instance |
+| POST | `/auth/login` | Login with username/password |
+| POST | `/auth/logout` | Logout and invalidate token |
+| POST | `/auth/register` | Register new user (admin only) |
+| POST | `/auth/refresh` | Refresh access token |
+| GET | `/auth/profile` | Get current user profile |
+| PUT | `/auth/profile` | Update user profile |
 
-### Quick Actions
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/bots/quick-deploy` | Deploy and start bot in one call |
-| POST | `/bots/stop-all` | Emergency stop all bots |
-| GET | `/system/status` | Overall system status |
-
-### Monitoring
+### 🔑 Password & 2FA Management
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/health` | API server health check |
-| GET | `/bots/{bot_id}/logs` | Get bot logs (if implemented) |
+| POST | `/auth/change-password` | Change password (with 2FA) |
+| POST | `/auth/forgot-password` | Request password reset |
+| POST | `/auth/reset-password` | Reset password with token |
+| POST | `/auth/2fa/setup` | Setup TOTP 2FA |
+| POST | `/auth/2fa/verify` | Verify TOTP code |
+| POST | `/auth/2fa/request-email-verification` | Request email verification |
+| POST | `/auth/2fa/verify-email` | Verify email with code |
+
+### 🤖 Bot Management (🔒 Authenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/bots` | List all bot instances |
+| POST | `/api/v1/bots` | Create new bot instance |
+| GET | `/api/v1/bots/{bot_id}` | Get bot status |
+| POST | `/api/v1/bots/{bot_id}/start` | Start specific bot |
+| POST | `/api/v1/bots/{bot_id}/stop` | Stop specific bot |
+| DELETE | `/api/v1/bots/{bot_id}` | Delete bot instance |
+
+### ⚡ Quick Actions (🔒 Authenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/bots/quick-deploy` | Deploy and start bot in one call |
+| GET | `/api/v1/system/status` | Overall system status |
+
+### 📊 Monitoring
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | API server health check (Public) |
+| GET | `/api/v1/bots/{bot_id}/history` | Get bot event history (🔒 Auth) |
+| GET | `/api/v1/bots/{bot_id}/trades` | Get bot trades (🔒 Auth) |
+| GET | `/api/v1/bots/{bot_id}/stats` | Get bot statistics (🔒 Auth) |
 
 ## 🔧 Environment Configuration
 
@@ -242,12 +314,45 @@ DATABASE_URL=               # Database connection string
 }
 ```
 
-## 🛡️ Security Considerations
+## 🛡️ Security Features
 
-1. **API Security**: No authentication implemented (add JWT/API keys for production)
-2. **Credentials**: Never log private keys or sensitive data
-3. **Environment**: Use separate .env files for different environments
+### 🔐 Authentication & Authorization
+
+1. **JWT Security**: Industry-standard JWT tokens with configurable expiration
+2. **Password Security**: bcrypt hashing with salt for password storage
+3. **2FA Protection**: TOTP and email-based two-factor authentication
+4. **Rate Limiting**: Built-in protection against brute force attacks
+5. **Account Lockout**: Automatic lockout after failed login attempts
+6. **Token Management**: Secure token blacklisting and refresh mechanisms
+
+### 🔒 API Security
+
+1. **Bearer Authentication**: All protected endpoints require valid JWT tokens
+2. **Role-based Access**: Admin and user roles with appropriate permissions
+3. **Request Validation**: Pydantic models ensure data validation
+4. **CORS Configuration**: Configurable cross-origin resource sharing
+
+### 📧 Email Security
+
+1. **Email Verification**: Required for password resets and 2FA
+2. **Secure Templates**: Professional HTML email templates
+3. **Provider Support**: Mailgun API and SMTP support
+4. **Rate Limiting**: Email sending rate limits to prevent abuse
+
+### 🔑 Environment Security
+
+1. **Credentials Management**: Secure storage of sensitive configuration
+2. **Secret Key**: Configurable JWT secret key for token signing
+3. **Environment Separation**: Different .env files for different environments
 4. **Process Isolation**: Each bot runs in separate process for security
+
+### ⚠️ Security Best Practices
+
+1. **Change Default Password**: Immediately change admin password after setup
+2. **Enable 2FA**: Always enable two-factor authentication for production
+3. **Secure Secret Key**: Use a strong, unique SECRET_KEY in production
+4. **HTTPS Only**: Always use HTTPS in production environments
+5. **Regular Updates**: Keep dependencies updated for security patches
 
 ## 📈 Monitoring & Logging
 

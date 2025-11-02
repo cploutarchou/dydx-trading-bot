@@ -1,153 +1,340 @@
-# dYdX Trading Bot - Dev Container Makefile
+# =============================================================================
+# Makefile for dYdX Trading Bot - Docker Operations
+# =============================================================================
+# Comprehensive Docker management commands for development and production
+# =============================================================================
 
-.PHONY: help build up down logs shell restart clean test format lint type-check
+# Variables
+DOCKER_DIR := docker
+COMPOSE_FILE := $(DOCKER_DIR)/docker-compose.yml
+ENV_FILE := $(DOCKER_DIR)/.env
+PROJECT_NAME := dydx-trading-bot
+DOCKER_REPO := dydx-trading-bot
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "latest")
 
-CONTAINER_NAME := dydx-bot-dev
-DOCKER_COMPOSE := docker-compose -f .devcontainer/docker-compose.yml
+# Colors for output
+RED := \033[0;31m
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+BLUE := \033[0;34m
+MAGENTA := \033[0;35m
+CYAN := \033[0;36m
+WHITE := \033[0;37m
+RESET := \033[0m
 
-help:
-	@echo "dYdX Trading Bot - Development Commands"
+# Default target
+.DEFAULT_GOAL := help
+
+# =============================================================================
+# HELP AND INFORMATION
+# =============================================================================
+
+.PHONY: help
+help: ## Show this help message
+	@echo "$(CYAN)============================================================$(RESET)"
+	@echo "$(CYAN)🐳 dYdX Trading Bot - Docker Commands$(RESET)"
+	@echo "$(CYAN)============================================================$(RESET)"
 	@echo ""
-	@echo "Setup & Initialization:"
-	@echo "  make build              Build development container"
-	@echo "  make up                 Start all services"
-	@echo "  make down               Stop all services"
-	@echo "  make init               Initialize database and install deps"
+	@echo "$(GREEN)📦 SETUP COMMANDS:$(RESET)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E "(setup|install|init)" | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Container Management:"
-	@echo "  make shell              Open shell in dev container"
-	@echo "  make logs               View container logs"
-	@echo "  make restart            Restart all services"
-	@echo "  make clean              Remove containers and volumes"
+	@echo "$(GREEN)🚀 DEVELOPMENT COMMANDS:$(RESET)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E "(dev|development|build|test)" | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Development:"
-	@echo "  make test               Run pytest"
-	@echo "  make test-cov           Run pytest with coverage"
-	@echo "  make format             Format code with black"
-	@echo "  make lint               Run ruff linter"
-	@echo "  make type-check         Run mypy type checking"
-	@echo "  make check              Run all checks (lint, format, type)"
+	@echo "$(GREEN)🏭 PRODUCTION COMMANDS:$(RESET)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E "(prod|production|deploy)" | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Bot Management:"
-	@echo "  make api                Start API server"
-	@echo "  make bot                Start bot"
-	@echo "  make migrate            Run database migrations"
+	@echo "$(GREEN)🔧 MANAGEMENT COMMANDS:$(RESET)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E "(logs|status|clean|stop|restart)" | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Database:"
-	@echo "  make db-shell           Open PostgreSQL shell"
-	@echo "  make db-reset           Reset database"
-	@echo "  make redis-shell        Open Redis CLI"
+	@echo "$(GREEN)🔒 SECURITY COMMANDS:$(RESET)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E "(ssl|auth|security|backup)" | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Utilities:"
-	@echo "  make install-deps       Install project dependencies"
-	@echo "  make install-dev        Install development dependencies"
-	@echo "  make jupyter            Start Jupyter Lab"
+	@echo "$(CYAN)============================================================$(RESET)"
 
-## Setup & Initialization
+.PHONY: info
+info: ## Show project information and status
+	@echo "$(CYAN)============================================================$(RESET)"
+	@echo "$(CYAN)📋 dYdX Trading Bot - Project Information$(RESET)"
+	@echo "$(CYAN)============================================================$(RESET)"
+	@echo "$(GREEN)Project:$(RESET)       $(PROJECT_NAME)"
+	@echo "$(GREEN)Version:$(RESET)       $(VERSION)"
+	@echo "$(GREEN)Docker Dir:$(RESET)    $(DOCKER_DIR)"
+	@echo "$(GREEN)Compose File:$(RESET)  $(COMPOSE_FILE)"
+	@echo "$(GREEN)Environment:$(RESET)   $(ENV_FILE)"
+	@echo ""
+	@echo "$(GREEN)🐳 Docker Status:$(RESET)"
+	@docker version --format "  Docker:        {{.Server.Version}}" 2>/dev/null || echo "  Docker:        Not available"
+	@docker-compose version --short 2>/dev/null | sed 's/^/  Compose:       /' || echo "  Compose:       Not available"
+	@echo ""
+	@echo "$(GREEN)📦 Running Containers:$(RESET)"
+	@docker ps --filter "name=$(PROJECT_NAME)" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "  No containers running"
+	@echo ""
+	@echo "$(CYAN)============================================================$(RESET)"
 
-build:
-	@echo "Building development container..."
-	$(DOCKER_COMPOSE) build
+# =============================================================================
+# SETUP COMMANDS
+# =============================================================================
 
-up:
-	@echo "Starting development environment..."
-	$(DOCKER_COMPOSE) up -d
-	@echo "✅ Services started"
-	@echo "   API: http://localhost:8889"
-	@echo "   Postgres: localhost:5432"
-	@echo "   Redis: localhost:6379"
-	@echo "   pgAdmin: http://localhost:5050"
-	@echo "   Redis Commander: http://localhost:8081"
+.PHONY: setup
+setup: ## Setup development environment (run this first)
+	@echo "$(CYAN)🔧 Setting up dYdX Trading Bot development environment...$(RESET)"
+	@$(DOCKER_DIR)/setup-dev.sh
 
-down:
-	@echo "Stopping development environment..."
-	$(DOCKER_COMPOSE) down
+.PHONY: init-env
+init-env: ## Initialize environment file from template
+	@if [ ! -f $(ENV_FILE) ]; then \
+		echo "$(YELLOW)📝 Creating environment file...$(RESET)"; \
+		cp $(DOCKER_DIR)/.env.docker $(ENV_FILE); \
+		echo "$(GREEN)✅ Environment file created at $(ENV_FILE)$(RESET)"; \
+		echo "$(YELLOW)⚠️  Please edit $(ENV_FILE) with your configuration$(RESET)"; \
+	else \
+		echo "$(GREEN)✅ Environment file already exists$(RESET)"; \
+	fi
 
-init: up
-	@echo "Initializing development environment..."
-	$(DOCKER_COMPOSE) exec dev bash .devcontainer/post-create.sh
-	@echo "✅ Initialization complete"
+.PHONY: init-ssl
+init-ssl: ## Generate SSL certificates for development
+	@echo "$(CYAN)🔐 Generating SSL certificates...$(RESET)"
+	@cd $(DOCKER_DIR)/ssl && chmod +x generate-ssl.sh && ./generate-ssl.sh
 
-restart:
-	@echo "Restarting services..."
-	$(DOCKER_COMPOSE) restart
-	@echo "✅ Services restarted"
+.PHONY: init-auth
+init-auth: ## Initialize authentication database
+	@echo "$(CYAN)🔑 Initializing authentication database...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec bot-api python init_auth_db.py
 
-logs:
-	$(DOCKER_COMPOSE) logs -f
+# =============================================================================
+# BUILD COMMANDS
+# =============================================================================
 
-shell:
-	$(DOCKER_COMPOSE) exec dev bash
+.PHONY: build
+build: ## Build Docker images
+	@echo "$(CYAN)🏗️  Building Docker images...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) build
 
-clean:
-	@echo "Cleaning up containers and volumes..."
-	$(DOCKER_COMPOSE) down -v
-	@echo "✅ Cleanup complete"
+.PHONY: build-dev
+build-dev: ## Build development Docker images
+	@echo "$(CYAN)🏗️  Building development Docker images...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) build --target development
 
-## Development
+.PHONY: build-prod
+build-prod: ## Build production Docker images
+	@echo "$(CYAN)🏗️  Building production Docker images...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) build --target production
 
-test:
-	$(DOCKER_COMPOSE) exec dev pytest -v
+.PHONY: build-no-cache
+build-no-cache: ## Build Docker images without cache
+	@echo "$(CYAN)🏗️  Building Docker images (no cache)...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) build --no-cache
 
-test-cov:
-	$(DOCKER_COMPOSE) exec dev pytest --cov --cov-report=html --cov-report=term
+# =============================================================================
+# DEVELOPMENT COMMANDS
+# =============================================================================
 
-format:
-	$(DOCKER_COMPOSE) exec dev black .
+.PHONY: dev
+dev: ## Start development environment (with hot reload)
+	@echo "$(CYAN)🚀 Starting development environment...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up --build
 
-lint:
-	$(DOCKER_COMPOSE) exec dev ruff check . --fix
+.PHONY: dev-detached
+dev-detached: ## Start development environment in background
+	@echo "$(CYAN)🚀 Starting development environment (detached)...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up --build -d
+	@echo "$(GREEN)✅ Development environment started$(RESET)"
+	@$(MAKE) status
 
-type-check:
-	$(DOCKER_COMPOSE) exec dev mypy . --ignore-missing-imports
+.PHONY: test
+test: ## Run tests in Docker container
+	@echo "$(CYAN)🧪 Running tests...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec bot-api python -m pytest
 
-check: format lint type-check
-	@echo "✅ All checks passed"
+.PHONY: test-auth
+test-auth: ## Test authentication system
+	@echo "$(CYAN)🔐 Testing authentication system...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec bot-api python test_api_database_integration.py
 
-## Bot Management
+# =============================================================================
+# PRODUCTION COMMANDS
+# =============================================================================
 
-api:
-	$(DOCKER_COMPOSE) exec dev python bot_api_server.py
+.PHONY: prod
+prod: ## Start production environment
+	@echo "$(CYAN)🏭 Starting production environment...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up -d
+	@echo "$(GREEN)✅ Production environment started$(RESET)"
+	@$(MAKE) status
 
-bot:
-	$(DOCKER_COMPOSE) exec dev python main.py
+.PHONY: deploy
+deploy: build-prod prod ## Build and deploy production environment
+	@echo "$(GREEN)🚀 Deployment complete!$(RESET)"
 
-migrate:
-	$(DOCKER_COMPOSE) exec dev alembic upgrade head
+# =============================================================================
+# MANAGEMENT COMMANDS
+# =============================================================================
 
-## Database
+.PHONY: start
+start: ## Start all services
+	@echo "$(CYAN)▶️  Starting services...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) start
 
-db-shell:
-	$(DOCKER_COMPOSE) exec postgres psql -U postgres -d dydx_bot
+.PHONY: stop
+stop: ## Stop all services
+	@echo "$(CYAN)⏹️  Stopping services...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) stop
 
-db-reset:
-	@echo "Resetting database..."
-	$(DOCKER_COMPOSE) exec postgres psql -U postgres -d dydx_bot -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-	@echo "Running migrations..."
-	$(DOCKER_COMPOSE) exec dev alembic upgrade head
-	@echo "✅ Database reset complete"
+.PHONY: restart
+restart: ## Restart all services
+	@echo "$(CYAN)🔄 Restarting services...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) restart
 
-redis-shell:
-	$(DOCKER_COMPOSE) exec redis redis-cli
+.PHONY: down
+down: ## Stop and remove containers
+	@echo "$(CYAN)⬇️  Stopping and removing containers...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) down
 
-## Utilities
+.PHONY: status
+status: ## Show container status
+	@echo "$(CYAN)📊 Container Status:$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) ps
 
-install-deps:
-	$(DOCKER_COMPOSE) exec dev pip install -r requirements.txt
+.PHONY: logs
+logs: ## Show logs for all services
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) logs
 
-install-dev:
-	$(DOCKER_COMPOSE) exec dev pip install \
-		pytest==7.4.3 \
-		pytest-cov==4.1.0 \
-		pytest-asyncio==0.21.1 \
-		black==23.12.1 \
-		ruff==0.1.11 \
-		mypy==1.7.1 \
-		jupyter==1.0.0 \
-		jupyterlab==4.0.9
+.PHONY: logs-api
+logs-api: ## Show API server logs
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) logs -f bot-api
 
-jupyter:
-	$(DOCKER_COMPOSE) exec dev jupyter lab --ip=0.0.0.0 --no-browser
+.PHONY: logs-db
+logs-db: ## Show database logs
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) logs -f postgres
 
-# Phony targets
-.PHONY: $(MAKECMDGOALS)
+.PHONY: logs-nginx
+logs-nginx: ## Show Nginx logs
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) logs -f nginx
+
+# =============================================================================
+# DATABASE COMMANDS
+# =============================================================================
+
+.PHONY: db-shell
+db-shell: ## Connect to database shell
+	@echo "$(CYAN)🗄️  Connecting to database...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres psql -U botuser -d dydx_trading_bot
+
+.PHONY: db-backup
+db-backup: ## Backup database
+	@echo "$(CYAN)💾 Creating database backup...$(RESET)"
+	@mkdir -p backups
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres pg_dump -U botuser -d dydx_trading_bot | gzip > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
+	@echo "$(GREEN)✅ Database backup created in backups/$(RESET)"
+
+.PHONY: db-reset
+db-reset: ## Reset database (WARNING: deletes all data)
+	@echo "$(RED)⚠️  This will DELETE ALL DATABASE DATA!$(RESET)"
+	@read -p "Are you sure you want to reset the database? (y/N): " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) stop postgres; \
+		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) rm -f postgres; \
+		docker volume rm $(PROJECT_NAME)_postgres_data || true; \
+		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up -d postgres; \
+		sleep 10; \
+		$(MAKE) init-auth; \
+		echo "$(GREEN)✅ Database reset complete$(RESET)"; \
+	else \
+		echo "$(YELLOW)Operation cancelled$(RESET)"; \
+	fi
+
+# =============================================================================
+# SHELL AND DEBUGGING COMMANDS
+# =============================================================================
+
+.PHONY: shell
+shell: ## Open shell in API container
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec bot-api /bin/bash
+
+.PHONY: shell-nginx
+shell-nginx: ## Open shell in Nginx container
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec nginx /bin/sh
+
+.PHONY: shell-db
+shell-db: ## Open shell in database container
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres /bin/bash
+
+# =============================================================================
+# SECURITY COMMANDS
+# =============================================================================
+
+.PHONY: update-ssl
+update-ssl: ## Update SSL certificates
+	@echo "$(CYAN)🔐 Updating SSL certificates...$(RESET)"
+	@cd $(DOCKER_DIR)/ssl && ./generate-ssl.sh
+
+# =============================================================================
+# MONITORING COMMANDS
+# =============================================================================
+
+.PHONY: health
+health: ## Check health of all services
+	@echo "$(CYAN)🏥 Checking service health...$(RESET)"
+	@echo ""
+	@echo "$(GREEN)API Server:$(RESET)"
+	@curl -s http://localhost:8000/health | jq '.' 2>/dev/null || echo "  ❌ Not accessible"
+	@echo ""
+	@echo "$(GREEN)Authentication:$(RESET)"
+	@curl -s http://localhost:8000/auth/health | jq '.' 2>/dev/null || echo "  ❌ Not accessible"
+	@echo ""
+	@echo "$(GREEN)Database:$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres pg_isready -U botuser 2>/dev/null && echo "  ✅ Healthy" || echo "  ❌ Not healthy"
+	@echo ""
+
+# =============================================================================
+# CLEANUP COMMANDS
+# =============================================================================
+
+.PHONY: clean
+clean: ## Clean up Docker resources (containers, networks)
+	@echo "$(CYAN)🧹 Cleaning up Docker resources...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) down --remove-orphans
+	@docker system prune -f
+
+.PHONY: clean-all
+clean-all: ## Clean up all Docker resources (including images and volumes)
+	@echo "$(RED)⚠️  This will remove ALL Docker resources for this project!$(RESET)"
+	@read -p "Are you sure? (y/N): " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) down -v --remove-orphans; \
+		docker rmi $(shell docker images -q $(PROJECT_NAME)*) 2>/dev/null || true; \
+		docker system prune -af; \
+		echo "$(GREEN)✅ Cleanup complete$(RESET)"; \
+	else \
+		echo "$(YELLOW)Operation cancelled$(RESET)"; \
+	fi
+
+# =============================================================================
+# UTILITY COMMANDS
+# =============================================================================
+
+.PHONY: update
+update: ## Update all images to latest versions
+	@echo "$(CYAN)⬆️  Updating Docker images...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) pull
+
+.PHONY: ps
+ps: ## Show running containers
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) ps
+
+.PHONY: quick-start
+quick-start: init-env init-ssl build dev-detached ## Quick start development environment
+	@echo "$(GREEN)🎉 Quick start complete!$(RESET)"
+	@echo "$(CYAN)📋 Access Points:$(RESET)"
+	@echo "  API Documentation: https://localhost/docs"
+	@echo "  Health Check:      https://localhost/health"
+	@echo "  Logs:             make logs-api"
+	@echo "  Shell:            make shell"
+
+# Check if required files exist
+$(ENV_FILE):
+	@echo "$(YELLOW)⚠️  Environment file not found. Creating from template...$(RESET)"
+	@$(MAKE) init-env

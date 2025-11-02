@@ -156,18 +156,18 @@ async def create_bot_instance(
                 # Create database record
                 bot_db = uow.bots.create_bot(
                     instance_id=config.instance_id,
-                    network=config.trading_params.network
-                    if config.trading_params
-                    else "testnet",
+                    network="testnet"
+                    if (config.trading_params and config.trading_params.is_testnet)
+                    else "mainnet",
                     strategy=config.trading_params.strategy
                     if config.trading_params
                     else "default",
                     config={
                         "instance_name": config.instance_name,
-                        "credentials": config.credentials.dict()
+                        "credentials": config.credentials.model_dump()
                         if config.credentials
                         else {},
-                        "trading_params": config.trading_params.dict()
+                        "trading_params": config.trading_params.model_dump()
                         if config.trading_params
                         else {},
                     },
@@ -192,7 +192,7 @@ async def create_bot_instance(
 
             return api_response(
                 success=True,
-                data=result.dict(),
+                data=result.model_dump(),
                 message=f"Bot instance '{config.instance_id}' created successfully",
             )
         else:
@@ -227,7 +227,7 @@ async def list_bot_instances(current_user: User = Depends(get_current_active_use
 
         return api_response(
             success=True,
-            data=result.dict(),
+            data=result.model_dump(),
             message=f"Retrieved {total_instances} bot instances",
         )
 
@@ -255,7 +255,7 @@ async def get_bot_instance(
 
         return api_response(
             success=True,
-            data=instance.dict(),
+            data=instance.model_dump(),
             message=f"Retrieved status for bot instance '{instance_id}'",
         )
 
@@ -277,7 +277,7 @@ async def delete_bot_instance(
         if result.success:
             return api_response(
                 success=True,
-                data=result.dict(),
+                data=result.model_dump(),
                 message=f"Bot instance '{instance_id}' deleted successfully",
             )
         else:
@@ -319,14 +319,14 @@ async def start_bot_instance(
                         instance_id,
                         BotStatusEnum.RUNNING,
                         process_id=result.data.get("process_id")
-                        if hasattr(result, "data")
+                        if result.data
                         else None,
                     )
                     uow.events.log_event(
                         bot.id,
                         "bot_started",
                         "info",
-                        f"Bot started via API (PID: {result.data.get('process_id') if hasattr(result, 'data') else 'unknown'})",
+                        f"Bot started via API (PID: {result.data.get('process_id') if result.data else 'unknown'})",
                     )
 
                 session.close()
@@ -335,7 +335,7 @@ async def start_bot_instance(
 
             return api_response(
                 success=True,
-                data=result.dict(),
+                data=result.model_dump(),
                 message=f"Bot instance '{instance_id}' started successfully",
             )
         else:
@@ -382,7 +382,7 @@ async def stop_bot_instance(
 
             return api_response(
                 success=True,
-                data=result.dict(),
+                data=result.model_dump(),
                 message=f"Bot instance '{instance_id}' stopped successfully",
             )
         else:
@@ -419,7 +419,7 @@ async def restart_bot_instance(
         if start_result.success:
             return api_response(
                 success=True,
-                data=start_result.dict(),
+                data=start_result.model_dump(),
                 message=f"Bot instance '{instance_id}' restarted successfully",
             )
         else:
@@ -867,7 +867,7 @@ async def get_current_positions(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        positions = uow.positions.get_open_positions(bot_instance_id)
+        positions = uow.positions.get_open_positions(int(bot_instance_id))
 
         return api_response(
             success=True,
@@ -881,8 +881,12 @@ async def get_current_positions(
                         "side1": p.side1,
                         "side2": p.side2,
                         "status": p.status.value,
-                        "entry_price1": float(p.entry_price1),
-                        "entry_price2": float(p.entry_price2),
+                        "entry_price1": float(p.entry_price1)
+                        if p.entry_price1 is not None
+                        else None,
+                        "entry_price2": float(p.entry_price2)
+                        if p.entry_price2 is not None
+                        else None,
                         "current_price1": float(p.current_price1)
                         if p.current_price1
                         else None,
@@ -1252,7 +1256,7 @@ async def create_backtest(
 
         return api_response(
             success=True,
-            data=result.dict(),
+            data=result.model_dump(),
             message=f"Backtest '{request.name}' created and started",
         )
 
@@ -1285,7 +1289,7 @@ async def list_backtests(
 
         return api_response(
             success=True,
-            data=result.dict(),
+            data=result.model_dump(),
             message=f"Retrieved {len(result.runs)} backtest runs",
         )
 
@@ -1314,7 +1318,7 @@ async def get_backtest_details(
 
         return api_response(
             success=True,
-            data=result.dict(),
+            data=result.model_dump(),
             message=f"Retrieved details for backtest '{run_id}'",
         )
 
@@ -1343,7 +1347,7 @@ async def get_backtest_status(
 
         return api_response(
             success=True,
-            data=result.dict(),
+            data=result.model_dump(),
             message=f"Retrieved status for backtest '{run_id}'",
         )
 
@@ -1372,7 +1376,7 @@ async def get_backtest_trades(
 
         return api_response(
             success=True,
-            data={"trades": [trade.dict() for trade in trades]},
+            data={"trades": [trade.model_dump() for trade in trades]},
             message=f"Retrieved {len(trades)} trades for backtest '{run_id}'",
         )
 
@@ -1476,7 +1480,7 @@ async def get_backtest_analytics(
 
         return api_response(
             success=True,
-            data=analytics.dict(),
+            data=analytics,  # Already a dict
             message=f"Retrieved analytics for backtest '{run_id}'",
         )
 
@@ -1505,7 +1509,7 @@ async def get_position_snapshots(
 
         return api_response(
             success=True,
-            data={"snapshots": [s.dict() for s in snapshots]},
+            data={"snapshots": snapshots},  # Already a list of dicts
             message=f"Retrieved {len(snapshots)} position snapshots for '{run_id}'",
         )
 
@@ -1541,7 +1545,7 @@ async def compare_backtests(
 
         return api_response(
             success=True,
-            data=comparison.dict() if hasattr(comparison, "dict") else comparison,
+            data=comparison,  # Already a dict
             message=f"Compared {len(run_ids)} backtest runs",
         )
 

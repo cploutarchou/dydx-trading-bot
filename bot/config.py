@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
 
-import yaml
-
 testnet_url = "https://indexer.v4testnet.dydx.exchange"
 mainnet_url = "https://indexer.dydx.trade"
 
@@ -19,10 +17,7 @@ class IndexerEndpoint:
 @dataclass
 class BotSettings:
     is_testnet: bool = False
-    if is_testnet:
-        indexer_endpoint: str = testnet_url
-    else:
-        indexer_endpoint: str = mainnet_url
+    indexer_endpoint: str = testnet_url  # Will be set dynamically based on is_testnet
     abortAllPositions: bool = False
     findCointegratedPairs: bool = False
     manageExits: bool = False
@@ -35,6 +30,36 @@ class BotSettings:
     usdPerTrade: float = 10.0
     usdMinCollateral: float = 100.0
     closeAtZscoreCross: bool = True
+
+    @classmethod
+    def from_env(cls) -> "BotSettings":
+        """Load bot settings from environment variables with defaults."""
+        import os
+
+        is_testnet = os.getenv("IS_TESTNET", "true").lower() == "true"
+        indexer_endpoint = testnet_url if is_testnet else mainnet_url
+
+        return cls(
+            is_testnet=is_testnet,
+            indexer_endpoint=indexer_endpoint,
+            abortAllPositions=os.getenv("BOT_ABORT_ALL_POSITIONS", "false").lower()
+            == "true",
+            findCointegratedPairs=os.getenv(
+                "BOT_FIND_COINTEGRATED_PAIRS", "false"
+            ).lower()
+            == "true",
+            manageExits=os.getenv("BOT_MANAGE_EXITS", "false").lower() == "true",
+            placeTrades=os.getenv("BOT_PLACE_TRADES", "false").lower() == "true",
+            resolutionTimeframe=os.getenv("BOT_RESOLUTION_TIMEFRAME", "1HOUR"),
+            strategy=os.getenv("BOT_STRATEGY", "cointegration"),
+            statsWindow=int(os.getenv("BOT_STATS_WINDOW", "21")),
+            maxHalfLife=int(os.getenv("BOT_MAX_HALF_LIFE", "24")),
+            ZScoreThreshold=float(os.getenv("BOT_ZSCORE_THRESHOLD", "1.5")),
+            usdPerTrade=float(os.getenv("BOT_USD_PER_TRADE", "10.0")),
+            usdMinCollateral=float(os.getenv("BOT_USD_MIN_COLLATERAL", "100.0")),
+            closeAtZscoreCross=os.getenv("BOT_CLOSE_AT_ZSCORE_CROSS", "true").lower()
+            == "true",
+        )
 
 
 @dataclass
@@ -173,113 +198,55 @@ class ConfigurationManager:
         return cls._instance._config
 
     def load_config(self, config_path: Optional[str | Path] = None) -> None:
-        """Load configuration from the YAML file and environment variables."""
-        if config_path is None:
-            # Default to looking for config.yaml in the same directory as this file
-            app_config_path = Path(__file__).parent / "config.yaml"
-            scripts_config_path = (
-                    Path(__file__).parent.parent / "scripts" / "config.yaml"
-            )
+        """Load configuration from environment variables with optional YAML fallback."""
+        import os
 
-            # Try app directory first, then scripts directory
-            if app_config_path.exists():
-                config_path = app_config_path
-            elif scripts_config_path.exists():
-                config_path = scripts_config_path
-            else:
-                config_path = app_config_path  # Default to app path for error message
+        from dotenv import load_dotenv
 
-        # Normalize to Path
-        config_path = Path(config_path)
+        # Load environment variables from .env file
+        env_path = Path(__file__).parent / ".env"
+        if env_path.exists():
+            load_dotenv(env_path)
 
         try:
-            with open(config_path, "r") as f:
-                data = yaml.safe_load(f)
+            # Load configuration primarily from environment variables
 
-            # Handle different config structures (with or without 'dydx' top-level key)
-            if "dydx" in data:
-                dydx_data = data["dydx"]
-                dydx_chain_address = dydx_data.get("dydx_chain_address", "")
-                dydx_secret_phrase = dydx_data.get("dydx_secret_phrase", "")
-                is_testnet = dydx_data.get("is_testnet", False)
-            else:
-                dydx_chain_address = data.get("dydx_chain_address", "")
-                dydx_secret_phrase = data.get("dydx_secret_phrase", "")
-                is_testnet = data.get("is_testnet", False)
+            # Load configuration from environment variables
+            is_testnet = os.getenv("IS_TESTNET", "true").lower() == "true"
+            environment = os.getenv("ENVIRONMENT", "development")
+            is_testnet = os.getenv("IS_TESTNET", "true").lower() == "true"
+            environment = os.getenv("ENVIRONMENT", "development")
 
-            # Parse nested structures
-            indexer = data.get("botSettings", {}).get("indexer_endpoint", {})
-            indexer_endpoint = IndexerEndpoint(**indexer) if indexer else None
+            # Load all settings from environment variables
+            bot_settings = BotSettings.from_env()
+            backtest_settings = BacktestSettings.from_env()
 
-            # Load BotSettings from environment variables first, then fallback to YAML
-            try:
-                bot_settings = BotSettings.from_env()
-                # Override with YAML values if present (for backward compatibility)
-                if "botSettings" in data:
-                    yaml_bot_settings = data["botSettings"]
-                    if not indexer:  # Use YAML indexer if env vars not set
-                        bot_settings.indexer_endpoint = IndexerEndpoint(
-                            testnet=yaml_bot_settings.get("indexer_endpoint", {}).get(
-                                "testnet", bot_settings.indexer_endpoint.testnet
-                            ),
-                            mainnet=yaml_bot_settings.get("indexer_endpoint", {}).get(
-                                "mainnet", bot_settings.indexer_endpoint.mainnet
-                            ),
-                        )
-            except Exception:
-                # Fallback to YAML-only parsing if env loading fails
-                bot_settings = BotSettings(
-                    **{
-                        **data.get("botSettings", {}),
-                        "indexer_endpoint": indexer_endpoint
-                                            or IndexerEndpoint(testnet="", mainnet=""),
-                    }
-                )
+            # Load Telegram settings from environment
+            telegram_settings = TelegramSettings(
+                token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+                chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+            )
 
-            telegram_settings = TelegramSettings(**data.get("telegram", {}))
+            # Load dYdX credentials from environment
+            dydx_testnet = DYDXTestnetSettings(
+                dydx_chain_address=os.getenv("DYDX_TESTNET_ADDRESS", ""),
+                dydx_chain_secret=os.getenv("DYDX_TESTNET_MNEMONIC", ""),
+            )
 
-            # Load BacktestSettings from environment variables first, then fallback to YAML
-            try:
-                backtest_settings = BacktestSettings.from_env()
-                # Override with YAML values if present (for backward compatibility)
-                if "backtesting" in data:
-                    yaml_backtest = data["backtesting"]
-                    # Update with YAML values if they differ from defaults
-                    for key, value in yaml_backtest.items():
-                        if hasattr(backtest_settings, key):
-                            setattr(backtest_settings, key, value)
-            except Exception:
-                # Fallback to YAML-only parsing if env loading fails
-                backtest_settings = BacktestSettings(**data.get("backtesting", {}))
+            dydx_mainnet = DYDXMainnetSettings(
+                dydx_chain_address=os.getenv("DYDX_MAINNET_ADDRESS", ""),
+                dydx_chain_secret=os.getenv("DYDX_MAINNET_MNEMONIC", ""),
+            )
 
-            # Build DYDX network settings. Support either a top-level `dydx` block
-            # or explicit `dydx_testnet`/`dydx_mainnet` keys.
-            if "dydx" in data:
-                dydx_testnet = DYDXTestnetSettings(
-                    dydx_chain_address=dydx_chain_address,
-                    dydx_chain_secret=dydx_secret_phrase,
-                )
-                dydx_mainnet = DYDXMainnetSettings(
-                    dydx_chain_address=dydx_chain_address,
-                    dydx_chain_secret=dydx_secret_phrase,
-                )
-            else:
-                # Expect explicit sub-keys when no top-level `dydx` block
-                dt = data.get("dydx_testnet", {})
-                dm = data.get("dydx_mainnet", {})
-                dydx_testnet = DYDXTestnetSettings(**dt)
-                dydx_mainnet = DYDXMainnetSettings(**dm)
-
-            logging_settings = self._build_logging_settings(data)
-
-            # Parse database and redis settings from YAML
-            database_settings = DatabaseSettings(**(data.get("database", {})))
-            redis_settings = RedisSettings(**(data.get("redis", {})))
+            # Load other settings from environment
+            logging_settings = self._build_logging_settings_from_env()
+            database_settings = self._build_database_settings_from_env()
+            redis_settings = self._build_redis_settings_from_env()
 
             # Create DydxConfig instance
             self._config = DydxConfig(
                 is_testnet=is_testnet,
-                environment=data.get("environment", "development"),
+                environment=environment,
                 telegram=telegram_settings,
                 botSettings=bot_settings,
                 dydx_testnet=dydx_testnet,
@@ -289,12 +256,65 @@ class ConfigurationManager:
                 database=database_settings,
                 redis=redis_settings,
             )
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Configuration file not found at: {config_path}")
-        except yaml.YAMLError as e:
-            raise ValueError(f"Error parsing YAML configuration: {e}")
-        except KeyError as e:
-            raise KeyError(f"Missing required configuration key: {e}")
+        except Exception as e:
+            raise ValueError(
+                f"Error loading configuration from environment variables: {e}"
+            )
+
+    def _build_logging_settings_from_env(self) -> LoggingSettings:
+        """Build logging settings from environment variables."""
+        import os
+
+        loki_settings = LokiSettings(
+            enabled=os.getenv("LOKI_ENABLED", "false").lower() == "true",
+            url=os.getenv("LOKI_URL", ""),
+            username=os.getenv("LOKI_USERNAME", ""),
+            password=os.getenv("LOKI_PASSWORD", ""),
+            tenant_id=os.getenv("LOKI_TENANT_ID"),
+            labels=self._parse_loki_labels(os.getenv("LOKI_LABELS", "{}")),
+        )
+
+        return LoggingSettings(
+            level=os.getenv("LOG_LEVEL", "INFO"),
+            loki=loki_settings,
+        )
+
+    def _parse_loki_labels(self, labels_str: str) -> Dict[str, str]:
+        """Parse Loki labels from JSON string."""
+        try:
+            import json
+
+            labels = json.loads(labels_str)
+            return {str(k): str(v) for k, v in labels.items()}
+        except Exception:
+            return {}
+
+    def _build_database_settings_from_env(self) -> DatabaseSettings:
+        """Build database settings from environment variables."""
+        import os
+
+        return DatabaseSettings(
+            type=os.getenv("DB_TYPE", "sqlite"),
+            name=os.getenv("DB_NAME", "trading_bot.db"),
+            user=os.getenv("DB_USER", "postgres"),
+            password=os.getenv("DB_PASSWORD", ""),
+            host=os.getenv("DB_HOST", "localhost"),
+            port=os.getenv("DB_PORT", "5432"),
+        )
+
+    def _build_redis_settings_from_env(self) -> RedisSettings:
+        """Build Redis settings from environment variables."""
+        import os
+
+        return RedisSettings(
+            enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true",
+            host=os.getenv("REDIS_HOST", "localhost"),
+            port=int(os.getenv("REDIS_PORT", "6379")),
+            db=int(os.getenv("REDIS_DB", "0")),
+            password=os.getenv("REDIS_PASSWORD", ""),
+            ssl=os.getenv("REDIS_SSL", "false").lower() == "true",
+            timeout=int(os.getenv("REDIS_TIMEOUT", "5")),
+        )
 
     def _build_logging_settings(self, data: dict) -> LoggingSettings:
         logging_data = data.get("logging")

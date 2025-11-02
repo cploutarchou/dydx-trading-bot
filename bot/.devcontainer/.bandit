@@ -1,0 +1,4 @@
+[bandit]
+# Bandit security configuration
+exclude_dirs = ["tests", "venv", "migrations"]
+skips = ["B101"]  # Skip assertion_used check for tests

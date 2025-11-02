@@ -1839,6 +1839,401 @@ if __name__ == "__main__":
 
 ---
 
+## 📊 Advanced Analytics & Insights
+
+### Overview
+
+The dYdX Trading Bot provides powerful analytics capabilities to help you understand backtest performance, compare strategies, and optimize trading parameters. The analytics system includes:
+
+- **📈 Comprehensive Performance Metrics**: Advanced risk and return analysis
+- **⚡ Real-Time Progress Tracking**: Live backtest execution monitoring
+- **🔍 Position-Level Analytics**: Detailed position tracking and P&L analysis
+- **🆚 Multi-Strategy Comparison**: Side-by-side performance comparison
+- **✅ Market Data Validation**: Verify backtest accuracy against dYdX historical data
+- **🎯 Risk Assessment**: VaR, Expected Shortfall, and drawdown analysis
+
+### 🎯 1. Comprehensive Analytics
+
+**Endpoint:** `GET /api/v1/backtests/{run_id}/analytics`
+
+**Purpose:** Get detailed performance analytics for a completed backtest
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:8889/api/v1/backtests/run_abc123/analytics" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Accept: application/json"
+```
+
+**Response:**
+
+```json
+{
+  "run_id": "run_abc123",
+  "name": "BTC-ETH Pairs Strategy",
+  "total_return_pct": 12.5,
+  "sharpe_ratio": 1.85,
+  "max_drawdown_pct": -8.2,
+  "win_rate": 0.67,
+  "avg_position_duration": 4.5,
+  "max_concurrent_positions": 8,
+  "position_turnover_rate": 0.42,
+  "var_95": -145.20,
+  "expected_shortfall": -203.15,
+  "calmar_ratio": 1.52,
+  "equity_curve": [
+    {"timestamp": "2025-09-01T00:00:00Z", "portfolio_value": 1000.0},
+    {"timestamp": "2025-09-01T01:00:00Z", "portfolio_value": 1025.5}
+  ],
+  "drawdown_periods": [
+    {
+      "start_date": "2025-09-15T10:00:00Z",
+      "end_date": "2025-09-18T14:30:00Z",
+      "max_drawdown_pct": -5.2,
+      "duration_hours": 76.5
+    }
+  ],
+  "position_performance_by_pair": {
+    "BTC-USD/ETH-USD": {
+      "total_trades": 45,
+      "total_pnl": 324.50,
+      "win_rate": 0.71,
+      "avg_duration": 3.8
+    }
+  }
+}
+```
+
+### ⚡ 2. Real-Time Progress Tracking
+
+**Endpoint:** `GET /api/v1/backtests/{run_id}/live-progress`
+
+**Purpose:** Monitor backtest execution in real-time
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:8889/api/v1/backtests/run_abc123/live-progress" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "run_id": "run_abc123",
+  "status": "running",
+  "progress_pct": 65.4,
+  "current_pair": "BTC-USD/ETH-USD",
+  "eta_seconds": 420,
+  "is_running": true,
+  "task_id": "backtest_run_abc123_78901",
+  "current_positions": [
+    {
+      "market_1": "BTC-USD",
+      "market_2": "ETH-USD",
+      "entry_timestamp": "2025-09-15T10:30:00Z",
+      "unrealized_pnl": 45.20
+    }
+  ],
+  "current_portfolio_value": 1087.65,
+  "unrealized_pnl": 87.65
+}
+```
+
+### 🔍 3. Position Snapshots
+
+**Endpoint:** `GET /api/v1/backtests/{run_id}/position-snapshots`
+
+**Purpose:** Get detailed position-level tracking data
+
+**Query Parameters:**
+
+- `limit` (optional): Number of snapshots to return (default: 100)
+- `offset` (optional): Skip number of snapshots (default: 0)
+- `market_pair` (optional): Filter by specific trading pair
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:8889/api/v1/backtests/run_abc123/position-snapshots?limit=50&market_pair=BTC-USD" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "snapshots": [
+    {
+      "timestamp": "2025-09-15T10:30:00Z", 
+      "market_1": "BTC-USD",
+      "market_2": "ETH-USD",
+      "position_size_1": 0.05,
+      "position_size_2": -2.1,
+      "entry_price_1": 43250.00,
+      "entry_price_2": 2580.30,
+      "current_price_1": 43420.50,
+      "current_price_2": 2575.80,
+      "unrealized_pnl": 45.20,
+      "portfolio_value": 1087.65,
+      "z_score": 1.85
+    }
+  ],
+  "total_count": 1247,
+  "has_more": true
+}
+```
+
+### 🆚 4. Multi-Strategy Comparison
+
+**Endpoint:** `POST /api/v1/backtests/compare`
+
+**Purpose:** Compare performance across multiple backtest runs
+
+**Request Body:**
+
+```json
+{
+  "run_ids": ["run_abc123", "run_def456", "run_ghi789"],
+  "metrics": ["total_return_pct", "sharpe_ratio", "max_drawdown_pct", "win_rate"]
+}
+```
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:8889/api/v1/backtests/compare" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_ids": ["run_abc123", "run_def456", "run_ghi789"],
+    "metrics": ["total_return_pct", "sharpe_ratio", "max_drawdown_pct", "win_rate"]
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "comparison_matrix": {
+    "run_abc123": {
+      "total_return_pct": 12.5,
+      "sharpe_ratio": 1.85,
+      "max_drawdown_pct": -8.2,
+      "win_rate": 0.67
+    },
+    "run_def456": {
+      "total_return_pct": 8.9,
+      "sharpe_ratio": 1.42,
+      "max_drawdown_pct": -5.1,
+      "win_rate": 0.73
+    },
+    "run_ghi789": {
+      "total_return_pct": 15.2,
+      "sharpe_ratio": 2.1,
+      "max_drawdown_pct": -11.8,
+      "win_rate": 0.61
+    }
+  },
+  "best_performers": {
+    "total_return_pct": "run_ghi789",
+    "sharpe_ratio": "run_ghi789", 
+    "max_drawdown_pct": "run_def456",
+    "win_rate": "run_def456"
+  },
+  "correlation_matrix": {},
+  "summary_statistics": {}
+}
+```
+
+### ✅ 5. Market Data Validation
+
+**Endpoint:** `GET /api/v1/backtests/{run_id}/dydx-validation`
+
+**Purpose:** Validate backtest results against real dYdX historical data
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:8889/api/v1/backtests/run_abc123/dydx-validation" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "validation_status": "completed",
+  "data_coverage": 0.98,
+  "price_accuracy": 0.997,
+  "volume_correlation": 0.89,
+  "discrepancies": [
+    {
+      "timestamp": "2025-09-15T14:00:00Z",
+      "market": "BTC-USD",
+      "backtest_price": 43250.0,
+      "actual_price": 43245.5,
+      "difference_pct": 0.01
+    }
+  ],
+  "market_conditions": {
+    "volatility": 0.024,
+    "trend": "bullish",
+    "liquidity_score": 0.92
+  }
+}
+```
+
+### 📈 6. Advanced Performance Metrics
+
+**Endpoint:** `GET /api/v1/backtests/{run_id}/performance-metrics`
+
+**Purpose:** Get sophisticated risk-adjusted performance analysis
+
+**Query Parameters:**
+
+- `benchmark` (optional): Benchmark symbol for comparison (default: "BTC-USD")
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:8889/api/v1/backtests/run_abc123/performance-metrics?benchmark=BTC-USD" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "run_id": "run_abc123",
+  "benchmark": "BTC-USD",
+  "alpha": 0.08,
+  "beta": 0.45,
+  "treynor_ratio": 0.28,
+  "information_ratio": 1.23,
+  "tracking_error": 0.12,
+  "up_capture_ratio": 0.67,
+  "down_capture_ratio": 0.34,
+  "benchmark_correlation": 0.45,
+  "risk_adjusted_return": 0.24
+}
+```
+
+### 💡 Analytics Integration Example
+
+Here's a comprehensive Python example showing how to use all analytics endpoints:
+
+```python
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+class BacktestAnalytics:
+    def __init__(self, base_url, token):
+        self.base_url = base_url
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+    
+    def get_comprehensive_analytics(self, run_id):
+        """Get detailed analytics for a backtest run"""
+        url = f"{self.base_url}/api/v1/backtests/{run_id}/analytics"
+        response = requests.get(url, headers=self.headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Analytics request failed: {response.text}")
+    
+    def monitor_progress(self, run_id):
+        """Monitor backtest execution progress"""
+        url = f"{self.base_url}/api/v1/backtests/{run_id}/live-progress"
+        response = requests.get(url, headers=self.headers)
+        
+        if response.status_code == 200:
+            progress = response.json()
+            print(f"Progress: {progress['progress_pct']:.1f}% - Current Pair: {progress['current_pair']}")
+            print(f"Portfolio Value: ${progress['current_portfolio_value']:.2f}")
+            print(f"Unrealized P&L: ${progress['unrealized_pnl']:.2f}")
+            return progress
+        else:
+            raise Exception(f"Progress request failed: {response.text}")
+    
+    def compare_strategies(self, run_ids, metrics=None):
+        """Compare multiple backtest runs"""
+        if metrics is None:
+            metrics = ["total_return_pct", "sharpe_ratio", "max_drawdown_pct", "win_rate"]
+        
+        url = f"{self.base_url}/api/v1/backtests/compare"
+        payload = {"run_ids": run_ids, "metrics": metrics}
+        
+        response = requests.post(url, json=payload, headers=self.headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Comparison failed: {response.text}")
+    
+    def generate_analytics_report(self, run_id):
+        """Generate comprehensive analytics report"""
+        
+        # Get all analytics data
+        analytics = self.get_comprehensive_analytics(run_id)
+        
+        print("=" * 60)
+        print(f"BACKTEST ANALYTICS REPORT")
+        print(f"Run ID: {run_id}")
+        print(f"Strategy: {analytics['name']}")
+        print("=" * 60)
+        
+        # Performance Summary
+        print(f"📈 Total Return: {analytics['total_return_pct']:.2f}%")
+        print(f"📊 Sharpe Ratio: {analytics['sharpe_ratio']:.2f}")
+        print(f"📉 Max Drawdown: {analytics['max_drawdown_pct']:.2f}%")
+        print(f"🎯 Win Rate: {analytics['win_rate']:.2%}")
+        print(f"⏱️  Avg Position Duration: {analytics['avg_position_duration']:.1f} hours")
+        
+        # Risk Metrics
+        print(f"\\n🎲 RISK METRICS")
+        print(f"VaR (95%): ${analytics['var_95']:.2f}")
+        print(f"Expected Shortfall: ${analytics['expected_shortfall']:.2f}")
+        print(f"Calmar Ratio: {analytics['calmar_ratio']:.2f}")
+        
+        # Position Analytics
+        print(f"\\n📊 POSITION ANALYTICS") 
+        print(f"Max Concurrent Positions: {analytics['max_concurrent_positions']}")
+        print(f"Position Turnover Rate: {analytics['position_turnover_rate']:.2f}")
+        
+        # Performance by Pair
+        print(f"\\n💰 PERFORMANCE BY TRADING PAIR")
+        for pair, perf in analytics['position_performance_by_pair'].items():
+            print(f"{pair}:")
+            print(f"  Trades: {perf['total_trades']}")
+            print(f"  P&L: ${perf['total_pnl']:.2f}")
+            print(f"  Win Rate: {perf['win_rate']:.2%}")
+        
+        return analytics
+
+# Usage Example
+if __name__ == "__main__":
+    analytics = BacktestAnalytics("http://localhost:8889", "your_jwt_token_here")
+    
+    # Generate comprehensive report
+    analytics.generate_analytics_report("run_abc123")
+    
+    # Compare multiple strategies
+    comparison = analytics.compare_strategies(["run_abc123", "run_def456", "run_ghi789"])
+    print("\\n🏆 BEST PERFORMERS:")
+    for metric, best_run in comparison['best_performers'].items():
+        print(f"{metric}: {best_run}")
+```
+
+---
+
 ## Error Handling
 
 ### Common Error Codes

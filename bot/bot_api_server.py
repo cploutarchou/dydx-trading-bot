@@ -34,9 +34,19 @@ from bot_instance_manager import bot_manager
 
 # Import database utilities
 from database import db
+
+# Import backtest modules
+from models_backtest import (
+    BacktestConfigRequest,
+    BacktestDetailResponse,
+    BacktestListResponse,
+    BacktestResponse,
+)
 from password_2fa_routes import router as password_2fa_router
 from repository import UnitOfWork
+from repository_backtest import BacktestRepository
 from repository_realtime import UnitOfWorkRealtime
+from service_backtest import BacktestService
 from websocket_server import WebSocketServer
 
 # Setup logging
@@ -1202,6 +1212,434 @@ async def websocket_market(websocket: WebSocket, bot_instance_id: int):
 async def websocket_alerts(websocket: WebSocket, bot_instance_id: int):
     """WebSocket endpoint for live alerts"""
     await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
+
+
+# ============================================================================
+# BACKTESTING ENDPOINTS
+# ============================================================================
+
+
+# Initialize backtest service
+def get_backtest_service():
+    """Dependency to get backtest service"""
+    db_session = db.get_session()
+    repository = BacktestRepository(db_session)
+    # Ensure repository has access to session for service operations
+    repository.db = db_session
+    service = BacktestService(repository)
+    return service
+
+
+@app.post("/api/v1/backtests", response_model=BacktestResponse)
+async def create_backtest(
+    request: BacktestConfigRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create and start a new backtest"""
+    try:
+        service = get_backtest_service()
+
+        # Create WebSocket progress callback (if needed)
+        async def progress_callback(
+            run_id: str, progress: float, current_pair: str, eta: int
+        ):
+            # TODO: Implement WebSocket broadcasting for progress updates
+            logger.debug(
+                f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
+            )
+
+        result = await service.create_and_run_backtest(request, progress_callback)
+
+        return api_response(
+            success=True,
+            data=result.dict(),
+            message=f"Backtest '{request.name}' created and started",
+        )
+
+    except ValueError as e:
+        return api_response(
+            success=False, message=f"Validation error: {str(e)}", status_code=400
+        )
+    except Exception as e:
+        logger.error(f"Error creating backtest: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests", response_model=BacktestListResponse)
+async def list_backtests(
+    limit: int = 50,
+    offset: int = 0,
+    status: Optional[str] = None,
+    days: Optional[int] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """List backtest runs with filtering"""
+    try:
+        service = get_backtest_service()
+
+        result = service.list_backtest_runs(
+            limit=limit, offset=offset, status_filter=status, days_filter=days
+        )
+
+        return api_response(
+            success=True,
+            data=result.dict(),
+            message=f"Retrieved {len(result.runs)} backtest runs",
+        )
+
+    except Exception as e:
+        logger.error(f"Error listing backtests: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
+async def get_backtest_details(
+    run_id: str, current_user: User = Depends(get_current_active_user)
+):
+    """Get detailed backtest results"""
+    try:
+        service = get_backtest_service()
+
+        result = service.get_backtest_details(run_id)
+        if not result:
+            return api_response(
+                success=False,
+                message=f"Backtest run '{run_id}' not found",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result.dict(),
+            message=f"Retrieved details for backtest '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting backtest details: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/status")
+async def get_backtest_status(
+    run_id: str, current_user: User = Depends(get_current_active_user)
+):
+    """Get current backtest status and progress"""
+    try:
+        service = get_backtest_service()
+
+        result = service.get_backtest_status(run_id)
+        if not result:
+            return api_response(
+                success=False,
+                message=f"Backtest run '{run_id}' not found",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result.dict(),
+            message=f"Retrieved status for backtest '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting backtest status: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/trades")
+async def get_backtest_trades(
+    run_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    winning_only: bool = False,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get trades for specific backtest run"""
+    try:
+        service = get_backtest_service()
+
+        trades = service.get_backtest_trades(
+            run_id=run_id, limit=limit, offset=offset, winning_only=winning_only
+        )
+
+        return api_response(
+            success=True,
+            data={"trades": [trade.dict() for trade in trades]},
+            message=f"Retrieved {len(trades)} trades for backtest '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting backtest trades: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/cancel")
+async def cancel_backtest(
+    run_id: str, current_user: User = Depends(get_current_active_user)
+):
+    """Cancel running backtest"""
+    try:
+        service = get_backtest_service()
+
+        success = service.cancel_backtest(run_id)
+        if not success:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found or not running",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True, message=f"Backtest '{run_id}' cancelled successfully"
+        )
+
+    except Exception as e:
+        logger.error(f"Error cancelling backtest: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.delete("/api/v1/backtests/{run_id}")
+async def delete_backtest(
+    run_id: str, current_user: User = Depends(get_current_active_user)
+):
+    """Delete backtest run and all associated data"""
+    try:
+        service = get_backtest_service()
+
+        success = service.delete_backtest(run_id)
+        if not success:
+            return api_response(
+                success=False, message=f"Backtest '{run_id}' not found", status_code=404
+            )
+
+        return api_response(
+            success=True, message=f"Backtest '{run_id}' deleted successfully"
+        )
+
+    except Exception as e:
+        logger.error(f"Error deleting backtest: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/stats/summary")
+async def get_backtest_summary_stats(
+    days: int = 30, current_user: User = Depends(get_current_active_user)
+):
+    """Get backtest system summary statistics"""
+    try:
+        service = get_backtest_service()
+
+        stats = service.get_summary_stats(days)
+
+        return api_response(
+            success=True,
+            data=stats,
+            message=f"Retrieved backtest statistics for last {days} days",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting backtest stats: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/analytics")
+async def get_backtest_analytics(
+    run_id: str, current_user: User = Depends(get_current_active_user)
+):
+    """Get comprehensive analytics for a backtest run"""
+    try:
+        service = get_backtest_service()
+
+        analytics = service.get_comprehensive_analytics(run_id)
+        if not analytics:
+            return api_response(
+                success=False,
+                message=f"Backtest run '{run_id}' not found",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=analytics.dict(),
+            message=f"Retrieved analytics for backtest '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting backtest analytics: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/position-snapshots")
+async def get_position_snapshots(
+    run_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    market_pair: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get position snapshots for real-time backtest tracking"""
+    try:
+        service = get_backtest_service()
+
+        snapshots = service.get_position_snapshots(
+            run_id=run_id, limit=limit, offset=offset, market_pair=market_pair
+        )
+
+        return api_response(
+            success=True,
+            data={"snapshots": [s.dict() for s in snapshots]},
+            message=f"Retrieved {len(snapshots)} position snapshots for '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting position snapshots: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/compare")
+async def compare_backtests(
+    request: dict,  # BacktestComparisonRequest - simplified for now
+    current_user: User = Depends(get_current_active_user),
+):
+    """Compare multiple backtest runs with advanced analytics"""
+    try:
+        service = get_backtest_service()
+
+        run_ids = request.get("run_ids", [])
+        metrics = request.get(
+            "metrics", ["total_return_pct", "sharpe_ratio", "win_rate"]
+        )
+
+        if len(run_ids) < 2:
+            return api_response(
+                success=False,
+                message="At least 2 backtest runs required for comparison",
+                status_code=400,
+            )
+
+        comparison = service.compare_backtests(run_ids, metrics)
+
+        return api_response(
+            success=True,
+            data=comparison.dict() if hasattr(comparison, "dict") else comparison,
+            message=f"Compared {len(run_ids)} backtest runs",
+        )
+
+    except Exception as e:
+        logger.error(f"Error comparing backtests: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/dydx-validation")
+async def validate_against_dydx_data(
+    run_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Validate backtest results against real dYdX market data"""
+    try:
+        service = get_backtest_service()
+
+        validation_result = await service.validate_against_dydx_data(run_id)
+        if not validation_result:
+            return api_response(
+                success=False,
+                message=f"Could not validate backtest '{run_id}' against dYdX data",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=validation_result,
+            message=f"Validated backtest '{run_id}' against dYdX historical data",
+        )
+
+    except Exception as e:
+        logger.error(f"Error validating against dYdX data: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/performance-metrics")
+async def get_advanced_performance_metrics(
+    run_id: str,
+    benchmark: str = "BTC-USD",
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get advanced performance metrics with market benchmarking"""
+    try:
+        service = get_backtest_service()
+
+        metrics = await service.get_advanced_performance_metrics(run_id, benchmark)
+        if not metrics:
+            return api_response(
+                success=False,
+                message=f"Could not calculate metrics for backtest '{run_id}'",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=metrics,
+            message=f"Retrieved advanced performance metrics for '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/live-progress")
+async def get_live_progress(
+    run_id: str, current_user: User = Depends(get_current_active_user)
+):
+    """Get real-time backtest progress with current positions"""
+    try:
+        service = get_backtest_service()
+
+        progress = service.get_live_progress(run_id)
+        if not progress:
+            return api_response(
+                success=False,
+                message=f"Backtest run '{run_id}' not found",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=progress,
+            message=f"Retrieved live progress for backtest '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting live progress: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
 
 
 # ============================================================================

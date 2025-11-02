@@ -328,7 +328,7 @@ class BacktestConfigRequest(BaseModel):
     starting_balance: Optional[float] = 1000.0
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "name": "BTC-ETH Strategy Test",
                 "start_date": "2024-09-01",

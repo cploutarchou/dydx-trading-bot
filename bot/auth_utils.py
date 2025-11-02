@@ -17,8 +17,8 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 # Configuration
-SECRET_KEY = config("SECRET_KEY", default=secrets.token_urlsafe(32))
-ALGORITHM = config("JWT_ALGORITHM", default="HS256")
+SECRET_KEY = str(config("SECRET_KEY", default=secrets.token_urlsafe(32)))
+ALGORITHM = str(config("JWT_ALGORITHM", default="HS256"))
 ACCESS_TOKEN_EXPIRE_MINUTES = config(
     "ACCESS_TOKEN_EXPIRE_MINUTES", default=30, cast=int
 )
@@ -175,7 +175,7 @@ class TwoFactorUtils:
 
         # Convert to base64
         buffer = io.BytesIO()
-        img.save(buffer, format="PNG")
+        img.save(buffer, "PNG")
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
 
         return f"data:image/png;base64,{img_base64}"

@@ -4,18 +4,22 @@
 **Last Updated:** November 2025  
 **Status:** Production Ready
 
+> **🔒 NEW:** This bot now includes **JWT Authentication** system. See [AUTHENTICATION_GUIDE.md](AUTHENTICATION_GUIDE.md) for complete security setup.
+
 ---
 
 ## Table of Contents
 
 1. [System Requirements](#system-requirements)
 2. [Installation](#installation)
-3. [Configuration](#configuration)
-4. [API Server Setup](#api-server-setup)
-5. [Starting Your First Bot](#starting-your-first-bot)
-6. [Backtesting Workflow](#backtesting-workflow)
-7. [Production Deployment](#production-deployment)
-8. [Monitoring & Maintenance](#monitoring--maintenance)
+3. [Authentication Setup](#authentication-setup)
+4. [Configuration](#configuration)
+5. [API Server Setup](#api-server-setup)
+6. [Starting Your First Bot](#starting-your-first-bot)
+7. [Backtesting Workflow](#backtesting-workflow)
+8. [Production Deployment](#production-deployment)
+9. [Security Best Practices](#security-best-practices)
+10. [Monitoring & Maintenance](#monitoring--maintenance)
 
 ---
 
@@ -164,6 +168,116 @@ sqlite3 trading_bot.db ".tables"
 # Expected tables:
 # bot_instances, live_position, live_market_data, etc.
 ```
+
+---
+
+## Authentication Setup
+
+### Step 1: Initialize Authentication Database
+
+The bot now includes a comprehensive JWT authentication system. Initialize it first:
+
+```bash
+# Initialize authentication database and create admin user
+python init_auth_db.py
+```
+
+Expected output:
+
+```text
+============================================================
+dYdX Trading Bot - Authentication Database Setup
+============================================================
+INFO: 🚀 Starting database initialization...
+INFO: ✅ Database tables created successfully
+INFO: 👤 Creating default admin user...
+INFO: ✅ Default admin user created:
+INFO:    Username: admin
+INFO:    Password: admin123
+INFO:    Email: admin@localhost
+INFO: ⚠️  IMPORTANT: Change the default password after first login!
+============================================================
+🎉 SETUP COMPLETE!
+============================================================
+```
+
+### Step 2: Configure Authentication Environment
+
+Add authentication settings to your `.env` file:
+
+```bash
+# Add to .env file
+cat >> .env << 'EOF'
+
+# JWT Authentication Configuration
+SECRET_KEY=your_super_secure_secret_key_here_32_chars_minimum
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# Password & Security
+PASSWORD_RESET_TOKEN_EXPIRE_HOURS=1
+MAX_LOGIN_ATTEMPTS=5
+LOCKOUT_DURATION_MINUTES=15
+
+# Email Configuration (for 2FA and password reset)
+EMAIL_PROVIDER=mailgun
+MAILGUN_API_KEY=key-your-mailgun-api-key
+MAILGUN_DOMAIN=your-domain.com
+MAILGUN_FROM_EMAIL=noreply@your-domain.com
+
+# Alternative: SMTP Configuration
+# EMAIL_PROVIDER=smtp
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USERNAME=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
+# SMTP_FROM_EMAIL=your-email@gmail.com
+# SMTP_USE_TLS=true
+EOF
+```
+
+### Step 3: Generate Secure Secret Key
+
+```bash
+# Generate a secure secret key for JWT signing
+python -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
+
+# Update your .env file with the generated key
+```
+
+### Step 4: Test Authentication Setup
+
+```bash
+# Start API server
+python start_api.py &
+SERVER_PID=$!
+
+# Wait for server to start
+sleep 3
+
+# Test login with default credentials
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }'
+
+# Should return JWT tokens
+# Stop test server
+kill $SERVER_PID
+```
+
+**⚠️ IMPORTANT SECURITY NOTES:**
+
+1. **Change the default password** immediately after setup
+2. **Enable 2FA** for all production users
+3. **Use a strong SECRET_KEY** (32+ characters)
+4. **Configure email provider** for password reset functionality
+5. **Use HTTPS** in production environments
+
+For complete authentication documentation, see [AUTHENTICATION_GUIDE.md](AUTHENTICATION_GUIDE.md).
 
 ---
 
@@ -646,6 +760,210 @@ EOF
 # Run monitoring in background
 nohup python3 monitor_bot.py > monitor.log 2>&1 &
 ```
+
+---
+
+## Security Best Practices
+
+### Authentication Security
+
+**🔐 Change Default Credentials:**
+
+```bash
+# Login with default credentials
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "admin123"}'
+
+# Change password immediately
+export TOKEN="your_access_token_here"
+
+curl -X POST "http://localhost:8000/auth/change-password" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "current_password": "admin123",
+    "new_password": "your_secure_password_here"
+  }'
+```
+
+**🔒 Enable Two-Factor Authentication:**
+
+```bash
+# Setup 2FA for admin user
+curl -X POST "http://localhost:8000/auth/2fa/setup" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Scan QR code with authenticator app and verify
+curl -X POST "http://localhost:8000/auth/2fa/verify" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"totp_code": "123456"}'
+```
+
+**🔑 Secure Environment Variables:**
+
+```bash
+# Set restrictive permissions on .env file
+chmod 600 .env
+
+# Verify permissions
+ls -la .env
+# Should show: -rw------- (600)
+
+# For production, use environment variables instead of .env file
+export SECRET_KEY="$(openssl rand -hex 32)"
+export MAILGUN_API_KEY="key-your-secure-key"
+```
+
+### Network Security
+
+**🌐 Use HTTPS in Production:**
+
+```bash
+# Generate SSL certificate (Let's Encrypt)
+sudo apt install certbot
+sudo certbot certonly --standalone -d your-domain.com
+
+# Update start_api.py to use HTTPS
+# Add SSL configuration to uvicorn.run()
+```
+
+**🔥 Configure Firewall:**
+
+```bash
+# UFW firewall setup
+sudo ufw enable
+sudo ufw allow ssh
+sudo ufw allow 443/tcp  # HTTPS
+sudo ufw deny 8000/tcp  # Block direct API access from outside
+sudo ufw status
+```
+
+**🛡️ Reverse Proxy with Nginx:**
+
+```nginx
+# /etc/nginx/sites-available/trading-bot
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+    
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    
+    # Security headers
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    
+    # Rate limiting for auth endpoints
+    location /auth/ {
+        limit_req zone=auth burst=5 nodelay;
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### Database Security
+
+**💾 Database Backup & Encryption:**
+
+```bash
+# SQLite backup with encryption
+sqlite3 trading_bot.db ".backup trading_bot_backup.db"
+gpg --symmetric --cipher-algo AES256 trading_bot_backup.db
+
+# PostgreSQL backup with encryption
+pg_dump -U trading_bot trading_bot | gpg --symmetric --cipher-algo AES256 > trading_bot_backup.sql.gpg
+```
+
+**🔐 Database Access Control:**
+
+```bash
+# SQLite permissions
+chmod 600 trading_bot.db
+chown www-data:www-data trading_bot.db
+
+# PostgreSQL user permissions
+sudo -u postgres psql
+CREATE USER trading_bot WITH PASSWORD 'secure_password';
+GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_bot;
+REVOKE ALL ON DATABASE trading_bot FROM PUBLIC;
+```
+
+### Monitoring & Alerts
+
+**📊 Security Event Monitoring:**
+
+```bash
+# Create security monitoring script
+cat > security_monitor.py << 'EOF'
+#!/usr/bin/env python3
+import requests
+import time
+import json
+from datetime import datetime
+
+def check_auth_logs():
+    """Monitor authentication events"""
+    try:
+        # Check for failed login attempts
+        response = requests.get("http://localhost:8000/auth/audit-log",
+                              headers={"Authorization": f"Bearer {admin_token}"})
+        
+        if response.status_code == 200:
+            events = response.json()
+            failed_logins = [e for e in events if e['event_type'] == 'failed_login']
+            
+            # Alert if more than 5 failed attempts in last hour
+            recent_fails = len([e for e in failed_logins 
+                              if e['timestamp'] > datetime.now().timestamp() - 3600])
+            
+            if recent_fails > 5:
+                print(f"SECURITY ALERT: {recent_fails} failed login attempts in last hour")
+                # Send alert notification here
+                
+    except Exception as e:
+        print(f"Security monitoring error: {e}")
+
+if __name__ == "__main__":
+    admin_token = "your_admin_token_here"
+    while True:
+        check_auth_logs()
+        time.sleep(300)  # Check every 5 minutes
+EOF
+
+chmod +x security_monitor.py
+```
+
+### Production Checklist
+
+Before deploying to production:
+
+- [ ] **Change default admin password**
+- [ ] **Generate secure SECRET_KEY (32+ characters)**
+- [ ] **Enable 2FA for all users**
+- [ ] **Configure email provider (Mailgun/SMTP)**
+- [ ] **Set up HTTPS with valid SSL certificates**
+- [ ] **Configure firewall rules**
+- [ ] **Set up Nginx reverse proxy**
+- [ ] **Enable database backups**
+- [ ] **Set up security monitoring**
+- [ ] **Test disaster recovery procedures**
+- [ ] **Document all credentials securely**
 
 ---
 

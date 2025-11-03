@@ -374,3 +374,105 @@ type CointegrationResult struct {
 	CreatedAt         time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
 }
+
+// ==================== BOT INSTANCE MODELS ====================
+
+type BotInstance struct {
+	ID              int            `db:"id" json:"id"`
+	InstanceID      string         `db:"instance_id" json:"instance_id"`
+	InstanceName    string         `db:"instance_name" json:"instance_name"`
+	UserID          int            `db:"user_id" json:"user_id"`
+	Status          string         `db:"status" json:"status"`   // running, stopped, error, paused
+	Network         string         `db:"network" json:"network"` // testnet, mainnet
+	Strategy        string         `db:"strategy" json:"strategy"`
+	Config          sql.NullString `db:"config" json:"config"`
+	TradingParams   sql.NullString `db:"trading_params" json:"trading_params"`
+	TotalTrades     int            `db:"total_trades" json:"total_trades"`
+	TotalPnL        *float64       `db:"total_pnl" json:"total_pnl"`
+	CurrentBalance  *float64       `db:"current_balance" json:"current_balance"`
+	StartingBalance *float64       `db:"starting_balance" json:"starting_balance"`
+	ProcessID       *int           `db:"process_id" json:"process_id"`
+	PID             *string        `db:"pid" json:"pid"`
+	Host            *string        `db:"host" json:"host"`
+	Port            *int           `db:"port" json:"port"`
+	ErrorMessage    *string        `db:"error_message" json:"error_message"`
+	LastErrorAt     *time.Time     `db:"last_error_at" json:"last_error_at"`
+	StartedAt       *time.Time     `db:"started_at" json:"started_at"`
+	StoppedAt       *time.Time     `db:"stopped_at" json:"stopped_at"`
+	CreatedAt       time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
+}
+
+type BotTrade struct {
+	ID                      int        `db:"id" json:"id"`
+	BotInstanceID           int        `db:"bot_instance_id" json:"bot_instance_id"`
+	TradeID                 string     `db:"trade_id" json:"trade_id"`
+	Market1                 string     `db:"market_1" json:"market_1"`
+	Market2                 string     `db:"market_2" json:"market_2"`
+	EntryTimestamp          time.Time  `db:"entry_timestamp" json:"entry_timestamp"`
+	EntryPrice1             float64    `db:"entry_price_1" json:"entry_price_1"`
+	EntryPrice2             float64    `db:"entry_price_2" json:"entry_price_2"`
+	EntryZScore             *float64   `db:"entry_zscore" json:"entry_zscore"`
+	Side1                   string     `db:"side_1" json:"side_1"`
+	Side2                   string     `db:"side_2" json:"side_2"`
+	Size1                   float64    `db:"size_1" json:"size_1"`
+	Size2                   float64    `db:"size_2" json:"size_2"`
+	HedgeRatio              *float64   `db:"hedge_ratio" json:"hedge_ratio"`
+	ExitTimestamp           *time.Time `db:"exit_timestamp" json:"exit_timestamp"`
+	ExitPrice1              *float64   `db:"exit_price_1" json:"exit_price_1"`
+	ExitPrice2              *float64   `db:"exit_price_2" json:"exit_price_2"`
+	ExitZScore              *float64   `db:"exit_zscore" json:"exit_zscore"`
+	PnL                     *float64   `db:"pnl" json:"pnl"`
+	PnLPct                  *float64   `db:"pnl_pct" json:"pnl_pct"`
+	DurationHours           *float64   `db:"duration_hours" json:"duration_hours"`
+	StrategyZscoreThreshold *float64   `db:"strategy_zscore_threshold" json:"strategy_zscore_threshold"`
+	CreatedAt               time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt               time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+type BotPosition struct {
+	ID               int        `db:"id" json:"id"`
+	BotInstanceID    int        `db:"bot_instance_id" json:"bot_instance_id"`
+	PositionID       string     `db:"position_id" json:"position_id"`
+	Market1          string     `db:"market_1" json:"market_1"`
+	Market2          string     `db:"market_2" json:"market_2"`
+	Status           string     `db:"status" json:"status"` // open, closed, error
+	IsActive         int        `db:"is_active" json:"is_active"`
+	EntryTimestamp   time.Time  `db:"entry_timestamp" json:"entry_timestamp"`
+	EntryPrice1      float64    `db:"entry_price_1" json:"entry_price_1"`
+	EntryPrice2      float64    `db:"entry_price_2" json:"entry_price_2"`
+	EntryZScore      *float64   `db:"entry_zscore" json:"entry_zscore"`
+	Side1            string     `db:"side_1" json:"side_1"`
+	Side2            string     `db:"side_2" json:"side_2"`
+	Size1            float64    `db:"size_1" json:"size_1"`
+	Size2            float64    `db:"size_2" json:"size_2"`
+	HedgeRatio       *float64   `db:"hedge_ratio" json:"hedge_ratio"`
+	CurrentPrice1    *float64   `db:"current_price_1" json:"current_price_1"`
+	CurrentPrice2    *float64   `db:"current_price_2" json:"current_price_2"`
+	CurrentZScore    *float64   `db:"current_zscore" json:"current_zscore"`
+	UnrealizedPnL    *float64   `db:"unrealized_pnl" json:"unrealized_pnl"`
+	UnrealizedPnLPct *float64   `db:"unrealized_pnl_pct" json:"unrealized_pnl_pct"`
+	ExitTimestamp    *time.Time `db:"exit_timestamp" json:"exit_timestamp"`
+	ExitPrice1       *float64   `db:"exit_price_1" json:"exit_price_1"`
+	ExitPrice2       *float64   `db:"exit_price_2" json:"exit_price_2"`
+	ExitZScore       *float64   `db:"exit_zscore" json:"exit_zscore"`
+	RealizedPnL      *float64   `db:"realized_pnl" json:"realized_pnl"`
+	RealizedPnLPct   *float64   `db:"realized_pnl_pct" json:"realized_pnl_pct"`
+	DurationHours    *float64   `db:"duration_hours" json:"duration_hours"`
+	CreatedAt        time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt        time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+type BotAlert struct {
+	ID             int            `db:"id" json:"id"`
+	BotInstanceID  int            `db:"bot_instance_id" json:"bot_instance_id"`
+	AlertType      string         `db:"alert_type" json:"alert_type"`
+	Severity       string         `db:"severity" json:"severity"`
+	Title          string         `db:"title" json:"title"`
+	Message        string         `db:"message" json:"message"`
+	Details        sql.NullString `db:"details" json:"details"`
+	IsRead         int            `db:"is_read" json:"is_read"`
+	AcknowledgedAt *time.Time     `db:"acknowledged_at" json:"acknowledged_at"`
+	CreatedAt      time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time      `db:"updated_at" json:"updated_at"`
+}

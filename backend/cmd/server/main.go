@@ -2,14 +2,17 @@ package main
 
 import (
 	"fmt"
-	"github.com/dydx-trading-bot/backend-go/config"
-	database2 "github.com/golang-migrate/migrate/v4/database"
 	"log"
 	"os"
+	"strings"
+
+	"github.com/dydx-trading-bot/backend-go/config"
+	database2 "github.com/golang-migrate/migrate/v4/database"
 
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
+	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -119,8 +122,20 @@ func main() {
 	// Register auth routes (bypasses strict validation)
 	routes.RegisterAuthRoutes(router, database.DB)
 
+	// Initialize bot API client for delegating calls to Python bot API
+	botAPIURL := os.Getenv("BOT_API_URL")
+	if botAPIURL == "" {
+		botAPIURL = "http://localhost:8000" // Default to local bot API
+	}
+	botAPIToken := os.Getenv("BOT_API_TOKEN")
+	// Token will typically be obtained via login in the frontend
+	apiClient := services.NewBotAPIClient(botAPIURL, botAPIToken)
+	log.Printf("Initialized bot API client pointing to: %s", botAPIURL)
 	// Register all other routes on main router
-	routes.RegisterBacktestRoutes(router, database)
+	// RegisterBacktestRoutes(router, database)
+	// Using bot API delegate routes instead for backtests
+	routes.RegisterBotInstanceRoutes(router, database)
+	routes.RegisterBotAPIDelegateRoutes(router, apiClient) // Register bot API proxy routes (includes backtests)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)
@@ -183,15 +198,56 @@ func runMigrations(database *db.Database, dbDriver string) error {
 		return fmt.Errorf("unsupported driver: %s", dbDriver)
 	}
 
-	m, err := migrate.NewWithDatabaseInstance("file://migrations", dbDriver, driverInstance)
+	// Use dialect-specific migration path
+	migrationsPath := "file://migrations"
+	if dbDriver == "postgres" {
+		migrationsPath = "file://migrations/postgres"
+	} else if dbDriver == "sqlite3" || dbDriver == "sqlite" {
+		migrationsPath = "file://migrations/sqlite"
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(migrationsPath, dbDriver, driverInstance)
 	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
+		// Handle migration state issues
+		errStr := err.Error()
+		if strings.Contains(strings.ToLower(errStr), "no migration found") {
+			log.Printf("⚠️  Migration state issue detected: %v. Attempting recovery...", err)
+			// Try to recover by forcing the current version
+			ver, _, verErr := m.Version()
+			if verErr == nil {
+				log.Printf("⚠️  Forcing version %d to resolve migration state...", ver)
+				if fErr := m.Force(int(ver)); fErr == nil {
+					log.Printf("✅ Migration state recovered. Retrying...")
+					// Retry creating the migrate instance
+					m, err = migrate.NewWithDatabaseInstance(migrationsPath, dbDriver, driverInstance)
+				}
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("failed to create migrate instance: %w", err)
+		}
 	}
 	// Note: We don't defer m.Close() here because it would close the database connection
 	// The migrate instance will be garbage collected, and the database connection
 	// will be properly closed in main's defer statement
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		// Handle post-creation migration errors
+		errStr := err.Error()
+		if strings.Contains(strings.ToLower(errStr), "no migration found") || strings.Contains(strings.ToLower(errStr), "dirty") {
+			log.Printf("⚠️  Migration error detected: %v. Attempting recovery...", err)
+			ver, _, verErr := m.Version()
+			if verErr == nil {
+				log.Printf("⚠️  Forcing version %d to resolve state...", ver)
+				if fErr := m.Force(int(ver)); fErr == nil {
+					if rErr := m.Up(); rErr != nil && rErr != migrate.ErrNoChange {
+						return fmt.Errorf("failed to run migrations after recovery: %w", rErr)
+					}
+					log.Printf("✅ Migrations completed successfully after recovery")
+					return nil
+				}
+			}
+		}
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 

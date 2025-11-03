@@ -6,12 +6,14 @@ All project documentation organized in one place.
 
 | Purpose | Link | Time |
 |---------|------|------|
-| **Start here** | [SETUP.md](SETUP.md) | 5 min |
+| **Backend API Integration** | [BACKEND_API_INTEGRATION.md](./BACKEND_API_INTEGRATION.md) | 10 min |
+| **Frontend Development Guide** | [FRONTEND_DEVELOPMENT_GUIDE.md](./FRONTEND_DEVELOPMENT_GUIDE.md) | 15 min |
+| **API Coverage Checklist** | [API_COVERAGE_CHECKLIST.md](./API_COVERAGE_CHECKLIST.md) | 5 min |
+| **Integration Summary** | [INTEGRATION_SUMMARY.md](./INTEGRATION_SUMMARY.md) | 5 min |
+| **React Component Examples** | [REACT_COMPONENT_EXAMPLES.tsx](./REACT_COMPONENT_EXAMPLES.tsx) | 20 min |
+| **Setup** | [SETUP.md](SETUP.md) | 5 min |
 | **DevContainer quick start** | [devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md) | 2 min |
-| **Full DevContainer guide** | [devcontainer/README.md](devcontainer/README.md) | 15 min |
 | **Troubleshooting** | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) | varies |
-| **Architecture** | [architecture/](architecture/) | 10 min |
-| **Code patterns** | [../.github/copilot-instructions.md](../.github/copilot-instructions.md) | 5 min |
 
 ## Directory Structure
 

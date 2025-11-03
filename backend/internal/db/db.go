@@ -394,7 +394,30 @@ func runMigrations(cfg Config) error {
 
 	m, err := migrate.New(sourceURL, dbURL)
 	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
+		// If there's an error creating the migrate instance, it might be due to invalid migration state
+		// Try to recover by forcing the version
+		errStr := err.Error()
+		if strings.Contains(strings.ToLower(errStr), "no migration found") {
+			log.Printf("⚠️  Migration state issue detected: %v. Attempting recovery...", err)
+			// Create a temporary instance just to fix the state
+			tempM, tempErr := migrate.New(sourceURL, dbURL)
+			if tempErr == nil {
+				defer tempM.Close()
+				// Get current version
+				ver, _, verErr := tempM.Version()
+				if verErr == nil {
+					log.Printf("⚠️  Forcing version %d to resolve migration state...", ver)
+					if fErr := tempM.Force(int(ver)); fErr == nil {
+						log.Printf("✅ Migration state recovered. Retrying...")
+						// Retry creating the migrate instance
+						m, err = migrate.New(sourceURL, dbURL)
+					}
+				}
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("failed to create migrate instance: %w", err)
+		}
 	}
 	defer func() {
 		srcErr, dbErr := m.Close()
@@ -409,13 +432,16 @@ func runMigrations(cfg Config) error {
 		// "dirty database version X. Fix and force version." In that case we try to recover by
 		// reading the current version and forcing it (which clears the dirty flag), then retrying once.
 		errStr := err.Error()
-		if strings.Contains(strings.ToLower(errStr), "dirty") {
+		errLower := strings.ToLower(errStr)
+
+		// Handle both "dirty" and "no migration found" errors
+		if strings.Contains(errLower, "dirty") || strings.Contains(errLower, "no migration found") {
 			ver, dirty, vErr := m.Version()
 			if vErr != nil {
 				return fmt.Errorf("migration failed and could not read version: %w (original: %v)", vErr, err)
 			}
-			if dirty {
-				log.Printf("⚠️  Detected dirty migration at version %d. Forcing version to clear dirty flag...", ver)
+			if dirty || strings.Contains(errLower, "no migration found") {
+				log.Printf("⚠️  Detected migration issue at version %d. Forcing version to recover...", ver)
 				// Force expects an int version. Use int(ver) to set the migration version and clear dirty state.
 				if fErr := m.Force(int(ver)); fErr != nil {
 					return fmt.Errorf("failed to force migration version %d: %w (original: %v)", ver, fErr, err)

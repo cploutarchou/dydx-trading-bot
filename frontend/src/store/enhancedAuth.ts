@@ -4,9 +4,9 @@
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import type { User, AuthResponse } from '../api/types';
 import { enhancedApiClient } from '../api/enhancedClient';
 import { cacheUtils } from '../api/queryClient';
+import type { User } from '../api/types';
 import { wsManager } from '../api/websocket';
 
 // Auth state interface

@@ -33,6 +33,42 @@
 
 ## ⚠️ Critical Development Setup
 
+### Current Project Structure (November 2024)
+
+```
+dydx-trading-bot/
+├── bot/                          # Python trading engine & FastAPI server
+│   ├── main.py                   # Standalone bot entry point
+│   ├── main_instance.py          # Multi-instance bot support
+│   ├── bot_api_server.py         # FastAPI server (port 8000)
+│   ├── bot_instance_manager.py   # Multi-bot process management
+│   ├── constants.py              # Single source of truth for config
+│   ├── config.py                 # YAML config dataclasses
+│   ├── func_bot_agent.py         # Atomic paired order execution
+│   ├── func_cointegration.py     # Statistical analysis engine
+│   ├── func_entry_pairs.py       # Trade entry logic
+│   ├── func_exit_pairs.py        # Trade exit management
+│   ├── models/                   # Data models for backtest results
+│   │   └── backtest_models.py
+│   └── bot_agents.json           # Active position tracking
+├── backend/                      # Go REST API & database
+│   ├── cmd/server/main.go        # Entry point with middleware setup
+│   ├── config/config.go          # Environment configuration
+│   ├── internal/
+│   │   ├── services/pair_storage.go  # Pair storage implementation
+│   │   ├── handlers/             # HTTP request handlers
+│   │   └── models/models.go      # Database models
+│   └── migrations/               # Database schema migrations
+├── frontend/                     # React dashboard
+│   ├── src/
+│   │   ├── api.ts               # Centralized API client
+│   │   ├── store/auth.ts        # Zustand state management
+│   │   ├── pages/               # Route-level components
+│   │   └── components/          # Reusable UI components
+│   └── package.json
+└── scripts/                     # Utility scripts
+```
+
 ### Environment Loading Pattern (Python)
 
 **CRITICAL**: `bot/main.py` loads `.env` before any imports to ensure config availability:
@@ -64,6 +100,8 @@ cd frontend && npm run dev  # React UI (port 5173)
 # 4. OR start everything with Docker
 make docker-up     # Full stack with compose
 ```
+
+**⚠️ PROJECT STRUCTURE NOTE**: Based on the Makefile, the Python code refers to `app/` directory in configs, but actual structure uses `bot/`. This may require path adjustments.
 
 ## Component Architecture Overview
 
@@ -261,7 +299,7 @@ for position in active_positions:
 
 ## Configuration System
 
-### Constants Pattern (`constants.py`)
+### Constants Pattern (`bot/constants.py`)
 
 All configuration flows through centralized constants loaded from `config()`. **Never hardcode values**.
 
@@ -278,7 +316,7 @@ def some_function():
     cfg = config()  # Reload YAML every time function is called
 ```
 
-### Key Configuration Flags (`config.yaml`)
+### Key Configuration Flags (`bot/config.yaml`)
 
 ```yaml
 botSettings:
@@ -291,25 +329,102 @@ botSettings:
   usdPerTrade: 10.0 # Position size per trade
 ```
 
-## Data Storage Architecture
+### Working Directory Patterns
 
-### Pair Storage (`models/pair_storage.py`)
+**Python Bot**: Always run from `bot/` directory for proper file access:
 
-- **JSON Primary**: `cointegrated_pairs.json` with metadata and confidence scores
-- **CSV Fallback**: Legacy `cointegrated_pairs.csv` for backward compatibility
-- **Timestamped Backups**: `pair_history/pairs_*.json` with cleanup policies
+```bash
+cd bot && python main.py                  # Standalone mode
+cd bot && python bot_api_server.py       # API server mode
+```
+
+**Go Backend**: Run from `backend/` directory:
+
+```bash
+cd backend && make dev                    # Development with hot-reload
+cd backend && go run cmd/server/main.go   # Direct execution
+```
+
+**Frontend**: Standard Node.js patterns:
+
+```bash
+cd frontend && npm run dev                # Development server
+cd frontend && npm run build              # Production build
+```
+
+**CRITICAL PATH ISSUE**: The Go backend pair storage references `app/` directory, but the Python bot is in `bot/` directory. This may cause file path mismatches:
+
+```go
+// backend/internal/services/pair_storage.go
+storagePath: "app",                              // ❌ Wrong path
+jsonFile: filepath.Join("app", "cointegrated_pairs.json"),  // Should be "bot/"
+```
+
+## Critical Implementation Notes
+
+### Missing Python Pair Storage Module
+
+**ISSUE**: The codebase imports `from models.pair_storage import pair_storage` but this file doesn't exist. This suggests either:
+
+1. **Backend Bridge**: Python bot bridges to Go backend pair storage via API calls
+2. **Missing File**: The `bot/models/pair_storage.py` file needs to be created as a wrapper
+3. **Direct JSON Access**: Alternative implementation using direct JSON file manipulation
+
+**Current Pattern**: The bot directly reads/writes `cointegrated_pairs.json` and `bot_agents.json` files:
 
 ```python
+# Current working pattern in func_cointegration.py and func_entry_pairs.py
+import json
+
+# Save pairs directly to JSON
+with open("cointegrated_pairs.json", "w") as f:
+    json.dump(pairs_data, f)
+
+# Load active positions
+with open("bot_agents.json", "r") as f:
+    positions = json.load(f)
+```
+
+### Data Storage Architecture
+
+### Pair Storage System
+
+The project has **dual pair storage implementations**:
+
+**Python Bot Side** (`bot/func_cointegration.py`):
+
+- **IMPORTANT**: Imports use `from models.pair_storage import pair_storage` but the actual implementation bridges to Go backend services
+- Uses `pair_storage.save_pairs()` and `pair_storage.load_pairs()` for cointegration results
+- JSON Primary: `cointegrated_pairs.json` with metadata and confidence scores
+- CSV Fallback: Legacy `cointegrated_pairs.csv` for backward compatibility
+- Timestamped Backups: `pair_history/pairs_*.json` with cleanup policies
+
+**Backend Go Implementation** (`backend/internal/services/pair_storage.go`):
+
+- **Singleton pattern**: `GetPairStorage()` returns shared `PairStorageManager` instance
+- **JSON-first storage**: Structured format with metadata, version info, confidence scores
+- **CSV compatibility**: Maintains legacy CSV format for older bot versions
+- **API endpoints**: `/api/v1/pairs/*` for external access to stored pairs
+
+```python
+# Python usage (func_cointegration.py, func_entry_pairs.py)
 from models.pair_storage import pair_storage
 
 # Load with format detection (JSON preferred, CSV fallback)
 pairs = pair_storage.load_pairs()
 
 # Save (creates JSON + CSV + timestamped backup automatically)
-pair_storage.save_pairs(pairs)
+result = pair_storage.save_pairs(criteria_met_pairs)
 
 # High-confidence filtering
 high_confidence = pair_storage.get_high_confidence_pairs()  # score >= 0.7
+```
+
+```go
+// Go backend usage (backend/internal/services/)
+storage := services.GetPairStorage()
+pairs, err := storage.LoadPairs()
+result, err := storage.SavePairs(pairs)
 ```
 
 ### Position Tracking (`bot_agents.json`)
@@ -727,6 +842,263 @@ make run           # Standalone bot
 python start_api.py # Multi-instance API server
 ```
 
+## Complete API Endpoint Reference
+
+### Bot API (FastAPI - Port 8000)
+
+#### Authentication Endpoints
+
+- `POST /auth/login` - Login with username/password → returns `{access_token, refresh_token}`
+- `POST /auth/refresh` - Refresh expired access token
+- `POST /auth/register` - Register new user account
+- `POST /auth/logout` - Logout and invalidate tokens
+- `POST /auth/2fa/setup` - Enable TOTP 2FA
+- `POST /auth/2fa/verify` - Verify 2FA token during login
+- `GET /auth/me` - Get current user profile
+
+#### Bot Management Endpoints
+
+- `POST /api/v1/bots` - Create new bot instance
+  ```json
+  {
+    "instance_id": "bot-001",
+    "credentials": { "address": "...", "mnemonic": "..." },
+    "trading_params": { "is_testnet": true, "zscore_threshold": 1.5 }
+  }
+  ```
+- `GET /api/v1/bots` - List all bot instances
+- `GET /api/v1/bots/{instance_id}` - Get bot status
+- `POST /api/v1/bots/{instance_id}/start` - Start bot trading
+- `POST /api/v1/bots/{instance_id}/stop` - Stop bot gracefully
+- `POST /api/v1/bots/{instance_id}/restart` - Restart bot
+- `DELETE /api/v1/bots/{instance_id}` - Delete bot instance
+- `POST /api/v1/bots/quick-deploy` - Fast bot deployment
+
+#### Position Monitoring
+
+- `GET /api/v1/bots/{instance_id}/positions/current` - Active positions
+- `GET /api/v1/bots/{instance_id}/positions/{position_id}` - Position details
+- `GET /api/v1/bots/{instance_id}/position-history/{position_id}` - Position history
+- `GET /api/v1/bots/{instance_id}/trades` - All trades (paginated)
+
+#### Analytics & Stats
+
+- `GET /api/v1/bots/{instance_id}/stats` - Performance statistics
+- `GET /api/v1/bots/{instance_id}/realtime-stats` - Real-time P&L updates
+- `GET /api/v1/bots/{instance_id}/history` - Execution history
+- `GET /api/v1/bots/{instance_id}/jobs` - Job queue status
+- `GET /api/v1/bots/{instance_id}/market-data` - Current market data
+- `GET /api/v1/bots/{instance_id}/alerts` - Alert history
+
+#### System Status
+
+- `GET /health` - Health check
+- `GET /api/v1/system/status` - System status and resource usage
+
+### Backend API (Go REST API - Port 8888)
+
+#### Authentication
+
+- `POST /api/v1/auth/login` - Go backend authentication
+- `POST /api/v1/auth/refresh` - Refresh tokens
+- `GET /api/v1/users/me` - Current user profile
+
+#### Backtest Management (Delegated to Bot API)
+
+- `POST /api/v1/backtests` - Create/run backtest
+- `GET /api/v1/backtests` - List backtests
+- `GET /api/v1/backtests/{run_id}` - Get backtest results
+- `GET /api/v1/backtests/stats/summary` - Backtest statistics
+- `WebSocket /ws/backtest/{run_id}` - Real-time progress updates
+
+#### Pair Storage
+
+- `GET /api/v1/pairs/load` - Load cointegrated pairs
+- `POST /api/v1/pairs/save` - Save analysis results
+- `GET /api/v1/pairs/best` - Get top pairs by confidence
+- `GET /api/v1/pairs/high-confidence` - Filter high-confidence pairs
+- `GET /api/v1/pairs/storage-info` - Storage statistics
+
+#### dYdX Key Management
+
+- `POST /api/v1/keys` - Store encrypted dYdX key
+- `GET /api/v1/keys` - List stored keys
+- `DELETE /api/v1/keys/{key_id}` - Delete key
+
+#### Strategy Management
+
+- `POST /api/v1/strategies` - Save trading strategy
+- `GET /api/v1/strategies` - List strategies
+- `PUT /api/v1/strategies/{strategy_id}` - Update strategy
+- `DELETE /api/v1/strategies/{strategy_id}` - Delete strategy
+
+## Bot Database Models
+
+### Python Bot Database (SQLAlchemy ORM)
+
+**BotInstance** - Individual bot instance lifecycle
+
+```python
+- instance_id: str (unique)
+- status: BotStatusEnum (CREATED, RUNNING, STOPPED, FAILED, etc.)
+- process_id: int
+- configuration: JSON
+- created_at: datetime
+- started_at: datetime
+```
+
+**Job** - Task execution tracking
+
+```python
+- instance_id: str (FK)
+- job_type: JobStatusEnum (cointegration, entry, exit, etc.)
+- status: str
+- result: JSON
+- error_message: str
+- started_at, completed_at: datetime
+```
+
+**Trade** - Individual trade records
+
+```python
+- instance_id: str (FK)
+- market_1, market_2: str
+- entry_timestamp: datetime
+- hedge_ratio: float
+- z_score_entry: float
+- status: TradeStatusEnum
+- pnl: float
+- exit_timestamp: datetime
+```
+
+### Backend Database Models (Go)
+
+**BacktestStrategy** - Saved trading strategies
+
+```go
+- Name, Description: string
+- ZscoreThreshold, MaxHalfLife, UsdPerTrade: float/int
+- FindCointegratedPairs, ManageExits, PlaceTrades: bool
+- MaxPositions, StopLossPct, TakeProfitPct: int/float
+```
+
+**BacktestRun** - Backtest execution records
+
+```go
+- RunID: string (unique)
+- Status: string (running, completed, failed)
+- StartDate, EndDate: string
+- NumPairs, TotalMarkets: int
+- TotalPnL, TotalReturn: float
+- EquityCurve: JSON array
+- TradingStats: JSON (Sharpe, MaxDD, WinRate, etc.)
+```
+
+**DYDXKey** - Encrypted dYdX credentials
+
+```go
+- UserID: int (FK)
+- Network: string (testnet/mainnet)
+- ChainAddress: string
+- EncryptedSecret: string (AES-256-GCM)
+```
+
+## Frontend Implementation Details
+
+### Page Components
+
+- **Login.tsx** - Authentication UI, TOTP 2FA support
+- **Dashboard.tsx** - Main hub with bot status, backtest runner
+- **BacktestDetails.tsx** - Detailed results with charts (equity curve, P&L scatter)
+- **Settings.tsx** - User settings, dYdX key management, Redis configuration
+- **BacktestDetailsV2.tsx** - Enhanced comparison and analytics
+
+### Reusable Components
+
+- **BacktestRunner.tsx** - Form for backtest parameters (dates, pairs, thresholds)
+- **BacktestList.tsx** - Table of runs with filters and sorting
+- **BacktestProgress.tsx** - Real-time progress bar via WebSocket
+- **PerformanceMetrics.tsx** - P&L display, key metrics
+- **TradeHistory.tsx** - Trade-by-trade breakdown with entry/exit details
+- **DYDXKeyManager.tsx** - Credential encryption and storage UI
+- **StrategyManager.tsx** - Create, save, and manage trading strategies
+- **Sidebar.tsx** - Navigation and bot status indicator
+
+### Zustand Stores
+
+- **useAuthStore** (`store/auth.ts`) - User state, login/logout, token management
+- Additional stores for backtest state, settings, real-time updates
+
+### WebSocket Integration
+
+```typescript
+// Real-time backtest progress
+ws://localhost:8888/ws/backtest/{runId}?token=JWT_TOKEN
+// Messages: {progress: 0-100, current_pair: string, status: string}
+```
+
+## Environmental Variables Reference
+
+### Python Bot (.env)
+
+```bash
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=bot_user
+DB_PASSWORD=***
+DB_NAME=trading_bot
+
+# Redis (caching)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# dYdX
+DYDX_ACCOUNT_ADDRESS=dydx1...
+DYDX_MNEMONIC=***
+IS_TESTNET=true
+
+# Telegram Alerts
+TELEGRAM_BOT_TOKEN=***
+TELEGRAM_CHAT_ID=***
+
+# JWT
+JWT_SECRET_KEY=***
+JWT_ALGORITHM=HS256
+
+# Logging
+LOG_LEVEL=INFO
+```
+
+### Go Backend (.env)
+
+```bash
+# Database
+DB_TYPE=postgres  # or sqlite
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=***
+DB_NAME=dydx_bot
+
+# Encryption
+ENCRYPTION_KEY=***  # For AES-256-GCM
+
+# API
+API_PORT=8888
+BOT_API_URL=http://localhost:8000
+
+# JWT
+JWT_SECRET=***
+```
+
+### Frontend (Vite)
+
+```bash
+VITE_API_URL=http://localhost:8888
+VITE_BOT_API_URL=http://localhost:8000
+```
+
 ## Bot-Specific Anti-Patterns
 
 ❌ **Don't**: Call `config()` in functions - use constants instead
@@ -741,3 +1113,276 @@ python start_api.py # Multi-instance API server
 ✅ **Do**: Handle both orders in BotAgent atomically with emergency cleanup
 ✅ **Do**: Load environment variables first in any new script
 ✅ **Do**: Use SmartError for graceful cointegration analysis degradation
+✅ **Do**: Encrypt sensitive data (mnemonics, API keys) before persistence
+✅ **Do**: Always use JWT Bearer tokens for authenticated API calls
+
+## Key Implementation Patterns
+
+### Position Entry Pattern (Atomic Paired Trades)
+
+```python
+# func_entry_pairs.py pattern
+async def open_positions(client):
+    pairs = pair_storage.load_pairs()  # Load cointegrated pairs
+
+    for pair in pairs:
+        # Calculate current Z-score
+        zscore = calculate_zscore(
+            await get_candles_recent(client, pair.base_market),
+            await get_candles_recent(client, pair.quote_market),
+            pair.hedge_ratio
+        )
+
+        # Entry trigger
+        if abs(zscore) >= ZSCORE_THRESH:
+            agent = BotAgent(client, pair.base_market, pair.quote_market, ...)
+            result = await agent.open_trades()  # Atomic execution
+
+            if result["pair_status"] == "LIVE":
+                bot_agents.append(result)  # Save position
+```
+
+### Error Recovery Pattern
+
+```python
+# Critical operations must handle failures gracefully
+try:
+    result = await critical_operation()
+except Exception as e:
+    logger.error("Operation failed: %s", e)
+    messenger.send_error_message("Error", str(e), is_critical=True)
+    exit(1)  # Don't silently continue with orphaned state
+
+# Non-critical operations skip and log
+try:
+    result = await non_critical_operation()
+except SmartError as e:
+    logger.debug("Skipping: %s", e)
+    continue  # Move to next item
+```
+
+### Number Precision Pattern
+
+```python
+# ALWAYS format numbers for dYdX exchange
+from func_utils import format_number
+
+# Get market metadata for precision
+markets = await get_markets(client)
+market = markets[market_id]
+
+# Format: amount, ticket size, step size
+size = format_number(usd_amount / price, market["minOrderSize"])
+price = format_number(current_price, market["stepSize"])
+
+# Then place order with formatted values
+order = await place_market_order(client, market_id, side, size, price)
+```
+
+### WebSocket Real-Time Updates (Backend → Frontend)
+
+```typescript
+// Frontend WebSocket connection pattern
+const connectBacktestSocket = (runId: string, token: string) => {
+  const ws = new WebSocket(
+    `ws://localhost:8888/ws/backtest/${runId}?token=${token}`
+  );
+
+  ws.onmessage = (event) => {
+    const update = JSON.parse(event.data);
+    // {progress: 0-100, current_pair: string, status: string}
+    updateBacktestProgress(update);
+  };
+
+  ws.onclose = () => logger.log("🔌 Backtest socket disconnected");
+};
+```
+
+### Multi-Instance State Management Pattern
+
+```python
+# bot_instance_manager.py manages isolated state per instance
+class BotInstanceManager:
+    def __init__(self):
+        self.instances: Dict[str, BotState] = {}
+
+    def create_instance(self, instance_id: str) -> BotState:
+        # Each instance gets isolated files
+        bot_agents_file = f"bot_agents_{instance_id}.json"
+        pairs_file = f"cointegrated_pairs_{instance_id}.json"
+        log_file = f"bot_{instance_id}.log"
+
+        return BotState(
+            instance_id=instance_id,
+            process=None,
+            config_file=None,
+            state_files={...}
+        )
+```
+
+### Backtest Execution Pattern
+
+```python
+# func_backtesting.py demonstrates backtest engine structure
+class BacktestEngine:
+    async def run_backtest(self, strategy_params):
+        # 1. Load historical data
+        df = await self._fetch_historical_data()
+
+        # 2. Find cointegrated pairs at analysis date
+        pairs = await self._find_cointegrated_pairs()
+
+        # 3. Simulate trading loop
+        for date in date_range:
+            # Entry signals
+            entries = self._check_entry_signals(date, pairs)
+
+            # Execute trades
+            for entry in entries:
+                self.trades.append(await self._simulate_trade(entry, date))
+
+            # Exit signals
+            exits = self._check_exit_signals(date)
+            for exit in exits:
+                self.trades[-1].close(exit)
+
+        # 4. Calculate metrics
+        return BacktestResult(
+            pnl=sum(t.pnl for t in self.trades),
+            sharpe=calculate_sharpe(...),
+            max_dd=calculate_max_dd(...)
+        )
+```
+
+### JWT Authentication Pattern (Python & Go)
+
+```python
+# Python: Validate token in auth_middleware.py
+async def get_current_active_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials"
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+    except JWTError:
+        raise credentials_exception
+
+    user = get_user(username)
+    return user
+```
+
+```go
+// Go: JWT middleware in internal/middleware/
+func RequireAuth() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := c.GetHeader("Authorization")
+        claims, err := jwt.Parse(token, ...)
+        if err != nil || !claims.Valid {
+            c.JSON(401, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+        c.Set("user_id", claims.Subject)
+        c.Next()
+    }
+}
+```
+
+### Encryption Pattern (AES-256-GCM)
+
+```go
+// Backend key encryption in internal/services/key_service.go
+func (ks *KeyService) EncryptSecret(plaintext string) (string, error) {
+    key := []byte(os.Getenv("ENCRYPTION_KEY"))
+    plainBytes := []byte(plaintext)
+
+    // Generate nonce
+    nonce := make([]byte, 12)
+    rand.Read(nonce)
+
+    // AES-256-GCM encrypt
+    cipher, _ := aes.NewCipher(key)
+    aesgcm, _ := cipher.AEAD(cipher.BlockSize())
+    ciphertext := aesgcm.Seal(nonce, nonce, plainBytes, nil)
+
+    return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+```
+
+## Common Debugging Scenarios
+
+### Bot Won't Start
+
+1. Check `load_dotenv()` is first line in `main.py`
+2. Verify `.env` file exists with all required variables
+3. Check database connection: `make migrate-up` in `backend/`
+4. Look for port conflicts (8000 bot API, 8888 Go API, 5173 frontend)
+
+### Orders Not Executing
+
+1. Verify dYdX network (testnet vs mainnet) matches configuration
+2. Check balance with `GET /api/v1/bots/{id}/stats` → current_balance
+3. Ensure market prices haven't changed dramatically (check Z-score in response)
+4. Look for `SmartError` in logs for precision/format issues
+
+### Positions Not Closing on Exit
+
+1. Verify Z-score is properly crossing zero in exit condition
+2. Check `CLOSE_AT_ZSCORE_CROSS` flag is `true` in config
+3. Verify reduce_only flag is working (check exchange order details)
+4. Look for emergency cleanup in logs if market_2 order failed
+
+### WebSocket Not Receiving Updates
+
+1. Verify JWT token in WebSocket URL is valid and not expired
+2. Check backend firewall allows WebSocket connections
+3. Verify `ws://` protocol (not `http://`) in frontend connection
+4. Check `allowOrigins` CORS configuration in backend
+
+### High Latency/Slow Backtests
+
+1. Reduce `num_pairs` in backtest parameters
+2. Use shorter date ranges for testing
+3. Check Redis is running if caching is enabled
+4. Profile with `make backtest-quick` (1 month) first
+
+## Deployment Quick Reference
+
+### Local Development (All Components)
+
+```bash
+# Terminal 1: Backend
+cd backend && make dev
+
+# Terminal 2: Bot API
+cd bot && python start_api.py
+
+# Terminal 3: Frontend
+cd frontend && npm run dev
+
+# Terminal 4: Standalone bot (optional)
+cd bot && python main.py
+```
+
+### Docker Stack
+
+```bash
+make docker-up          # Full stack
+make docker-logs -f     # Stream logs
+make docker-down        # Stop all services
+```
+
+### Production Checklist
+
+- [ ] Change default admin credentials
+- [ ] Set strong JWT_SECRET_KEY and ENCRYPTION_KEY
+- [ ] Use PostgreSQL instead of SQLite
+- [ ] Configure Redis for caching
+- [ ] Set up Telegram alerts
+- [ ] Enable TOTP 2FA for all users
+- [ ] Use HTTPS/TLS in frontend/backend communication
+- [ ] Set up proper database backups
+- [ ] Monitor disk space (backtest data grows)
+- [ ] Configure rate limiting in Go middleware

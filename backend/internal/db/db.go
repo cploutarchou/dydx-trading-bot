@@ -23,8 +23,6 @@ import (
 )
 
 var (
-	// DB is the global database instance (deprecated: use dependency injection instead)
-	DB *Database
 	// ErrNilConnection indicates the database connection is nil
 	ErrNilConnection = errors.New("database connection is nil")
 	// ErrInvalidDriver indicates an unsupported database driver
@@ -394,7 +392,7 @@ func runMigrations(cfg Config) error {
 
 	m, err := migrate.New(sourceURL, dbURL)
 	if err != nil {
-		// If there's an error creating the migrate instance, it might be due to invalid migration state
+		// If there's an error creating the migrate instance, it might be due to an invalid migration state
 		// Try to recover by forcing the version
 		errStr := err.Error()
 		if strings.Contains(strings.ToLower(errStr), "no migration found") {
@@ -402,14 +400,19 @@ func runMigrations(cfg Config) error {
 			// Create a temporary instance just to fix the state
 			tempM, tempErr := migrate.New(sourceURL, dbURL)
 			if tempErr == nil {
-				defer tempM.Close()
+				defer func(tempM *migrate.Migrate) {
+					err, _ := tempM.Close()
+					if err != nil {
+						log.Printf("⚠️  Failed to close temporary migrate instance: %v", err)
+					}
+				}(tempM)
 				// Get current version
 				ver, _, verErr := tempM.Version()
 				if verErr == nil {
 					log.Printf("⚠️  Forcing version %d to resolve migration state...", ver)
 					if fErr := tempM.Force(int(ver)); fErr == nil {
 						log.Printf("✅ Migration state recovered. Retrying...")
-						// Retry creating the migrate instance
+						// Retry creating the migrated instance
 						m, err = migrate.New(sourceURL, dbURL)
 					}
 				}
@@ -427,7 +430,7 @@ func runMigrations(cfg Config) error {
 	}()
 
 	// Run migrations with handling for dirty database state
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		// If the DB is left dirty from a previous failed migration, migrate returns an error like:
 		// "dirty database version X. Fix and force version." In that case we try to recover by
 		// reading the current version and forcing it (which clears the dirty flag), then retrying once.
@@ -447,7 +450,7 @@ func runMigrations(cfg Config) error {
 					return fmt.Errorf("failed to force migration version %d: %w (original: %v)", ver, fErr, err)
 				}
 				// Retry Up once after forcing
-				if rErr := m.Up(); rErr != nil && rErr != migrate.ErrNoChange {
+				if rErr := m.Up(); rErr != nil && !errors.Is(migrate.ErrNoChange, rErr) {
 					return fmt.Errorf("migration retry failed after forcing version %d: %w", ver, rErr)
 				}
 				log.Printf("✅ Migration recovered after forcing version %d", ver)

@@ -87,12 +87,17 @@ export const RegisterPage: React.FC = () => {
         }
 
         try {
-            console.log('📝 RegisterPage: Calling register()');
+            console.log('📝 RegisterPage: Calling register() with:', {
+                username: formData.username,
+                email: formData.email,
+            });
             await register(formData.username, formData.email, formData.password);
             console.log('📝 RegisterPage: Registration successful, navigating to 2FA setup');
             navigate('/2fa-setup');
         } catch (err) {
             console.error('❌ RegisterPage: Registration failed:', err);
+            const errorMsg = err instanceof Error ? err.message : 'Registration failed. Please try again.';
+            console.error('❌ RegisterPage: Error message:', errorMsg);
         }
     };
 
@@ -115,10 +120,12 @@ export const RegisterPage: React.FC = () => {
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Username */}
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="username" className="block text-sm font-medium text-slate-700 mb-2">
                                 Username
                             </label>
                             <input
+                                id="username"
+                                name="username"
                                 type="text"
                                 value={formData.username}
                                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
@@ -135,10 +142,12 @@ export const RegisterPage: React.FC = () => {
 
                         {/* Email */}
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">
                                 Email Address
                             </label>
                             <input
+                                id="email"
+                                name="email"
                                 type="email"
                                 value={formData.email}
                                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -155,10 +164,12 @@ export const RegisterPage: React.FC = () => {
 
                         {/* Password */}
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-2">
                                 Password
                             </label>
                             <input
+                                id="password"
+                                name="password"
                                 type="password"
                                 value={formData.password}
                                 onChange={handlePasswordChange}
@@ -190,10 +201,12 @@ export const RegisterPage: React.FC = () => {
 
                         {/* Confirm Password */}
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-700 mb-2">
                                 Confirm Password
                             </label>
                             <input
+                                id="confirmPassword"
+                                name="confirmPassword"
                                 type="password"
                                 value={formData.confirmPassword}
                                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}

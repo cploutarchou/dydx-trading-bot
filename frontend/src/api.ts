@@ -292,6 +292,32 @@ class ApiClient {
     return response.data;
   }
 
+  // 2FA (TOTP) endpoints
+  async setup2FA(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: setup2FA() called');
+    try {
+      const response = await this.client.post<ApiResponse>('/api/v1/auth/2fa/setup', {});
+      console.log('✅ api.ts: setup2FA response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: setup2FA failed:', error);
+      throw error;
+    }
+  }
+
+  async verify2FA(token: string): Promise<ApiResponse> {
+    console.log('🔌 api.ts: verify2FA() called');
+    try {
+      const response = await this.client.post<ApiResponse>('/api/v1/auth/2fa/verify', { token });
+      console.log('✅ api.ts: verify2FA response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: verify2FA failed:', error);
+      throw error;
+    }
+  }
+
   // Backtest endpoints
   async listBacktests(skip: number = 0, limit: number = 50): Promise<ApiResponse> {
     this.ensureTokenLoaded();

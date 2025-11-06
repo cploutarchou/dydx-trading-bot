@@ -21,11 +21,18 @@ interface AuthStore {
     user: User | null;
     loading: boolean;
     error: string | null;
+    twoFARequired: boolean;
+    twoFASecret?: string;
+    twoFAQRCode?: string;
+    backupCodes?: string[];
     login: (username: string, password: string) => Promise<void>;
     register: (username: string, email: string, password: string) => Promise<void>;
+    setup2FA: () => Promise<void>;
+    verify2FA: (token: string) => Promise<void>;
     logout: () => void;
     getCurrentUser: () => Promise<void>;
     isAuthenticated: () => boolean;
+    has2FAEnabled: () => boolean;
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -34,6 +41,10 @@ export const useAuthStore = create<AuthStore>()(
             user: null,
             loading: false,
             error: null,
+            twoFARequired: false,
+            twoFASecret: undefined,
+            twoFAQRCode: undefined,
+            backupCodes: undefined,
 
             login: async (username: string, password: string) => {
                 console.log('🔐 auth.ts: login() called with username:', username);
@@ -67,14 +78,25 @@ export const useAuthStore = create<AuthStore>()(
             },
 
             register: async (username: string, email: string, password: string) => {
+                console.log('🔐 auth.ts: register() called with username:', username);
                 set({ loading: true, error: null });
                 try {
-                    await api.register({ username, email, password });
+                    console.log('🔐 auth.ts: Calling api.register()');
+                    const registerResponse = await api.register({ username, email, password });
+                    console.log('🔐 auth.ts: api.register() succeeded:', registerResponse);
+
+                    // Registration successful, now try to auto-login
+                    console.log('🔐 auth.ts: Registration successful, attempting auto-login');
                     await get().login(username, password);
-                } catch (error: any) {
-                    set({ error: error.message || 'Registration failed' });
+                    console.log('🔐 auth.ts: Auto-login after registration succeeded');
+                } catch (error: Error | unknown) {
+                    const errorMessage = error instanceof Error ? error.message : 'Registration failed';
+                    console.error('❌ auth.ts: register() error:', error);
+                    set({ error: errorMessage, loading: false });
+                    throw error; // Re-throw so component can handle it
                 } finally {
-                    set({ loading: false });
+                    // Make sure loading is always set to false
+                    set((state) => ({ loading: state.error ? state.loading : false }));
                 }
             },
 
@@ -99,6 +121,53 @@ export const useAuthStore = create<AuthStore>()(
 
             isAuthenticated: () => {
                 return get().user !== null;
+            },
+
+            setup2FA: async () => {
+                console.log('🔐 auth.ts: setup2FA() called');
+                set({ loading: true, error: null });
+                try {
+                    const response = await api.setup2FA();
+                    const { qr_code, secret, backup_codes } = response.data || response;
+                    set({
+                        twoFAQRCode: qr_code,
+                        twoFASecret: secret,
+                        backupCodes: backup_codes,
+                    });
+                    console.log('🔐 auth.ts: 2FA setup successful');
+                } catch (error: Error | unknown) {
+                    const errorMessage = error instanceof Error ? error.message : 'Failed to setup 2FA';
+                    console.error('❌ auth.ts: setup2FA failed:', error);
+                    set({ error: errorMessage });
+                } finally {
+                    set({ loading: false });
+                }
+            },
+
+            verify2FA: async (token: string) => {
+                console.log('🔐 auth.ts: verify2FA() called');
+                set({ loading: true, error: null });
+                try {
+                    const response = await api.verify2FA(token);
+                    if (response.success) {
+                        set({
+                            twoFARequired: false,
+                            twoFAQRCode: undefined,
+                            twoFASecret: undefined,
+                        });
+                        console.log('🔐 auth.ts: 2FA verification successful');
+                    }
+                } catch (error: Error | unknown) {
+                    const errorMessage = error instanceof Error ? error.message : 'Failed to verify 2FA token';
+                    console.error('❌ auth.ts: verify2FA failed:', error);
+                    set({ error: errorMessage });
+                } finally {
+                    set({ loading: false });
+                }
+            },
+
+            has2FAEnabled: () => {
+                return get().user?.is_active ?? false;
             },
         }),
         {

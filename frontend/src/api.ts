@@ -292,6 +292,32 @@ class ApiClient {
     return response.data;
   }
 
+  // 2FA (TOTP) endpoints
+  async setup2FA(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: setup2FA() called');
+    try {
+      const response = await this.client.post<ApiResponse>('/api/v1/auth/2fa/setup', {});
+      console.log('✅ api.ts: setup2FA response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: setup2FA failed:', error);
+      throw error;
+    }
+  }
+
+  async verify2FA(token: string): Promise<ApiResponse> {
+    console.log('🔌 api.ts: verify2FA() called');
+    try {
+      const response = await this.client.post<ApiResponse>('/api/v1/auth/2fa/verify', { token });
+      console.log('✅ api.ts: verify2FA response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: verify2FA failed:', error);
+      throw error;
+    }
+  }
+
   // Backtest endpoints
   async listBacktests(skip: number = 0, limit: number = 50): Promise<ApiResponse> {
     this.ensureTokenLoaded();
@@ -579,6 +605,275 @@ class ApiClient {
     const url = `/api/v1/backtests/${runId}/trades?${params}`;
     const response = await this.client.get<ApiResponse>(url);
     return response.data;
+  }
+
+  // Bot Instance Management (delegated from Python bot API to backend)
+  async createBotInstance(data: {
+    instance_id: string;
+    credentials: {
+      chain_id: string;
+      address: string;
+      mnemonic: string;
+    };
+    trading_params: {
+      is_testnet: boolean;
+      zscore_threshold?: number;
+      max_half_life?: number;
+      usd_per_trade?: number;
+    };
+  }): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: createBotInstance() called with:', data.instance_id);
+    try {
+      const response = await this.client.post<ApiResponse>('/api/v1/bots', data);
+      console.log('✅ api.ts: createBotInstance response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: createBotInstance failed:', error);
+      throw error;
+    }
+  }
+
+  async listBotInstances(skip: number = 0, limit: number = 50): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: listBotInstances() called');
+    try {
+      const response = await this.client.get<ApiResponse>(`/api/v1/bots?skip=${skip}&limit=${limit}`);
+      console.log('✅ api.ts: listBotInstances response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: listBotInstances failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotInstance(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotInstance() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}`);
+      console.log('✅ api.ts: getBotInstance response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotInstance failed:', error);
+      throw error;
+    }
+  }
+
+  async startBotInstance(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: startBotInstance() called for:', instanceId);
+    try {
+      const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/start`, {});
+      console.log('✅ api.ts: startBotInstance response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: startBotInstance failed:', error);
+      throw error;
+    }
+  }
+
+  async stopBotInstance(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: stopBotInstance() called for:', instanceId);
+    try {
+      const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/stop`, {});
+      console.log('✅ api.ts: stopBotInstance response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: stopBotInstance failed:', error);
+      throw error;
+    }
+  }
+
+  async restartBotInstance(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: restartBotInstance() called for:', instanceId);
+    try {
+      const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/restart`, {});
+      console.log('✅ api.ts: restartBotInstance response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: restartBotInstance failed:', error);
+      throw error;
+    }
+  }
+
+  async deleteBotInstance(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: deleteBotInstance() called for:', instanceId);
+    try {
+      const response = await this.client.delete<ApiResponse>(`/api/v1/bots/${instanceId}`);
+      console.log('✅ api.ts: deleteBotInstance response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: deleteBotInstance failed:', error);
+      throw error;
+    }
+  }
+
+  // Bot Positions & Trading
+  async getBotCurrentPositions(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotCurrentPositions() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/positions/current`);
+      console.log('✅ api.ts: getBotCurrentPositions response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotCurrentPositions failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotPositionDetails(instanceId: string, positionId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotPositionDetails() called for:', instanceId, 'position:', positionId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/positions/${positionId}`
+      );
+      console.log('✅ api.ts: getBotPositionDetails response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotPositionDetails failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotPositionHistory(instanceId: string, positionId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotPositionHistory() called for:', instanceId, 'position:', positionId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/position-history/${positionId}`
+      );
+      console.log('✅ api.ts: getBotPositionHistory response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotPositionHistory failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotTrades(
+    instanceId: string,
+    skip: number = 0,
+    limit: number = 50
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotTrades() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/trades?skip=${skip}&limit=${limit}`
+      );
+      console.log('✅ api.ts: getBotTrades response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotTrades failed:', error);
+      throw error;
+    }
+  }
+
+  // Bot Statistics & Analytics
+  async getBotStats(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotStats() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/stats`);
+      console.log('✅ api.ts: getBotStats response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotStats failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotRealtimeStats(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotRealtimeStats() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/realtime-stats`
+      );
+      console.log('✅ api.ts: getBotRealtimeStats response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotRealtimeStats failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotHistory(instanceId: string, skip: number = 0, limit: number = 100): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotHistory() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/history?skip=${skip}&limit=${limit}`
+      );
+      console.log('✅ api.ts: getBotHistory response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotHistory failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotJobs(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotJobs() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/jobs`);
+      console.log('✅ api.ts: getBotJobs response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotJobs failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotMarketData(instanceId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotMarketData() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/market-data`
+      );
+      console.log('✅ api.ts: getBotMarketData response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotMarketData failed:', error);
+      throw error;
+    }
+  }
+
+  async getBotAlerts(instanceId: string, skip: number = 0, limit: number = 50): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: getBotAlerts() called for:', instanceId);
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/alerts?skip=${skip}&limit=${limit}`
+      );
+      console.log('✅ api.ts: getBotAlerts response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: getBotAlerts failed:', error);
+      throw error;
+    }
+  }
+
+  // Bot Configuration Updates
+  async updateBotConfig(instanceId: string, config: any): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    console.log('🔌 api.ts: updateBotConfig() called for:', instanceId);
+    try {
+      const response = await this.client.put<ApiResponse>(`/api/v1/bots/${instanceId}/config`, config);
+      console.log('✅ api.ts: updateBotConfig response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ api.ts: updateBotConfig failed:', error);
+      throw error;
+    }
   }
 
   // WebSocket connection for real-time updates

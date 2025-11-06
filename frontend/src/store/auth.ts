@@ -78,14 +78,25 @@ export const useAuthStore = create<AuthStore>()(
             },
 
             register: async (username: string, email: string, password: string) => {
+                console.log('🔐 auth.ts: register() called with username:', username);
                 set({ loading: true, error: null });
                 try {
-                    await api.register({ username, email, password });
+                    console.log('🔐 auth.ts: Calling api.register()');
+                    const registerResponse = await api.register({ username, email, password });
+                    console.log('🔐 auth.ts: api.register() succeeded:', registerResponse);
+
+                    // Registration successful, now try to auto-login
+                    console.log('🔐 auth.ts: Registration successful, attempting auto-login');
                     await get().login(username, password);
-                } catch (error: any) {
-                    set({ error: error.message || 'Registration failed' });
+                    console.log('🔐 auth.ts: Auto-login after registration succeeded');
+                } catch (error: Error | unknown) {
+                    const errorMessage = error instanceof Error ? error.message : 'Registration failed';
+                    console.error('❌ auth.ts: register() error:', error);
+                    set({ error: errorMessage, loading: false });
+                    throw error; // Re-throw so component can handle it
                 } finally {
-                    set({ loading: false });
+                    // Make sure loading is always set to false
+                    set((state) => ({ loading: state.error ? state.loading : false }));
                 }
             },
 

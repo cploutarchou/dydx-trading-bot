@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	// PostgreSQL connection string
+	// PostgresSQL connection string
 	dbURL := "postgres://dydx_bot:secure_password@localhost:5432/dydx_bot?sslmode=disable"
 	sourceURL := "file://migrations/postgres"
 

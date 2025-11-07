@@ -540,9 +540,8 @@ class ApiClient {
       );
       console.log('🔌 api.ts: getStrategyVersionHistory response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getStrategyVersionHistory failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -554,9 +553,8 @@ class ApiClient {
       );
       console.log('🔌 api.ts: revertStrategyToVersion response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: revertStrategyToVersion failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -578,9 +576,8 @@ class ApiClient {
       );
       console.log('🔌 api.ts: createStrategyFromBacktest response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: createStrategyFromBacktest failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -659,9 +656,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>('/api/v1/bots', data);
       console.log('✅ api.ts: createBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: createBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -672,9 +668,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots?skip=${skip}&limit=${limit}`);
       console.log('✅ api.ts: listBotInstances response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: listBotInstances failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -685,9 +680,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}`);
       console.log('✅ api.ts: getBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -698,9 +692,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/start`, {});
       console.log('✅ api.ts: startBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: startBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -711,9 +704,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/stop`, {});
       console.log('✅ api.ts: stopBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: stopBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -724,9 +716,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/restart`, {});
       console.log('✅ api.ts: restartBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: restartBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -737,9 +728,8 @@ class ApiClient {
       const response = await this.client.delete<ApiResponse>(`/api/v1/bots/${instanceId}`);
       console.log('✅ api.ts: deleteBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: deleteBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -751,9 +741,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/positions/current`);
       console.log('✅ api.ts: getBotCurrentPositions response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotCurrentPositions failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -766,9 +755,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotPositionDetails response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotPositionDetails failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -781,9 +769,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotPositionHistory response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotPositionHistory failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 

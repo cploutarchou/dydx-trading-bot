@@ -487,9 +487,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>('/api/v1/strategies', data);
       console.log('🔌 api.ts: createStrategy response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: createStrategy failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -511,9 +510,8 @@ class ApiClient {
       const response = await this.client.put<ApiResponse>(`/api/v1/strategies/${strategyId}`, data);
       console.log('🔌 api.ts: updateStrategy response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: updateStrategy failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -523,9 +521,8 @@ class ApiClient {
       const response = await this.client.delete<ApiResponse>(`/api/v1/strategies/${strategyId}`);
       console.log('🔌 api.ts: deleteStrategy response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: deleteStrategy failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 

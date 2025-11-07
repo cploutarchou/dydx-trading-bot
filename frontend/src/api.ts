@@ -6,14 +6,25 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
 
-interface ApiResponse<T = any> {
+// Type-safe error message extractor
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof AxiosError) {
+    return error.response?.data?.message || error.message || 'Unknown error';
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+};
+
+interface ApiResponse<T extends Record<string, unknown> | Token = Record<string, unknown>> {
   success: boolean;
   message: string;
   data?: T;
   timestamp: string;
 }
 
-interface Token {
+interface Token extends Record<string, unknown> {
   access_token: string;
   refresh_token?: string;
   token_type: string;
@@ -31,11 +42,54 @@ interface RegisterRequest {
   password: string;
 }
 
+interface UserProfile extends Record<string, unknown> {
+  id: number;
+  username: string;
+  email: string;
+  is_active: boolean;
+  is_admin: boolean;
+  created_at: string;
+  avatar?: string;
+  full_name?: string;
+}
+
+interface BacktestRequest extends Record<string, unknown> {
+  start_date: string;
+  end_date: string;
+  pairs?: string[];
+  zscore_threshold?: number;
+  max_half_life?: number;
+  usd_per_trade?: number;
+}
+
+interface StrategyRequest extends Record<string, unknown> {
+  name: string;
+  description?: string;
+  zscore_threshold?: number;
+  max_half_life?: number;
+}
+
+interface SettingsUpdate extends Record<string, unknown> {
+  // Settings properties
+  [key: string]: unknown;
+}
+
+interface DYDXKey extends Record<string, unknown> {
+  id?: number;
+  network: string;
+  chain_address: string;
+  encrypted_secret?: string;
+  [key: string]: unknown;
+}
+
+// Type alias for refresh token subscribers - token parameter is used by calling code (line 141)
+type RefreshSubscriber = (token: string) => void;
+
 class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
   private isRefreshing: boolean = false;
-  private refreshSubscribers: Array<(token: string) => void> = [];
+  private refreshSubscribers: RefreshSubscriber[] = [];
 
   constructor() {
     console.log('🔌 api.ts: ApiClient constructor, API_BASE_URL:', API_BASE_URL);
@@ -57,8 +111,9 @@ class ApiClient {
       const token = this.accessToken || this.getTokenFromStorage();
       if (token) {
         // Ensure headers object exists
-        if (!config.headers) config.headers = {} as any;
-        (config.headers as any).Authorization = `Bearer ${token}`;
+        if (config.headers) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
         console.log('✅ Authorization header added for request to:', config.url);
       } else {
         console.warn('⚠️ NO TOKEN - Request to', config.url, 'will fail if auth is required');
@@ -86,7 +141,7 @@ class ApiClient {
               this.refreshSubscribers.push((newToken: string) => {
                 // Update auth header with new token
                 if (error.config && error.config.headers) {
-                  (error.config.headers as any).Authorization = `Bearer ${newToken}`;
+                  error.config.headers.Authorization = `Bearer ${newToken}`;
                   resolve(this.client(error.config));
                 }
               });
@@ -109,7 +164,7 @@ class ApiClient {
               { refresh_token: refreshToken }
             );
 
-            const refreshPayload: any = refreshResponse.data?.data || refreshResponse.data;
+            const refreshPayload = (refreshResponse.data?.data || refreshResponse.data) as Token;
             const newAccessToken = refreshPayload?.access_token;
             if (!newAccessToken) {
               throw new Error('Refresh endpoint did not return new access_token');
@@ -124,13 +179,14 @@ class ApiClient {
 
              // Retry original request with new token
              if (error.config && error.config.headers) {
-               (error.config.headers as any).Authorization = `Bearer ${newAccessToken}`;
+               error.config.headers.Authorization = `Bearer ${newAccessToken}`;
                console.log('🔄 api.ts: Retrying original request with new token');
                return this.client(error.config);
              }
-           } catch (refreshError: any) {
+           } catch (refreshError: unknown) {
             // Refresh failed - session truly invalid
-            console.error('❌ api.ts: Token refresh failed, logging out');
+            const errorMsg = refreshError instanceof Error ? refreshError.message : String(refreshError);
+            console.error('❌ api.ts: Token refresh failed, logging out', errorMsg);
             this.refreshSubscribers = [];
             this.logout();
             localStorage.setItem('auth_redirect', 'true');
@@ -255,7 +311,7 @@ class ApiClient {
       console.log('🔌 api.ts: login response:', response.data);
 
       // Extract token payload from nested data when present
-      const payload: any = response.data?.data || response.data;
+      const payload = (response.data?.data || response.data) as Token;
 
       if (payload && payload.access_token) {
         // Use setToken so we persist in both localStorage and cookie
@@ -273,21 +329,19 @@ class ApiClient {
       }
 
       return payload as Token;
-    } catch (error: any) {
-      console.error('❌ api.ts: login failed');
-      console.error('❌ api.ts: error status:', error.response?.status);
-      console.error('❌ api.ts: error data:', error.response?.data);
-      console.error('❌ api.ts: error message:', error.message);
+    } catch (error: unknown) {
+      const errorMsg = error instanceof AxiosError ? error.response?.data?.message || error.message : String(error);
+      console.error('❌ api.ts: login failed:', errorMsg);
       throw error;
     }
   }
 
-  async getCurrentUser(): Promise<any> {
+  async getCurrentUser(): Promise<ApiResponse<UserProfile>> {
     const response = await this.client.get('/api/v1/users/me');
     return response.data;
   }
 
-  async updateProfile(data: any): Promise<ApiResponse> {
+  async updateProfile(data: Partial<UserProfile>): Promise<ApiResponse> {
     const response = await this.client.put<ApiResponse>('/api/v1/profile', data);
     return response.data;
   }
@@ -300,9 +354,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>('/api/v1/auth/2fa/setup', {});
       console.log('✅ api.ts: setup2FA response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: setup2FA failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -312,9 +365,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>('/api/v1/auth/2fa/verify', { token });
       console.log('✅ api.ts: verify2FA response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: verify2FA failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -333,7 +385,7 @@ class ApiClient {
     return response.data;
   }
 
-  async runBacktest(data: any): Promise<any> {
+  async runBacktest(data: BacktestRequest): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     console.log('🔌 api.ts: runBacktest() called with:', JSON.stringify(data, null, 2));
     console.log('🔌 api.ts: current token:', this.accessToken ? `${this.accessToken.substring(0, 30)}...` : 'NONE');
@@ -342,15 +394,8 @@ class ApiClient {
       const response = await this.client.post('/api/v1/backtests/run', data);
       console.log('✅ api.ts: runBacktest response received:', response.status, response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: runBacktest FAILED:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        headers: error.response?.headers,
-        message: error.message
-      });
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -378,7 +423,7 @@ class ApiClient {
     return response.data;
   }
 
-  async updateSettings(updates: Record<string, any>): Promise<ApiResponse> {
+  async updateSettings(updates: SettingsUpdate): Promise<ApiResponse> {
     const response = await this.client.post<ApiResponse>('/api/v1/settings', updates);
     return response.data;
   }
@@ -447,15 +492,14 @@ class ApiClient {
   }
 
   // Strategy endpoints
-  async createStrategy(data: any): Promise<ApiResponse> {
+  async createStrategy(data: StrategyRequest): Promise<ApiResponse> {
     console.log('🔌 api.ts: createStrategy() called with:', data);
     try {
       const response = await this.client.post<ApiResponse>('/api/v1/strategies', data);
       console.log('🔌 api.ts: createStrategy response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: createStrategy failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -471,15 +515,14 @@ class ApiClient {
     return response.data;
   }
 
-  async updateStrategy(strategyId: number, data: any): Promise<ApiResponse> {
+  async updateStrategy(strategyId: number, data: StrategyRequest): Promise<ApiResponse> {
     console.log('🔌 api.ts: updateStrategy() called with:', data);
     try {
       const response = await this.client.put<ApiResponse>(`/api/v1/strategies/${strategyId}`, data);
       console.log('🔌 api.ts: updateStrategy response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: updateStrategy failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -489,9 +532,8 @@ class ApiClient {
       const response = await this.client.delete<ApiResponse>(`/api/v1/strategies/${strategyId}`);
       console.log('🔌 api.ts: deleteStrategy response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: deleteStrategy failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -509,9 +551,8 @@ class ApiClient {
       );
       console.log('🔌 api.ts: getStrategyVersionHistory response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getStrategyVersionHistory failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -523,16 +564,15 @@ class ApiClient {
       );
       console.log('🔌 api.ts: revertStrategyToVersion response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: revertStrategyToVersion failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
   async createStrategyFromBacktest(data: {
     name: string;
     description: string;
-    config: any;
+    config: Record<string, unknown>;
     backtest_run_id: string;
   }): Promise<ApiResponse> {
     console.log('🔌 api.ts: createStrategyFromBacktest() called with:', data);
@@ -547,9 +587,8 @@ class ApiClient {
       );
       console.log('🔌 api.ts: createStrategyFromBacktest response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: createStrategyFromBacktest failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -628,9 +667,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>('/api/v1/bots', data);
       console.log('✅ api.ts: createBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: createBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -641,9 +679,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots?skip=${skip}&limit=${limit}`);
       console.log('✅ api.ts: listBotInstances response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: listBotInstances failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -654,9 +691,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}`);
       console.log('✅ api.ts: getBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -667,9 +703,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/start`, {});
       console.log('✅ api.ts: startBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: startBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -680,9 +715,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/stop`, {});
       console.log('✅ api.ts: stopBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: stopBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -693,9 +727,8 @@ class ApiClient {
       const response = await this.client.post<ApiResponse>(`/api/v1/bots/${instanceId}/restart`, {});
       console.log('✅ api.ts: restartBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: restartBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -706,9 +739,8 @@ class ApiClient {
       const response = await this.client.delete<ApiResponse>(`/api/v1/bots/${instanceId}`);
       console.log('✅ api.ts: deleteBotInstance response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: deleteBotInstance failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -720,9 +752,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/positions/current`);
       console.log('✅ api.ts: getBotCurrentPositions response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotCurrentPositions failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -735,9 +766,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotPositionDetails response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotPositionDetails failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -750,9 +780,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotPositionHistory response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotPositionHistory failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -769,9 +798,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotTrades response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotTrades failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -783,9 +811,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/stats`);
       console.log('✅ api.ts: getBotStats response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotStats failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -798,9 +825,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotRealtimeStats response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotRealtimeStats failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -813,9 +839,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotHistory response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotHistory failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -826,9 +851,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/jobs`);
       console.log('✅ api.ts: getBotJobs response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotJobs failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -841,9 +865,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotMarketData response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotMarketData failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -856,23 +879,21 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotAlerts response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotAlerts failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
   // Bot Configuration Updates
-  async updateBotConfig(instanceId: string, config: any): Promise<ApiResponse> {
+  async updateBotConfig(instanceId: string, config: Record<string, unknown>): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     console.log('🔌 api.ts: updateBotConfig() called for:', instanceId);
     try {
       const response = await this.client.put<ApiResponse>(`/api/v1/bots/${instanceId}/config`, config);
       console.log('✅ api.ts: updateBotConfig response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: updateBotConfig failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -906,14 +927,14 @@ class ApiClient {
   }
 
   // Keys Management (centralized from DYDXKeyManager.tsx)
-  async getKeys(): Promise<ApiResponse<{ keys: any[]; total: number }>> {
+  async getKeys(): Promise<ApiResponse<{ keys: DYDXKey[]; total: number }>> {
     this.ensureTokenLoaded();
     console.log('🔌 api.ts: getKeys() called');
     const response = await this.client.get('/api/v1/keys/list');
     return response.data;
   }
 
-  async createKey(data: any): Promise<ApiResponse<any>> {
+  async createKey(data: DYDXKey): Promise<ApiResponse<DYDXKey>> {
     this.ensureTokenLoaded();
     console.log('🔌 api.ts: createKey() called with:', data);
     const response = await this.client.post('/api/v1/keys/create', data);

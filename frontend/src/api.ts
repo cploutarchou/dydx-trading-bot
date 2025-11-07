@@ -74,11 +74,20 @@ interface SettingsUpdate extends Record<string, unknown> {
   [key: string]: unknown;
 }
 
+interface DYDXKey extends Record<string, unknown> {
+  id?: number;
+  network: string;
+  chain_address: string;
+  encrypted_secret?: string;
+  [key: string]: unknown;
+}
+
 class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
   private isRefreshing: boolean = false;
-  private refreshSubscribers: Array<(newToken: string) => void> = [];
+  // @ts-ignore - token parameter used by calling code
+  private refreshSubscribers: Array<(token: string) => void> = [];
 
   constructor() {
     console.log('🔌 api.ts: ApiClient constructor, API_BASE_URL:', API_BASE_URL);
@@ -787,9 +796,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotTrades response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotTrades failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -801,9 +809,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/stats`);
       console.log('✅ api.ts: getBotStats response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotStats failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -816,9 +823,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotRealtimeStats response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotRealtimeStats failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -831,9 +837,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotHistory response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotHistory failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -844,9 +849,8 @@ class ApiClient {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/jobs`);
       console.log('✅ api.ts: getBotJobs response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotJobs failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -859,9 +863,8 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotMarketData response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotMarketData failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -874,23 +877,21 @@ class ApiClient {
       );
       console.log('✅ api.ts: getBotAlerts response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: getBotAlerts failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
   // Bot Configuration Updates
-  async updateBotConfig(instanceId: string, config: any): Promise<ApiResponse> {
+  async updateBotConfig(instanceId: string, config: Record<string, unknown>): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     console.log('🔌 api.ts: updateBotConfig() called for:', instanceId);
     try {
       const response = await this.client.put<ApiResponse>(`/api/v1/bots/${instanceId}/config`, config);
       console.log('✅ api.ts: updateBotConfig response:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('❌ api.ts: updateBotConfig failed:', error);
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
   }
 
@@ -924,14 +925,14 @@ class ApiClient {
   }
 
   // Keys Management (centralized from DYDXKeyManager.tsx)
-  async getKeys(): Promise<ApiResponse<{ keys: any[]; total: number }>> {
+  async getKeys(): Promise<ApiResponse<{ keys: DYDXKey[]; total: number }>> {
     this.ensureTokenLoaded();
     console.log('🔌 api.ts: getKeys() called');
     const response = await this.client.get('/api/v1/keys/list');
     return response.data;
   }
 
-  async createKey(data: any): Promise<ApiResponse<any>> {
+  async createKey(data: DYDXKey): Promise<ApiResponse<DYDXKey>> {
     this.ensureTokenLoaded();
     console.log('🔌 api.ts: createKey() called with:', data);
     const response = await this.client.post('/api/v1/keys/create', data);

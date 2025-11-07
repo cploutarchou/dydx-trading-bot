@@ -86,8 +86,7 @@ class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
   private isRefreshing: boolean = false;
-  // @ts-ignore - token parameter used by calling code
-  private refreshSubscribers: Array<(token: string) => void> = [];
+  private refreshSubscribers: ((token: string) => void)[] = [];
 
   constructor() {
     console.log('🔌 api.ts: ApiClient constructor, API_BASE_URL:', API_BASE_URL);

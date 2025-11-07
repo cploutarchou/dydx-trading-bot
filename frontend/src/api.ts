@@ -82,11 +82,14 @@ interface DYDXKey extends Record<string, unknown> {
   [key: string]: unknown;
 }
 
+// Type alias for refresh token subscribers - token parameter is used by calling code (line 141)
+type RefreshSubscriber = (token: string) => void;
+
 class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
   private isRefreshing: boolean = false;
-  private refreshSubscribers: ((token: string) => void)[] = [];
+  private refreshSubscribers: RefreshSubscriber[] = [];
 
   constructor() {
     console.log('🔌 api.ts: ApiClient constructor, API_BASE_URL:', API_BASE_URL);

@@ -68,8 +68,8 @@ const BotManager: React.FC = () => {
     for (const bot of bots) {
       try {
         const response = await api.getBotStats(bot.instance_id);
-        if (response.success && response.data) {
-          statsMap[bot.instance_id] = response.data;
+        if (response.success && response.data && typeof response.data === 'object') {
+          statsMap[bot.instance_id] = response.data as unknown as BotStats;
         }
       } catch (err) {
         console.warn(`Failed to load stats for bot ${bot.instance_id}:`, err);

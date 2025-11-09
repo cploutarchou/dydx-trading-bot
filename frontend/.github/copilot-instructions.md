@@ -2,21 +2,26 @@
 
 ## Project Overview
 
-React 19 + TypeScript + Vite frontend for **dYdX pairs trading backtest system** - a statistical arbitrage backtesting UI for cryptocurrency pairs trading. This is the complete frontend implementation; the backend API runs separately on `localhost:8888`.
+React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Backend API runs on `localhost:8888`.
 
 ## Architecture & Tech Stack
 
-| Layer         | Technology                       | Purpose                              |
-| ------------- | -------------------------------- | ------------------------------------ |
-| **Framework** | React 19 + TypeScript 5 + Vite 7 | Modern UI with HMR development       |
-| **State**     | Zustand 5 (with persist)         | Lightweight alternative to Redux     |
-| **Routing**   | React Router v7                  | Client-side navigation               |
-| **Styling**   | Tailwind CSS v4                  | Dark-themed utility styles           |
-| **Charts**    | Recharts 3                       | Financial data visualization         |
-| **HTTP**      | Axios 1 + interceptors           | Centralized API client with JWT auth |
-| **Icons**     | Lucide React                     | UI icons (Loader, Play, etc.)        |
+| Layer             | Technology                     | Purpose                                  |
+| ----------------- | ------------------------------ | ---------------------------------------- |
+| **Framework**     | React 19 + TypeScript 5 + Vite | Modern UI with HMR development           |
+| **Data Fetching** | React Query (TanStack) v5      | Advanced caching, background sync, retry |
+| **State**         | Zustand 5 (with persist)       | Auth state + localStorage persistence    |
+| **Routing**       | React Router v7                | Nested routes with auth guards           |
+| **Styling**       | Tailwind CSS v4                | Dark theme, utility-first CSS            |
+| **Charts**        | Recharts 3                     | Financial data visualization             |
+| **HTTP**          | Axios 1 + interceptors         | JWT auto-injection, 401 handling         |
+| **Icons**         | Lucide React                   | UI icons (Loader, Play, etc.)            |
 
-**Key decision: Zustand over Redux** - See `src/store/auth.ts` - chosen for simplicity and built-in localStorage persistence via middleware.
+**Strategic choices:**
+
+- **React Query over Zustand for API**: Server-state caching, background updates, retry logic separate from auth state
+- **Zustand for auth only**: `enhancedAuth.ts` holds user + preferences, persisted to localStorage
+- **Enhanced client pattern**: `enhancedClient.ts` wraps `api.ts` with bot/backtest methods not yet in base client
 
 ## Development Quick Start
 
@@ -29,61 +34,142 @@ npm run lint         # ESLint check
 
 **DevContainer preferred**: `code frontend/` → click "Reopen in Container" (includes all deps + Docker).
 
-## Core Architecture: Four Layers
+## Core Architecture: Five Layers
 
-### 1. API Client Layer (`src/api.ts`)
+### 1. HTTP Client Layer (`src/api.ts` + `src/api/client.ts`)
 
-**Centralized Axios client** - single source of truth for all backend calls:
+**Centralized Axios client** with request/response interceptors:
 
 ```typescript
 class ApiClient {
-  // JWT auto-injection via request interceptor
-  // 401 handling: logout + redirect to /login
-  // Detailed console logs with 🔌 prefix for debugging
+  // JWT auto-injection + refresh logic
+  // 401 → auto logout + redirect to /login via interceptor
+  // Axios request caching, retry with exponential backoff
+  // Console logs with 🔌 prefix for debugging
 
-  login(username, password): Promise<{ access_token }>; // POST /api/v1/auth/login
-  getCurrentUser(): Promise<User>; // GET /api/v1/users/me
-  listBacktests(skip, limit): Promise<ApiResponse>; // GET /api/v1/backtests?skip=X&limit=Y
-  getBacktest(runId): Promise<BacktestData>; // GET /api/v1/backtests/{runId}
-  runBacktest(params): Promise<{ run_id }>; // POST /api/v1/backtests/run
-  connectBacktestSocket(runId, token): WebSocket; // ws://localhost/ws/backtest/{runId}?token=X
+  login(username, password): Promise<AuthResponse>;
+  register(username, email, password): Promise<User>;
+  getCurrentUser(): Promise<User>;
+
+  // Backtests
+  listBacktests(skip, limit): Promise<ApiResponse<{ backtests: BacktestRun[] }>>;
+  getBacktest(runId): Promise<BacktestData>;
+  runBacktest(params): Promise<{ run_id: string }>;
+  getBacktestTrades(runId, limit, offset): Promise<{ total; trades }>;
+  getBacktestPerformance(runId): Promise<PerformanceMetrics>;
+
+  // WebSocket
+  connectBacktestSocket(runId, token): WebSocket;
 }
 ```
 
-**Pattern**: All endpoints return `{success, message, data, timestamp}` - extract `response.data` and handle nested `response.data.backtests` pattern.
+**Key features:**
 
-### 2. State Management (`src/store/auth.ts`)
+- All endpoints return `{success, message, data, timestamp}`
+- API response extractor: `response.data` (already unwrapped by client)
+- Nested data pattern: `response.data?.backtests` (NOT `response.data.data.backtests`)
+- Token stored in localStorage, attached as `Authorization: Bearer` header
+- 401 responses auto-handled: logout + force redirect to `/login`
 
-**Zustand store with localStorage persistence:**
+### 2. Query Layer (`src/api/hooks.ts` + `src/api/queryClient.ts`)
+
+**React Query (TanStack) for server-state management** - handles caching, background sync, retries:
 
 ```typescript
-useAuthStore: {
-  user: User | null
-  loading: boolean
-  error: string | null
-  login(username, password): Promise<void>        // Calls api.login + getCurrentUser
-  logout(): void                                   // Clears token + user from state
-  isAuthenticated(): boolean                       // Simple guard for ProtectedRoute
+// Custom hooks wrapping React Query (NOT direct useState)
+export function useBotInstances(params) {
+  return useQuery({
+    queryKey: queryKeys.bots(params),
+    queryFn: () => apiClient.listBotInstances(params),
+    staleTime: 5 * 60 * 1000, // 5 min cache before "stale"
+    gcTime: 10 * 60 * 1000, // 10 min garbage collection
+    retry: failureCount < 3, // Auto-retry 3x with backoff
+  });
+}
+
+export function useCreateBacktest() {
+  return useMutation({
+    mutationFn: (config) => apiClient.runBacktest(config),
+    onSuccess: () => {
+      // Invalidate backtest list after create
+      queryClient.invalidateQueries({ queryKey: queryKeys.backtests });
+    },
+  });
 }
 ```
 
-**Usage pattern**: `const { user, isAuthenticated, login, logout } = useAuthStore()` - no selectors needed.
+**Why NOT useState for API data:**
 
-### 3. Page Components (`src/pages/`)
+- React Query handles stale-while-revalidate (SWR) pattern
+- Background sync on window focus, reconnect, polling
+- Deduplication of requests (same query → single HTTP call)
+- Built-in loading/error states without boilerplate
+
+**Cache configuration tiers** (in `queryClient.ts`):
+
+- `realtime`: 1s stale, 2min gc, 5s polling (live trading data)
+- `trading`: 5s stale, 5min gc (bot instance data)
+- `static`: 30min stale, 1hr gc (reference data)
+
+### 3. Auth State Management (`src/store/enhancedAuth.ts`)
+
+**Zustand store (auth only) with localStorage persistence:**
+
+```typescript
+interface AuthState {
+  user: User | null;
+  isAuthenticated: boolean;
+  preferences: UserPreferences; // Theme, currency, notifications
+  sessionStarted: number | null;
+
+  // Methods
+  login(username, password): Promise<void>;
+  logout(): Promise<void>;
+  updatePreferences(partial): void;
+  initialize(): Promise<void>;
+}
+
+// Usage in components:
+const { user, isAuthenticated, login, logout } = useAuthStore();
+```
+
+**Key principles:**
+
+- Auth state ONLY (NOT API data) → use React Query for everything else
+- Persisted via Zustand middleware → survives page refresh
+- Direct mutation methods (no complex immutability)
+- Preferences stored for UX (theme, currency, dashboard defaults)
+
+### 4. Page Components (`src/pages/`)
 
 Route-level components that compose smaller reusable components:
 
-- **LoginPage** - Form with email/password, calls `useAuthStore.login()`
-- **DashboardPage** - Main hub: header + BacktestRunner + BacktestList, refresh trigger state
-- **BacktestDetailsPage** - Single backtest view with charts (equity curve, P&L by pair, trade scatter), trade table, WebSocket real-time updates
+- **LoginPage** - Auth form with email/password + 2FA support
+- **DashboardPage** - Main hub: BacktestRunner + BacktestList + stats overview
+- **BacktestDetailsV2** - Backtest visualization: charts (equity, P&L, trade scatter), trade table
+- **Settings** - User prefs, DYDX key management, strategy configuration
+- **BotDashboard** - Live trading view: bot instances, positions, real-time stats
 
-### 4. Reusable Components (`src/components/`)
+### 5. Reusable Components (`src/components/`)
 
-Smaller, focused UI components:
+Smaller, focused UI components organized by domain:
 
-- **BacktestRunner** - Form for backtest parameters (dates, pairs, thresholds) + `api.runBacktest()` call
-- **BacktestList** - Table of backtest runs with status badges, navigate to details on click
-- **BacktestProgress** - Real-time progress display via `useBacktestProgress` hook (WebSocket)
+**Core:**
+
+- **BacktestRunner** - Form for backtest params (dates, pairs, thresholds) → `api.runBacktest()`
+- **BacktestList** - Paginated table of backtest runs
+- **BacktestProgress** - Real-time progress via WebSocket
+
+**Bot Management:**
+
+- **BotManager** - CRUD for bot instances
+- **DYDXKeyManager** - Secure credential management
+
+**Advanced:**
+
+- **StrategyBuilder** - Visual/config-based strategy creation
+- **StrategyLibrary** - Browse & clone saved strategies
+- **BacktestComparator** - Multi-backtest analysis
 
 ## Critical Data Flows
 
@@ -246,38 +332,156 @@ class ErrorBoundary extends React.Component<...> {
 
 ```
 src/
-├── api.ts                    # Single client (100% of API calls go through here)
-├── App.tsx                   # Error boundary + router setup
+├── api.ts                    # Base API client (100% of API calls originate here)
+├── api/                      # API layer
+│   ├── client.ts            # Extended API client with advanced features
+│   ├── enhancedClient.ts    # Wrapper adding bot/backtest methods
+│   ├── hooks.ts             # 50+ React Query custom hooks
+│   ├── queryClient.ts       # React Query config + cache utils
+│   ├── types.ts             # All TypeScript interfaces (600+ lines)
+│   ├── websocket.ts         # WebSocket manager + reconnection logic
+│   └── QueryProvider.tsx    # React Query provider wrapper
+├── App.tsx                   # Error boundary + router + React Query provider
 ├── main.tsx                  # React entry point
 ├── index.css                 # Tailwind @imports
-├── pages/                    # Route-level (Dashboard, BacktestDetails, Login)
-├── components/               # Reusable UI (BacktestRunner, BacktestList)
-├── hooks/                    # Custom hooks (useBacktestProgress for WebSocket)
-└── store/                    # Zustand stores (auth.ts only currently)
+├── pages/                    # Route-level components (Dashboard, BacktestDetails, Login)
+├── components/               # Reusable UI (BacktestRunner, BacktestList, charts)
+├── hooks/                    # Custom React hooks (useBacktestProgress)
+└── store/                    # Zustand stores (enhancedAuth.ts for auth + prefs)
 ```
+
+**Key pattern**: `api.ts` → `apiClient` (base methods) → `enhancedClient.ts` → `enhancedApiClient` (extended methods) → `hooks.ts` (React Query wrappers)
 
 ## Common Additions Guide
 
 ### Adding a New API Endpoint
 
-1. Add interface to `src/api.ts` type definitions
-2. Add method to `ApiClient` class with proper error handling
-3. Use console.log with emoji prefix (🔌 or 📊)
-4. Handle `response.data` extraction (already done in client)
+1. Add interface to `src/api/types.ts` type definitions
+2. Add method to `ApiClient` in `src/api/client.ts` with proper error handling
+3. If extending existing functionality, add wrapper method to `enhancedClient.ts`
+4. Create React Query hook in `src/api/hooks.ts` (use `useQuery` or `useMutation`)
+5. Add query key to `queryKeys` in `queryClient.ts`
+6. Add cache config to `queryConfigs` if needed (realtime/trading/static)
+7. Use console.log with emoji prefix (🔌 or 📊)
+8. Handle `response.data` extraction (already done in base client)
+
+### Adding a New Query Hook
+
+```typescript
+// In src/api/hooks.ts
+export function useMyNewData(id: string) {
+  return useQuery({
+    queryKey: queryKeys.myThing(id), // Add to queryKeys in queryClient.ts
+    queryFn: () => apiClient.getMyData(id),
+    ...queryConfigs.trading, // Pick cache tier
+    enabled: !!id, // Conditional fetching
+  });
+}
+
+// Usage in component:
+const { data, isLoading, error } = useMyNewData(id);
+```
 
 ### Adding a New Page
 
 1. Create file in `src/pages/PageName.tsx` (functional component with `React.FC`)
 2. Add route in `App.tsx` Router
 3. Use `useAuthStore()` for auth state, `useNavigate()` for routing
-4. Wrap with `<ProtectedRoute>` if authenticated-only
+4. Use React Query hooks for API data (NOT useState)
+5. Wrap with `<ProtectedRoute>` if authenticated-only
+6. Use Tailwind dark theme colors (slate-900, slate-800, etc.)
 
 ### Adding a New Component
 
 1. Create file in `src/components/ComponentName.tsx`
 2. Define props interface at top of file
-3. Include loading + error states with proper styling
-4. Export as named export (not default)
+3. Use React Query hooks or accept data via props
+4. Include loading + error states with proper styling
+5. Export as named export (not default)
+6. Use emoji-prefixed logging for debugging
+
+## API Response Patterns & Integration
+
+### Enhanced Client Wrapper Pattern
+
+The `enhancedClient.ts` extends base `ApiClient` to delegate methods:
+
+```typescript
+// enhancedClient.ts - Extends existing client with new methods
+class EnhancedAPIClient {
+  private baseClient = apiClient; // Reference to base client
+
+  // Delegate all base methods
+  login = this.baseClient.login.bind(this.baseClient);
+  getCurrentUser = this.baseClient.getCurrentUser.bind(this.baseClient);
+
+  // Add new methods for bot/backtest endpoints
+  async listBotInstances(params): Promise<{ count; data }> {
+    // Fetch from /api/v1/bots endpoint
+  }
+
+  async getBacktest(runId): Promise<any> {
+    // Delegate to base client
+  }
+}
+```
+
+**Why this pattern:**
+
+- Base `apiClient` is single source of truth for core endpoints
+- New bot/backtest methods added without modifying base
+- All use same Axios instance (same interceptors, token injection)
+- Keeps concerns separated: core auth vs domain features
+
+### React Query Hook Integration
+
+Every API call goes through React Query hooks (in `hooks.ts`):
+
+```typescript
+// hooks.ts - React Query wrappers
+export function useBotInstances(params = {}) {
+  return useQuery({
+    queryKey: queryKeys.bots(params),
+    queryFn: () => apiClient.listBotInstances(params), // ← Uses enhancedClient
+    ...queryConfigs.trading, // Cache tier
+    enabled: !!params, // Conditional
+  });
+}
+
+// In components:
+const { data, isLoading, error } = useBotInstances({ limit: 10 });
+```
+
+**Never fetch API data directly in components** - always use React Query hooks for:
+
+- Automatic caching/stale-while-revalidate
+- Background refetch on focus/reconnect
+- Built-in loading/error states
+- Query deduplication
+
+### Bot Instance & Backtest Data Models
+
+Key types in `src/api/types.ts`:
+
+```typescript
+interface BotInstance {
+  instance_id: string;
+  status: 'RUNNING' | 'STOPPED' | 'ERROR';
+  total_trades: number;
+  win_rate: number;
+  pnl: number;
+  uptime_seconds: number;
+}
+
+interface BacktestRun {
+  run_id: string;
+  status: string;
+  progress_percent: number;
+  start_date: string;
+  end_date: string;
+  num_pairs: number;
+}
+```
 
 ## TypeScript Strict Mode
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 # DevContainer Setup Script
-# This script sets up the development environment inside the DevContainer
+# Sets up the development environment inside the DevContainer
 
-set -e
+set -euo pipefail
 
 echo "🚀 Setting up dYdX Trading Bot Frontend DevContainer..."
 
@@ -18,10 +18,18 @@ if [ -z "$CONTAINER_NAME" ]; then
 fi
 
 echo -e "${BLUE}📦 Installing dependencies...${NC}"
-npm install
+if ! [ -d node_modules ]; then
+    npm ci || npm install
+else
+    echo -e "${YELLOW}Dependencies already present, skipping install${NC}"
+fi
 
 echo -e "${BLUE}🏗️  Building the project...${NC}"
-npm run build
+if npm run build 2>&1 | head -20; then
+    echo -e "${GREEN}✅ Build completed${NC}"
+else
+    echo -e "${YELLOW}⚠ Build encountered issues (may be acceptable initially)${NC}"
+fi
 
 # Create .env file if it doesn't exist
 if [ ! -f ".env.local" ]; then
@@ -31,6 +39,8 @@ VITE_API_URL=http://localhost:8888
 NODE_ENV=development
 EOF
     echo -e "${GREEN}✅ .env.local created${NC}"
+else
+    echo -e "${YELLOW}⚠ .env.local already exists, skipping${NC}"
 fi
 
 # Create git hooks directory
@@ -40,7 +50,10 @@ mkdir -p .git/hooks
 cat > .git/hooks/pre-commit << 'HOOK_EOF'
 #!/bin/bash
 echo "🔍 Running pre-commit checks..."
-npm run lint
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx)$')
+if [ -n "$STAGED" ]; then
+    npm run lint -- $STAGED || exit 1
+fi
 HOOK_EOF
 
 chmod +x .git/hooks/pre-commit

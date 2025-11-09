@@ -2,7 +2,7 @@
 # Development utilities script for dYdX Trading Bot Frontend
 # Provides helpful commands for local development inside DevContainer
 
-set -e
+set -euo pipefail
 
 COMMAND=${1:-help}
 
@@ -79,20 +79,20 @@ cmd_status() {
     echo ""
     echo -e "${YELLOW}📊 Project Status${NC}"
     echo ""
-    
+
     echo "Node version: $(node --version)"
     echo "npm version: $(npm --version)"
-    
+
     echo ""
     echo -e "${YELLOW}📁 Project Files${NC}"
     echo "  Source files: $(find src -type f -name '*.ts*' | wc -l) files"
     echo "  Components: $(find src/components -type f -name '*.tsx' | wc -l) components"
     echo "  Pages: $(find src/pages -type f -name '*.tsx' | wc -l) pages"
-    
+
     echo ""
     echo -e "${YELLOW}📦 Dependencies${NC}"
     echo "  Total: $(npm ls --depth=0 2>/dev/null | grep -c '├\|└' || echo 'unknown')"
-    
+
     if [ -f "dist/index.html" ]; then
         echo ""
         echo -e "${GREEN}✅ Production build exists${NC}"

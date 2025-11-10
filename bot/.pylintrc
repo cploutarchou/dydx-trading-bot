@@ -1,0 +1,66 @@
+[MASTER]
+# Files or directories to be skipped.
+ignore=venv,.venv,env,build,dist,migrations,docs,bot_states,tests,__pycache__,.git
+# Ensure imports work when running pylint from repo root or other CWDs
+init-hook='import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent))'
+
+[MESSAGES CONTROL]
+# Keep most checks enabled but relax a few that are noisy for ORM/web projects
+disable=
+    duplicate-code,
+    invalid-name,
+    line-too-long
+
+[REPORTS]
+reports=no
+output-format=text
+
+[FORMAT]
+# Compatible with Black/ruff formatting choices in this repo
+max-line-length=100
+indent-string='    '
+
+[TYPECHECK]
+# Reduce false positives for SQLAlchemy, Pydantic, and other dynamic libs
+generated-members=sqlalchemy.*,alembic.*,pydantic.*
+
+[LOGGING]
+logging-modules=logging
+
+[DESIGN]
+# Thresholds tuned for a medium-size production codebase
+max-args=8
+max-attributes=12
+max-locals=60
+max-branches=25
+max-statements=200
+max-parents=7
+max-public-methods=20
+
+[BASIC]
+# Short names commonly used and acceptable in this codebase
+good-names=i,j,k,ex,_,db,pk,id
+
+[NAMING]
+variable-rgx=[a-z_][a-z0-9_]{0,30}$
+argument-rgx=[a-z_][a-z0-9_]{0,30}$
+attr-rgx=[a-z_][a-z0-9_]{0,30}$
+class-rgx=[A-Z_][a-zA-Z0-9]+$
+const-rgx=([A-Z_][A-Z0-9_]*)$
+function-rgx=[a-z_][a-z0-9_]{2,30}$
+method-rgx=[a-z_][a-z0-9_]{2,30}$
+module-rgx=(([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$
+
+[SIMILARITIES]
+min-similarity-lines=4
+
+[EXCEPTIONS]
+# Use fully-qualified builtin exception name to avoid a Pylint warning
+overgeneral-exceptions=builtins.Exception
+
+[IMPORTS]
+# Whitelist C extension packages here if you add any
+extension-pkg-whitelist=
+
+[REFACTORING]
+# Keep refactoring warnings enabled

@@ -168,7 +168,7 @@ curl -X DELETE http://localhost:8889/api/v1/dydx/credentials/1 \
 import os
 from sqlalchemy.orm import Session
 from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
 
 # Initialize encryption
 encryption = CredentialEncryption(os.getenv('CREDENTIALS_ENCRYPTION_KEY'))
@@ -180,7 +180,7 @@ service = DydxCredentialsService(db_session, encryption)
 ### Create Credential
 
 ```python
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
 
 result = await service.create_credential(
     user_id=1,
@@ -198,7 +198,7 @@ print(f"Test result: {result['is_test_valid']}")
 ### Get Active Credential for Trading
 
 ```python
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
 
 # Get the active credential for testnet
 cred = await service.get_active_credential(
@@ -218,7 +218,7 @@ else:
 ### List All Credentials
 
 ```python
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
 
 credentials = await service.list_credentials(
     user_id=1,
@@ -573,21 +573,23 @@ uvicorn main:app --reload --port 8889
 # your_trading_bot.py
 import os
 from sqlalchemy.orm import Session
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
 from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+
 
 async def get_trading_credential(db: Session, user_id: int):
     """Get credential for trading"""
     encryption = CredentialEncryption(os.getenv('CREDENTIALS_ENCRYPTION_KEY'))
     service = DydxCredentialsService(db, encryption)
-    
+
     # Get active testnet credential
     credential = await service.get_active_credential(
         user_id=user_id,
         network_type=NetworkType.TESTNET
     )
-    
+
     return credential
+
 
 # In your trading logic
 credential = await get_trading_credential(db, user_id=1)

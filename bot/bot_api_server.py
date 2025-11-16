@@ -21,7 +21,7 @@ from auth_models import User
 from auth_routes import router as auth_router
 
 # Import bot models and manager
-from bot_api_models import (
+from internal.domain.bot_api_models import (
     BotCredentials,
     BotInstanceConfig,
     BotInstanceList,

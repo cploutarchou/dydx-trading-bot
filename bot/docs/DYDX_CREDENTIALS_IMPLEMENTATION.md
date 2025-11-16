@@ -124,7 +124,7 @@ Add migration or create tables directly:
 
 ```python
 from sqlalchemy import create_engine
-from models_dydx_credentials import Base
+from internal.domain.models_dydx_credentials import Base
 
 engine = create_engine('postgresql://...')
 Base.metadata.create_all(engine)
@@ -217,13 +217,14 @@ Every operation logged with:
 ```python
 import aiohttp
 from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
 from sqlalchemy.orm import Session
+
 
 async def setup_wallet(db: Session):
     encryption = CredentialEncryption()
     service = DydxCredentialsService(db, encryption)
-    
+
     # Create credential
     result = await service.create_credential(
         user_id=1,
@@ -233,19 +234,20 @@ async def setup_wallet(db: Session):
         name="Primary Testnet Wallet",
         test_before_save=True
     )
-    
+
     return result['id']
+
 
 async def use_wallet(db: Session):
     encryption = CredentialEncryption()
     service = DydxCredentialsService(db, encryption)
-    
+
     # Get active credential for trading
     cred = await service.get_active_credential(
         user_id=1,
         network_type=NetworkType.TESTNET
     )
-    
+
     if cred:
         address = cred['address']
         mnemonic = cred['mnemonic']

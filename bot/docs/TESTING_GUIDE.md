@@ -90,7 +90,7 @@ class TestEncryption:
 # test_models.py
 import pytest
 from datetime import datetime
-from models_dydx_credentials import (
+from internal.domain.models_dydx_credentials import (
     DydxCredential,
     DydxCredentialAudit,
     DydxTestResult,
@@ -100,17 +100,19 @@ from models_dydx_credentials import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+
 @pytest.fixture
 def db():
     """Create in-memory test database"""
     engine = create_engine("sqlite:///:memory:")
     # Create tables
-    from models_dydx_credentials import Base
+    from internal.domain.models_dydx_credentials import Base
     Base.metadata.create_all(engine)
-    
+
     session = Session(engine)
     yield session
     session.close()
+
 
 class TestModels:
     def test_create_credential(self, db):
@@ -122,14 +124,14 @@ class TestModels:
             mnemonic="word1 word2 ... word12",
             name="Test"
         )
-        
+
         db.add(cred)
         db.commit()
-        
+
         assert cred.id is not None
         assert cred.user_id == 1
         assert cred.is_active == True
-    
+
     def test_create_audit_log(self, db):
         """Test creating audit log"""
         audit = DydxCredentialAudit(
@@ -140,13 +142,13 @@ class TestModels:
             success=True,
             details="Credential created"
         )
-        
+
         db.add(audit)
         db.commit()
-        
+
         assert audit.id is not None
         assert audit.operation == CredentialOperation.CREATE
-    
+
     def test_create_test_result(self, db):
         """Test creating test result"""
         result = DydxTestResult(
@@ -156,10 +158,10 @@ class TestModels:
             response_time_ms=145,
             balance=500.50
         )
-        
+
         db.add(result)
         db.commit()
-        
+
         assert result.id is not None
         assert result.success == True
 
@@ -181,7 +183,8 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
-from models_dydx_credentials import Base, NetworkType
+from internal.domain.models_dydx_credentials import Base, NetworkType
+
 
 @pytest.fixture
 def db():
@@ -192,11 +195,13 @@ def db():
     yield session
     session.close()
 
+
 @pytest.fixture
 def service(db):
     """Create service instance"""
     encryption = CredentialEncryption(os.getenv('CREDENTIALS_ENCRYPTION_KEY'))
     return DydxCredentialsService(db, encryption)
+
 
 @pytest.mark.asyncio
 class TestCredentialService:
@@ -210,11 +215,11 @@ class TestCredentialService:
             name="Test Wallet",
             test_before_save=False
         )
-        
+
         assert result['id'] is not None
         assert result['user_id'] == 1
         assert result['name'] == "Test Wallet"
-    
+
     async def test_get_credential(self, service):
         """Test getting credential"""
         # Create first
@@ -225,13 +230,13 @@ class TestCredentialService:
             mnemonic="test test test test test test test test test test test test",
             name="Test"
         )
-        
+
         # Get it
         cred = await service.get_credential(created['id'], user_id=1)
-        
+
         assert cred['id'] == created['id']
         assert cred['name'] == "Test"
-    
+
     async def test_list_credentials(self, service):
         """Test listing credentials"""
         # Create multiple
@@ -243,11 +248,11 @@ class TestCredentialService:
                 mnemonic="test test test test test test test test test test test test",
                 name=f"Wallet {i}"
             )
-        
+
         # List
         creds = await service.list_credentials(user_id=1)
         assert len(creds) == 3
-    
+
     async def test_update_credential(self, service):
         """Test updating credential"""
         # Create
@@ -258,18 +263,18 @@ class TestCredentialService:
             mnemonic="test test test test test test test test test test test test",
             name="Original"
         )
-        
+
         # Update
         await service.update_credential(
             credential_id=created['id'],
             user_id=1,
             name="Updated"
         )
-        
+
         # Verify
         updated = await service.get_credential(created['id'], user_id=1)
         assert updated['name'] == "Updated"
-    
+
     async def test_delete_credential(self, service):
         """Test deleting credential"""
         # Create
@@ -280,13 +285,13 @@ class TestCredentialService:
             mnemonic="test test test test test test test test test test test test",
             name="Test"
         )
-        
+
         # Delete
         await service.delete_credential(created['id'], user_id=1)
-        
+
         # Verify deleted (should return None or raise error)
         # depending on implementation
-    
+
     async def test_user_isolation(self, service):
         """Test that users can't access each other's credentials"""
         # Create credential for user 1
@@ -297,7 +302,7 @@ class TestCredentialService:
             mnemonic="test test test test test test test test test test test test",
             name="User 1 Wallet"
         )
-        
+
         # User 2 tries to access
         with pytest.raises(Exception):
             await service.get_credential(cred1['id'], user_id=2)

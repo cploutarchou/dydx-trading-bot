@@ -7,7 +7,7 @@ Tests bot history, jobs, trades, and statistics endpoints
 import logging
 
 from database import db
-from models import BotStatusEnum
+from internal.domain import BotStatusEnum
 from repository import UnitOfWork
 
 # Setup logging

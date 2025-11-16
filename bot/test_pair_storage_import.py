@@ -2,13 +2,13 @@
 """Test imports for pair_storage module"""
 
 try:
-    from models.pair_storage import CointegrationResult
+    from internal.domain.pair_storage import CointegrationResult
     print("✓ Direct import from models.pair_storage works")
 except Exception as e:
     print(f"✗ Direct import failed: {e}")
 
 try:
-    from models import CointegrationResult as CR
+    from internal.domain import CointegrationResult as CR
     print("✓ Package import from models works")
 except Exception as e:
     print(f"✗ Package import failed: {e}")

@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from database import db
-from models import BotStatusEnum, JobStatusEnum, TradeStatusEnum
+from internal.domain import BotStatusEnum, JobStatusEnum, TradeStatusEnum
 from repository import UnitOfWork
 
 

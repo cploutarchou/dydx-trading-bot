@@ -159,7 +159,7 @@ cryptography.fernet.InvalidToken
 2. **Export all credentials with old key:**
 
    ```python
-   from models_dydx_credentials import DydxCredential
+   from internal.domain.models_dydx_credentials import DydxCredential
    from sqlalchemy.orm import Session
    
    credentials = session.query(DydxCredential).all()
@@ -226,7 +226,7 @@ SQLAlchemy.exc.ProgrammingError: table "dydx_credential" does not exist
 
    ```python
    from sqlalchemy import create_engine
-   from models_dydx_credentials import Base
+   from internal.domain.models_dydx_credentials import Base
    
    engine = create_engine("sqlite:///./bot_credentials.db")
    Base.metadata.create_all(bind=engine)
@@ -311,7 +311,7 @@ IntegrityError: (sqlite3.IntegrityError) UNIQUE constraint failed
 1. **Check for duplicates:**
 
    ```python
-   from models_dydx_credentials import DydxCredential
+   from internal.domain.models_dydx_credentials import DydxCredential
    duplicates = session.query(DydxCredential).filter_by(
        user_id=1, network_type="testnet"
    ).all()

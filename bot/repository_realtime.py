@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
-from models_realtime import (
+from internal.domain.models_realtime import (
     AlertEvent,
     BotRealTimeStats,
     LiveMarketData,

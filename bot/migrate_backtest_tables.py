@@ -8,7 +8,7 @@ import logging
 from sqlalchemy import create_engine
 
 from database import DatabaseConfig, DatabaseManager
-from models_backtest import BacktestRun
+from internal.domain.models_backtest import BacktestRun
 
 logger = logging.getLogger(__name__)
 

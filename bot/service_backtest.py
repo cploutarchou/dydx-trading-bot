@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 from config import config
 from func_backtesting import BacktestEngine
 from func_connections import connect_dydx
-from models_backtest import (
+from internal.domain.models_backtest import (
     BacktestConfigRequest,
     BacktestDetailResponse,
     BacktestListResponse,

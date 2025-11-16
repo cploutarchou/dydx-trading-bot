@@ -21,7 +21,7 @@ from auth_models import User
 from auth_routes import router as auth_router
 
 # Import bot models and manager
-from bot_api_models import (
+from internal.domain.bot_api_models import (
     BotCredentials,
     BotInstanceConfig,
     BotInstanceList,
@@ -36,7 +36,7 @@ from bot_instance_manager import bot_manager
 from database import db
 
 # Import backtest modules
-from models_backtest import (
+from internal.domain.models_backtest import (
     BacktestConfigRequest,
     BacktestDetailResponse,
     BacktestListResponse,
@@ -313,7 +313,7 @@ async def start_bot_instance(
 
                 bot = uow.bots.get_by_instance_id(instance_id)
                 if bot:
-                    from models import BotStatusEnum
+                    from internal.domain import BotStatusEnum
 
                     uow.bots.update_status(
                         instance_id,
@@ -366,7 +366,7 @@ async def stop_bot_instance(
 
                 bot = uow.bots.get_by_instance_id(instance_id)
                 if bot:
-                    from models import BotStatusEnum
+                    from internal.domain import BotStatusEnum
 
                     uow.bots.update_status(instance_id, BotStatusEnum.STOPPED)
                     uow.events.log_event(

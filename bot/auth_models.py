@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from models import Base
+from internal.domain import Base
 
 # Use String for UUID on SQLite, UUID for PostgreSQL
 DB_TYPE = os.getenv("DB_TYPE", "sqlite")

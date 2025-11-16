@@ -134,7 +134,7 @@ class DatabaseManager:
 
     def create_all_tables(self):
         """Create all database tables from models"""
-        from models import Base
+        from internal.domain import Base
 
         engine = self.get_engine()
         logger.info("Creating database tables...")
@@ -143,7 +143,7 @@ class DatabaseManager:
 
     def drop_all_tables(self):
         """Drop all database tables (DANGEROUS - use only in development)"""
-        from models import Base
+        from internal.domain import Base
 
         engine = self.get_engine()
         logger.warning("Dropping all database tables...")

@@ -19,7 +19,7 @@ from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
 from func_connections import connect_dydx
-from models_dydx_credentials import (
+from internal.domain.models_dydx_credentials import (
     DydxCredential,
     DydxCredentialAudit,
     DydxTestResult,

@@ -16,6 +16,14 @@ from .backtest_models import (
     calculate_backtest_metrics,
 )
 
+# Import from pair storage
+from .pair_storage import (
+    CointegrationResult,
+    calculate_confidence_score,
+    PairStorage,
+    pair_storage,
+)
+
 # Load models.py directly to avoid circular imports
 models_file = Path(__file__).parent / "models.py"
 if not models_file.exists():
@@ -62,4 +70,8 @@ __all__ = [
     "BacktestResult",
     "BacktestTrade",
     "calculate_backtest_metrics",
+    "CointegrationResult",
+    "calculate_confidence_score",
+    "PairStorage",
+    "pair_storage",
 ]

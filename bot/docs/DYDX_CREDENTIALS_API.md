@@ -372,23 +372,24 @@ curl -X POST http://localhost:8889/api/v1/dydx/credentials \
 
 ```python
 from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
 from sqlalchemy.orm import Session
 
+
 async def get_trading_credentials(
-    user_id: int, 
-    network_type: NetworkType,
-    db: Session
+        user_id: int,
+        network_type: NetworkType,
+        db: Session
 ):
     encryption = CredentialEncryption()
     service = DydxCredentialsService(db, encryption)
-    
+
     # Get active, tested credential
     cred = await service.get_active_credential(user_id, network_type)
-    
+
     if not cred:
         raise ValueError(f"No valid credential for {network_type.value}")
-    
+
     return cred  # {"credential_id": ..., "address": ..., "mnemonic": ...}
 ```
 

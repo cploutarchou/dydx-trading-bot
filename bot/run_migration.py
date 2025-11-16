@@ -7,7 +7,7 @@ This script sets up the database tables needed for the backtesting API
 import os
 import sys
 
-# Add the bot directory to Python path
+# Add the bot directory to a Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from logging_setup import setup_logging

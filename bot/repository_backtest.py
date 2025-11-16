@@ -11,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
-from models_backtest import BacktestRun, BacktestStatusEnum, BacktestTrade
+from internal.domain.models_backtest import BacktestRun, BacktestStatusEnum, BacktestTrade
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +317,7 @@ class BacktestRepository:
     ):
         """Save position snapshot for real-time tracking"""
 
-        from models_backtest import BacktestPositionSnapshot
+        from internal.domain.models_backtest import BacktestPositionSnapshot
 
         snapshot = BacktestPositionSnapshot(
             backtest_run_id=backtest_run_id,

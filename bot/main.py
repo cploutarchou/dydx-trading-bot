@@ -68,7 +68,7 @@ async def main():
     # Initialize Telegram messenger
     telegram_messenger = TelegramMessenger()
 
-    # Send startup message with configuration details
+    # Send a startup message with configuration details
     config_dict = {
         "environment": current_config.environment if current_config else "development",
         "is_testnet": current_config.is_testnet if current_config else False,
@@ -85,7 +85,7 @@ async def main():
     }
     telegram_messenger.send_startup_message(config_dict)
 
-    # Connect to client
+    # Connect to a client
     try:
         print("")
         print("Program started...")

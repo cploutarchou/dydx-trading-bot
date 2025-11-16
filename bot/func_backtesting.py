@@ -18,7 +18,7 @@ from func_backtest_logging import (
 )
 
 # func_public import removed - using direct API calls for backtesting
-from models.backtest_models import (
+from internal.domain.backtest_models import (
     BacktestMetrics,
     BacktestResult,
     BacktestTrade,
@@ -725,7 +725,7 @@ class BacktestEngine:
             store_cointegration_results(analysis_df)
 
             # Load the results from storage
-            from models.pair_storage import pair_storage
+            from internal.domain.pair_storage import pair_storage
 
             cointegration_results = pair_storage.load_pairs()
 

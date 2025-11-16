@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
-from models import (
+from internal.domain import (
     BotInstance,
     BotStatusEnum,
     EventLog,

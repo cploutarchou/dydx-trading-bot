@@ -198,12 +198,16 @@ func runMigrations(database *db.Database, dbDriver string) error {
 		return fmt.Errorf("unsupported driver: %s", dbDriver)
 	}
 
-	// Use dialect-specific migration path
-	migrationsPath := "file://migrations"
-	if dbDriver == "postgres" {
-		migrationsPath = "file://migrations/postgres"
-	} else if dbDriver == "sqlite3" || dbDriver == "sqlite" {
-		migrationsPath = "file://migrations/sqlite"
+	// Use a dialect-specific migration path
+	migrationsPath := ""
+	switch dbDriver {
+	case "postgres":
+		migrationsPath = "postgres://postgres@localhost:5432/dydx_trading_bot?sslmode=disable"
+	case "sqlite3", "sqlite":
+		migrationsPath = "file://migrations/sqlite/dydx_trading_bot.db"
+	default:
+		return fmt.Errorf("unsupported driver: %s", dbDriver)
+
 	}
 
 	m, err := migrate.NewWithDatabaseInstance(migrationsPath, dbDriver, driverInstance)

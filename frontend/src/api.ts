@@ -104,13 +104,13 @@ class ApiClient {
     this.loadToken();
     console.log('🔌 api.ts: Token loaded, present:', !!this.accessToken);
 
-    // Request interceptor to add auth token
+    // Request interceptor to add an auth token
     this.client.interceptors.request.use((config) => {
       console.log('📤 Request to:', config.url);
       // Prefer in-memory accessToken, but fall back to storage (localStorage or cookie)
       const token = this.accessToken || this.getTokenFromStorage();
       if (token) {
-        // Ensure headers object exists
+        // Ensure the headers object exists
         if (config.headers) {
           config.headers.Authorization = `Bearer ${token}`;
         }

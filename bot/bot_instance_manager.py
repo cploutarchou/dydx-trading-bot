@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 
 import psutil
 
-from bot_api_models import (
+from internal.domain.bot_api_models import (
     BotInstanceConfig,
     BotInstanceState,
     BotInstanceStatus,

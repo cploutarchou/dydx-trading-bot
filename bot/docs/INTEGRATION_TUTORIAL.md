@@ -241,7 +241,7 @@ ls -la main.py app.py server.py
 
 ```python
 # At the top of main.py, add:
-from models_dydx_credentials import (
+from internal.domain.models_dydx_credentials import (
     DydxCredential,
     DydxCredentialAudit,
     DydxTestResult,
@@ -552,25 +552,26 @@ curl -X GET http://localhost:8889/api/v1/dydx/credentials/1/status \
 import os
 from sqlalchemy.orm import Session
 from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
-from models_dydx_credentials import NetworkType
+from internal.domain.models_dydx_credentials import NetworkType
+
 
 async def get_trading_credential(db: Session, user_id: int):
     """Get active credential for trading"""
-    
+
     encryption = CredentialEncryption(
         os.getenv('CREDENTIALS_ENCRYPTION_KEY')
     )
     service = DydxCredentialsService(db, encryption)
-    
+
     # Get active testnet credential
     credential = await service.get_active_credential(
         user_id=user_id,
         network_type=NetworkType.TESTNET
     )
-    
+
     if not credential:
         raise Exception("No active credential configured!")
-    
+
     return credential
 ```
 

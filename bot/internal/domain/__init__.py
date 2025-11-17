@@ -8,21 +8,10 @@ including backtest results, trading data, and configuration models.
 import importlib.util
 from pathlib import Path
 
-# Import from local backtest models
-from internal.domain.backtest_models import (
-    BacktestMetrics,
-    BacktestResult,
-    BacktestTrade,
-    calculate_backtest_metrics,
-)
-
-# Import from pair storage
-from internal.domain.pair_storage import (
-    CointegrationResult,
-    calculate_confidence_score,
-    PairStorage,
-    pair_storage,
-)
+from internal.domain.analysis.backtest_metrics import BacktestMetrics, BacktestResult, BacktestTrade, \
+    calculate_backtest_metrics
+from internal.domain.persistence.cointegration_storage import CointegrationResult, calculate_confidence_score, \
+    PairStorage, pair_storage
 
 # Load models.py directly to avoid circular imports
 models_file = Path(__file__).parent / "models.py"

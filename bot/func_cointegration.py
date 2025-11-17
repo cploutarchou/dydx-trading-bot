@@ -7,11 +7,8 @@ import numpy as np
 import pandas as pd
 from constants import MAX_HALF_LIFE, WINDOW
 from func_messaging import TelegramMessenger
-from internal.domain.pair_storage import (
-    CointegrationResult,
-    calculate_confidence_score,
-    pair_storage,
-)
+from internal.domain.persistence.cointegration_storage import calculate_confidence_score, CointegrationResult, \
+    pair_storage
 
 logger = logging.getLogger(__name__)
 

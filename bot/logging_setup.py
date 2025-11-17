@@ -92,7 +92,7 @@ def send_to_loki_directly(
     """Send log directly to Loki with proper error handling."""
 
     if not REQUESTS_AVAILABLE:
-        print("❌ Requests library not available for custom Loki implementation")
+        print("[X] Requests library not available for custom Loki implementation")
         return False
 
     # Use the URL directly - it already contains the full endpoint path
@@ -130,14 +130,14 @@ def send_to_loki_directly(
         if response.status_code in [200, 204]:
             # Only show debug messages in DEBUG mode
             if LOG_LEVEL.upper() == "DEBUG":
-                print(f"✅ Custom Loki log sent: {response.status_code}")
+                print(f"[OK] Custom Loki log sent: {response.status_code}")
             return True
         else:
-            print(f"❌ Custom Loki error {response.status_code}: {response.text}")
+            print(f"[X] Custom Loki error {response.status_code}: {response.text}")
             return False
 
     except Exception as e:
-        print(f"❌ Custom Loki send failed: {e}")
+        print(f"[X] Custom Loki send failed: {e}")
         return False
 
 
@@ -153,7 +153,7 @@ def create_loki_fallback_handler(
                 level = record.levelname
                 send_to_loki_directly(message, level, labels, url, username, password)
             except Exception as e:
-                print(f"❌ Custom Loki handler error: {e}")
+                print(f"[X] Custom Loki handler error: {e}")
 
     handler = CustomLokiHandler()
     handler.setLevel(logging.INFO)
@@ -174,7 +174,7 @@ def create_loki_fallback_handler(
             )
 
             if should_block and LOG_LEVEL.upper() == "DEBUG":
-                print(f"🚫 FILTERED LOG: {record.name} - {record.getMessage()[:100]}")
+                print(f"[BLOCKED] FILTERED LOG: {record.name} - {record.getMessage()[:100]}")
 
             return not should_block
 
@@ -186,7 +186,7 @@ def validate_loki_config() -> bool:
     """Validate Loki configuration by testing the endpoint directly."""
 
     if not REQUESTS_AVAILABLE:
-        print("⚠️  Requests library not available for Loki validation")
+        print("[!] Requests library not available for Loki validation")
         return True  # Assume it works if we can't test
 
     try:
@@ -216,14 +216,14 @@ def validate_loki_config() -> bool:
         )
 
         if response.status_code in [200, 204]:
-            print("✅ Loki endpoint validation successful")
+            print("[OK] Loki endpoint validation successful")
             return True
         else:
-            print(f"❌ Loki validation failed: {response.status_code} {response.text}")
+            print(f"[X] Loki validation failed: {response.status_code} {response.text}")
             return False
 
     except Exception as e:
-        print(f"❌ Loki validation error: {e}")
+        print(f"[X] Loki validation error: {e}")
         return False
 
 
@@ -236,7 +236,7 @@ def test_loki_handler(handler: logging.Handler) -> bool:
             level=logging.INFO,
             pathname="",
             lineno=0,
-            msg="🧪 Handler connectivity test",
+            msg="[TEST] Handler connectivity test",
             args=(),
             exc_info=None,
         )
@@ -247,11 +247,11 @@ def test_loki_handler(handler: logging.Handler) -> bool:
         # Give it a moment to process
         time.sleep(0.5)
 
-        print("✅ Loki handler test completed (logging_loki doesn't report failures)")
+        print("[OK] Loki handler test completed (logging_loki doesn't report failures)")
         return True  # logging_loki doesn't report failures, assume success
 
     except Exception as e:
-        print(f"❌ Loki handler test failed: {e}")
+        print(f"[X] Loki handler test failed: {e}")
         return False
 
 
@@ -278,8 +278,8 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
     # Check environment to determine authentication requirements
     is_production = ENVIRONMENT in ("production", "prod")
 
-    print(f"🔧 Configuring Loki for {ENVIRONMENT} environment")
-    print(f"📡 Loki endpoint: {LOKI_PUSH_URL}")
+    print(f"[CONFIG] Configuring Loki for {ENVIRONMENT} environment")
+    print(f"[NET] Loki endpoint: {LOKI_PUSH_URL}")
 
     # Authentication logic - always use auth when credentials are provided
     if LOKI_USERNAME and LOKI_PASSWORD:
@@ -287,42 +287,42 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
         if LOKI_PASSWORD.strip().lower() in placeholder_tokens:
             if is_production:
                 print(
-                    "❌ Production environment detected but placeholder credentials found. Skipping remote handler."
+                    "[X] Production environment detected but placeholder credentials found. Skipping remote handler."
                 )
                 return None
             else:
                 print(
-                    "⚠️  Using placeholder credentials. Consider updating for better security."
+                    "[!] Using placeholder credentials. Consider updating for better security."
                 )
 
         print(
-            f"🔐 {ENVIRONMENT.title()} environment: Using authenticated connection (user: {LOKI_USERNAME})"
+            f"[SECURE] {ENVIRONMENT.title()} environment: Using authenticated connection (user: {LOKI_USERNAME})"
         )
 
     else:
         if is_production:
             print(
-                "❌ Production environment detected but Loki credentials missing. Skipping remote handler."
+                "[X] Production environment detected but Loki credentials missing. Skipping remote handler."
             )
             return None
         else:
             print(
-                f"🚀 {ENVIRONMENT.title()} environment: Using unauthenticated connection"
+                f"[ROCKET] {ENVIRONMENT.title()} environment: Using unauthenticated connection"
             )
 
     if LOKI_TENANT_ID:
-        print(f"🏢 Using tenant ID: {LOKI_TENANT_ID}")
+        print(f"[ORG] Using tenant ID: {LOKI_TENANT_ID}")
 
     # First validate that the endpoint actually works
-    print("🧪 Validating Loki endpoint connectivity...")
+    print("[TEST] Validating Loki endpoint connectivity...")
     if not validate_loki_config():
-        print("⚠️  Loki validation failed, trying custom implementation...")
+        print("[!] Loki validation failed, trying custom implementation...")
         return create_loki_fallback_handler(
             LOKI_PUSH_URL, LOKI_USERNAME, LOKI_PASSWORD, LOKI_LABELS or {}
         )
 
     # FORCE custom implementation since logging_loki fails silently
-    print("🔧 Using custom Loki implementation (logging_loki has silent failures)")
+    print("[CONFIG] Using custom Loki implementation (logging_loki has silent failures)")
     return create_loki_fallback_handler(
         LOKI_PUSH_URL, LOKI_USERNAME, LOKI_PASSWORD, LOKI_LABELS or {}
     )
@@ -361,7 +361,7 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
 
                     if should_block and LOG_LEVEL.upper() == "DEBUG":
                         print(
-                            f"🚫 FILTERED LOG: {record.name} - {record.getMessage()[:100]}"
+                            f"[BLOCKED] FILTERED LOG: {record.name} - {record.getMessage()[:100]}"
                         )
 
                     return not should_block
@@ -369,15 +369,15 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
             handler.addFilter(NoRecursionFilter())
 
             print(
-                f"✅ Loki handler (logging_loki) initialized for {ENVIRONMENT} environment"
+                f"[OK] Loki handler (logging_loki) initialized for {ENVIRONMENT} environment"
             )
-            print(f"📊 Labels configured: {LOKI_LABELS}")
+            print(f"[DATA] Labels configured: {LOKI_LABELS}")
 
             # Test the handler immediately
             try:
                 test_logger = logging.getLogger("loki_debug_test")
                 test_logger.addHandler(handler)
-                test_logger.info("🧪 LOKI HANDLER TEST - Handler created successfully")
+                test_logger.info("[TEST] LOKI HANDLER TEST - Handler created successfully")
 
                 # Force emit a test record
                 test_record = logging.LogRecord(
@@ -385,16 +385,16 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
                     level=logging.INFO,
                     pathname="",
                     lineno=0,
-                    msg="🚀 IMMEDIATE TEST - Handler working",
+                    msg="[ROCKET] IMMEDIATE TEST - Handler working",
                     args=(),
                     exc_info=None,
                 )
                 handler.emit(test_record)
 
-                print("✅ Test logs sent via logging_loki handler")
+                print("[OK] Test logs sent via logging_loki handler")
 
             except Exception as debug_exc:
-                print(f"❌ Loki handler test failed: {debug_exc}")
+                print(f"[X] Loki handler test failed: {debug_exc}")
                 print("   Falling back to custom implementation...")
                 return create_loki_fallback_handler(
                     LOKI_PUSH_URL, LOKI_USERNAME, LOKI_PASSWORD, LOKI_LABELS or {}
@@ -403,13 +403,13 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
             return handler
 
         except Exception as exc:
-            print(f"❌ Failed to initialize logging_loki handler: {exc}")
+            print(f"[X] Failed to initialize logging_loki handler: {exc}")
             print("   Using custom Loki implementation...")
             return create_loki_fallback_handler(
                 LOKI_PUSH_URL, LOKI_USERNAME, LOKI_PASSWORD, LOKI_LABELS or {}
             )
     else:
-        print("❌ logging_loki library unavailable. Using custom implementation.")
+        print("[X] logging_loki library unavailable. Using custom implementation.")
         return create_loki_fallback_handler(
             LOKI_PUSH_URL, LOKI_USERNAME, LOKI_PASSWORD, LOKI_LABELS or {}
         )
@@ -418,7 +418,7 @@ def _initialize_loki_handler(level: int) -> Optional[logging.Handler]:
 def setup_logging() -> None:
     """Enhanced logging setup with detailed Loki diagnostics."""
 
-    print("🔧 Initializing logging system...")
+    print("[*] Initializing logging system...")
 
     level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
 
@@ -440,7 +440,7 @@ def setup_logging() -> None:
     root_logger.addHandler(console_handler)
 
     if LOKI_ENABLED:
-        print(f"📡 Testing Loki connectivity to: {LOKI_PUSH_URL}")
+        print(f"[NET] Testing Loki connectivity to: {LOKI_PUSH_URL}")
 
         loki_handler = _initialize_loki_handler(level)
         if loki_handler is not None:
@@ -448,15 +448,15 @@ def setup_logging() -> None:
 
             # Send immediate success log
             root_logger.info(
-                "🚀 Loki logging initialized - this message should appear in Grafana"
+                "[ROCKET] Loki logging initialized - this message should appear in Grafana"
             )
             print(
-                '✅ Loki logging active - check Grafana with query: {job="dydx-trading-bot"}'
+                '[OK] Loki logging active - check Grafana with query: {job="dydx-trading-bot"}'
             )
         else:
-            print("❌ Loki handler creation failed - running with console logging only")
+            print("[X] Loki handler creation failed - running with console logging only")
     else:
-        print("ℹ️  Loki logging disabled in configuration")
+        print("[INFO] Loki logging disabled in configuration")
 
     # Mirror prints to logging so existing print statements are captured
     stdout_logger = logging.getLogger("stdout")
@@ -469,7 +469,7 @@ def setup_logging() -> None:
     # sys.stdout = _LoggerStream(stdout_logger, level, fallback=sys.__stdout__)
     # sys.stderr = _LoggerStream(stderr_logger, logging.ERROR, fallback=sys.__stderr__)
 
-    root_logger.info("📊 Logging system initialized successfully")
+    root_logger.info("[DATA] Logging system initialized successfully")
     print(
-        "🎯 Setup complete! All logs will now be sent to console and Loki (if enabled)"
+        "[OK] Setup complete! All logs will now be sent to console and Loki (if enabled)"
     )

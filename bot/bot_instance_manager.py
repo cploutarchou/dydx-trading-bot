@@ -12,13 +12,8 @@ from typing import Dict, List, Optional
 
 import psutil
 
-from internal.domain.bot_api_models import (
-    BotInstanceConfig,
-    BotInstanceState,
-    BotInstanceStatus,
-    BotOperationResult,
-    BotStatus,
-)
+from internal.domain.models.api import BotInstanceState, BotInstanceConfig, BotStatus, BotOperationResult, \
+    BotInstanceStatus
 
 logger = logging.getLogger(__name__)
 

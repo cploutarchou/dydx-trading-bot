@@ -725,7 +725,7 @@ class BacktestEngine:
             store_cointegration_results(analysis_df)
 
             # Load the results from storage
-            from internal.domain.pair_storage import pair_storage
+            from internal.domain.persistence.cointegration_storage import pair_storage
 
             cointegration_results = pair_storage.load_pairs()
 

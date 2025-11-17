@@ -9,7 +9,7 @@ from func_messaging import TelegramMessenger
 from func_private import get_account, is_open_positions
 from func_public import get_candles_recent, get_markets
 from func_utils import format_number
-from internal.domain.pair_storage import pair_storage
+from internal.domain.persistence.cointegration_storage import pair_storage
 
 logger = logging.getLogger(__name__)
 

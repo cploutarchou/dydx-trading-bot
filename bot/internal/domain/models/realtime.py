@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import relationship
 
-from models import Base
+from internal.domain.models.core import Base
 
 
 class PositionStatusEnum(str, Enum):

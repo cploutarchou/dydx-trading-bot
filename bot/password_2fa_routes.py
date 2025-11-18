@@ -11,7 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from auth_middleware import (
+from midleware.auth_middleware import (
     check_rate_limit,
     get_current_active_user,
     rate_limiter,

@@ -9,7 +9,6 @@ import logging
 import signal
 import sys
 import time
-from io import StringIO
 
 # Suppress dYdX client's Node URL warning that gets printed to stderr during initialization
 # This warning is harmless - the library automatically handles URL stripping
@@ -33,16 +32,15 @@ class _FilteredStderr:
 
 sys.stderr = _FilteredStderr(_original_stderr)
 
-from config import config
-from constants import ABORT_ALL_POSITIONS, FIND_COINTEGRATED, MANAGE_EXITS, PLACE_TRADES
-from functions.func_cointegration import store_cointegration_results
-from functions.func_connections import connect_dydx
-from functions.func_entry_pairs import open_positions
-from functions.func_exit_pairs import manage_trade_exits
-from functions.func_messaging import TelegramMessenger
-from functions.func_private import abort_all_positions
-from functions.func_public import construct_market_prices
-from logging_setup import setup_logging
+from config.config import config as load_config
+from src.constants import ABORT_ALL_POSITIONS, FIND_COINTEGRATED, MANAGE_EXITS, PLACE_TRADES
+from src.trading.analysis.cointegration import store_cointegration_results
+from src.trading.dydx_client import connect_dydx
+from src.trading.position_manager import open_positions, manage_trade_exits
+from src.shared.notifications import TelegramMessenger
+from src.trading.account_manager import abort_all_positions
+from src.trading.market_data import construct_market_prices
+from src.shared.logging_setup import setup_logging
 
 
 # Signal handler for graceful shutdown
@@ -68,7 +66,7 @@ async def main():
 
     # Load and print the configuration
     try:
-        current_config = config()
+        current_config = load_config()
         logger.info("Configuration loaded successfully")
         logger.info(
             "Is Testnet: %s", current_config.is_testnet if current_config else "Unknown"

@@ -15,10 +15,10 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from midleware.auth_middleware import get_current_active_user
-from auth_models import User
+from internal.domain.models.auth_models import User
 
 # Import authentication modules
-from auth_routes import router as auth_router
+from routes.auth_routes import router as auth_router
 
 # Import bot models and manager
 from internal.domain.bot_api_models import (
@@ -43,9 +43,9 @@ from internal.domain.models_backtest import (
     BacktestResponse,
 )
 from password_2fa_routes import router as password_2fa_router
-from repository import UnitOfWork
-from repository_backtest import BacktestRepository
-from repository_realtime import UnitOfWorkRealtime
+from internal.repository.repository import UnitOfWork
+from internal.repository.repository_backtest import BacktestRepository
+from internal.repository.repository_realtime import UnitOfWorkRealtime
 from service_backtest import BacktestService
 from websocket_server import WebSocketServer
 

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from auth_models import User
+from internal.domain.models.auth_models import User
 from auth_utils import PasswordUtils
 from database import db, init_db
 

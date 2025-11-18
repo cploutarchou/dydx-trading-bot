@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
-from auth_middleware import get_current_active_user
+from midleware.auth_middleware import get_current_active_user
 from auth_models import User
 
 # Import authentication modules

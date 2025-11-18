@@ -8,7 +8,7 @@ import logging
 
 from database import db
 from internal.domain import BotStatusEnum
-from repository import UnitOfWork
+from internal.repository.repository import UnitOfWork
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

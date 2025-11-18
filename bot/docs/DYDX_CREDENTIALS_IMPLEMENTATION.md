@@ -154,7 +154,7 @@ CREDENTIALS_ENCRYPTION_KEY=<generated_key>
 In your main `bot_api_server.py`:
 
 ```python
-from routes_dydx_credentials import router as credentials_router
+from routes.dydx_credentials import router as credentials_router
 
 app = FastAPI()
 
@@ -216,7 +216,7 @@ Every operation logged with:
 
 ```python
 import aiohttp
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 from internal.domain.models_dydx_credentials import NetworkType
 from sqlalchemy.orm import Session
 

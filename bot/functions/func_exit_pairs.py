@@ -1,0 +1,250 @@
+import json
+import logging
+import time
+
+from constants import CLOSE_AT_ZSCORE_CROSS
+from func_cointegration import calculate_zscore
+from func_messaging import TelegramMessenger
+from func_private import get_open_positions, get_order, place_market_order
+from func_public import get_candles_recent, get_markets
+from func_utils import format_number
+
+logger = logging.getLogger(__name__)
+
+
+# Manage trade exits
+async def manage_trade_exits(client):
+    """
+    Manage exiting open positions
+    Based upon criteria set in constants
+    """
+
+    # Initialize Telegram messenger
+    messenger = TelegramMessenger()
+
+    # Initialize saving output
+    save_output = []
+
+    # Opening JSON file
+    try:
+        open_positions_file = open("../bot_agents.json")
+        open_positions_dict = json.load(open_positions_file)
+        logger.debug("Loaded %d tracked positions", len(open_positions_dict))
+    except Exception:
+        logger.info("No bot_agents.json found; nothing to close")
+        return "complete"
+
+    # Guard: Exit if no open positions in file
+    if len(open_positions_dict) < 1:
+        return "complete"
+
+    # Get all open positions per trading platform
+    exchange_pos = await get_open_positions(client)
+    logger.debug("Exchange reports %d open positions", len(exchange_pos))
+
+    # Create live position tickers list
+    markets_live = list(exchange_pos.keys())
+
+    # Protect API
+    time.sleep(0.5)
+
+    # Check all saved positions match order record
+    # Exit trade according to any exit trade rules
+    for position in open_positions_dict:
+
+        # Initialize is_close trigger
+        is_close = False
+
+        # Extract position matching information from file - market 1
+        position_market_m1 = position["market_1"]
+        position_size_m1 = position["order_m1_size"]
+        position_side_m1 = position["order_m1_side"]
+
+        # Extract position matching information from file - market 2
+        position_market_m2 = position["market_2"]
+        position_size_m2 = position["order_m2_size"]
+        position_side_m2 = position["order_m2_side"]
+
+        # Protect API
+        time.sleep(0.5)
+
+        # Get order info m1 per exchange
+        order_m1 = await get_order(client, position["order_id_m1"])
+        order_market_m1 = order_m1["ticker"]
+        order_size_m1 = order_m1["size"]
+        order_side_m1 = order_m1["side"]
+
+        # Protect API Rate limits
+        time.sleep(0.5)
+
+        # Get order info m2 per exchange
+        order_m2 = await get_order(client, position["order_id_m2"])
+        order_market_m2 = order_m2["ticker"]
+        order_size_m2 = order_m2["size"]
+        order_side_m2 = order_m2["side"]
+
+        ## New: Ensure sizes match what was sent to the exchange
+        # Override size to match what DYDX exchange has (as it has shown to accept an order and place a different size to what was requested during testing)
+        position_size_m1 = order_m1["size"]
+        position_size_m2 = order_m2["size"]
+
+        # Perform matching checks
+        check_m1 = (
+                position_market_m1 == order_market_m1
+                and position_size_m1 == order_size_m1
+                and position_side_m1 == order_side_m1
+        )
+        check_m2 = (
+                position_market_m2 == order_market_m2
+                and position_size_m2 == order_size_m2
+                and position_side_m2 == order_side_m2
+        )
+        check_live = (
+                position_market_m1 in markets_live and position_market_m2 in markets_live
+        )
+
+        # Guard: If not all match exit with error
+        if not check_m1 or not check_m2 or not check_live:
+            logger.error(
+                "Position mismatch for %s / %s; local state diverged from exchange",
+                position_market_m1,
+                position_market_m2,
+            )
+            logger.error(
+                "Program does not recognise some open positions. Manual intervention required."
+            )
+            logger.error("Exiting program")
+            exit(1)
+
+        # Get prices
+        series_1 = await get_candles_recent(client, position_market_m1)
+        time.sleep(0.2)
+        series_2 = await get_candles_recent(client, position_market_m2)
+        time.sleep(0.2)
+
+        # Get markets for reference of tick size
+        markets = await get_markets(client)
+
+        # Protect API
+        time.sleep(0.2)
+
+        # Trigger close based on Z-Score
+        if CLOSE_AT_ZSCORE_CROSS:
+
+            # Initialize z_scores
+            hedge_ratio = position["hedge_ratio"]
+            z_score_traded = position["z_score"]
+            if len(series_1) > 0 and len(series_1) == len(series_2):
+                spread = series_1 - (hedge_ratio * series_2)
+                z_score_current = calculate_zscore(spread).values.tolist()[-1]
+
+            # Determine trigger
+            z_score_level_check = abs(z_score_current) >= abs(z_score_traded)
+            z_score_cross_check = (z_score_current < 0 and z_score_traded > 0) or (
+                    z_score_current > 0 and z_score_traded < 0
+            )
+
+            # Close trade
+            if z_score_level_check and z_score_cross_check:
+                # Initiate close trigger
+                is_close = True
+
+        ###
+        # Add any other close logic you want here
+        # Trigger is_close
+        ###
+
+        # Close positions if triggered
+        if is_close:
+
+            # Determine side - m1
+            side_m1 = "SELL"
+            if position_side_m1 == "SELL":
+                side_m1 = "BUY"
+
+            # Determine side - m2
+            side_m2 = "SELL"
+            if position_side_m2 == "SELL":
+                side_m2 = "BUY"
+
+            # Get and format Price
+            price_m1 = float(series_1[-1])
+            price_m2 = float(series_2[-1])
+            accept_price_m1 = price_m1 * 1.05 if side_m1 == "BUY" else price_m1 * 0.95
+            accept_price_m2 = price_m2 * 1.05 if side_m2 == "BUY" else price_m2 * 0.95
+            tick_size_m1 = markets["markets"][position_market_m1]["tickSize"]
+            tick_size_m2 = markets["markets"][position_market_m2]["tickSize"]
+            accept_price_m1 = format_number(accept_price_m1, tick_size_m1)
+            accept_price_m2 = format_number(accept_price_m2, tick_size_m2)
+
+            # Close positions
+            try:
+
+                # Close position for market 1
+                logger.info(
+                    "Closing position for %s (subaccount inferred)",
+                    position_market_m1,
+                )
+
+                (close_order_m1, order_id) = await place_market_order(
+                    client,
+                    market=position_market_m1,
+                    side=side_m1,
+                    size=position_size_m1,
+                    price=accept_price_m1,
+                    reduce_only=True,
+                )
+
+                logger.debug("Close order m1 id: %s", close_order_m1.get("id"))
+
+                # Protect API
+                time.sleep(1)
+
+                # Close position for market 2
+                logger.info(
+                    "Closing position for %s (subaccount inferred)",
+                    position_market_m2,
+                )
+
+                (close_order_m2, order_id) = await place_market_order(
+                    client,
+                    market=position_market_m2,
+                    side=side_m2,
+                    size=position_size_m2,
+                    price=accept_price_m2,
+                    reduce_only=True,
+                )
+
+                logger.debug("Close order m2 id: %s", close_order_m2.get("id"))
+
+                # Send trade closed notification
+                trade_info = {
+                    "pair": f"{position_market_m1} / {position_market_m2}",
+                    "base_market": position_market_m1,
+                    "quote_market": position_market_m2,
+                    "base_side": side_m1,
+                    "quote_side": side_m2,
+                    "base_size": position_size_m1,
+                    "quote_size": position_size_m2,
+                    "z_score": z_score_current,
+                    "close_order_m1_id": close_order_m1.get("id", "") if close_order_m1 else "",
+                    "close_order_m2_id": close_order_m2.get("id", "") if close_order_m2 else ""
+                }
+                messenger.send_trade_closed_message(trade_info, "Z-score reversion")
+
+            except Exception:
+                logger.exception(
+                    "Exit failed for %s with %s",
+                    position_market_m1,
+                    position_market_m2,
+                )
+                save_output.append(position)
+
+        # Keep record if items and save
+        else:
+            save_output.append(position)
+
+    # Save remaining items
+    logger.info("%d items remaining; persisting bot_agents.json", len(save_output))
+    with open("../bot_agents.json", "w") as f:
+        json.dump(save_output, f)

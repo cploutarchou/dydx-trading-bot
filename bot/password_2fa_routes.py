@@ -17,7 +17,7 @@ from midleware.auth_middleware import (
     rate_limiter,
     revoke_all_user_tokens,
 )
-from auth_models import EmailVerification, PasswordResetToken, User
+from internal.domain.models.auth_models import EmailVerification, PasswordResetToken, User
 from auth_utils import (
     PASSWORD_RESET_TOKEN_EXPIRE_HOURS,
     EmailVerificationUtils,
@@ -26,7 +26,7 @@ from auth_utils import (
     TwoFactorUtils,
 )
 from database import get_session
-from email_service import send_email_verification, send_password_reset_email
+from internal.service.email_service import send_email_verification, send_password_reset_email
 
 # Create router
 router = APIRouter(prefix="/auth", tags=["Password & 2FA"])

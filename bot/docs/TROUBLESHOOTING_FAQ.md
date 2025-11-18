@@ -419,7 +419,7 @@ IntegrityError: (sqlite3.IntegrityError) UNIQUE constraint failed
 
    ```python
    # In main.py
-   from routes_dydx_credentials import router
+   from routes.dydx_credentials import router
    app.include_router(router, prefix="/api/v1")
    ```
 
@@ -516,7 +516,7 @@ IntegrityError: (sqlite3.IntegrityError) UNIQUE constraint failed
 3. **Test service directly:**
 
    ```python
-   from service_dydx_credentials import DydxCredentialsService
+   from internal.service.service_dydx_credentials import DydxCredentialsService
    service = DydxCredentialsService(db, encryption)
    # Try operations directly
    ```

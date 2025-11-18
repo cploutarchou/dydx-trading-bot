@@ -42,7 +42,7 @@ alembic upgrade head
 
 ```python
 # In your main.py or app initialization
-from routes_dydx_credentials import router as credentials_router
+from routes.dydx_credentials import router as credentials_router
 
 # Include the router
 app.include_router(credentials_router)
@@ -167,7 +167,7 @@ curl -X DELETE http://localhost:8889/api/v1/dydx/credentials/1 \
 ```python
 import os
 from sqlalchemy.orm import Session
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 from internal.domain.models_dydx_credentials import NetworkType
 
 # Initialize encryption
@@ -271,7 +271,7 @@ await service.delete_credential(
 ### CredentialEncryption
 
 ```python
-from service_dydx_credentials import CredentialEncryption
+from internal.service.service_dydx_credentials import CredentialEncryption
 
 # Initialize with key from environment
 encryption = CredentialEncryption(
@@ -574,7 +574,7 @@ uvicorn main:app --reload --port 8889
 import os
 from sqlalchemy.orm import Session
 from internal.domain.models_dydx_credentials import NetworkType
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 
 
 async def get_trading_credential(db: Session, user_id: int):

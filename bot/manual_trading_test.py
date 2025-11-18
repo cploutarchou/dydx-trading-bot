@@ -7,8 +7,8 @@ Use with: python app/manual_trading_test.py
 
 import asyncio
 
-from func_connections import connect_dydx
-from func_private import place_market_order
+from functions.func_connections import connect_dydx
+from functions.func_private import place_market_order
 
 
 async def main():

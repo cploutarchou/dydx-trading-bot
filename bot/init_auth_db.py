@@ -16,13 +16,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def create_admin_user(session: Session) -> User:
+def create_admin_user(session: Session) -> type[User] | User:
     """
     Create default admin user if it doesn't exist
     Username: admin
     Password: admin123
     """
-    # Check if admin user already exists
+    # Check if the admin user already exists
     existing_admin = session.query(User).filter(User.username == "admin").first()
 
     if existing_admin:
@@ -97,7 +97,7 @@ def test_email_config():
 
 def initialize_auth_database():
     """
-    Initialize authentication database tables and create default admin user
+    Initialize authentication database tables and create the default admin user
     """
     try:
         logger.info("🚀 Starting database initialization...")

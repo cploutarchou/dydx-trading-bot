@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Class: Agent for managing opening and checking trades
 class BotAgent:
     """
-    Primary function of BotAgent handles opening and checking order status
+    The primary function of BotAgent handles opening and checking order status
     """
 
     # Initialize class

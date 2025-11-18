@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from auth_models import JWTToken, LoginAttempt, User
+from internal.domain.models.auth_models import JWTToken, LoginAttempt, User
 from auth_utils import JWTUtils, SecurityUtils, TokenBlacklist
 from database import get_session
 

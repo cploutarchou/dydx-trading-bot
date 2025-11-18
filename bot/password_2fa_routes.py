@@ -17,7 +17,7 @@ from midleware.auth_middleware import (
     rate_limiter,
     revoke_all_user_tokens,
 )
-from auth_models import EmailVerification, PasswordResetToken, User
+from internal.domain.models.auth_models import EmailVerification, PasswordResetToken, User
 from auth_utils import (
     PASSWORD_RESET_TOKEN_EXPIRE_HOURS,
     EmailVerificationUtils,

@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from database import db
 from internal.domain import BotStatusEnum, JobStatusEnum, TradeStatusEnum
-from repository import UnitOfWork
+from internal.repository.repository import UnitOfWork
 
 
 def test_database_integration():

@@ -3,12 +3,12 @@ import logging
 
 import pandas as pd
 from constants import USD_MIN_COLLATERAL, USD_PER_TRADE, ZSCORE_THRESH
-from func_bot_agent import BotAgent
-from func_cointegration import calculate_zscore
-from func_messaging import TelegramMessenger
-from func_private import get_account, is_open_positions
-from func_public import get_candles_recent, get_markets
-from func_utils import format_number
+from .func_bot_agent import BotAgent
+from .func_cointegration import calculate_zscore
+from .func_messaging import TelegramMessenger
+from .func_private import get_account, is_open_positions
+from .func_public import get_candles_recent, get_markets
+from .func_utils import format_number
 from internal.domain.persistence.cointegration_storage import pair_storage
 
 logger = logging.getLogger(__name__)

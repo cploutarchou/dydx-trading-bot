@@ -2,8 +2,8 @@ import logging
 import time
 from datetime import datetime
 
-from func_messaging import TelegramMessenger
-from func_private import cancel_order, check_order_status, place_market_order
+from .func_messaging import TelegramMessenger
+from .func_private import cancel_order, check_order_status, place_market_order
 
 logger = logging.getLogger(__name__)
 

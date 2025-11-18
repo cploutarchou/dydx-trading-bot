@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from constants import RESOLUTION
-from func_utils import get_ISO_times
+from .func_utils import get_ISO_times
 
 logger = logging.getLogger(__name__)
 

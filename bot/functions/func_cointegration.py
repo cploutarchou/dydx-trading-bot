@@ -6,7 +6,7 @@ from typing import Tuple, cast
 import numpy as np
 import pandas as pd
 from constants import MAX_HALF_LIFE, WINDOW
-from func_messaging import TelegramMessenger
+from .func_messaging import TelegramMessenger
 from internal.domain.persistence.cointegration_storage import calculate_confidence_score, CointegrationResult, \
     pair_storage
 

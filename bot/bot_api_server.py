@@ -42,7 +42,7 @@ from internal.domain.models_backtest import (
     BacktestListResponse,
     BacktestResponse,
 )
-from password_2fa_routes import router as password_2fa_router
+from routes.password_2fa_routes import router as password_2fa_router
 from internal.repository.repository import UnitOfWork
 from internal.repository.repository_backtest import BacktestRepository
 from internal.repository.repository_realtime import UnitOfWorkRealtime

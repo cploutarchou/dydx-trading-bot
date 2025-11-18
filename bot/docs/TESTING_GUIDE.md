@@ -29,55 +29,56 @@
 import pytest
 import os
 from cryptography.fernet import Fernet
-from service_dydx_credentials import CredentialEncryption
+from internal.service.service_dydx_credentials import CredentialEncryption
+
 
 class TestEncryption:
     @pytest.fixture
     def encryption(self):
         """Create encryption instance"""
         return CredentialEncryption(os.getenv('CREDENTIALS_ENCRYPTION_KEY'))
-    
+
     def test_encrypt_decrypt(self, encryption):
         """Test basic encrypt/decrypt"""
         original = "secret_data_123"
         encrypted = encryption.encrypt(original)
         decrypted = encryption.decrypt(encrypted)
-        
+
         assert original == decrypted
         assert encrypted != original
-    
+
     def test_different_inputs_produce_different_ciphers(self, encryption):
         """Test that same input encrypts differently each time (due to nonce)"""
         original = "test_data"
         encrypted1 = encryption.encrypt(original)
         encrypted2 = encryption.encrypt(original)
-        
+
         # Both should decrypt to same value
         assert encryption.decrypt(encrypted1) == original
         assert encryption.decrypt(encrypted2) == original
         # But ciphers might differ due to Fernet's nonce
-    
+
     def test_invalid_token_raises_error(self, encryption):
         """Test that invalid token raises error"""
         invalid_token = "invalid_base64_token!!!"
-        
+
         with pytest.raises(Exception):
             encryption.decrypt(invalid_token)
-    
+
     def test_empty_string(self, encryption):
         """Test encrypting empty string"""
         original = ""
         encrypted = encryption.encrypt(original)
         decrypted = encryption.decrypt(encrypted)
-        
+
         assert original == decrypted
-    
+
     def test_long_string(self, encryption):
         """Test encrypting long string"""
         original = "A" * 10000
         encrypted = encryption.encrypt(original)
         decrypted = encryption.decrypt(encrypted)
-        
+
         assert original == decrypted
 
 # Run tests
@@ -182,7 +183,7 @@ import asyncio
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 from internal.domain.models_dydx_credentials import Base, NetworkType
 
 
@@ -480,13 +481,14 @@ class TestSecurity:
 import pytest
 import time
 import asyncio
-from service_dydx_credentials import DydxCredentialsService
+from internal.service.service_dydx_credentials import DydxCredentialsService
+
 
 @pytest.mark.asyncio
 async def test_create_many_credentials(service):
     """Test performance of creating many credentials"""
     start = time.time()
-    
+
     for i in range(100):
         await service.create_credential(
             user_id=1,
@@ -495,12 +497,13 @@ async def test_create_many_credentials(service):
             mnemonic="test test test test test test test test test test test test",
             name=f"Wallet {i}"
         )
-    
+
     elapsed = time.time() - start
     print(f"Created 100 credentials in {elapsed:.2f}s")
-    
+
     # Should complete in reasonable time
     assert elapsed < 30
+
 
 @pytest.mark.asyncio
 async def test_list_performance(service):
@@ -514,26 +517,27 @@ async def test_list_performance(service):
             mnemonic="test test test test test test test test test test test test",
             name=f"Wallet {i}"
         )
-    
+
     # Time the list operation
     start = time.time()
     creds = await service.list_credentials(user_id=1)
     elapsed = time.time() - start
-    
+
     print(f"Listed {len(creds)} credentials in {elapsed:.4f}s")
     assert elapsed < 1  # Should list quickly
+
 
 @pytest.mark.asyncio
 async def test_encryption_performance(encryption):
     """Test encryption performance"""
     data = "x" * 1000
-    
+
     start = time.time()
     for _ in range(100):
         encrypted = encryption.encrypt(data)
         encryption.decrypt(encrypted)
     elapsed = time.time() - start
-    
+
     print(f"200 encrypt/decrypt operations in {elapsed:.2f}s")
     assert elapsed < 10
 

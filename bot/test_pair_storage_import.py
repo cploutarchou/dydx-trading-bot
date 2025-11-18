@@ -14,13 +14,13 @@ except Exception as e:
     print(f"✗ Package import failed: {e}")
 
 try:
-    from func_cointegration import store_cointegration_results
+    from functions.func_cointegration import store_cointegration_results
     print("✓ func_cointegration imports successfully")
 except Exception as e:
     print(f"✗ func_cointegration import failed: {e}")
 
 try:
-    from func_entry_pairs import open_positions
+    from functions.func_entry_pairs import open_positions
     print("✓ func_entry_pairs imports successfully")
 except Exception as e:
     print(f"✗ func_entry_pairs import failed: {e}")

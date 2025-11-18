@@ -8,27 +8,22 @@ load_dotenv()
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import signal
 import sys
 import time
-from pathlib import Path
 from typing import Optional
 
 # Import configuration and bot functions
 from config import config
-from constants import (
-    ABORT_ALL_POSITIONS, FIND_COINTEGRATED, MANAGE_EXITS, PLACE_TRADES
-)
-from func_cointegration import store_cointegration_results
-from func_connections import connect_dydx
-from func_entry_pairs import open_positions
-from func_exit_pairs import manage_trade_exits
-from func_messaging import TelegramMessenger
-from func_private import abort_all_positions
-from func_public import construct_market_prices
+from functions.func_cointegration import store_cointegration_results
+from functions.func_connections import connect_dydx
+from functions.func_entry_pairs import open_positions
+from functions.func_exit_pairs import manage_trade_exits
+from functions.func_messaging import TelegramMessenger
+from functions.func_private import abort_all_positions
+from functions.func_public import construct_market_prices
 from logging_setup import setup_logging
 
 

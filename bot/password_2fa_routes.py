@@ -26,7 +26,7 @@ from auth_utils import (
     TwoFactorUtils,
 )
 from database import get_session
-from email_service import send_email_verification, send_password_reset_email
+from internal.service.email_service import send_email_verification, send_password_reset_email
 
 # Create router
 router = APIRouter(prefix="/auth", tags=["Password & 2FA"])

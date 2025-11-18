@@ -10,16 +10,37 @@ import signal
 import sys
 import time
 
-from config import config
-from constants import ABORT_ALL_POSITIONS, FIND_COINTEGRATED, MANAGE_EXITS, PLACE_TRADES
-from func_cointegration import store_cointegration_results
-from func_connections import connect_dydx
-from func_entry_pairs import open_positions
-from func_exit_pairs import manage_trade_exits
-from func_messaging import TelegramMessenger
-from func_private import abort_all_positions
-from func_public import construct_market_prices
-from logging_setup import setup_logging
+# Suppress dYdX client's Node URL warning that gets printed to stderr during initialization
+# This warning is harmless - the library automatically handles URL stripping
+_original_stderr = sys.stderr
+
+class _FilteredStderr:
+    """Filter out specific warnings from dYdX client"""
+    def __init__(self, stderr):
+        self.stderr = stderr
+
+    def write(self, message):
+        if "Node URL should not contain http(s)://" not in message:
+            self.stderr.write(message)
+            self.stderr.flush()
+
+    def flush(self):
+        self.stderr.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stderr, name)
+
+sys.stderr = _FilteredStderr(_original_stderr)
+
+from config.config import config as load_config
+from src.constants import ABORT_ALL_POSITIONS, FIND_COINTEGRATED, MANAGE_EXITS, PLACE_TRADES
+from src.trading.analysis.cointegration import store_cointegration_results
+from src.trading.dydx_client import connect_dydx
+from src.trading.position_manager import open_positions, manage_trade_exits
+from src.shared.notifications import TelegramMessenger
+from src.trading.account_manager import abort_all_positions
+from src.trading.market_data import construct_market_prices
+from src.shared.logging_setup import setup_logging
 
 
 # Signal handler for graceful shutdown
@@ -31,6 +52,10 @@ def signal_handler(signum, frame):
 
 # MAIN FUNCTION
 async def main():
+    global _original_stderr
+    # Restore stderr now that logging is ready (dYdX imports are done)
+    sys.stderr = _original_stderr
+
     # Initialize logging first
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -41,7 +66,7 @@ async def main():
 
     # Load and print the configuration
     try:
-        current_config = config()
+        current_config = load_config()
         logger.info("Configuration loaded successfully")
         logger.info(
             "Is Testnet: %s", current_config.is_testnet if current_config else "Unknown"

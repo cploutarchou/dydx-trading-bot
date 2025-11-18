@@ -7,12 +7,12 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
-from auth_middleware import get_admin_user, get_current_active_user
-from auth_models import User
+from middleware.auth_middleware import get_admin_user, get_current_active_user
+from src.infrastructure.domain.models.auth_models import User
 
 # Import authentication modules
-from auth_routes import router as auth_router
-from password_2fa_routes import router as password_2fa_router
+from src.api.v1.auth import router as auth_router
+from src.api.v1.password_2fa_routes import router as password_2fa_router
 
 
 def create_app() -> FastAPI:

@@ -14,14 +14,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
-from midleware.auth_middleware import get_current_active_user
-from internal.domain.models.auth_models import User
+from src.middleware.auth_middleware import get_current_active_user
+from src.infrastructure.domain.models.auth_models import User
 
 # Import authentication modules
-from routes.auth import router as auth_router
+from src.api.v1.auth import router as auth_router
 
 # Import bot models and manager
-from internal.domain.bot_api_models import (
+from src.infrastructure.domain.bot_api_models import (
     BotCredentials,
     BotInstanceConfig,
     BotInstanceList,
@@ -30,24 +30,24 @@ from internal.domain.bot_api_models import (
     BotStatus,
     TradingParameters,
 )
-from bot_instance_manager import bot_manager
+from src.bot_instance_manager import bot_manager
 
 # Import database utilities
-from database import db
+from src.infrastructure.database import db
 
 # Import backtest modules
-from internal.domain.models_backtest import (
+from src.infrastructure.domain.models_backtest import (
     BacktestConfigRequest,
     BacktestDetailResponse,
     BacktestListResponse,
     BacktestResponse,
 )
-from routes.password_2fa_routes import router as password_2fa_router
-from internal.repository.repository import UnitOfWork
-from internal.repository.repository_backtest import BacktestRepository
-from internal.repository.repository_realtime import UnitOfWorkRealtime
-from internal.service.service_backtest import BacktestService
-from websocket_server import WebSocketServer
+from src.api.v1.auth.password_2fa import router as password_2fa_router
+from src.infrastructure.persistence.repository import UnitOfWork
+from src.infrastructure.persistence.repository_backtest import BacktestRepository
+from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
+from src.infrastructure.use_cases.service_backtest import BacktestService
+from src.api.websocket_server import WebSocketServer
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

@@ -12,7 +12,7 @@ from internal.domain.models.auth_models import User
 
 # Import authentication modules
 from routes.auth import router as auth_router
-from password_2fa_routes import router as password_2fa_router
+from routes.password_2fa_routes import router as password_2fa_router
 
 
 def create_app() -> FastAPI:

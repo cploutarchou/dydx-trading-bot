@@ -732,7 +732,7 @@ class BacktestEngine:
             # Filter and sort by strength (same logic as live trading)
             valid_pairs = []
             for result in cointegration_results:
-                # Apply same filters as live trading
+                # Apply the same filters as live trading
                 if (
                         result.p_value <= 0.05
                         and result.half_life <= self.config.botSettings.maxHalfLife

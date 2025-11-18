@@ -423,6 +423,7 @@ def setup_logging() -> None:
     level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
 
     # Suppress noisy third-party loggers BEFORE initializing handlers
+    logging.getLogger("dydx_v4_client").setLevel(logging.WARNING)  # Suppress Node URL warning
     if level <= logging.DEBUG:
         logging.getLogger("urllib3").setLevel(logging.WARNING)
         logging.getLogger("requests").setLevel(logging.WARNING)

@@ -9,6 +9,29 @@ import logging
 import signal
 import sys
 import time
+from io import StringIO
+
+# Suppress dYdX client's Node URL warning that gets printed to stderr during initialization
+# This warning is harmless - the library automatically handles URL stripping
+_original_stderr = sys.stderr
+
+class _FilteredStderr:
+    """Filter out specific warnings from dYdX client"""
+    def __init__(self, stderr):
+        self.stderr = stderr
+
+    def write(self, message):
+        if "Node URL should not contain http(s)://" not in message:
+            self.stderr.write(message)
+            self.stderr.flush()
+
+    def flush(self):
+        self.stderr.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stderr, name)
+
+sys.stderr = _FilteredStderr(_original_stderr)
 
 from config import config
 from constants import ABORT_ALL_POSITIONS, FIND_COINTEGRATED, MANAGE_EXITS, PLACE_TRADES
@@ -31,6 +54,10 @@ def signal_handler(signum, frame):
 
 # MAIN FUNCTION
 async def main():
+    global _original_stderr
+    # Restore stderr now that logging is ready (dYdX imports are done)
+    sys.stderr = _original_stderr
+
     # Initialize logging first
     setup_logging()
     logger = logging.getLogger(__name__)

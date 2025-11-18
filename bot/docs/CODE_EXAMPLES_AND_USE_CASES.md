@@ -16,7 +16,7 @@ import os
 from sqlalchemy.orm import Session
 from fastapi import Depends
 from internal.domain.models_dydx_credentials import NetworkType
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 
 
 async def initialize_trading_bot(db: Session):
@@ -79,7 +79,7 @@ python trading_bot.py
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from internal.domain.models_dydx_credentials import NetworkType
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 
 
 class MultiWalletBot:
@@ -172,7 +172,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from internal.domain.models_dydx_credentials import NetworkType
-from service_dydx_credentials import DydxCredentialsService
+from internal.service.service_dydx_credentials import DydxCredentialsService
 
 
 class UserTradingService:
@@ -341,7 +341,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from internal.domain.models_dydx_credentials import DydxCredential, DydxTestResult
-from service_dydx_credentials import DydxCredentialsService
+from internal.service.service_dydx_credentials import DydxCredentialsService
 
 
 class CredentialMonitor:
@@ -468,7 +468,7 @@ import os
 from datetime import datetime
 from sqlalchemy.orm import Session
 from internal.domain.models_dydx_credentials import DydxCredential
-from service_dydx_credentials import DydxCredentialsService
+from internal.service.service_dydx_credentials import DydxCredentialsService
 
 
 class CredentialBackup:

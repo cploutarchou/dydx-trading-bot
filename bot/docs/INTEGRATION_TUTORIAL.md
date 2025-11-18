@@ -287,10 +287,11 @@ EOF
 
 ```python
 import os
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 
 # Initialize encryption at app startup
 encryption = CredentialEncryption(os.getenv('CREDENTIALS_ENCRYPTION_KEY'))
+
 
 async def get_credential_service(db: Session):
     """Dependency for credential service"""
@@ -308,7 +309,7 @@ async def get_credential_service(db: Session):
 ```python
 # In your main.py, after app creation:
 from fastapi import FastAPI
-from routes_dydx_credentials import router as credentials_router
+from routes.dydx_credentials import router as credentials_router
 
 app = FastAPI()
 
@@ -551,7 +552,7 @@ curl -X GET http://localhost:8889/api/v1/dydx/credentials/1/status \
 # In your trading module
 import os
 from sqlalchemy.orm import Session
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 from internal.domain.models_dydx_credentials import NetworkType
 
 

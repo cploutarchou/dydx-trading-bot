@@ -7,8 +7,8 @@ from constants import DYDX_ADDRESS
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
-from func_public import get_markets
-from func_utils import format_number
+from .func_public import get_markets
+from .func_utils import format_number
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 logger = logging.getLogger(__name__)

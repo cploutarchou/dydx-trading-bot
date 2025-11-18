@@ -3,11 +3,11 @@ import logging
 import time
 
 from constants import CLOSE_AT_ZSCORE_CROSS
-from func_cointegration import calculate_zscore
-from func_messaging import TelegramMessenger
-from func_private import get_open_positions, get_order, place_market_order
-from func_public import get_candles_recent, get_markets
-from func_utils import format_number
+from .func_cointegration import calculate_zscore
+from .func_messaging import TelegramMessenger
+from .func_private import get_open_positions, get_order, place_market_order
+from .func_public import get_candles_recent, get_markets
+from .func_utils import format_number
 
 logger = logging.getLogger(__name__)
 

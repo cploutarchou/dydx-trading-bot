@@ -438,7 +438,7 @@ async def test_email_service(
     Test email service configuration (admin only)
     """
     try:
-        from email_service import email_service
+        from internal.service.email_service import email_service
 
         success = await email_service.send_test_email(email)
 

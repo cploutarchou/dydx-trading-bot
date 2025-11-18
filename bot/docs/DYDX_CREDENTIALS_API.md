@@ -371,7 +371,7 @@ curl -X POST http://localhost:8889/api/v1/dydx/credentials \
 ### Fetching Credentials in Bot Code
 
 ```python
-from service_dydx_credentials import DydxCredentialsService, CredentialEncryption
+from internal.service.service_dydx_credentials import DydxCredentialsService, CredentialEncryption
 from internal.domain.models_dydx_credentials import NetworkType
 from sqlalchemy.orm import Session
 

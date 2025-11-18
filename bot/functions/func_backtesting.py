@@ -11,20 +11,17 @@ from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional
 
 import pandas as pd
-from func_backtest_logging import (
+from .func_backtest_logging import (
     log_backtest_debug,
     log_backtest_info,
     log_backtest_warning,
 )
 
-# func_public import removed - using direct API calls for backtesting
-from internal.domain.backtest_models import (
-    BacktestMetrics,
-    BacktestResult,
-    BacktestTrade,
-    calculate_backtest_metrics,
-)
+
 from sqlalchemy.orm import Session
+
+from internal.domain.analysis.backtest_metrics import BacktestResult, calculate_backtest_metrics, BacktestTrade, \
+    BacktestMetrics
 
 # Database helpers for persistence
 try:

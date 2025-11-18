@@ -11,7 +11,7 @@ from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
 from dydx_v4_client.network import TESTNET
 from dydx_v4_client.node.client import NodeClient
 from dydx_v4_client.wallet import Wallet
-from func_public import get_candles_recent
+from .func_public import get_candles_recent
 
 logger = logging.getLogger(__name__)
 

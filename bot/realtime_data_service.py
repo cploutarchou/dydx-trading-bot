@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Dict
 
 from database import db
-from repository_realtime import UnitOfWorkRealtime
+from internal.repository.repository_realtime import UnitOfWorkRealtime
 from websocket_server import (
     broadcast_alert,
     broadcast_market_update,

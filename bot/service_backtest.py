@@ -20,7 +20,7 @@ from internal.domain.models_backtest import (
     BacktestStatusEnum,
     BacktestTradeResponse,
 )
-from repository_backtest import BacktestRepository
+from internal.repository.repository_backtest import BacktestRepository
 
 logger = logging.getLogger(__name__)
 

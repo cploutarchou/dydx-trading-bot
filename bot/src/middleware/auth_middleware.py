@@ -1,18 +1,17 @@
 ﻿"""
 JWT Authentication middleware and FastAPI security dependencies
-Provides JWT token validation, user authentication, and role-based access control
+Provide JWT token validation, user authentication, and role-based access control
 """
 
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Optional
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from src.infrastructure.domain.models.auth_models import JWTToken, LoginAttempt, User
-from src.api.auth_utils import JWTUtils, SecurityUtils, TokenBlacklist
+from src.api.auth_utils import JWTUtils
 from src.infrastructure.database import get_session
+from src.infrastructure.domain.models.auth_models import User
 
 # FastAPI security scheme for JWT Bearer tokens
 security = HTTPBearer(auto_error=False)
@@ -24,7 +23,7 @@ class AuthenticationError(HTTPException):
 
 
 class AuthorizationError(HTTPException):
-    """Raised when user lacks required permissions"""
+    """Raised when a user lacks required permissions"""
     pass
 
 
@@ -70,7 +69,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get user from database
+    # Get user from a database
     user = session.query(User).filter(User.username == username).first()
     if not user:
         raise AuthenticationError(

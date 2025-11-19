@@ -7,7 +7,7 @@ import base64
 import hashlib
 import io
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import pyotp
@@ -73,19 +73,21 @@ class JWTUtils:
 
     @staticmethod
     def create_access_token(
-        data: Dict[str, Any], expires_delta: Optional[timedelta] = None
+        data_: Dict[str, Any], expires_delta: Optional[timedelta] = None
     ) -> str:
         """Create a JWT access token"""
-        to_encode = data.copy()
+        to_encode = data_.copy()
 
+        now = datetime.now(timezone.utc)
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = now + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
+        # Store exp as an integer UNIX timestamp (UTC)
         to_encode.update(
             {
-                "exp": expire,
+                "exp": int(expire.timestamp()),
                 "type": "access",
                 "jti": secrets.token_urlsafe(16),  # JWT ID for blacklisting
             }
@@ -100,14 +102,15 @@ class JWTUtils:
         """Create a JWT refresh token"""
         to_encode = data.copy()
 
+        now = datetime.now(timezone.utc)
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = now + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+            expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
         to_encode.update(
             {
-                "exp": expire,
+                "exp": int(expire.timestamp()),
                 "type": "refresh",
                 "jti": secrets.token_urlsafe(16),  # JWT ID for blacklisting
             }
@@ -141,7 +144,80 @@ class JWTUtils:
         if not exp:
             return True
 
-        return datetime.utcnow() > datetime.fromtimestamp(exp)
+        # exp should be an integer timestamp (seconds). Support legacy types conservatively.
+        try:
+            if isinstance(exp, (int, float)):
+                exp_ts = int(exp)
+            elif isinstance(exp, str):
+                try:
+                    exp_ts = int(float(exp))
+                except ValueError:
+                    exp_ts = int(datetime.fromisoformat(exp).replace(tzinfo=timezone.utc).timestamp())
+            elif isinstance(exp, datetime):
+                exp_ts = int(exp.replace(tzinfo=timezone.utc).timestamp())
+            else:
+                return True
+        except Exception:
+            return True
+
+        return datetime.now(timezone.utc).timestamp() > exp_ts
+
+    @classmethod
+    def verify_token(cls, token_):
+        """
+        Verify a token is valid:
+        - decode token
+        - ensure 'jti' exists and is not blacklisted
+        - ensure token is not expired
+        Returns the token payload on success, otherwise None.
+        """
+        try:
+            payload = cls.decode_token(token_)
+            if not payload:
+                return None
+
+            # Ensure JTI exists
+            jti = payload.get("jti")
+            if not jti:
+                return None
+
+            # Check blacklist
+            if TokenBlacklist.is_token_blacklisted(jti):
+                return None
+
+            # Expiration check
+            exp = payload.get("exp")
+            if exp is None:
+                return None
+
+            # exp may be int/float (timestamp), ISO string, or datetime
+            try:
+                if isinstance(exp, (int, float)):
+                    exp_ts = int(exp)
+                elif isinstance(exp, str):
+                    # Try numeric string first
+                    try:
+                        exp_ts = int(float(exp))
+                    except ValueError:
+                        # Try ISO datetime string
+                        exp_dt = datetime.fromisoformat(exp)
+                        exp_ts = int(exp_dt.timestamp())
+                elif isinstance(exp, datetime):
+                    exp_ts = int(exp.timestamp())
+                else:
+                    return None
+            except Exception:
+                return None
+
+            if datetime.now(timezone.utc).timestamp() > exp_ts:
+                return None
+
+            return payload
+        except JWTError:
+            return None
+        except Exception:
+            # Catch-all - treat as invalid
+            return None
 
 
 class TwoFactorUtils:
@@ -204,7 +280,7 @@ class SecurityUtils:
     @staticmethod
     def generate_password_reset_token(user_id: str) -> str:
         """Generate a secure password reset token"""
-        timestamp = str(int(datetime.utcnow().timestamp()))
+        timestamp = str(int(datetime.now(timezone.utc).timestamp()))
         data = f"{user_id}:{timestamp}:{secrets.token_urlsafe(32)}"
         return base64.urlsafe_b64encode(data.encode()).decode()
 
@@ -289,7 +365,13 @@ class EmailVerificationUtils:
     ) -> bool:
         """Check if verification has expired"""
         expiry_time = created_at + timedelta(minutes=expires_in_minutes)
-        return datetime.utcnow() > expiry_time
+        now = datetime.now(timezone.utc)
+
+        # If created_at is naive, assume it's UTC
+        if expiry_time.tzinfo is None:
+            expiry_time = expiry_time.replace(tzinfo=timezone.utc)
+
+        return now > expiry_time
 
 
 class TokenBlacklist:

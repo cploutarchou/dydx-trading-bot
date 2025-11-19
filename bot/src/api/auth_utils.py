@@ -73,10 +73,10 @@ class JWTUtils:
 
     @staticmethod
     def create_access_token(
-        data: Dict[str, Any], expires_delta: Optional[timedelta] = None
+        data_: Dict[str, Any], expires_delta: Optional[timedelta] = None
     ) -> str:
         """Create a JWT access token"""
-        to_encode = data.copy()
+        to_encode = data_.copy()
 
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
@@ -142,6 +142,63 @@ class JWTUtils:
             return True
 
         return datetime.utcnow() > datetime.fromtimestamp(exp)
+
+    @classmethod
+    def verify_token(cls, token_):
+        """
+        Verify a token is valid:
+        - decode token
+        - ensure 'jti' exists and is not blacklisted
+        - ensure token is not expired
+        Returns the token payload on success, otherwise None.
+        """
+        try:
+            payload = cls.decode_token(token_)
+            if not payload:
+                return None
+
+            # Ensure JTI exists
+            jti = payload.get("jti")
+            if not jti:
+                return None
+
+            # Check blacklist
+            if TokenBlacklist.is_token_blacklisted(jti):
+                return None
+
+            # Expiration check
+            exp = payload.get("exp")
+            if exp is None:
+                return None
+
+            # exp may be int/float (timestamp), ISO string, or datetime
+            try:
+                if isinstance(exp, (int, float)):
+                    exp_ts = int(exp)
+                elif isinstance(exp, str):
+                    # Try numeric string first
+                    try:
+                        exp_ts = int(float(exp))
+                    except ValueError:
+                        # Try ISO datetime string
+                        exp_dt = datetime.fromisoformat(exp)
+                        exp_ts = int(exp_dt.timestamp())
+                elif isinstance(exp, datetime):
+                    exp_ts = int(exp.timestamp())
+                else:
+                    return None
+            except Exception:
+                return None
+
+            if datetime.utcnow().timestamp() > exp_ts:
+                return None
+
+            return payload
+        except JWTError:
+            return None
+        except Exception:
+            # Catch-all - treat as invalid
+            return None
 
 
 class TwoFactorUtils:

@@ -197,7 +197,7 @@ class ConfigurationManager:
             cls._instance.load_config()
         return cls._instance._config
 
-    def load_config(self, config_path: Optional[str | Path] = None) -> None:
+    def load_config(self) -> None:
         """Load configuration from environment variables with optional YAML fallback."""
         import os
 
@@ -212,8 +212,6 @@ class ConfigurationManager:
             # Load configuration primarily from environment variables
 
             # Load configuration from environment variables
-            is_testnet = os.getenv("IS_TESTNET", "true").lower() == "true"
-            environment = os.getenv("ENVIRONMENT", "development")
             is_testnet = os.getenv("IS_TESTNET", "true").lower() == "true"
             environment = os.getenv("ENVIRONMENT", "development")
 

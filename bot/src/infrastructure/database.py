@@ -43,7 +43,7 @@ class DatabaseConfig:
             raise ValueError(f"Unsupported database type: {self.db_type}")
 
     def get_engine_kwargs(self) -> dict:
-        """Get SQLAlchemy engine kwargs based on DB type"""
+        """Get SQLAlchemy engine kwargs based on a DB type"""
         base_kwargs = {
             "echo": self.echo_sql,
             "future": True,

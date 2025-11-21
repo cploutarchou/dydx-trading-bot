@@ -263,13 +263,13 @@ async def manage_trade_exits(client):
     # Initialize saving output
     save_output = []
 
-    # Opening JSON file
+    # Opening a JSON file
     try:
         open_positions_file = open("../bot_agents.json")
         open_positions_dict = json.load(open_positions_file)
         logger.debug("Loaded %d tracked positions", len(open_positions_dict))
-    except Exception:
-        logger.info("No bot_agents.json found; nothing to close")
+    except Exception as e:
+        logger.info(f"No bot_agents.json found; nothing to close!{e}")
         return "complete"
 
     # Guard: Exit if no open positions in file
@@ -378,8 +378,8 @@ async def manage_trade_exits(client):
 
             # Determine trigger
             z_score_level_check = abs(z_score_current) >= abs(z_score_traded)
-            z_score_cross_check = (z_score_current < 0 and z_score_traded > 0) or (
-                    z_score_current > 0 and z_score_traded < 0
+            z_score_cross_check = (z_score_current < 0 < z_score_traded) or (
+                    z_score_current > 0 > z_score_traded
             )
 
             # Close trade

@@ -8,16 +8,9 @@ import logging
 from datetime import datetime
 from typing import Dict
 
-from database import db
-from internal.repository.repository_realtime import UnitOfWorkRealtime
-from websocket_server import (
-    broadcast_alert,
-    broadcast_market_update,
-    broadcast_position_closed,
-    broadcast_position_opened,
-    broadcast_position_update,
-    broadcast_stats_update,
-)
+from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
+    broadcast_alert, broadcast_position_opened, broadcast_position_closed
+from src.infrastructure.database import db
 
 logger = logging.getLogger(__name__)
 

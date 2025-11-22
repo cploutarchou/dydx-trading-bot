@@ -11,6 +11,7 @@ from typing import Dict
 from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
     broadcast_alert, broadcast_position_opened, broadcast_position_closed
 from src.infrastructure.database import db
+from internal.repository.repository_realtime import UnitOfWorkRealtime
 
 logger = logging.getLogger(__name__)
 

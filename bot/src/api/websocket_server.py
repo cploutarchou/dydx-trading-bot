@@ -10,7 +10,7 @@ from typing import Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from database import db
+from src.infrastructure.database import db
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 
 logger = logging.getLogger(__name__)

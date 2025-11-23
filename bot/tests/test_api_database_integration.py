@@ -3,12 +3,11 @@
 Test script to verify API database integration endpoints
 Tests bot history, jobs, trades, and statistics endpoints
 """
-
 import logging
 
-from database import db
 from internal.domain import BotStatusEnum
-from internal.repository.repository import UnitOfWork
+from src.infrastructure.database import db
+from src.infrastructure.persistence.repository import UnitOfWork
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

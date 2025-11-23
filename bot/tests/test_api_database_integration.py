@@ -21,6 +21,9 @@ def test_api_database_integration():
     print("🧪 Testing API Database Integration Endpoints")
     print("=" * 80 + "\n")
 
+    # Initialize database
+    db.create_all_tables()
+
     session = db.get_session()
     uow = UnitOfWork(session)
 

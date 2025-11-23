@@ -3,12 +3,11 @@
 Test script to verify API database integration endpoints
 Tests bot history, jobs, trades, and statistics endpoints
 """
-
 import logging
 
-from database import db
 from internal.domain import BotStatusEnum
-from internal.repository.repository import UnitOfWork
+from src.infrastructure.database import db
+from src.infrastructure.persistence.repository import UnitOfWork
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +20,9 @@ def test_api_database_integration():
     print("\n" + "=" * 80)
     print("🧪 Testing API Database Integration Endpoints")
     print("=" * 80 + "\n")
+
+    # Initialize database
+    db.create_all_tables()
 
     session = db.get_session()
     uow = UnitOfWork(session)

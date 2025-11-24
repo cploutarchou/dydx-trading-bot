@@ -119,8 +119,9 @@ async def construct_market_prices(client):
         try:
             df_add.set_index("datetime", inplace=True)
             df = pd.merge(df, df_add, how="outer", on="datetime")
-        except Exception:
-            logger.exception("Failed to add market %s to price matrix", market)
+        except Exception as e:
+            logger.exception("Failed to add market %s to price matrix! %s", market,e)
+
         del df_add
 
     # Check any columns with NaNs

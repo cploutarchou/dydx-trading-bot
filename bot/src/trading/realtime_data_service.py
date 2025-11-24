@@ -193,7 +193,7 @@ class RealTimeDataService:
 
             # Check drawdown alert
             if (
-                stats.max_drawdown_session and stats.max_drawdown_session < -0.05
+                    stats.max_drawdown_session and stats.max_drawdown_session < -0.05
             ):  # -5% drawdown
                 alerts_to_create.append(
                     {
@@ -220,7 +220,7 @@ class RealTimeDataService:
 
             # Check high win rate
             if (
-                stats.daily_win_rate > 0.8 and stats.daily_trades_closed >= 5
+                    stats.daily_win_rate > 0.8 and stats.daily_trades_closed >= 5
             ):  # >80% win rate with 5+ trades
                 alerts_to_create.append(
                     {
@@ -299,7 +299,7 @@ class RealTimeDataService:
             logger.error(f"Error closing position: {e}")
 
     async def update_market_data(
-        self, bot_instance_id: int, symbol: str, market_data: Dict
+            self, bot_instance_id: int, symbol: str, market_data: Dict
     ):
         """Update market data for a symbol"""
         try:

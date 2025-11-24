@@ -120,7 +120,7 @@ async def construct_market_prices(client):
             df_add.set_index("datetime", inplace=True)
             df = pd.merge(df, df_add, how="outer", on="datetime")
         except Exception as e:
-            logger.exception("Failed to add market %s to price matrix! %s", market,e)
+            logger.exception("Failed to add market %s to price matrix! %s", market, e)
 
         del df_add
 
@@ -132,4 +132,3 @@ async def construct_market_prices(client):
 
     # Return result
     return df
-

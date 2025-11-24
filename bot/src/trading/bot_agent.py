@@ -269,4 +269,3 @@ class BotAgent:
             logger.info("SUCCESS: LIVE PAIR %s / %s", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "LIVE"
             return self.order_dict
-

@@ -9,6 +9,9 @@ from datetime import datetime
 from typing import Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
+from src.api.realtime_serializers import (serialize_market_core,
+                                          serialize_realtime_position,
+                                          serialize_stats_risk_fields)
 
 from src.infrastructure.database import db
 from internal.repository.repository_realtime import UnitOfWorkRealtime
@@ -194,46 +197,11 @@ class WebSocketServer:
                 "timestamp": datetime.utcnow().isoformat(),
                 "data": {
                     "positions": [
-                        {
-                            "position_id": p.position_id,
-                            "pair1": p.pair1,
-                            "pair2": p.pair2,
-                            "status": p.status.value,
-                            "side1": p.side1,
-                            "side2": p.side2,
-                            "entry_price1": float(p.entry_price1),
-                            "entry_price2": float(p.entry_price2),
-                            "current_price1": float(p.current_price1)
-                            if p.current_price1
-                            else None,
-                            "current_price2": float(p.current_price2)
-                            if p.current_price2
-                            else None,
-                            "current_size1": float(p.current_size1),
-                            "current_size2": float(p.current_size2),
-                            "unrealized_pnl": float(p.unrealized_pnl),
-                            "unrealized_pnl_pct": float(p.unrealized_pnl_pct),
-                            "z_score_entry": float(p.z_score_entry)
-                            if p.z_score_entry
-                            else None,
-                            "z_score_current": float(p.z_score_current)
-                            if p.z_score_current
-                            else None,
-                            "entered_at": p.entry_time.isoformat(),
-                        }
+                        serialize_realtime_position(p)
                         for p in positions
                     ],
                     "market_data": [
-                        {
-                            "symbol": m.symbol,
-                            "current_price": float(m.current_price),
-                            "bid_price": float(m.bid_price) if m.bid_price else None,
-                            "ask_price": float(m.ask_price) if m.ask_price else None,
-                            "volume_24h": float(m.volume_24h) if m.volume_24h else None,
-                            "volatility_24h": float(m.volatility_24h)
-                            if m.volatility_24h
-                            else None,
-                        }
+                        serialize_market_core(m, include_volatility=True)
                         for m in market_data
                     ],
                     "stats": {
@@ -256,7 +224,11 @@ class WebSocketServer:
                         "daily_trades_closed": stats.daily_trades_closed
                         if stats
                         else 0,
-                        "daily_win_rate": float(stats.daily_win_rate) if stats else 0,
+                        "daily_win_rate": (
+                            serialize_stats_risk_fields(stats)["daily_win_rate"]
+                            if stats
+                            else 0
+                        ),
                     },
                 },
             }
@@ -349,9 +321,7 @@ class WebSocketServer:
                     "daily_pnl_pct": float(stats.daily_pnl_pct) if stats else 0,
                     "daily_trades_opened": stats.daily_trades_opened if stats else 0,
                     "daily_trades_closed": stats.daily_trades_closed if stats else 0,
-                    "daily_win_rate": float(stats.daily_win_rate) if stats else 0,
-                    "max_drawdown": float(stats.max_drawdown_session) if stats else 0,
-                    "current_drawdown": float(stats.current_drawdown) if stats else 0,
+                    **(serialize_stats_risk_fields(stats) if stats else {}),
                 }
                 if stats
                 else {},
@@ -378,11 +348,7 @@ class WebSocketServer:
                 "timestamp": datetime.utcnow().isoformat(),
                 "data": [
                     {
-                        "symbol": m.symbol,
-                        "current_price": float(m.current_price),
-                        "bid_price": float(m.bid_price) if m.bid_price else None,
-                        "ask_price": float(m.ask_price) if m.ask_price else None,
-                        "volume_24h": float(m.volume_24h) if m.volume_24h else None,
+                        **serialize_market_core(m, include_volatility=False),
                         "rsi": float(m.rsi) if m.rsi else None,
                         "macd": float(m.macd) if m.macd else None,
                         "funding_rate": float(m.funding_rate)

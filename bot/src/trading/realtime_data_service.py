@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from typing import Dict
 
+from src.api.realtime_serializers import serialize_stats_risk_fields
 from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
     broadcast_alert, broadcast_position_opened, broadcast_position_closed
 from src.infrastructure.database import db
@@ -167,13 +168,7 @@ class RealTimeDataService:
                         "daily_pnl_pct": float(stats.daily_pnl_pct),
                         "daily_trades_opened": stats.daily_trades_opened,
                         "daily_trades_closed": stats.daily_trades_closed,
-                        "daily_win_rate": float(stats.daily_win_rate),
-                        "max_drawdown": float(stats.max_drawdown_session)
-                        if stats.max_drawdown_session
-                        else 0,
-                        "current_drawdown": float(stats.current_drawdown)
-                        if stats.current_drawdown
-                        else 0,
+                        **serialize_stats_risk_fields(stats),
                         "updated_at": datetime.utcnow().isoformat(),
                     },
                 )

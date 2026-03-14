@@ -321,6 +321,26 @@ update: ## Update all images to latest versions
 	@echo "$(CYAN)⬆️  Updating Docker images...$(RESET)"
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) pull
 
+.PHONY: preflight-testnet
+preflight-testnet: ## Run local testnet preflight with production-like simulation checks
+	@echo "$(CYAN)🧪 Running testnet preflight checks...$(RESET)"
+	@python3 scripts/testnet_preflight.py --simulate-production
+
+.PHONY: preflight-testnet-strict
+preflight-testnet-strict: ## Run strict preflight (warnings fail)
+	@echo "$(CYAN)🧪 Running strict testnet preflight checks...$(RESET)"
+	@python3 scripts/testnet_preflight.py --simulate-production --strict
+
+.PHONY: test-execution-safety
+test-execution-safety: ## Run regression test for emergency cleanup on second-leg failure
+	@echo "$(CYAN)🧪 Running execution safety regression tests...$(RESET)"
+	@PYTHONPATH=$(PWD) pytest -q tests/test_bot_agent_emergency_cleanup.py
+
+.PHONY: simulate-production-profile
+simulate-production-profile: ## Run baseline vs production-profile simulation via backtest API
+	@echo "$(CYAN)📈 Running production-profile simulation...$(RESET)"
+	@python3 scripts/simulate_production_profile.py --skip-auth
+
 .PHONY: ps
 ps: ## Show running containers
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) ps

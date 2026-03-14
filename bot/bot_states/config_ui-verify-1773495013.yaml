@@ -1,0 +1,33 @@
+botSettings:
+  ZScoreThreshold: 1.5
+  abortAllPositions: false
+  closeAtZscoreCross: true
+  findCointegratedPairs: true
+  manageExits: true
+  maxHalfLife: 24
+  placeTrades: true
+  resolutionTimeframe: 1HOUR
+  statsWindow: 21
+  strategy: mean_reversion
+  usdMinCollateral: 100.0
+  usdPerTrade: 10.0
+dydx_mainnet:
+  dydx_chain_address: ''
+  dydx_chain_secret: ''
+dydx_testnet:
+  dydx_chain_address: dydx1testaddress
+  dydx_chain_secret: test test test test test test test test test test test junk
+environment: development
+is_testnet: true
+logging:
+  level: INFO
+  loki:
+    enabled: false
+    labels:
+      instance: ui-verify-1773495013
+    password: ''
+    url: ''
+    username: ''
+telegram:
+  chat_id: ''
+  token: ''

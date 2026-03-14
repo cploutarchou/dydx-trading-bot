@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -338,5 +338,31 @@ db-migrate-legacy: ## Run legacy migration (migrate_db.py)
 # ============================================================================
 # UTILITY
 # ============================================================================
+
+db-up: ## Start backend DB services (postgres + redis) via Docker Compose
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f backend/docker-compose.yml up -d postgres redis; \
+		echo "✅ Backend DB services started"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot start DB services"; \
+		exit 0; \
+	fi
+
+db-status: ## Show backend DB services status via Docker Compose
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f backend/docker-compose.yml ps postgres redis; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot query DB service status"; \
+		exit 0; \
+	fi
+
+db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f backend/docker-compose.yml stop postgres redis; \
+		echo "✅ Backend DB services stopped"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot stop DB services"; \
+		exit 0; \
+	fi
 
 .DEFAULT_GOAL := help

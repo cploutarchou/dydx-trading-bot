@@ -86,7 +86,8 @@ class BotAgent:
 
         # Guard: If order cancelled move onto next Pair
         if order_status == "CANCELED":
-            logger.warning("%s vs %s - Order cancelled", self.market_1, self.market_2)
+            logger.warning("%s vs %s - Order cancelled",
+                           self.market_1, self.market_2)
             self.order_dict["pair_status"] = "FAILED"
             return "failed"
 
@@ -192,9 +193,11 @@ class BotAgent:
             # Store the order id
             self.order_dict["order_id_m2"] = order_id
             self.order_dict["order_time_m2"] = datetime.now().isoformat()
-            logger.info("Second order for %s sent (id=%s)", self.market_2, order_id)
+            logger.info("Second order for %s sent (id=%s)",
+                        self.market_2, order_id)
         except Exception as e:
-            logger.exception("Error placing second order for %s", self.market_2)
+            logger.exception(
+                "Error placing second order for %s", self.market_2)
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"Market 2 {self.market_2}: , {e}"
             return self.order_dict
@@ -229,7 +232,8 @@ class BotAgent:
                     self.client, order_id
                 )
                 if order_status_close_order != "FILLED":
-                    logger.critical("ABORT PROGRAM - Failed to close hedged position")
+                    logger.critical(
+                        "ABORT PROGRAM - Failed to close hedged position")
                     logger.critical(
                         "Unexpected error closing %s -> status %s",
                         self.market_1,
@@ -264,8 +268,12 @@ class BotAgent:
                 # ABORT
                 exit(1)
 
+            # Return failure state after emergency cleanup
+            return self.order_dict
+
         # Return success result
         else:
-            logger.info("SUCCESS: LIVE PAIR %s / %s", self.market_1, self.market_2)
+            logger.info("SUCCESS: LIVE PAIR %s / %s",
+                        self.market_1, self.market_2)
             self.order_dict["pair_status"] = "LIVE"
             return self.order_dict

@@ -27,7 +27,7 @@ npm run preview
 
 # Run in production container
 docker build -t dydx-frontend .
-docker run -p 3000:3000 dydx-frontend
+docker run -p 3000:80 dydx-frontend
 # → Visit http://localhost:3000
 ```
 
@@ -83,7 +83,7 @@ docs/               # All documentation
 Create `.env.local` for local development:
 
 ```bash
-VITE_API_URL=http://localhost:8888
+VITE_API_URL=http://localhost:8889
 ```
 
 See [.env.local.example](.env.local.example) for all available variables.
@@ -109,7 +109,7 @@ docker-compose down     # Stop services
 Services available at:
 
 - **Frontend:** <http://localhost:5173> (dev) or <http://localhost:3000> (prod)
-- **Backend API:** <http://localhost:8888>
+- **Backend API:** <http://localhost:8889>
 - **PostgreSQL:** localhost:5432
 - **Redis:** localhost:6379
 

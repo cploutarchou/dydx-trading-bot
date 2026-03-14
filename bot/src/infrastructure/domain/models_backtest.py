@@ -3,11 +3,13 @@ Pydantic models for backtest operations
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
-class BacktestStatus(str):
+class BacktestStatus(str, Enum):
     """Backtest status enumeration"""
     CREATED = "created"
     RUNNING = "running"
@@ -19,11 +21,13 @@ class BacktestStatus(str):
 class BacktestConfigRequest(BaseModel):
     """Backtest configuration request"""
     name: str = Field(..., description="Backtest name")
-    description: Optional[str] = Field(None, description="Backtest description")
+    description: Optional[str] = Field(
+        None, description="Backtest description")
     start_date: str = Field(..., description="Start date (YYYY-MM-DD)")
     end_date: str = Field(..., description="End date (YYYY-MM-DD)")
     initial_balance: float = Field(10000.0, description="Initial balance")
-    trading_parameters: Dict[str, Any] = Field(..., description="Trading parameters")
+    trading_parameters: Dict[str,
+                             Any] = Field(..., description="Trading parameters")
     pairs: List[str] = Field(..., description="Trading pairs to test")
 
 

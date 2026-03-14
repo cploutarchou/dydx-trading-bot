@@ -17,14 +17,13 @@ from typing import Optional
 
 # Import configuration and bot functions
 from config.config import config
-from functions.func_cointegration import store_cointegration_results
-from functions.func_connections import connect_dydx
-from functions.func_entry_pairs import open_positions
-from functions.func_exit_pairs import manage_trade_exits
-from functions.func_messaging import TelegramMessenger
-from functions.func_private import abort_all_positions
-from functions.func_public import construct_market_prices
-from logging_setup import setup_logging
+from src.trading.analysis.cointegration import store_cointegration_results
+from src.trading.dydx_client import connect_dydx
+from src.trading.position_manager import open_positions, manage_trade_exits
+from src.shared.notifications import TelegramMessenger
+from src.trading.account_manager import abort_all_positions
+from src.trading.market_data import construct_market_prices
+from src.shared.logging_setup import setup_logging
 
 
 class BotInstance:

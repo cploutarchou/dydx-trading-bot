@@ -96,6 +96,50 @@ services:
     mem_limit: 2g
     cpus: 2.00
 
+  worker:
+    build:
+      context: ./bot
+      dockerfile: docker/Dockerfile
+      target: development
+    container_name: dydx-worker
+    restart: unless-stopped
+    user: "0:0"
+    working_dir: /app/src
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-dydx_bot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-secure_password}
+      DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      REDIS_ENABLED: true
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PYTHONPATH: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - ./bot:/app
+    command: >
+      sh -c "mkdir -p /app/src/pair_history /app/bot_states &&
+      pip install -q -r /app/requirements.txt &&
+      python main_instance.py --instance-id worker-default"
+    healthcheck:
+      disable: true
+    networks:
+      - dydx-network
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    mem_limit: 2g
+    cpus: 2.00
+
   frontend:
     image: node:20-alpine
     container_name: dydx-frontend-dev

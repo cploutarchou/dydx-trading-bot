@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down stack-up-dev stack-up-prod stack-down stack-logs stack-ps
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -362,6 +362,49 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 		echo "✅ Backend DB services stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop DB services"; \
+		exit 0; \
+	fi
+
+stack-up-dev: ## Start split app stack (api + worker + frontend dev + postgres + redis)
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f docker-compose.stack.yml --profile dev up -d; \
+		echo "✅ Dev stack started (frontend:5173, api:8889)"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
+		exit 0; \
+	fi
+
+stack-up-prod: ## Start split app stack (api + worker + frontend preview + postgres + redis)
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f docker-compose.stack.yml --profile prod up -d; \
+		echo "✅ Prod-like stack started (frontend preview:4173, api:8889)"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
+		exit 0; \
+	fi
+
+stack-down: ## Stop split app stack
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f docker-compose.stack.yml down; \
+		echo "✅ Stack stopped"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot stop stack"; \
+		exit 0; \
+	fi
+
+stack-logs: ## Follow logs for split app stack
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f docker-compose.stack.yml logs -f --tail=100; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch logs"; \
+		exit 0; \
+	fi
+
+stack-ps: ## Show status for split app stack services
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		docker compose -f docker-compose.stack.yml ps; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch service status"; \
 		exit 0; \
 	fi
 

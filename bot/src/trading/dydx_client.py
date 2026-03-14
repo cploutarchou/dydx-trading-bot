@@ -17,6 +17,23 @@ from src.trading.market_data import get_candles_recent
 logger = logging.getLogger(__name__)
 
 
+def _is_placeholder_value(value: str) -> bool:
+    """Return True when value is empty or clearly a template placeholder."""
+    if not value:
+        return True
+    v = value.strip().lower()
+    placeholder_tokens = (
+        "your_",
+        "_here",
+        "example",
+        "changeme",
+        "change-me",
+        "placeholder",
+        "${",
+    )
+    return any(token in v for token in placeholder_tokens)
+
+
 class Client:
     """dYdX client wrapper encapsulating indexer, account indexer, node, and wallet."""
 
@@ -88,7 +105,7 @@ async def connect_dydx():
 
     # For backtesting, we don't need a real wallet since we're simulating trades
     wallet = None
-    if MNEMONIC and DYDX_ADDRESS and not DYDX_ADDRESS.startswith('${'):
+    if not _is_placeholder_value(MNEMONIC) and not _is_placeholder_value(DYDX_ADDRESS):
         try:
             wallet = await Wallet.from_mnemonic(node, MNEMONIC, DYDX_ADDRESS)
             logger.info("Loaded wallet for address %s", DYDX_ADDRESS)

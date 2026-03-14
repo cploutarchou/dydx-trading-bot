@@ -12,14 +12,17 @@ logger = logging.getLogger(__name__)
 class TelegramMessenger:
     """Professional Telegram messaging system for dYdX Trading Bot."""
 
+    _disabled_notice_logged = False
+
     def __init__(self):
         self.bot_token = TELEGRAM_TOKEN
         self.chat_id = TELEGRAM_CHAT_ID
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self.enabled = bool(self.bot_token and self.chat_id)
 
-        if not self.enabled:
-            logger.warning("Telegram messaging disabled - missing token or chat_id")
+        if not self.enabled and not TelegramMessenger._disabled_notice_logged:
+            logger.info("Telegram messaging disabled (token/chat_id not configured)")
+            TelegramMessenger._disabled_notice_logged = True
 
     def _format_timestamp(self) -> str:
         """Format current timestamp for messages."""

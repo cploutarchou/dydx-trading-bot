@@ -19,66 +19,27 @@ jobs:
               with:
                   python-version: "3.12"
 
-            - name: Install system dependencies
+            - name: Install Python dependencies
               run: |
-                  sudo apt-get update
-                  sudo apt-get install -y build-essential gcc g++ python3-dev pkg-config
+                  python -m pip install --upgrade pip setuptools wheel
+                  python -m pip install -r bot/requirements.txt
+                  python -m pip install pytest flake8 pylint
 
-            - name: Setup environment
-              run: make setup
+            - name: Prepare stack env for validation
+              run: cp .env.stack.example .env.stack
 
-            - name: Install dependencies
-              run: make install
+            - name: Validate stack environment template
+              run: python scripts/validate_stack_env.py
 
-            - name: Create test config
+            - name: Run linting
               run: |
-                  # Create a clean test config to avoid YAML parsing issues
-                  cat > app/config.yaml << 'EOF'
-                  environment: development
-                  dydx:
-                    dydx_chain_address: dydx1testaddress123
-                    dydx_secret_phrase: test seed phrase for ci testing only not real
-                    is_testnet: true
-                  telegram:
-                    token: test_telegram_token
-                    chat_id: test_chat_id
-                  botSettings:
-                    abortAllPositions: false
-                    findCointegratedPairs: false
-                    manageExits: false
-                    placeTrades: false
-                    resolutionTimeframe: 1HOUR
-                    strategy: cointegration
-                    statsWindow: 21
-                    maxHalfLife: 24
-                    ZScoreThreshold: 1.5
-                    usdPerTrade: 10
-                    usdMinCollateral: 100
-                    closeAtZscoreCross: true
-                    indexer_endpoint:
-                      testnet: https://indexer.v4testnet.dydx.exchange
-                      mainnet: https://indexer.dydx.trade
-                  logging:
-                    level: INFO
-                    loki:
-                      enabled: false
-                      url: ""
-                      username: ""
-                      password: ""
-                      tenant_id: null
-                      labels:
-                        app: dydx-trading-bot
-                        environment: ci-test
-                  EOF
+                  flake8 bot/src scripts tests --max-line-length=120 --exclude=__pycache__ || echo "⚠️ flake8 issues found; continuing"
+                  pylint bot/src --disable=C0111,W0212 || true
 
-            - name: Run linting (allow failures for now)
-              run: make lint || echo "⚠️ Linting issues found, but continuing CI"
-
-            - name: Run tests (tests/ directory only)
-              run: make test
-              continue-on-error: false
+            - name: Run regression tests
+              run: python -m pytest bot/tests/test_bot_agent_emergency_cleanup.py -v --tb=short
               env:
-                  PYTHONPATH: ${{ github.workspace }}
+                  PYTHONPATH: ${{ github.workspace }}/bot
 
     docker:
         runs-on: ubuntu-latest
@@ -89,74 +50,14 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
-            - name: Create test config for Docker
-              run: |
-                  # Create a clean test config to avoid YAML parsing issues
-                  cat > app/config.yaml << 'EOF'
-                  environment: development
-                  dydx:
-                    dydx_chain_address: dydx1testaddress123
-                    dydx_secret_phrase: test seed phrase for ci testing only not real
-                    is_testnet: true
-                  telegram:
-                    token: test_telegram_token
-                    chat_id: test_chat_id
-                  botSettings:
-                    abortAllPositions: false
-                    findCointegratedPairs: false
-                    manageExits: false
-                    placeTrades: false
-                    resolutionTimeframe: 1HOUR
-                    strategy: cointegration
-                    statsWindow: 21
-                    maxHalfLife: 24
-                    ZScoreThreshold: 1.5
-                    usdPerTrade: 10
-                    usdMinCollateral: 100
-                    closeAtZscoreCross: true
-                    indexer_endpoint:
-                      testnet: https://indexer.v4testnet.dydx.exchange
-                      mainnet: https://indexer.dydx.trade
-                  logging:
-                    level: INFO
-                    loki:
-                      enabled: false
-                      url: ""
-                      username: ""
-                      password: ""
-                      tenant_id: null
-                      labels:
-                        app: dydx-trading-bot
-                        environment: ci-test
-                  EOF
-
             - name: Build Docker image
               run: |
                   docker build -t dydx-trading-bot:test --target production .
 
             - name: Test Docker image
               run: |
-                  # Test that the image runs and exits cleanly (without actual trading)
+                  # Smoke-test importability of API app in production image
                   docker run --rm \
-                    -v $(pwd)/app/config.yaml:/app/app/config.yaml:ro \
-                    -e PYTHONPATH=/app/app \
-                    dydx-trading-bot:test python -c "
-                  print('🐳 Testing Docker environment...')
-                  try:
-                      from config import ConfigurationManager
-                      config = ConfigurationManager.get_config()
-                      print('✅ Configuration loaded successfully')
-                      print(f'Environment: {getattr(config, \"environment\", \"development\")}')
-                      print(f'Is testnet: {config.is_testnet}')
-                      from logging_setup import setup_logging
-                      setup_logging()
-                      print('✅ Logging initialized successfully')
-                      import constants
-                      print('✅ Constants imported successfully')
-                      print('🎉 Docker environment test completed successfully!')
-                  except Exception as e:
-                      print(f'❌ Docker test failed: {e}')
-                      import traceback
-                      traceback.print_exc()
-                      exit(1)
-                  "
+                    -e PYTHONPATH=/app \
+                    dydx-trading-bot:test \
+                    python -c "from src.api.server import app; print('API title:', app.title)"

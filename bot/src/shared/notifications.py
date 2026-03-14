@@ -68,7 +68,7 @@ class TelegramMessenger:
         strategy = config_info.get("strategy", "unknown")
 
         # Smart environment detection
-        if environment == "unknown" or environment == "development":
+        if environment in ("unknown", "development"):
             environment = "development" if is_testnet else "production"
 
         network = "🧪 TESTNET" if is_testnet else "🔴 MAINNET"
@@ -285,7 +285,7 @@ def send_trade_notification(action: str, trade_info: Dict[str, Any], **kwargs) -
     """Send trade-related notifications."""
     if action == "opened":
         return _messenger.send_trade_opened_message(trade_info)
-    elif action == "closed":
+    if action == "closed":
         reason = kwargs.get("reason", "Z-score reversion")
         return _messenger.send_trade_closed_message(trade_info, reason)
     return False

@@ -34,6 +34,12 @@ jobs:
             - name: Validate stack environment template
               run: python scripts/validate_stack_env.py
 
+            - name: Lint diagnostics (pylint metadata)
+              run: |
+                  python --version
+                  pylint --version
+                  pylint --list-msgs | grep -E "^(R1714|R1705|R0801):" || true
+
             - name: Run linting
               run: |
                   flake8 bot/src scripts tests --max-line-length=120 --exclude=__pycache__ || echo "⚠️ flake8 issues found; continuing"

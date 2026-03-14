@@ -3,87 +3,90 @@
 
 
 
-import axios, { AxiosError, AxiosInstance, CancelTokenSource } from 'axios';import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, CancelTokenSource } from 'axios';
+import axios, { AxiosError, AxiosInstance, CancelTokenSource } from 'axios'; import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, CancelTokenSource } from 'axios';
 
 import type {import {
 
-  ApiResponse,  ApiResponse,
+	ApiResponse, ApiResponse,
 
-  AuthResponse,  ApiError,
+	AuthResponse, ApiError,
 
-  User,  PaginatedResponse,
+	User, PaginatedResponse,
 
-  BotInstance,  AuthResponse,
+	BotInstance, AuthResponse,
 
-  BotStats,  User,
+	BotStats, User,
 
-  BotTrade,  BotInstance,
+	BotTrade, BotInstance,
 
-  BotPosition,  BotStats,
+	BotPosition, BotStats,
 
-  BotAlert,  BotTrade,
+	BotAlert, BotTrade,
 
-  BotRealtimeStats,  BotPosition,
+	BotRealtimeStats, BotPosition,
 
-  Backtest,  BotAlert,
+	Backtest, BotAlert,
 
-  BacktestConfig,  BotRealtimeStats,
+	BacktestConfig, BotRealtimeStats,
 
-  BacktestProgress,  Backtest,
+	BacktestProgress, Backtest,
 
-  BacktestMetrics,  BacktestConfig,
+	BacktestMetrics, BacktestConfig,
 
-  SystemStatus,  BacktestProgress,
+	SystemStatus, BacktestProgress,
 
-  CreateBotRequest,  BacktestMetrics,
+	CreateBotRequest, BacktestMetrics,
 
-  UpdateBotRequest,  BacktestAnalytics,
+	UpdateBotRequest, BacktestAnalytics,
 
-  StartBotRequest,  SystemStatus,
+	StartBotRequest, SystemStatus,
 
-  QuickDeployBotRequest,  MarketData,
+	QuickDeployBotRequest, MarketData,
 
-  ListBotsParams,  Settings,
+	ListBotsParams, Settings,
 
-  ListTradesParams,  LoginRequest,
+	ListTradesParams, LoginRequest,
 
-  ListBacktestsParams,  RegisterRequest,
+	ListBacktestsParams, RegisterRequest,
 
-  ListAlertsParams,  CreateBotRequest,
+	ListAlertsParams, CreateBotRequest,
 
-} from './types';  UpdateBotRequest,
+} from './types'; UpdateBotRequest,
 
-  StartBotRequest,
+	StartBotRequest,
 
-// Client Configuration  QuickDeployBotRequest,
+	// Client Configuration  QuickDeployBotRequest,
 
-interface ClientConfig {  ListBotsParams,
+	interface ClientConfig {
+		ListBotsParams,
 
-  baseURL: string;  ListTradesParams,
+		baseURL: string; ListTradesParams,
 
-  timeout: number;  ListBacktestsParams,
+			timeout: number; ListBacktestsParams,
 
-  retryAttempts: number;  ListAlertsParams,
+				retryAttempts: number; ListAlertsParams,
 
-  retryDelay: number;} from './types';
+					retryDelay: number;
+} from './types';
 
-  cacheEnabled: boolean;
+cacheEnabled: boolean;
 
-  cacheTTL: number;// Client Configuration
+cacheTTL: number;// Client Configuration
 
 }interface ClientConfig {
 
-  baseURL: string;
+	baseURL: string;
 
 // Request Cache Entry  timeout: number;
 
-interface CacheEntry<T> {  retryAttempts: number;
+interface CacheEntry<T> {
+	retryAttempts: number;
 
-  data: T;  retryDelay: number;
+	data: T; retryDelay: number;
 
-  timestamp: number;  cacheEnabled: boolean;
+	timestamp: number; cacheEnabled: boolean;
 
-  ttl: number;  cacheTTL: number;
+	ttl: number; cacheTTL: number;
 
 }}
 
@@ -93,15 +96,16 @@ interface CacheEntry<T> {  retryAttempts: number;
 
 interface RequestMetadata {interface CacheEntry<T> {
 
-  cancelToken?: CancelTokenSource;  data: T;
+	cancelToken?: CancelTokenSource; data: T;
 
-  cache?: boolean;  timestamp: number;
+	cache?: boolean; timestamp: number;
 
-  cacheTTL?: number;  ttl: number;
+	cacheTTL?: number; ttl: number;
 
-  retry?: boolean;}
+	retry?: boolean;
+}
 
-  retryAttempts?: number;
+retryAttempts ?: number;
 
 }// Request Metadata
 
@@ -125,417 +129,457 @@ interface RequestMetadata {
 
  */  access_token: string;
 
-export class DydxAPIClient {  refresh_token: string;
+export class DydxAPIClient {
+	refresh_token: string;
 
-  private client: AxiosInstance;  token_type: 'bearer';
+	private client: AxiosInstance; token_type: 'bearer';
 
-  private config: ClientConfig;  expires_in: number;
+	private config: ClientConfig; expires_in: number;
 
-  private accessToken: string | null = null;}
+	private accessToken: string | null = null;
+}
 
   private refreshToken: string | null = null;
 
-  private isRefreshing = false;export interface User {
+  private isRefreshing = false; export interface User {
 
-  private refreshSubscribers: Array<(token: string) => void> = [];  id: string;
+	private refreshSubscribers: Array<(token: string) => void> = []; id: string;
 
-  private cache = new Map<string, CacheEntry<any>>();  username: string;
+  private cache = new Map<string, CacheEntry<any>>(); username: string;
 
-  private activeRequests = new Map<string, CancelTokenSource>();  email: string;
+  private activeRequests = new Map<string, CancelTokenSource>(); email: string;
 
-  profile?: {
+profile ?: {
 
-  constructor(config: Partial<ClientConfig> = {}) {    first_name?: string;
+	constructor(config: Partial<ClientConfig> = {}) {
+		first_name ?: string;
 
-    this.config = {    last_name?: string;
+		this.config = {
+			last_name?: string;
 
-      baseURL: config.baseURL || import.meta.env.VITE_API_URL || 'http://localhost:8888',  };
+			baseURL: config.baseURL || import.meta.env.VITE_API_URL || 'http://localhost:8889',
+		};
 
-      timeout: config.timeout || 30000,  created_at: string;
+		timeout: config.timeout || 30000, created_at: string;
 
-      retryAttempts: config.retryAttempts || 3,}
+		retryAttempts: config.retryAttempts || 3,}
 
       retryDelay: config.retryDelay || 1000,
 
-      cacheEnabled: config.cacheEnabled ?? true,// Bot Instance Types
+	cacheEnabled: config.cacheEnabled ?? true,// Bot Instance Types
 
-      cacheTTL: config.cacheTTL || 60000, // 1 minute defaultexport interface BotInstance {
+	cacheTTL: config.cacheTTL || 60000, // 1 minute defaultexport interface BotInstance {
 
-    };  instance_id: string;
+}; instance_id: string;
 
-  name: string;
+name: string;
 
-    this.client = axios.create({  status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'CREATED';
+this.client = axios.create({
+	status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'CREATED';
 
-      baseURL: `${this.config.baseURL}/api/v1`,  credentials: {
+	baseURL: `${this.config.baseURL}/api/v1`, credentials: {
 
-      timeout: this.config.timeout,    address: string;
+		timeout: this.config.timeout, address: string;
 
-      headers: {  };
+		headers: {};
 
-        'Content-Type': 'application/json',  trading_params: {
+		'Content-Type': 'application/json', trading_params: {
 
-      },    is_testnet: boolean;
+		}, is_testnet: boolean;
 
-    });    zscore_threshold: number;
+	}); zscore_threshold: number;
 
-    max_half_life: number;
+max_half_life: number;
 
-    this.setupInterceptors();    usd_per_trade: number;
+this.setupInterceptors(); usd_per_trade: number;
 
-    this.loadAuthFromStorage();  };
+this.loadAuthFromStorage();  };
 
-  }  stats?: BotStats;
+  }  stats ?: BotStats;
 
-  last_heartbeat?: string;
+last_heartbeat ?: string;
 
-  // ==================== Setup & Configuration ====================  uptime_seconds?: number;
+// ==================== Setup & Configuration ====================  uptime_seconds?: number;
 
-  total_trades?: number;
+total_trades ?: number;
 
-  private setupInterceptors(): void {  win_rate?: number;
+  private setupInterceptors(): void {
+	win_rate?: number;
 
-    // Request interceptor  pnl?: number;
+	// Request interceptor  pnl?: number;
 
-    this.client.interceptors.request.use(  created_at: string;
+	this.client.interceptors.request.use(created_at: string;
 
-      (config) => {}
+      (config) => { }
 
-        // Add auth token
+// Add auth token
 
-        if (this.accessToken) {export interface BotStats {
+if (this.accessToken) {
+	export interface BotStats {
 
-          config.headers = config.headers || {};  total_trades: number;
+          config.headers = config.headers || {}; total_trades: number;
 
-          config.headers.Authorization = `Bearer ${this.accessToken}`;  win_rate: number;
+	config.headers.Authorization = `Bearer ${this.accessToken}`; win_rate: number;
 
-        }  total_pnl: number;
+} total_pnl: number;
 
-  daily_pnl: number;
+daily_pnl: number;
 
-        // Add request timestamp for debugging  open_positions: number;
+// Add request timestamp for debugging  open_positions: number;
 
-        config.metadata = { ...config.metadata, requestTime: Date.now() };  daily_volume: number;
+config.metadata = { ...config.metadata, requestTime: Date.now() }; daily_volume: number;
 
-  uptime_seconds: number;
+uptime_seconds: number;
 
-        return config;  average_trade_duration_minutes: number;
+return config; average_trade_duration_minutes: number;
 
-      },  sharpe_ratio: number;
+      }, sharpe_ratio: number;
 
-      (error) => Promise.reject(error)  sortino_ratio: number;
+(error) => Promise.reject(error)  sortino_ratio: number;
 
     );}
 
 
 
-    // Response interceptorexport interface BotTrade {
+// Response interceptorexport interface BotTrade {
 
-    this.client.interceptors.response.use(  trade_id: string;
+this.client.interceptors.response.use(trade_id: string;
 
-      (response) => {  market_1: string;
+(response) => {
+	market_1: string;
 
-        // Calculate request duration  market_2: string;
+	// Calculate request duration  market_2: string;
 
-        const requestTime = response.config.metadata?.requestTime;  side_1: 'BUY' | 'SELL';
+	const requestTime = response.config.metadata?.requestTime; side_1: 'BUY' | 'SELL';
 
-        if (requestTime) {  side_2: 'BUY' | 'SELL';
+	if (requestTime) {
+		side_2: 'BUY' | 'SELL';
 
-          const duration = Date.now() - requestTime;  size_1: number;
+		const duration = Date.now() - requestTime; size_1: number;
 
-          console.debug(`API Request: ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms`);  size_2: number;
+		console.debug(`API Request: ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms`); size_2: number;
 
-        }  status: 'FILLED' | 'PENDING' | 'CANCELLED';
+	} status: 'FILLED' | 'PENDING' | 'CANCELLED';
 
-  entry_z_score: number;
+	entry_z_score: number;
 
-        return response;  exit_z_score?: number;
+	return response; exit_z_score ?: number;
 
-      },  pnl?: number;
+}, pnl ?: number;
 
-      async (error: AxiosError) => {  pnl_percent?: number;
+async (error: AxiosError) => {
+	pnl_percent ?: number;
 
-        const originalRequest = error.config as any;  entry_time: string;
+	const originalRequest = error.config as any; entry_time: string;
 
-  exit_time?: string;
+	exit_time ?: string;
 
-        // Handle 401 Unauthorized with token refresh  duration_minutes?: number;
+	// Handle 401 Unauthorized with token refresh  duration_minutes?: number;
 
-        if (error.response?.status === 401 && !originalRequest._retry) {}
+	if (error.response?.status === 401 && !originalRequest._retry) { }
 
-          originalRequest._retry = true;
+	originalRequest._retry = true;
 
-export interface BotPosition {
+	export interface BotPosition {
 
-          if (this.isRefreshing) {  position_id: string;
+		if(this.isRefreshing) {
+			position_id: string;
 
-            // Queue request to retry after refresh  market_1: string;
+		// Queue request to retry after refresh  market_1: string;
 
-            return new Promise((resolve) => {  market_2: string;
+		return new Promise((resolve) => {
+			market_2: string;
 
-              this.refreshSubscribers.push((token: string) => {  side_1: 'BUY' | 'SELL';
+			this.refreshSubscribers.push((token: string) => {
+				side_1: 'BUY' | 'SELL';
 
-                originalRequest.headers.Authorization = `Bearer ${token}`;  side_2: 'BUY' | 'SELL';
+				originalRequest.headers.Authorization = `Bearer ${token}`; side_2: 'BUY' | 'SELL';
 
-                resolve(this.client(originalRequest));  size_1: number;
+				resolve(this.client(originalRequest)); size_1: number;
 
-              });  size_2: number;
+			}); size_2: number;
 
-            });  entry_price_1: number;
+		}); entry_price_1: number;
 
-          }  entry_price_2: number;
+	} entry_price_2: number;
 
-  current_price_1: number;
+	current_price_1: number;
 
-          this.isRefreshing = true;  current_price_2: number;
+	this.isRefreshing = true; current_price_2: number;
 
-  unrealized_pnl: number;
+	unrealized_pnl: number;
 
-          try {  unrealized_pnl_percent: number;
+	try {
+		unrealized_pnl_percent: number;
 
-            if (this.refreshToken) {  entry_time: string;
+		if (this.refreshToken) {
+			entry_time: string;
 
-              await this.refreshAccessToken();  current_z_score: number;
+			await this.refreshAccessToken(); current_z_score: number;
 
-              originalRequest.headers.Authorization = `Bearer ${this.accessToken}`;  mark_price_1: number;
+			originalRequest.headers.Authorization = `Bearer ${this.accessToken}`; mark_price_1: number;
 
-  mark_price_2: number;
+			mark_price_2: number;
 
-              // Notify queued requests  status: 'LIVE' | 'CLOSED' | 'ERROR';
+			// Notify queued requests  status: 'LIVE' | 'CLOSED' | 'ERROR';
 
-              this.refreshSubscribers.forEach((callback) => callback(this.accessToken!));}
+			this.refreshSubscribers.forEach((callback) => callback(this.accessToken!));
+		}
 
-              this.refreshSubscribers = [];
+		this.refreshSubscribers = [];
 
-export interface BotAlert {
+		export interface BotAlert {
 
-              return this.client(originalRequest);  alert_id: string;
+              return this.client(originalRequest); alert_id: string;
 
-            }  severity: 'ERROR' | 'WARNING' | 'INFO';
+	}  severity: 'ERROR' | 'WARNING' | 'INFO';
 
-          } catch (refreshError) {  message: string;
+} catch (refreshError) {
+	message: string;
 
-            this.clearAuth();  timestamp: string;
+	this.clearAuth(); timestamp: string;
 
-            window.location.href = '/login';  acknowledged: boolean;
+	window.location.href = '/login'; acknowledged: boolean;
 
-            return Promise.reject(refreshError);}
+	return Promise.reject(refreshError);
+}
 
           } finally {
 
-            this.isRefreshing = false;export interface BotRealtimeStats {
+	this.isRefreshing = false; export interface BotRealtimeStats {
 
-          }  uptime_seconds: number;
+	}  uptime_seconds: number;
 
-        }  total_trades: number;
+} total_trades: number;
 
-  trades_today: number;
+trades_today: number;
 
-        // Handle rate limiting (429)  open_positions: number;
+// Handle rate limiting (429)  open_positions: number;
 
-        if (error.response?.status === 429) {  total_pnl: number;
+if (error.response?.status === 429) {
+	total_pnl: number;
 
-          const retryAfter = parseInt(error.response.headers['retry-after'] || '60', 10);  daily_pnl: number;
+	const retryAfter = parseInt(error.response.headers['retry-after'] || '60', 10); daily_pnl: number;
 
-          console.warn(`Rate limited. Retrying after ${retryAfter} seconds`);  pnl_percent: number;
+	console.warn(`Rate limited. Retrying after ${retryAfter} seconds`); pnl_percent: number;
 
-            win_rate: number;
+	win_rate: number;
 
-          await this.delay(retryAfter * 1000);  average_trade_duration_minutes: number;
+	await this.delay(retryAfter * 1000); average_trade_duration_minutes: number;
 
-          return this.client(originalRequest);  last_trade_time?: string;
+	return this.client(originalRequest); last_trade_time ?: string;
 
-        }  last_error?: string;
+} last_error ?: string;
 
-  last_error_time?: string;
+last_error_time ?: string;
 
-        // Enhanced error logging  api_latency_ms: number;
+// Enhanced error logging  api_latency_ms: number;
 
-        console.error('API Error:', {  db_latency_ms: number;
+console.error('API Error:', {
+	db_latency_ms: number;
 
-          url: error.config?.url,}
+	url: error.config?.url,
+}
 
           method: error.config?.method,
 
-          status: error.response?.status,// Backtest Types
+	status: error.response?.status,// Backtest Types
 
-          statusText: error.response?.statusText,export interface BacktestConfig {
+	statusText: error.response?.statusText,export interface BacktestConfig {
 
-          data: error.response?.data,  name: string;
+	data: error.response?.data, name: string;
 
-        });  start_date: string;
+}); start_date: string;
 
-  end_date: string;
+end_date: string;
 
-        return Promise.reject(this.normalizeError(error));  initial_capital: number;
+return Promise.reject(this.normalizeError(error)); initial_capital: number;
 
       }  strategy: string;
 
-    );  pairs: Array<{
+    ); pairs: Array < {
 
-  }    base_market: string;
+}    base_market: string;
 
-    quote_market: string;
+quote_market: string;
 
-  private normalizeError(error: AxiosError): Error {    hedge_ratio: number;
+  private normalizeError(error: AxiosError): Error {
+	hedge_ratio: number;
 
-    const apiError = error.response?.data as any;    half_life: number;
+	const apiError = error.response?.data as any; half_life: number;
 
-      }>;
+}>;
 
-    if (apiError?.error) {  trading_params: {
+if (apiError?.error) {
+	trading_params: {
 
-      return new Error(apiError.error);    zscore_threshold: number;
+		return new Error(apiError.error); zscore_threshold: number;
 
-    }    usd_per_trade: number;
+	} usd_per_trade: number;
 
-        max_half_life: number;
+	max_half_life: number;
 
-    if (apiError?.message) {    slippage_percent: number;
+	if (apiError?.message) {
+		slippage_percent: number;
 
-      return new Error(apiError.message);  };
+		return new Error(apiError.message);
+	};
 
-    }}
+}}
 
 
 
-    return new Error(error.message || 'An unexpected error occurred');export interface Backtest {
+return new Error(error.message || 'An unexpected error occurred'); export interface Backtest {
 
-  }  run_id: string;
+}  run_id: string;
 
-  name: string;
+name: string;
 
-  // ==================== Authentication Management ====================  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+// ==================== Authentication Management ====================  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
-  start_date: string;
+start_date: string;
 
-  private loadAuthFromStorage(): void {  end_date: string;
+  private loadAuthFromStorage(): void {
+	end_date: string;
 
-    this.accessToken = localStorage.getItem('access_token');  total_pnl: number;
+	this.accessToken = localStorage.getItem('access_token'); total_pnl: number;
 
-    this.refreshToken = localStorage.getItem('refresh_token');  total_pnl_percent: number;
+	this.refreshToken = localStorage.getItem('refresh_token'); total_pnl_percent: number;
 
-  }  total_trades: number;
+}  total_trades: number;
 
-  win_rate: number;
+win_rate: number;
 
-  private saveAuthToStorage(): void {  sharpe_ratio: number;
+  private saveAuthToStorage(): void {
+	sharpe_ratio: number;
 
-    if (this.accessToken) {  sortino_ratio: number;
+	if(this.accessToken) {
+		sortino_ratio: number;
 
-      localStorage.setItem('access_token', this.accessToken);  max_drawdown_percent: number;
+	localStorage.setItem('access_token', this.accessToken); max_drawdown_percent: number;
 
-    }  calmar_ratio: number;
+} calmar_ratio: number;
 
-    if (this.refreshToken) {  created_at: string;
+if (this.refreshToken) {
+	created_at: string;
 
-      localStorage.setItem('refresh_token', this.refreshToken);  completed_at?: string;
+	localStorage.setItem('refresh_token', this.refreshToken); completed_at ?: string;
 
-    }}
+}}
 
   }
 
 export interface BacktestProgress {
 
-  private clearAuth(): void {  run_id: string;
+	private clearAuth(): void {
+		run_id: string;
 
-    this.accessToken = null;  status: string;
+	this.accessToken = null; status: string;
 
-    this.refreshToken = null;  progress_percent: number;
+	this.refreshToken = null; progress_percent: number;
 
-    localStorage.removeItem('access_token');  trades_completed: number;
+	localStorage.removeItem('access_token'); trades_completed: number;
 
-    localStorage.removeItem('refresh_token');  trades_total: number;
+	localStorage.removeItem('refresh_token'); trades_total: number;
 
-  }  current_date: string;
+} current_date: string;
 
-  estimated_completion_seconds: number;
+estimated_completion_seconds: number;
 
   public setAuth(accessToken: string, refreshToken: string): void {}
 
-    this.accessToken = accessToken;
+this.accessToken = accessToken;
 
-    this.refreshToken = refreshToken;export interface BacktestMetrics {
+this.refreshToken = refreshToken; export interface BacktestMetrics {
 
-    this.saveAuthToStorage();  total_return: number;
+    this.saveAuthToStorage(); total_return: number;
 
   }  annualized_return: number;
 
-  sharpe_ratio: number;
+sharpe_ratio: number;
 
-  public isAuthenticated(): boolean {  sortino_ratio: number;
+  public isAuthenticated(): boolean {
+	sortino_ratio: number;
 
-    return !!this.accessToken;  calmar_ratio: number;
+	return !!this.accessToken; calmar_ratio: number;
 
-  }  max_drawdown: number;
+} max_drawdown: number;
 
-  max_drawdown_percent: number;
+max_drawdown_percent: number;
 
-  // ==================== Caching System ====================  win_rate: number;
+// ==================== Caching System ====================  win_rate: number;
 
-  profit_factor: number;
+profit_factor: number;
 
-  private getCacheKey(method: string, url: string, params?: any): string {  recovery_factor: number;
+  private getCacheKey(method: string, url: string, params ?: any): string {
+	recovery_factor: number;
 
-    return `${method}:${url}:${JSON.stringify(params || {})}`;  trade_count: number;
+	return `${method}:${url}:${JSON.stringify(params || {})}`; trade_count: number;
 
-  }  average_trade_pnl: number;
+} average_trade_pnl: number;
 
-  average_winning_trade: number;
+average_winning_trade: number;
 
-  private getFromCache<T>(key: string): T | null {  average_losing_trade: number;
+  private getFromCache<T>(key: string): T | null {
+	average_losing_trade: number;
 
-    if (!this.config.cacheEnabled) return null;  consecutive_wins: number;
+	if (!this.config.cacheEnabled) return null; consecutive_wins: number;
 
-  consecutive_losses: number;
+	consecutive_losses: number;
 
-    const entry = this.cache.get(key);}
+	const entry = this.cache.get(key);
+}
 
-    if (!entry) return null;
+if (!entry) return null;
 
 // System Types
 
-    if (Date.now() > entry.timestamp + entry.ttl) {export interface SystemStatus {
+if (Date.now() > entry.timestamp + entry.ttl) {
+	export interface SystemStatus {
 
-      this.cache.delete(key);  status: 'operational' | 'degraded' | 'down';
+      this.cache.delete(key); status: 'operational' | 'degraded' | 'down';
 
-      return null;  components: {
+	return null; components: {
 
-    }    database: 'healthy' | 'unhealthy';
+	} database: 'healthy' | 'unhealthy';
 
-    bot_api: 'healthy' | 'unhealthy';
+	bot_api: 'healthy' | 'unhealthy';
 
-    return entry.data;    cache: 'healthy' | 'unhealthy';
+	return entry.data; cache: 'healthy' | 'unhealthy';
 
-  }    indexer: 'healthy' | 'unhealthy';
+} indexer: 'healthy' | 'unhealthy';
 
   };
 
-  private setCache<T>(key: string, data: T, ttl: number = this.config.cacheTTL): void {  metrics: {
+  private setCache<T>(key: string, data: T, ttl: number = this.config.cacheTTL): void {
+	metrics: {
 
-    if (!this.config.cacheEnabled) return;    active_bots: number;
+		if(!this.config.cacheEnabled) return; active_bots: number;
 
-    active_backtests: number;
+		active_backtests: number;
 
-    this.cache.set(key, {    total_trades_24h: number;
+		this.cache.set(key, {
+			total_trades_24h: number;
 
-      data,    api_requests_1h: number;
+			data, api_requests_1h: number;
 
-      timestamp: Date.now(),    average_latency_ms: number;
+			timestamp: Date.now(), average_latency_ms: number;
 
-      ttl,  };
+			ttl,
+		};
 
-    });}
+	});
+}
 
   }
 
 // Main API Client Class
 
-  public clearCache(): void {export class DydxBotAPIClient {
+  public clearCache(): void { export class DydxBotAPIClient {
 
-    this.cache.clear();  private apiClient: AxiosInstance;
+	this.cache.clear();  private apiClient: AxiosInstance;
 
-  }  private baseURL: string;
+}  private baseURL: string;
 
   private token: string | null = null;
 
@@ -543,345 +587,383 @@ export interface BacktestProgress {
 
 
 
-  private delay(ms: number): Promise<void> {  constructor(baseURL: string = 'http://localhost:8888') {
+  private delay(ms: number): Promise < void> {
+	constructor(baseURL: string = 'http://localhost:8888') {
 
-    return new Promise(resolve => setTimeout(resolve, ms));    this.baseURL = baseURL;
+		return new Promise(resolve => setTimeout(resolve, ms)); this.baseURL = baseURL;
 
-  }    
+	}    
 
     this.apiClient = axios.create({
 
-  private async makeRequest<T>(      baseURL: `${baseURL}/api/v1`,
+		private async makeRequest<T>(baseURL: `${baseURL}/api/v1`,
 
-    method: 'get' | 'post' | 'put' | 'delete',      timeout: 30000,
+			method: 'get' | 'post' | 'put' | 'delete', timeout: 30000,
 
-    url: string,      headers: {
+			url: string, headers: {
 
-    data?: any,        'Content-Type': 'application/json',
+				data?: any, 'Content-Type': 'application/json',
 
-    options: RequestMetadata = {}      },
+				options: RequestMetadata = { }
+			},
 
-  ): Promise<T> {    });
+		): Promise<T> { });
 
-    const cacheKey = options.cache !== false ? this.getCacheKey(method, url, data) : null;
+	const cacheKey = options.cache !== false ? this.getCacheKey(method, url, data) : null;
 
-        // Add request interceptor to include auth token
+	// Add request interceptor to include auth token
 
-    // Check cache for GET requests    this.apiClient.interceptors.request.use(
+	// Check cache for GET requests    this.apiClient.interceptors.request.use(
 
-    if (method === 'get' && cacheKey) {      (config) => {
+	if(method === 'get' && cacheKey) {
+		(config) => {
 
-      const cached = this.getFromCache<T>(cacheKey);        if (this.token) {
+			const cached = this.getFromCache<T>(cacheKey); if (this.token) {
 
-      if (cached) {          config.headers.Authorization = `Bearer ${this.token}`;
+				if (cached) {
+					config.headers.Authorization = `Bearer ${this.token}`;
 
-        console.debug(`Cache hit: ${cacheKey}`);        }
+					console.debug(`Cache hit: ${cacheKey}`);
+				}
 
-        return cached;        return config;
+				return cached; return config;
 
-      }      },
+			}
+		},
 
-    }      (error) => Promise.reject(error)
+    } (error) => Promise.reject(error)
 
     );
 
-    // Cancel any existing request with same key
+// Cancel any existing request with same key
 
-    if (cacheKey && this.activeRequests.has(cacheKey)) {    // Add response interceptor to handle token refresh
+if (cacheKey && this.activeRequests.has(cacheKey)) {    // Add response interceptor to handle token refresh
 
-      this.activeRequests.get(cacheKey)?.cancel('Request superseded');    this.apiClient.interceptors.response.use(
+	this.activeRequests.get(cacheKey)?.cancel('Request superseded'); this.apiClient.interceptors.response.use(
 
-    }      (response) => response,
+    } (response) => response,
 
-      async (error: AxiosError) => {
+	async (error: AxiosError) => {
 
-    // Create cancel token        const originalRequest = error.config;
+		// Create cancel token        const originalRequest = error.config;
 
-    const cancelToken = axios.CancelToken.source();
+		const cancelToken = axios.CancelToken.source();
 
-    if (cacheKey) {        // Handle 401 (Unauthorized) by attempting token refresh
+		if (cacheKey) {        // Handle 401 (Unauthorized) by attempting token refresh
 
-      this.activeRequests.set(cacheKey, cancelToken);        if (error.response?.status === 401 && !originalRequest?._retry) {
+			this.activeRequests.set(cacheKey, cancelToken); if (error.response?.status === 401 && !originalRequest?._retry) {
 
-    }          (originalRequest as any)._retry = true;
+			} (originalRequest as any)._retry = true;
 
 
 
-    try {          try {
+			try {
+				try {
 
-      let response;            if (this.refreshToken) {
+					let response; if (this.refreshToken) {
 
-      const config = { cancelToken: cancelToken.token };              await this.refreshAccessToken();
+						const config = { cancelToken: cancelToken.token }; await this.refreshAccessToken();
 
-              return this.apiClient(originalRequest!);
+						return this.apiClient(originalRequest!);
 
-      switch (method) {            }
+						switch (method) { }
 
-        case 'get':          } catch (refreshError) {
+        case 'get':
+					} catch (refreshError) {
 
-          response = await this.client.get<ApiResponse<T>>(url, config);            // Refresh failed, logout user
+						response = await this.client.get<ApiResponse<T>>(url, config);            // Refresh failed, logout user
 
-          break;            this.clearAuth();
+						break; this.clearAuth();
 
-        case 'post':            window.location.href = '/login';
+        case 'post': window.location.href = '/login';
 
-          response = await this.client.post<ApiResponse<T>>(url, data, config);            return Promise.reject(refreshError);
+						response = await this.client.post<ApiResponse<T>>(url, data, config); return Promise.reject(refreshError);
 
-          break;          }
+						break;
+					}
 
-        case 'put':        }
+        case 'put':
+				}
 
           response = await this.client.put<ApiResponse<T>>(url, data, config);
 
-          break;        return Promise.reject(error);
+				break; return Promise.reject(error);
 
-        case 'delete':      }
+        case 'delete':
+			}
 
           response = await this.client.delete<ApiResponse<T>>(url, config);    );
 
-          break;  }
+			break;
+		}
 
-      }
+	}
 
-  // ==================== Authentication ====================
+// ==================== Authentication ====================
 
-      const result = response.data.data || response.data;
+const result = response.data.data || response.data;
 
-  async register(username: string, password: string, email: string): Promise<User> {
+  async register(username: string, password: string, email: string): Promise < User > {
 
-      // Cache successful GET responses    const response = await this.apiClient.post<ApiResponse<User>>('/auth/register', {
+	// Cache successful GET responses    const response = await this.apiClient.post<ApiResponse<User>>('/auth/register', {
 
-      if (method === 'get' && cacheKey && result) {      username,
+	if(method === 'get' && cacheKey && result) {
+		username,
 
-        this.setCache(cacheKey, result, options.cacheTTL);      password,
+		this.setCache(cacheKey, result, options.cacheTTL); password,
 
-      }      email,
-
-    });
-
-      return result as T;    return response.data.data!;
-
-    } finally {  }
-
-      if (cacheKey) {
-
-        this.activeRequests.delete(cacheKey);  async login(username: string, password: string): Promise<AuthResponse> {
-
-      }    const response = await this.apiClient.post<ApiResponse<AuthResponse>>('/auth/login', {
-
-    }      username,
-
-  }      password,
+      } email,
 
     });
 
-  // ==================== Authentication Endpoints ====================
+return result as T; return response.data.data!;
 
-    const authData = response.data.data!;
+    } finally { }
 
-  async login(username: string, password: string): Promise<AuthResponse> {    this.token = authData.access_token;
+if (cacheKey) {
 
-    const response = await this.client.post<ApiResponse<AuthResponse>>('/auth/login', {    this.refreshToken = authData.refresh_token;
+	this.activeRequests.delete(cacheKey);  async login(username: string, password: string): Promise < AuthResponse > {
 
-      username,    this.saveAuth();
+	}    const response = await this.apiClient.post<ApiResponse<AuthResponse>>('/auth/login', {
 
-      password,
+	}      username,
 
-    });    return authData;
+  } password,
 
-  }
+    });
 
-    const authData = response.data.data!;
+// ==================== Authentication Endpoints ====================
 
-    this.setAuth(authData.access_token, authData.refresh_token);  async refreshAccessToken(): Promise<void> {
+const authData = response.data.data!;
 
-    if (!this.refreshToken) {
+  async login(username: string, password: string): Promise < AuthResponse > {
+	this.token = authData.access_token;
 
-    return authData;      throw new Error('No refresh token available');
+	const response = await this.client.post<ApiResponse<AuthResponse>>('/auth/login', {
+		this.refreshToken = authData.refresh_token;
 
-  }    }
+		username, this.saveAuth();
+
+		password,
+
+	}); return authData;
+
+}
+
+const authData = response.data.data!;
+
+this.setAuth(authData.access_token, authData.refresh_token);  async refreshAccessToken(): Promise < void> {
+
+	if(!this.refreshToken) {
+
+	return authData; throw new Error('No refresh token available');
+
+}    }
 
 
 
-  async register(username: string, email: string, password: string): Promise<User> {    const response = await this.apiClient.post<ApiResponse<AuthResponse>>('/auth/refresh', {
+  async register(username: string, email: string, password: string): Promise < User > {
+	const response = await this.apiClient.post<ApiResponse<AuthResponse>>('/auth/refresh', {
 
-    return this.makeRequest<User>('post', '/auth/register', {      refresh_token: this.refreshToken,
+		return this.makeRequest<User>('post', '/auth/register', {
+			refresh_token: this.refreshToken,
 
-      username,    });
+			username,
+		});
 
-      email,
+		email,
 
-      password,    const authData = response.data.data!;
+		password, const authData = response.data.data!;
 
-    });    this.token = authData.access_token;
+	}); this.token = authData.access_token;
 
-  }    this.refreshToken = authData.refresh_token;
+}    this.refreshToken = authData.refresh_token;
 
-    this.saveAuth();
+this.saveAuth();
 
-  async refreshAccessToken(): Promise<void> {  }
+  async refreshAccessToken(): Promise < void> {}
 
-    if (!this.refreshToken) {
+if (!this.refreshToken) {
 
-      throw new Error('No refresh token available');  async getCurrentUser(): Promise<User> {
+	throw new Error('No refresh token available');  async getCurrentUser(): Promise < User > {
 
-    }    const response = await this.apiClient.get<ApiResponse<User>>('/users/me');
+	}    const response = await this.apiClient.get<ApiResponse<User>>('/users/me');
 
-    return response.data.data!;
+	return response.data.data!;
 
-    const response = await this.client.post<ApiResponse<AuthResponse>>('/auth/refresh', {  }
+	const response = await this.client.post<ApiResponse<AuthResponse>>('/auth/refresh', {}
 
       refresh_token: this.refreshToken,
 
-    });  async updateProfile(profile: Partial<User>): Promise<void> {
+    });  async updateProfile(profile: Partial<User>): Promise < void> {
 
-    await this.apiClient.put('/profile', profile);
+	await this.apiClient.put('/profile', profile);
 
-    const authData = response.data.data!;  }
+	const authData = response.data.data!;
+}
 
-    this.setAuth(authData.access_token, authData.refresh_token);
+this.setAuth(authData.access_token, authData.refresh_token);
 
   }  setAuth(token: string, refreshToken: string): void {
 
-    this.token = token;
+	this.token = token;
 
-  async getCurrentUser(): Promise<User> {    this.refreshToken = refreshToken;
+	async getCurrentUser(): Promise<User> {
+		this.refreshToken = refreshToken;
 
-    return this.makeRequest<User>('get', '/users/me', undefined, { cache: true, cacheTTL: 300000 }); // 5 minutes    this.saveAuth();
+		return this.makeRequest<User>('get', '/users/me', undefined, { cache: true, cacheTTL: 300000 }); // 5 minutes    this.saveAuth();
 
-  }  }
-
-
-
-  async updateProfile(profile: Partial<User>): Promise<void> {  private saveAuth(): void {
-
-    await this.makeRequest<void>('put', '/users/me', profile);    localStorage.setItem('auth_token', this.token || '');
-
-    this.clearCache(); // Clear user cache after update    localStorage.setItem('refresh_token', this.refreshToken || '');
-
-  }  }
+	}
+}
 
 
 
-  logout(): void {  private clearAuth(): void {
+  async updateProfile(profile: Partial<User>): Promise < void> {
+	private saveAuth(): void {
 
-    this.clearAuth();    this.token = null;
+		await this.makeRequest<void>('put', '/users/me', profile); localStorage.setItem('auth_token', this.token || '');
 
-    this.clearCache();    this.refreshToken = null;
+		this.clearCache(); // Clear user cache after update    localStorage.setItem('refresh_token', this.refreshToken || '');
 
-  }    localStorage.removeItem('auth_token');
-
-    localStorage.removeItem('refresh_token');
-
-  // ==================== Bot Instance Management ====================  }
+	}
+}
 
 
 
-  async createBotInstance(config: CreateBotRequest): Promise<BotInstance> {  loadAuthFromStorage(): boolean {
+logout(): void {
+	private clearAuth(): void {
 
-    return this.makeRequest<BotInstance>('post', '/bots', config);    const token = localStorage.getItem('auth_token');
+		this.clearAuth(); this.token = null;
 
-  }    const refreshToken = localStorage.getItem('refresh_token');
+		this.clearCache(); this.refreshToken = null;
+
+	}    localStorage.removeItem('auth_token');
+
+	localStorage.removeItem('refresh_token');
+
+	// ==================== Bot Instance Management ====================  }
 
 
 
-  async listBotInstances(params: ListBotsParams = {}): Promise<{ count: number; data: BotInstance[] }> {    if (token && refreshToken) {
+	async createBotInstance(config: CreateBotRequest): Promise<BotInstance> {
+		loadAuthFromStorage(): boolean {
 
-    const queryParams = new URLSearchParams();      this.token = token;
+			return this.makeRequest<BotInstance>('post', '/bots', config); const token = localStorage.getItem('auth_token');
 
-    Object.entries(params).forEach(([key, value]) => {      this.refreshToken = refreshToken;
+		} const refreshToken = localStorage.getItem('refresh_token');
 
-      if (value !== undefined) {      return true;
 
-        queryParams.append(key, value.toString());    }
 
-      }    return false;
+  async listBotInstances(params: ListBotsParams = {}): Promise < { count: number; data: BotInstance[] } > { if(token && refreshToken) {
 
-    });  }
+			const queryParams = new URLSearchParams(); this.token = token;
+
+			Object.entries(params).forEach(([key, value]) => {
+				this.refreshToken = refreshToken;
+
+				if (value !== undefined) {
+					return true;
+
+					queryParams.append(key, value.toString());
+				}
+
+			}    return false;
+
+		});
+	}
 
 
 
     const url = `/bots${queryParams.toString() ? `?${queryParams}` : ''}`;  // ==================== Bot Instance Management ====================
 
-    return this.makeRequest<{ count: number; data: BotInstance[] }>('get', url, undefined, { 
+	return this.makeRequest<{ count: number; data: BotInstance[] }>('get', url, undefined, {
 
-      cache: true,   async createBotInstance(config: {
+		cache: true, async createBotInstance(config: {
 
-      cacheTTL: 30000 // 30 seconds    instance_id: string;
+			cacheTTL: 30000 // 30 seconds    instance_id: string;
 
-    });    name: string;
+		});    name: string;
 
-  }    credentials: { address: string; mnemonic: string };
+	}    credentials: { address: string; mnemonic: string };
 
-    trading_params: any;
+	trading_params: any;
 
-  async getBotInstance(instanceId: string): Promise<BotInstance> {  }): Promise<BotInstance> {
+	async getBotInstance(instanceId: string): Promise<BotInstance> { }): Promise<BotInstance> {
 
-    return this.makeRequest<BotInstance>('get', `/bots/${instanceId}`, undefined, {    const response = await this.apiClient.post<ApiResponse<BotInstance>>('/bots', config);
+		return this.makeRequest<BotInstance>('get', `/bots/${instanceId}`, undefined, {
+			const response = await this.apiClient.post<ApiResponse<BotInstance>>('/bots', config);
 
-      cache: true,    return response.data.data!;
+			cache: true, return response.data.data!;
 
-      cacheTTL: 10000 // 10 seconds  }
+			cacheTTL: 10000 // 10 seconds  }
 
-    });
+		});
 
-  }  async listBotInstances(
+	}  async listBotInstances(
 
-    status?: string,
+		status?: string,
 
-  async updateBotInstance(instanceId: string, updates: UpdateBotRequest): Promise<BotInstance> {    limit: number = 50,
+		async updateBotInstance(instanceId: string, updates: UpdateBotRequest): Promise < BotInstance > {
+			limit: number = 50,
 
-    const result = await this.makeRequest<BotInstance>('put', `/bots/${instanceId}`, updates);    offset: number = 0
+			const result = await this.makeRequest<BotInstance>('put', `/bots/${instanceId}`, updates); offset: number = 0
 
     // Clear related cache entries  ): Promise<{ count: number; data: BotInstance[] }> {
 
-    this.cache.delete(`get:/bots/${instanceId}:undefined`);    const params: any = { limit, offset };
+    this.cache.delete(`get:/bots/${instanceId}:undefined`); const params: any = { limit, offset };
 
-    return result;    if (status) params.status = status;
+			return result; if(status) params.status = status;
 
-  }
+		}
 
-    const response = await this.apiClient.get<ApiResponse<any>>('/bots', { params });
+const response = await this.apiClient.get<ApiResponse<any>>('/bots', { params });
 
-  async startBotInstance(instanceId: string, config?: StartBotRequest): Promise<{ message: string }> {    return response.data.data;
+  async startBotInstance(instanceId: string, config ?: StartBotRequest): Promise < { message: string } > {
+	return response.data.data;
 
-    return this.makeRequest<{ message: string }>('post', `/bots/${instanceId}/start`, config);  }
-
-  }
-
-  async getBotInstance(instanceId: string): Promise<BotInstance> {
-
-  async stopBotInstance(instanceId: string): Promise<{ message: string }> {    const response = await this.apiClient.get<ApiResponse<BotInstance>>(`/bots/${instanceId}`);
-
-    return this.makeRequest<{ message: string }>('post', `/bots/${instanceId}/stop`);    return response.data.data!;
-
-  }  }
-
-
-
-  async restartBotInstance(instanceId: string): Promise<{ message: string }> {  async startBotInstance(instanceId: string, strategy?: string, pairs?: string[]): Promise<any> {
-
-    return this.makeRequest<{ message: string }>('post', `/bots/${instanceId}/restart`);    const response = await this.apiClient.post(`/bots/${instanceId}/start`, {
-
-  }      strategy,
-
-      pairs,
-
-  async deleteBotInstance(instanceId: string): Promise<void> {    });
-
-    await this.makeRequest<void>('delete', `/bots/${instanceId}`);    return response.data;
-
-    this.clearCache(); // Clear all bot-related cache  }
+	return this.makeRequest<{ message: string }>('post', `/bots/${instanceId}/start`, config);
+}
 
   }
+
+  async getBotInstance(instanceId: string): Promise < BotInstance > {
+
+	async stopBotInstance(instanceId: string): Promise<{ message: string }> {
+		const response = await this.apiClient.get<ApiResponse<BotInstance>>(`/bots/${instanceId}`);
+
+		return this.makeRequest<{ message: string }>('post', `/bots/${instanceId}/stop`); return response.data.data!;
+
+	}
+}
+
+
+
+  async restartBotInstance(instanceId: string): Promise < { message: string } > {
+	async startBotInstance(instanceId: string, strategy?: string, pairs?: string[]): Promise<any> {
+
+		return this.makeRequest<{ message: string }>('post', `/bots/${instanceId}/restart`); const response = await this.apiClient.post(`/bots/${instanceId}/start`, {
+
+		}      strategy,
+
+			pairs,
+
+			async deleteBotInstance(instanceId: string): Promise < void> {});
+
+		await this.makeRequest<void>('delete', `/bots/${instanceId}`); return response.data;
+
+		this.clearCache(); // Clear all bot-related cache  }
+
+	}
 
   async stopBotInstance(instanceId: string): Promise<any> {
 
-  async quickDeployBot(config: QuickDeployBotRequest): Promise<BotInstance> {    const response = await this.apiClient.post(`/bots/${instanceId}/stop`);
+  async quickDeployBot(config: QuickDeployBotRequest): Promise < BotInstance > {
+			const response = await this.apiClient.post(`/bots/${instanceId}/stop`);
 
-    return this.makeRequest<BotInstance>('post', '/bots/quick-deploy', config);    return response.data;
+			return this.makeRequest<BotInstance>('post', '/bots/quick-deploy', config); return response.data;
 
-  }  }
+		}
+	}
 
 
 
@@ -889,471 +971,511 @@ export interface BacktestProgress {
 
     const response = await this.apiClient.post(`/bots/${instanceId}/restart`);
 
-  async getBotStats(instanceId: string): Promise<BotStats> {    return response.data;
+	async getBotStats(instanceId: string): Promise<BotStats> {
+		return response.data;
 
-    return this.makeRequest<BotStats>('get', `/bots/${instanceId}/stats`, undefined, {  }
+		return this.makeRequest<BotStats>('get', `/bots/${instanceId}/stats`, undefined, {}
 
       cache: true,
 
-      cacheTTL: 30000 // 30 seconds  async deleteBotInstance(instanceId: string): Promise<void> {
+			cacheTTL: 30000 // 30 seconds  async deleteBotInstance(instanceId: string): Promise<void> {
 
-    });    await this.apiClient.delete(`/bots/${instanceId}`);
+    }); await this.apiClient.delete(`/bots/${instanceId}`);
 
-  }  }
+}  }
 
 
 
-  async getBotTrades(instanceId: string, params: ListTradesParams = {}): Promise<{ count: number; data: BotTrade[] }> {  async quickDeployBot(config: {
+  async getBotTrades(instanceId: string, params: ListTradesParams = {}): Promise < { count: number; data: BotTrade[] } > {
+	async quickDeployBot(config: {
 
-    const queryParams = new URLSearchParams();    instance_id: string;
+    const queryParams = new URLSearchParams(); instance_id: string;
 
-    Object.entries(params).forEach(([key, value]) => {    credentials: { address: string; mnemonic: string };
+		Object.entries(params).forEach(([key, value]) => {
+			credentials: { address: string; mnemonic: string };
 
-      if (value !== undefined) {    pairs: string[];
+			if (value !== undefined) {
+				pairs: string[];
 
-        queryParams.append(key, value.toString());    trading_params: any;
+				queryParams.append(key, value.toString()); trading_params: any;
 
-      }  }): Promise<BotInstance> {
+			}
+		}): Promise<BotInstance> {
 
-    });    const response = await this.apiClient.post<ApiResponse<BotInstance>>('/bots/quick-deploy', config);
+		}); const response = await this.apiClient.post<ApiResponse<BotInstance>>('/bots/quick-deploy', config);
 
-    return response.data.data!;
+	return response.data.data!;
 
-    const url = `/bots/${instanceId}/trades${queryParams.toString() ? `?${queryParams}` : ''}`;  }
+	const url = `/bots/${instanceId}/trades${queryParams.toString() ? `?${queryParams}` : ''}`;
+}
 
-    return this.makeRequest<{ count: number; data: BotTrade[] }>('get', url, undefined, {
+return this.makeRequest<{ count: number; data: BotTrade[] }>('get', url, undefined, {
 
-      cache: true,  // ==================== Bot Statistics & History ====================
+	cache: true,  // ==================== Bot Statistics & History ====================
 
-      cacheTTL: 60000 // 1 minute
+	cacheTTL: 60000 // 1 minute
 
-    });  async getBotStats(instanceId: string): Promise<BotStats> {
+});  async getBotStats(instanceId: string): Promise < BotStats > {
 
-  }    const response = await this.apiClient.get<ApiResponse<BotStats>>(`/bots/${instanceId}/stats`);
+}    const response = await this.apiClient.get<ApiResponse<BotStats>>(`/bots/${instanceId}/stats`);
 
-    return response.data.data!;
+return response.data.data!;
 
   // ==================== Real-Time Bot Data ====================  }
 
 
 
-  async getCurrentPositions(instanceId: string): Promise<BotPosition[]> {  async getBotTrades(
+  async getCurrentPositions(instanceId: string): Promise < BotPosition[] > {
+	async getBotTrades(
 
-    return this.makeRequest<BotPosition[]>('get', `/bots/${instanceId}/positions/current`, undefined, {    instanceId: string,
+    return this.makeRequest<BotPosition[]>('get', `/bots/${instanceId}/positions/current`, undefined, {
+		instanceId: string,
 
-      cache: true,    limit: number = 50,
+		cache: true, limit: number = 50,
 
-      cacheTTL: 5000 // 5 seconds    offset: number = 0,
+		cacheTTL: 5000 // 5 seconds    offset: number = 0,
 
-    });    status?: string,
+	}); status?: string,
 
-  }    startDate?: string,
+}    startDate ?: string,
 
-    endDate?: string
+	endDate ?: string
 
-  async getPosition(instanceId: string, positionId: string): Promise<BotPosition> {  ): Promise<{ count: number; data: BotTrade[] }> {
+  async getPosition(instanceId: string, positionId: string): Promise < BotPosition > {  ): Promise<{ count: number; data: BotTrade[] }> {
 
-    return this.makeRequest<BotPosition>('get', `/bots/${instanceId}/positions/${positionId}`, undefined, {    const params: any = { limit, offset };
+	return this.makeRequest<BotPosition>('get', `/bots/${instanceId}/positions/${positionId}`, undefined, {
+		const params: any = { limit, offset };
 
-      cache: true,    if (status) params.status = status;
+		cache: true, if(status) params.status = status;
 
-      cacheTTL: 5000    if (startDate) params.start_date = startDate;
+		cacheTTL: 5000    if(startDate) params.start_date = startDate;
 
-    });    if (endDate) params.end_date = endDate;
+	}); if(endDate) params.end_date = endDate;
 
-  }
+}
 
-    const response = await this.apiClient.get<ApiResponse<any>>(`/bots/${instanceId}/trades`, { params });
+const response = await this.apiClient.get<ApiResponse<any>>(`/bots/${instanceId}/trades`, { params });
 
-  async getPositionHistory(instanceId: string, positionId: string, hours: number = 24): Promise<any[]> {    return response.data.data;
+  async getPositionHistory(instanceId: string, positionId: string, hours: number = 24): Promise < any[] > {
+	return response.data.data;
 
-    return this.makeRequest<any[]>('get', `/bots/${instanceId}/position-history/${positionId}?hours=${hours}`, undefined, {  }
+	return this.makeRequest<any[]>('get', `/bots/${instanceId}/position-history/${positionId}?hours=${hours}`, undefined, {}
 
       cache: true,
 
-      cacheTTL: 300000 // 5 minutes  async getBotHistory(instanceId: string, days: number = 7, granularity: string = 'daily'): Promise<any[]> {
+		cacheTTL: 300000 // 5 minutes  async getBotHistory(instanceId: string, days: number = 7, granularity: string = 'daily'): Promise<any[]> {
 
-    });    const response = await this.apiClient.get<ApiResponse<any[]>>(`/bots/${instanceId}/history`, {
+    }); const response = await this.apiClient.get<ApiResponse<any[]>>(`/bots/${instanceId}/history`, {
 
-  }      params: { days, granularity },
+		}      params: { days, granularity },
 
     });
 
-  async getMarketData(instanceId: string): Promise<Record<string, any>> {    return response.data.data!;
+  async getMarketData(instanceId: string): Promise < Record < string, any >> {
+	return response.data.data!;
 
-    return this.makeRequest<Record<string, any>>('get', `/bots/${instanceId}/market-data`, undefined, {  }
+	return this.makeRequest<Record<string, any>>('get', `/bots/${instanceId}/market-data`, undefined, {}
 
       cache: true,
 
-      cacheTTL: 30000  async getBotJobs(
+		cacheTTL: 30000  async getBotJobs(
 
-    });    instanceId: string,
+    }); instanceId: string,
 
   }    limit: number = 50,
 
-    offset: number = 0,
+	offset: number = 0,
 
-  async getRealtimeStats(instanceId: string): Promise<BotRealtimeStats> {    type?: string
+		async getRealtimeStats(instanceId: string): Promise < BotRealtimeStats > {
+			type?: string
 
     return this.makeRequest<BotRealtimeStats>('get', `/bots/${instanceId}/realtime-stats`, undefined, {  ): Promise<{ count: number; data: any[] }> {
 
-      cache: true,    const params: any = { limit, offset };
+			cache: true, const params: any = { limit, offset };
 
-      cacheTTL: 5000    if (type) params.type = type;
+			cacheTTL: 5000    if(type) params.type = type;
 
-    });
+		});
 
   }    const response = await this.apiClient.get<ApiResponse<any>>(`/bots/${instanceId}/jobs`, { params });
 
-    return response.data.data;
+return response.data.data;
 
-  async getAlerts(instanceId: string, params: ListAlertsParams = {}): Promise<{ count: number; data: BotAlert[] }> {  }
+  async getAlerts(instanceId: string, params: ListAlertsParams = {}): Promise < { count: number; data: BotAlert[] } > {}
 
-    const queryParams = new URLSearchParams();
+const queryParams = new URLSearchParams();
 
-    Object.entries(params).forEach(([key, value]) => {  // ==================== Real-Time Bot Data ====================
+Object.entries(params).forEach(([key, value]) => {  // ==================== Real-Time Bot Data ====================
 
-      if (value !== undefined) {
+	if (value !== undefined) {
 
-        queryParams.append(key, value.toString());  async getCurrentPositions(instanceId: string): Promise<BotPosition[]> {
+		queryParams.append(key, value.toString());  async getCurrentPositions(instanceId: string): Promise < BotPosition[] > {
 
-      }    const response = await this.apiClient.get<ApiResponse<any>>(`/bots/${instanceId}/positions/current`);
+		}    const response = await this.apiClient.get<ApiResponse<any>>(`/bots/${instanceId}/positions/current`);
 
-    });    return response.data.data;
+	}); return response.data.data;
 
   }
 
-    const url = `/bots/${instanceId}/alerts${queryParams.toString() ? `?${queryParams}` : ''}`;
+const url = `/bots/${instanceId}/alerts${queryParams.toString() ? `?${queryParams}` : ''}`;
 
-    return this.makeRequest<{ count: number; data: BotAlert[] }>('get', url);  async getPosition(instanceId: string, positionId: string): Promise<BotPosition> {
+return this.makeRequest<{ count: number; data: BotAlert[] }>('get', url);  async getPosition(instanceId: string, positionId: string): Promise < BotPosition > {
 
-  }    const response = await this.apiClient.get<ApiResponse<BotPosition>>(
+}    const response = await this.apiClient.get<ApiResponse<BotPosition>>(
 
-      `/bots/${instanceId}/positions/${positionId}`
+	`/bots/${instanceId}/positions/${positionId}`
 
   // ==================== Backtest Management ====================    );
 
     return response.data.data!;
 
-  async createBacktest(config: BacktestConfig): Promise<Backtest> {  }
+  async createBacktest(config: BacktestConfig): Promise < Backtest > {}
 
-    return this.makeRequest<Backtest>('post', '/backtests', config);
+return this.makeRequest<Backtest>('post', '/backtests', config);
 
-  }  async getPositionHistory(instanceId: string, positionId: string, hours: number = 24): Promise<any[]> {
+  }  async getPositionHistory(instanceId: string, positionId: string, hours: number = 24): Promise < any[] > {
 
-    const response = await this.apiClient.get<ApiResponse<any>>(
+	const response = await this.apiClient.get<ApiResponse<any>>(
 
-  async listBacktests(params: ListBacktestsParams = {}): Promise<{ count: number; data: Backtest[] }> {      `/bots/${instanceId}/position-history/${positionId}`,
+		async listBacktests(params: ListBacktestsParams = {}): Promise < { count: number; data: Backtest[] } > {      `/bots/${instanceId}/position-history/${positionId}`,
 
     const queryParams = new URLSearchParams();      {
 
-    Object.entries(params).forEach(([key, value]) => {        params: { hours },
+	Object.entries(params).forEach(([key, value]) => {
+		params: { hours },
 
-      if (value !== undefined) {      }
+		if (value !== undefined) { }
 
-        queryParams.append(key, value.toString());    );
+		queryParams.append(key, value.toString());    );
 
-      }    return response.data.data;
+} return response.data.data;
 
     });  }
 
 
 
-    const url = `/backtests${queryParams.toString() ? `?${queryParams}` : ''}`;  async getMarketData(instanceId: string): Promise<Record<string, any>> {
+const url = `/backtests${queryParams.toString() ? `?${queryParams}` : ''}`;  async getMarketData(instanceId: string): Promise < Record < string, any >> {
 
-    return this.makeRequest<{ count: number; data: Backtest[] }>('get', url, undefined, {    const response = await this.apiClient.get<ApiResponse<Record<string, any>>>(
+	return this.makeRequest<{ count: number; data: Backtest[] }>('get', url, undefined, {
+		const response = await this.apiClient.get<ApiResponse<Record<string, any>>>(
 
-      cache: true,      `/bots/${instanceId}/market-data`
+			cache: true, `/bots/${instanceId}/market-data`
 
-      cacheTTL: 60000    );
+      cacheTTL: 60000);
 
-    });    return response.data.data!;
+	}); return response.data.data!;
 
-  }  }
-
-
-
-  async getBacktest(runId: string): Promise<Backtest> {  async getRealtimeStats(instanceId: string): Promise<BotRealtimeStats> {
-
-    return this.makeRequest<Backtest>('get', `/backtests/${runId}`, undefined, {    const response = await this.apiClient.get<ApiResponse<BotRealtimeStats>>(
-
-      cache: true,      `/bots/${instanceId}/realtime-stats`
-
-      cacheTTL: 300000    );
-
-    });    return response.data.data!;
-
-  }  }
+}  }
 
 
 
-  async getBacktestStatus(runId: string): Promise<BacktestProgress> {  async getAlerts(instanceId: string, limit: number = 50, severity?: string): Promise<{ count: number; data: BotAlert[] }> {
+  async getBacktest(runId: string): Promise < Backtest > {
+	async getRealtimeStats(instanceId: string): Promise<BotRealtimeStats> {
 
-    return this.makeRequest<BacktestProgress>('get', `/backtests/${runId}/status`, undefined, {    const params: any = { limit };
+		return this.makeRequest<Backtest>('get', `/backtests/${runId}`, undefined, {
+			const response = await this.apiClient.get<ApiResponse<BotRealtimeStats>>(
 
-      cache: false // Always fresh for progress    if (severity) params.severity = severity;
+				cache: true, `/bots/${instanceId}/realtime-stats`
 
-    });
+      cacheTTL: 300000);
 
-  }    const response = await this.apiClient.get<ApiResponse<any>>(`/bots/${instanceId}/alerts`, { params });
+		}); return response.data.data!;
 
-    return response.data.data;
+	}
+}
 
-  async getBacktestTrades(runId: string, limit: number = 50, offset: number = 0): Promise<{ count: number; data: any[] }> {  }
+
+
+  async getBacktestStatus(runId: string): Promise < BacktestProgress > {
+	async getAlerts(instanceId: string, limit: number = 50, severity?: string): Promise<{ count: number; data: BotAlert[] }> {
+
+		return this.makeRequest<BacktestProgress>('get', `/backtests/${runId}/status`, undefined, {
+			const params: any = { limit };
+
+			cache: false // Always fresh for progress    if (severity) params.severity = severity;
+
+		});
+
+	}    const response = await this.apiClient.get<ApiResponse<any>>(`/bots/${instanceId}/alerts`, { params });
+
+	return response.data.data;
+
+	async getBacktestTrades(runId: string, limit: number = 50, offset: number = 0): Promise<{ count: number; data: any[] }> { }
 
     return this.makeRequest<{ count: number; data: any[] }>('get', `/backtests/${runId}/trades?limit=${limit}&offset=${offset}`, undefined, {
 
-      cache: true,  // ==================== Backtest Management ====================
+		cache: true,  // ==================== Backtest Management ====================
 
-      cacheTTL: 300000
+		cacheTTL: 300000
 
-    });  async createBacktest(config: BacktestConfig): Promise<Backtest> {
+	}); async createBacktest(config: BacktestConfig): Promise<Backtest> {
 
-  }    const response = await this.apiClient.post<ApiResponse<Backtest>>('/backtests', config);
+	}    const response = await this.apiClient.post<ApiResponse<Backtest>>('/backtests', config);
 
-    return response.data.data!;
+	return response.data.data!;
 
-  async getBacktestMetrics(runId: string): Promise<BacktestMetrics> {  }
+	async getBacktestMetrics(runId: string): Promise<BacktestMetrics> { }
 
     return this.makeRequest<BacktestMetrics>('get', `/backtests/${runId}/performance-metrics`, undefined, {
 
-      cache: true,  async listBacktests(
+		cache: true, async listBacktests(
 
-      cacheTTL: 300000    limit: number = 50,
+			cacheTTL: 300000    limit: number = 50,
 
-    });    offset: number = 0,
+    }); offset: number = 0,
 
-  }    status?: string,
+}    status ?: string,
 
-    days?: number
+	days ?: number
 
-  async compareBacktests(runIds: string[], metrics: string[]): Promise<any> {  ): Promise<{ count: number; data: Backtest[] }> {
+  async compareBacktests(runIds: string[], metrics: string[]): Promise < any > {  ): Promise<{ count: number; data: Backtest[] }> {
 
-    return this.makeRequest<any>('post', '/backtests/compare', {    const params: any = { limit, offset };
+	return this.makeRequest<any>('post', '/backtests/compare', {
+		const params: any = { limit, offset };
 
-      run_ids: runIds,    if (status) params.status = status;
+		run_ids: runIds, if(status) params.status = status;
 
-      metrics,    if (days) params.days = days;
+		metrics, if(days) params.days = days;
 
-    });
+	});
 
-  }    const response = await this.apiClient.get<ApiResponse<any>>('/backtests', { params });
+}    const response = await this.apiClient.get<ApiResponse<any>>('/backtests', { params });
 
-    return response.data.data;
+return response.data.data;
 
-  async cancelBacktest(runId: string): Promise<{ message: string }> {  }
+  async cancelBacktest(runId: string): Promise < { message: string } > {}
 
-    return this.makeRequest<{ message: string }>('post', `/backtests/${runId}/cancel`);
+return this.makeRequest<{ message: string }>('post', `/backtests/${runId}/cancel`);
 
-  }  async getBacktest(runId: string): Promise<Backtest> {
+  }  async getBacktest(runId: string): Promise < Backtest > {
 
-    const response = await this.apiClient.get<ApiResponse<Backtest>>(`/backtests/${runId}`);
+	const response = await this.apiClient.get<ApiResponse<Backtest>>(`/backtests/${runId}`);
 
-  async deleteBacktest(runId: string): Promise<void> {    return response.data.data!;
+	async deleteBacktest(runId: string): Promise<void> {
+		return response.data.data!;
 
-    await this.makeRequest<void>('delete', `/backtests/${runId}`);  }
+		await this.makeRequest<void>('delete', `/backtests/${runId}`);
+	}
 
     this.clearCache(); // Clear backtest cache
 
-  }  async getBacktestStatus(runId: string): Promise<BacktestProgress> {
+}  async getBacktestStatus(runId: string): Promise < BacktestProgress > {
 
-    const response = await this.apiClient.get<ApiResponse<BacktestProgress>>(`/backtests/${runId}/status`);
+	const response = await this.apiClient.get<ApiResponse<BacktestProgress>>(`/backtests/${runId}/status`);
 
-  // ==================== System Status ====================    return response.data.data!;
-
-  }
-
-  async getSystemStatus(): Promise<SystemStatus> {
-
-    return this.makeRequest<SystemStatus>('get', '/system/status', undefined, {  async getBacktestTrades(runId: string, limit: number = 50, offset: number = 0): Promise<{ count: number; data: any[] }> {
-
-      cache: true,    const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/trades`, {
-
-      cacheTTL: 10000      params: { limit, offset },
-
-    });    });
-
-  }    return response.data.data;
-
-  }
-
-  async getHealth(): Promise<any> {
-
-    // Health endpoint doesn't require auth  async getBacktestAnalytics(runId: string): Promise<any> {
-
-    const response = await axios.get(`${this.config.baseURL}/health`);    const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/analytics`);
-
-    return response.data;    return response.data.data!;
-
-  }  }
-
-
-
-  // ==================== WebSocket Management ====================  async getBacktestMetrics(runId: string): Promise<BacktestMetrics> {
-
-    const response = await this.apiClient.get<ApiResponse<BacktestMetrics>>(
-
-  connectWebSocket(path: string, onMessage?: (data: any) => void, onError?: (error: Event) => void): WebSocket {      `/backtests/${runId}/performance-metrics`
-
-    const wsProtocol = this.config.baseURL.startsWith('https') ? 'wss:' : 'ws:';    );
-
-    const baseUrl = this.config.baseURL.replace(/^https?:\/\//, '');    return response.data.data!;
-
-    const wsUrl = `${wsProtocol}//${baseUrl}${path}${this.accessToken ? `?token=${this.accessToken}` : ''}`;  }
-
-
-
-    const ws = new WebSocket(wsUrl);  async compareBacktests(runIds: string[], metrics: string[]): Promise<any> {
-
-    const response = await this.apiClient.post<ApiResponse<any>>('/backtests/compare', {
-
-    ws.onopen = () => {      run_ids: runIds,
-
-      console.debug(`WebSocket connected: ${path}`);      metrics,
-
-    };    });
-
-    return response.data.data!;
-
-    ws.onmessage = (event) => {  }
-
-      if (onMessage) {
-
-        try {  async cancelBacktest(runId: string): Promise<any> {
-
-          const data = JSON.parse(event.data);    const response = await this.apiClient.post(`/backtests/${runId}/cancel`);
-
-          onMessage(data);    return response.data;
-
-        } catch (error) {  }
-
-          console.error('Failed to parse WebSocket message:', error);
-
-        }  async getBacktestSummaryStats(days: number = 30): Promise<any> {
-
-      }    const response = await this.apiClient.get<ApiResponse<any>>('/backtests/stats/summary', {
-
-    };      params: { days },
-
-    });
-
-    ws.onerror = (error) => {    return response.data.data!;
-
-      console.error(`WebSocket error on ${path}:`, error);  }
-
-      if (onError) {
-
-        onError(error);  async getBacktestPositionSnapshots(runId: string): Promise<any[]> {
-
-      }    const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/position-snapshots`);
-
-    };    return response.data.data;
-
-  }
-
-    ws.onclose = (event) => {
-
-      console.debug(`WebSocket closed: ${path}`, event.code, event.reason);  async getBacktestDydxValidation(runId: string): Promise<any> {
-
-    };    const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/dydx-validation`);
-
-    return response.data.data!;
-
-    return ws;  }
-
-  }
-
-  async deleteBacktest(runId: string): Promise<void> {
-
-  connectBotUpdates(instanceId: string, onMessage: (update: any) => void): WebSocket {    await this.apiClient.delete(`/backtests/${runId}`);
-
-    return this.connectWebSocket(`/api/v1/bots/${instanceId}/updates`, onMessage);  }
-
-  }
-
-  // ==================== WebSocket Connections ====================
-
-  connectBacktestProgress(runId: string, onMessage: (progress: BacktestProgress) => void): WebSocket {
-
-    return this.connectWebSocket(`/api/v1/backtests/${runId}/live-progress`, onMessage);  connectBacktestProgress(runId: string, onMessage: (progress: BacktestProgress) => void): WebSocket {
-
-  }    const wsUrl = `ws://${this.baseURL.replace(/^https?:\/\//, '')}/api/v1/backtests/${runId}/live-progress`;
-
-    const ws = new WebSocket(`${wsUrl}?token=${this.token}`);
-
-  // ==================== Advanced Features ====================
-
-    ws.onmessage = (event) => {
-
-  public getRequestStats(): { cacheHits: number; cacheMisses: number; activeRequests: number } {      try {
-
-    return {        const progress = JSON.parse(event.data);
-
-      cacheHits: 0, // TODO: Implement cache hit tracking        onMessage(progress);
-
-      cacheMisses: 0, // TODO: Implement cache miss tracking      } catch (error) {
-
-      activeRequests: this.activeRequests.size,        console.error('Failed to parse WebSocket message:', error);
-
-    };      }
-
-  }    };
-
-
-
-  public cancelAllRequests(): void {    return ws;
-
-    this.activeRequests.forEach((source) => {  }
-
-      source.cancel('All requests cancelled');
-
-    });  connectBotUpdates(instanceId: string, onMessage: (update: any) => void): WebSocket {
-
-    this.activeRequests.clear();    const wsUrl = `ws://${this.baseURL.replace(/^https?:\/\//, '')}/api/v1/bots/${instanceId}/updates`;
-
-  }    const ws = new WebSocket(`${wsUrl}?token=${this.token}`);
-
-
-
-  public updateConfig(newConfig: Partial<ClientConfig>): void {    ws.onmessage = (event) => {
-
-    this.config = { ...this.config, ...newConfig };      try {
-
-            const update = JSON.parse(event.data);
-
-    if (newConfig.baseURL) {        onMessage(update);
-
-      this.client.defaults.baseURL = `${newConfig.baseURL}/api/v1`;      } catch (error) {
-
-    }        console.error('Failed to parse WebSocket message:', error);
-
-          }
-
-    if (newConfig.timeout) {    };
-
-      this.client.defaults.timeout = newConfig.timeout;
-
-    }    return ws;
-
-  }  }
+	// ==================== System Status ====================    return response.data.data!;
 
 }
 
-  // ==================== System Status ====================
+  async getSystemStatus(): Promise < SystemStatus > {
+
+	return this.makeRequest<SystemStatus>('get', '/system/status', undefined, {
+		async getBacktestTrades(runId: string, limit: number = 50, offset: number = 0): Promise<{ count: number; data: any[] }> {
+
+			cache: true,    const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/trades`, {
+
+				cacheTTL: 10000      params: { limit, offset },
+
+			});
+		});
+
+}    return response.data.data;
+
+  }
+
+  async getHealth(): Promise < any > {
+
+	// Health endpoint doesn't require auth  async getBacktestAnalytics(runId: string): Promise<any> {
+
+	const response = await axios.get(`${this.config.baseURL}/health`); const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/analytics`);
+
+	return response.data; return response.data.data!;
+
+}  }
+
+
+
+// ==================== WebSocket Management ====================  async getBacktestMetrics(runId: string): Promise<BacktestMetrics> {
+
+const response = await this.apiClient.get<ApiResponse<BacktestMetrics>>(
+
+	connectWebSocket(path: string, onMessage ?: (data: any) => void, onError ?: (error: Event) => void): WebSocket {      `/backtests/${runId}/performance-metrics`
+
+    const wsProtocol = this.config.baseURL.startsWith('https') ? 'wss:' : 'ws:';    );
+
+const baseUrl = this.config.baseURL.replace(/^https?:\/\//, ''); return response.data.data!;
+
+const wsUrl = `${wsProtocol}//${baseUrl}${path}${this.accessToken ? `?token=${this.accessToken}` : ''}`;  }
+
+
+
+const ws = new WebSocket(wsUrl);  async compareBacktests(runIds: string[], metrics: string[]): Promise < any > {
+
+	const response = await this.apiClient.post<ApiResponse<any>>('/backtests/compare', {
+
+		ws.onopen = () => {
+			run_ids: runIds,
+
+				console.debug(`WebSocket connected: ${path}`); metrics,
+
+    };
+	});
+
+	return response.data.data!;
+
+	ws.onmessage = (event) => { }
+
+      if(onMessage) {
+
+		try {  async cancelBacktest(runId: string): Promise < any > {
+
+			const data = JSON.parse(event.data); const response = await this.apiClient.post(`/backtests/${runId}/cancel`);
+
+			onMessage(data);    return response.data;
+
+		} catch (error) { }
+
+			console.error('Failed to parse WebSocket message:', error);
+
+		}  async getBacktestSummaryStats(days: number = 30): Promise < any > {
+
+		}    const response = await this.apiClient.get<ApiResponse<any>>('/backtests/stats/summary', {
+
+		}; params: { days },
+
+	});
+
+	ws.onerror = (error) => {
+		return response.data.data!;
+
+		console.error(`WebSocket error on ${path}:`, error);
+	}
+
+      if(onError) {
+
+		onError(error);  async getBacktestPositionSnapshots(runId: string): Promise < any[] > {
+
+		}    const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/position-snapshots`);
+
+	}; return response.data.data;
+
+}
+
+ws.onclose = (event) => {
+
+	console.debug(`WebSocket closed: ${path}`, event.code, event.reason);  async getBacktestDydxValidation(runId: string): Promise < any > {
+
+	}; const response = await this.apiClient.get<ApiResponse<any>>(`/backtests/${runId}/dydx-validation`);
+
+	return response.data.data!;
+
+	return ws;
+}
+
+  }
+
+  async deleteBacktest(runId: string): Promise < void> {
+
+	connectBotUpdates(instanceId: string, onMessage: (update: any) => void): WebSocket {
+		await this.apiClient.delete(`/backtests/${runId}`);
+
+		return this.connectWebSocket(`/api/v1/bots/${instanceId}/updates`, onMessage);
+	}
+
+}
+
+// ==================== WebSocket Connections ====================
+
+connectBacktestProgress(runId: string, onMessage: (progress: BacktestProgress) => void): WebSocket {
+
+	return this.connectWebSocket(`/api/v1/backtests/${runId}/live-progress`, onMessage); connectBacktestProgress(runId: string, onMessage: (progress: BacktestProgress) => void): WebSocket {
+
+	} const wsUrl = `ws://${this.baseURL.replace(/^https?:\/\//, '')}/api/v1/backtests/${runId}/live-progress`;
+
+	const ws = new WebSocket(`${wsUrl}?token=${this.token}`);
+
+	// ==================== Advanced Features ====================
+
+	ws.onmessage = (event) => {
+
+  public getRequestStats(): { cacheHits: number; cacheMisses: number; activeRequests: number } {
+			try {
+
+				return {
+					const progress = JSON.parse(event.data);
+
+					cacheHits: 0, // TODO: Implement cache hit tracking        onMessage(progress);
+
+					cacheMisses: 0, // TODO: Implement cache miss tracking      } catch (error) {
+
+					activeRequests: this.activeRequests.size, console.error('Failed to parse WebSocket message:', error);
+
+				};
+			}
+
+  }
+	};
+
+
+
+  public cancelAllRequests(): void {
+		return ws;
+
+		this.activeRequests.forEach((source) => { }
+
+      source.cancel('All requests cancelled');
+
+	}); connectBotUpdates(instanceId: string, onMessage: (update: any) => void): WebSocket {
+
+		this.activeRequests.clear(); const wsUrl = `ws://${this.baseURL.replace(/^https?:\/\//, '')}/api/v1/bots/${instanceId}/updates`;
+
+	} const ws = new WebSocket(`${wsUrl}?token=${this.token}`);
+
+
+
+  public updateConfig(newConfig: Partial<ClientConfig>): void {
+		ws.onmessage = (event) => {
+
+			this.config = { ...this.config, ...newConfig }; try {
+
+				const update = JSON.parse(event.data);
+
+				if (newConfig.baseURL) {
+					onMessage(update);
+
+					this.client.defaults.baseURL = `${newConfig.baseURL}/api/v1`;
+				} catch (error) {
+
+				} console.error('Failed to parse WebSocket message:', error);
+
+			}
+
+    if (newConfig.timeout) { };
+
+			this.client.defaults.timeout = newConfig.timeout;
+
+		}    return ws;
+
+	}
+}
+
+}
+
+// ==================== System Status ====================
 
 // Export singleton instance
 
-export const apiClient = new DydxAPIClient();  async getSystemStatus(): Promise<SystemStatus> {
+export const apiClient = new DydxAPIClient();  async getSystemStatus(): Promise < SystemStatus > {
 
-export default apiClient;    const response = await this.apiClient.get<ApiResponse<SystemStatus>>('/system/status');
-    return response.data.data!;
-  }
+	export default apiClient; const response = await this.apiClient.get<ApiResponse<SystemStatus>>('/system/status');
+	return response.data.data!;
+}
 
-  async getHealth(): Promise<any> {
-    // Note: No auth required for health endpoint
-    const response = await axios.get(`${this.baseURL}/health`);
-    return response.data;
-  }
+  async getHealth(): Promise < any > {
+	// Note: No auth required for health endpoint
+	const response = await axios.get(`${this.baseURL}/health`);
+	return response.data;
+}
 }
 
 // Export singleton instance for use across the app

@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import psutil
-
-from internal.domain.models.api import BotInstanceState, BotInstanceConfig, BotStatus, BotOperationResult, \
-    BotInstanceStatus
+from src.infrastructure.domain.bot_api_models import (BotInstanceConfig,
+                                                      BotInstanceState,
+                                                      BotInstanceStatus,
+                                                      BotOperationResult,
+                                                      BotStatus)
 
 logger = logging.getLogger(__name__)
 
@@ -45,16 +47,20 @@ class BotInstanceManager:
                         instance_id = instance_data["instance_id"]
                         self.instances[instance_id] = BotInstanceState(
                             instance_id=instance_id,
-                            config=BotInstanceConfig.parse_obj(instance_data["config"]),
+                            config=BotInstanceConfig.model_validate(
+                                instance_data["config"]
+                            ),
                             status=BotStatus.STOPPED,
                             process_info={},
-                            trading_stats=instance_data.get("trading_stats", {}),
+                            trading_stats=instance_data.get(
+                                "trading_stats", {}),
                             created_at=datetime.fromisoformat(
                                 instance_data["created_at"]
                             ),
                             last_update=datetime.now(),
                         )
-                logger.info(f"Loaded {len(self.instances)} existing bot instances")
+                logger.info(
+                    f"Loaded {len(self.instances)} existing bot instances")
             except Exception as e:
                 logger.error(f"Error loading instances: {e}")
 
@@ -187,7 +193,8 @@ class BotInstanceManager:
             )
 
             # Create instance-specific configuration file
-            config_file = self._create_instance_config_file(config.instance_id, config)
+            config_file = self._create_instance_config_file(
+                config.instance_id, config)
 
             # Initialize empty state files
             files = self._get_instance_state_files(config.instance_id)
@@ -260,7 +267,7 @@ class BotInstanceManager:
             # Start bot process
             cmd = [
                 "python",
-                "main.py",
+                "main_instance.py",
                 "--instance-id",
                 instance_id,
                 "--config",
@@ -290,13 +297,15 @@ class BotInstanceManager:
 
             self._save_instances_state()
 
-            logger.info(f"Started bot instance {instance_id} with PID {process.pid}")
+            logger.info(
+                f"Started bot instance {instance_id} with PID {process.pid}")
 
             return BotOperationResult(
                 success=True,
                 message=f"Bot instance {instance_id} started successfully",
                 instance_id=instance_id,
                 status=BotStatus.RUNNING,
+                data={"process_id": process.pid},
             )
 
         except Exception as e:
@@ -485,7 +494,8 @@ class BotInstanceManager:
             # Additional stats can be added here (total trades, P&L, etc.)
 
         except Exception as e:
-            logger.error(f"Error updating trading stats for {instance_id}: {e}")
+            logger.error(
+                f"Error updating trading stats for {instance_id}: {e}")
 
     async def list_instances(self) -> List[BotInstanceStatus]:
         """Get list of all bot instances"""
@@ -502,7 +512,8 @@ class BotInstanceManager:
         for instance_id in list(self.processes.keys()):
             process = self.processes[instance_id]
             if process.poll() is not None:  # Process is dead
-                logger.warning(f"Found dead process for instance {instance_id}")
+                logger.warning(
+                    f"Found dead process for instance {instance_id}")
                 if instance_id in self.instances:
                     self.instances[instance_id].status = BotStatus.ERROR
                     self.instances[instance_id].process_info["stopped_at"] = (

@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down stack-env stack-up-dev stack-up-prod stack-down stack-logs stack-ps
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down stack-env stack-env-check stack-up-dev stack-up-prod stack-down stack-logs stack-ps
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -362,20 +362,22 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 		exit 0; \
 	fi
 
-stack-up-dev: ## Start split app stack (api + frontend dev + postgres + redis)
+stack-up-dev: ## Start split app stack (api + worker + frontend dev + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
+		python3 scripts/validate_stack_env.py; \
 		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev up -d --remove-orphans; \
-		echo "✅ Dev stack started (frontend:5173, api:8889; workers are API-managed)"; \
+		echo "✅ Dev stack started (frontend:5173, api:8889, worker enabled)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
 		exit 0; \
 	fi
 
-stack-up-prod: ## Start split app stack (api + frontend preview + postgres + redis)
+stack-up-prod: ## Start split app stack (api + worker + frontend preview + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
+		python3 scripts/validate_stack_env.py --strict-prod; \
 		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile prod up -d --remove-orphans; \
 		echo "✅ Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
@@ -419,5 +421,11 @@ stack-env: ## Create .env.stack from template (safe; won't overwrite existing)
 		cp .env.stack.example .env.stack; \
 		echo "✅ Created .env.stack (edit secrets before production use)"; \
 	fi
+
+stack-env-check: ## Validate required variables in .env.stack
+	python3 scripts/validate_stack_env.py
+
+stack-env-check-prod: ## Validate .env.stack with strict production rules
+	python3 scripts/validate_stack_env.py --strict-prod
 
 .DEFAULT_GOAL := help

@@ -7,7 +7,7 @@ echo "Testing bot startup and shutdown..."
 
 # Start the bot in background
 source .venv/bin/activate
-python app/main.py &
+python bot/main.py &
 BOT_PID=$!
 
 echo "Bot started with PID: $BOT_PID"
@@ -19,10 +19,10 @@ sleep 3
 if ps -p "$BOT_PID" > /dev/null 2>&1; then
     echo "Bot is running, sending SIGTERM..."
     kill -TERM "$BOT_PID"
-    
+
     # Wait for graceful shutdown
     sleep 2
-    
+
     # Check if it's still running
     if ps -p "$BOT_PID" > /dev/null 2>&1; then
         echo "Bot didn't stop gracefully, force killing..."

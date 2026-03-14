@@ -19,7 +19,14 @@ class DatabaseConfig:
     """Database configuration manager"""
 
     def __init__(self):
-        self.db_type = os.getenv("DB_TYPE", "sqlite")  # sqlite or postgresql
+        raw_db_type = os.getenv("DB_TYPE", "sqlite").strip().lower()
+        # Accept common aliases from compose/env files
+        if raw_db_type in {"postgres", "postgresql"}:
+            self.db_type = "postgresql"
+        elif raw_db_type in {"sqlite", "sqlite3"}:
+            self.db_type = "sqlite"
+        else:
+            self.db_type = raw_db_type
         self.db_name = os.getenv("DB_NAME", "trading_bot.db")
         self.db_host = os.getenv("DB_HOST", "localhost")
         self.db_port = os.getenv("DB_PORT", "5432")

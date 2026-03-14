@@ -6,52 +6,410 @@ import asyncio
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-
-from src.middleware.auth_middleware import get_current_active_user
-from src.infrastructure.domain.models.auth_models import User
-
+from pydantic import BaseModel, Field
 # Import authentication modules
 from src.api.v1.auth import router as auth_router
-
 # Import bot models and manager
-from src.infrastructure.domain.bot_api_models import (
-    BotCredentials,
-    BotInstanceConfig,
-    BotInstanceList,
-    BotInstanceStatus,
-    BotOperationResult,
-    BotStatus,
-    TradingParameters,
-)
-from src.bot_instance_manager import bot_manager
+from src.infrastructure.domain.bot_api_models import (BotCredentials,
+                                                      BotInstanceConfig,
+                                                      BotInstanceList,
+                                                      BotInstanceStatus,
+                                                      BotOperationResult,
+                                                      BotStatus,
+                                                      TradingParameters)
+from src.infrastructure.domain.models.auth_models import User
+from src.middleware.auth_middleware import get_current_active_user
 
+try:
+    from src.bot_instance_manager import bot_manager
+except Exception as bot_manager_import_error:  # pragma: no cover
+    logging.getLogger(__name__).warning(
+        "Bot instance manager unavailable at startup: %s",
+        bot_manager_import_error,
+    )
+    bot_manager = None
+
+from src.api.v1.auth.password_2fa import router as password_2fa_router
+from src.api.websocket_server import WebSocketServer
 # Import database utilities
 from src.infrastructure.database import db
-
 # Import backtest modules
-from src.infrastructure.domain.models_backtest import (
-    BacktestConfigRequest,
-    BacktestDetailResponse,
-    BacktestListResponse,
-    BacktestResponse,
-)
-from src.api.v1.auth.password_2fa import router as password_2fa_router
+from src.infrastructure.domain.models_backtest import (BacktestConfigRequest,
+                                                       BacktestDetailResponse,
+                                                       BacktestListResponse,
+                                                       BacktestResponse)
 from src.infrastructure.persistence.repository import UnitOfWork
-from src.infrastructure.persistence.repository_backtest import BacktestRepository
-from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
+from src.infrastructure.persistence.repository_backtest import \
+    BacktestRepository
+from src.infrastructure.persistence.repository_realtime import \
+    UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
-from src.api.websocket_server import WebSocketServer
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
+
+
+class StrategyRequest(BaseModel):
+    """UI-compatible strategy payload."""
+
+    name: str
+    category: str = "custom"
+    description: str = ""
+    is_public: bool = False
+    user_id: int = 1
+    resolution: str = "1H"
+    zscore_threshold: float = 1.5
+    stats_window: int = 21
+    max_half_life: int = 24
+    usd_per_trade: float = 10.0
+    usd_min_collateral: float = 100.0
+    close_at_zscore_cross: bool = True
+    find_cointegrated_pairs: bool = True
+    manage_exits: bool = True
+    place_trades: bool = True
+    abort_all_positions: bool = False
+    max_positions: int = 5
+    max_drawdown_pct: float = 15.0
+    stop_loss_pct: float = 3.0
+    take_profit_pct: float = 8.0
+    trailing_stop_pct: float = 2.0
+    rebalance_interval_hours: int = 24
+    position_timeout_hours: int = 72
+
+
+class StrategyVersionRevertRequest(BaseModel):
+    """Placeholder body for strategy version revert."""
+
+
+class BacktestRunRequestCompat(BaseModel):
+    """Frontend-compatible backtest run request."""
+
+    start_date: str
+    end_date: str
+    strategy_id: Optional[int] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    initial_balance: float = 1000.0
+    max_pairs: int = 3
+    trading_parameters: Optional[Dict[str, Any]] = None
+    pairs: Optional[List[str]] = None
+
+
+class BacktestCreateStrategyRequest(BaseModel):
+    """Create a strategy from an existing backtest."""
+
+    name: str
+    description: str = ""
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class InMemoryStrategyStore:
+    """Lightweight in-memory strategy storage for UI/API smoke tests."""
+
+    _strategies: Dict[int, Dict[str, Any]] = {}
+    _versions: Dict[int, List[Dict[str, Any]]] = {}
+    _next_id: int = 1
+    _next_version_id: int = 1
+
+    @classmethod
+    def _now(cls) -> str:
+        return datetime.now().isoformat()
+
+    @classmethod
+    def _record_version(cls, strategy: Dict[str, Any], note: str) -> None:
+        version = {
+            "id": cls._next_version_id,
+            "strategy_id": strategy["id"],
+            "name": strategy["name"],
+            "description": note,
+            "created_at": cls._now(),
+            "config": {
+                key: value
+                for key, value in strategy.items()
+                if key not in {"id", "created_at", "updated_at"}
+            },
+        }
+        cls._next_version_id += 1
+        cls._versions.setdefault(strategy["id"], []).append(version)
+
+    @classmethod
+    def _normalize(
+        cls,
+        payload: Dict[str, Any],
+        existing: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        base = dict(existing or {})
+        now = cls._now()
+        normalized = {
+            "id": base.get("id"),
+            "name": payload.get(
+                "name", base.get("name", "Untitled Strategy")
+            ),
+            "category": payload.get(
+                "category", base.get("category", "custom")
+            ),
+            "description": payload.get(
+                "description", base.get("description", "")
+            ),
+            "is_public": bool(
+                payload.get("is_public", base.get("is_public", False))
+            ),
+            "user_id": int(payload.get("user_id", base.get("user_id", 1))),
+            "resolution": payload.get(
+                "resolution", base.get("resolution", "1H")
+            ),
+            "zscore_threshold": float(
+                payload.get(
+                    "zscore_threshold",
+                    base.get("zscore_threshold", 1.5),
+                )
+            ),
+            "stats_window": int(
+                payload.get("stats_window", base.get("stats_window", 21))
+            ),
+            "max_half_life": int(
+                payload.get("max_half_life", base.get("max_half_life", 24))
+            ),
+            "usd_per_trade": float(
+                payload.get("usd_per_trade", base.get("usd_per_trade", 10.0))
+            ),
+            "usd_min_collateral": float(
+                payload.get(
+                    "usd_min_collateral",
+                    base.get("usd_min_collateral", 100.0),
+                )
+            ),
+            "close_at_zscore_cross": bool(
+                payload.get(
+                    "close_at_zscore_cross",
+                    base.get("close_at_zscore_cross", True),
+                )
+            ),
+            "find_cointegrated_pairs": bool(
+                payload.get(
+                    "find_cointegrated_pairs",
+                    base.get("find_cointegrated_pairs", True),
+                )
+            ),
+            "manage_exits": bool(
+                payload.get("manage_exits", base.get("manage_exits", True))
+            ),
+            "place_trades": bool(
+                payload.get("place_trades", base.get("place_trades", True))
+            ),
+            "abort_all_positions": bool(
+                payload.get(
+                    "abort_all_positions",
+                    base.get("abort_all_positions", False),
+                )
+            ),
+            "max_positions": int(
+                payload.get("max_positions", base.get("max_positions", 5))
+            ),
+            "max_drawdown_pct": float(
+                payload.get(
+                    "max_drawdown_pct",
+                    base.get("max_drawdown_pct", 15.0),
+                )
+            ),
+            "stop_loss_pct": float(
+                payload.get("stop_loss_pct", base.get("stop_loss_pct", 3.0))
+            ),
+            "take_profit_pct": float(
+                payload.get(
+                    "take_profit_pct", base.get("take_profit_pct", 8.0)
+                )
+            ),
+            "trailing_stop_pct": float(
+                payload.get(
+                    "trailing_stop_pct",
+                    base.get("trailing_stop_pct", 2.0),
+                )
+            ),
+            "rebalance_interval_hours": int(
+                payload.get(
+                    "rebalance_interval_hours",
+                    base.get("rebalance_interval_hours", 24),
+                )
+            ),
+            "position_timeout_hours": int(
+                payload.get(
+                    "position_timeout_hours",
+                    base.get("position_timeout_hours", 72),
+                )
+            ),
+            "created_at": base.get("created_at", now),
+            "updated_at": now,
+        }
+        return normalized
+
+    @classmethod
+    def ensure_seeded(cls) -> None:
+        if cls._strategies:
+            return
+        cls.create(
+            {
+                "name": "Balanced Mean Reversion",
+                "category": "balanced",
+                "description": "Default balanced strategy for UI smoke tests.",
+                "is_public": True,
+                "zscore_threshold": 1.5,
+                "stats_window": 21,
+                "usd_per_trade": 10.0,
+            },
+            seed=True,
+        )
+        cls.create(
+            {
+                "name": "Aggressive Entry",
+                "category": "aggressive",
+                "description": (
+                    "More active entry profile for quick comparisons."
+                ),
+                "is_public": True,
+                "zscore_threshold": 1.0,
+                "stats_window": 14,
+                "usd_per_trade": 25.0,
+            },
+            seed=True,
+        )
+
+    @classmethod
+    def list(cls, skip: int = 0, limit: int = 50) -> Dict[str, Any]:
+        cls.ensure_seeded()
+        strategies = sorted(
+            cls._strategies.values(),
+            key=lambda item: item["id"],
+            reverse=True,
+        )
+        return {
+            "strategies": strategies[skip: skip + limit],
+            "total": len(strategies),
+        }
+
+    @classmethod
+    def list_public(cls) -> Dict[str, Any]:
+        cls.ensure_seeded()
+        strategies = [s for s in cls._strategies.values() if s["is_public"]]
+        return {"strategies": strategies, "total": len(strategies)}
+
+    @classmethod
+    def get(cls, strategy_id: int) -> Optional[Dict[str, Any]]:
+        cls.ensure_seeded()
+        return cls._strategies.get(strategy_id)
+
+    @classmethod
+    def create(
+        cls,
+        payload: Dict[str, Any],
+        seed: bool = False,
+    ) -> Dict[str, Any]:
+        if not seed:
+            cls.ensure_seeded()
+        strategy = cls._normalize(payload)
+        strategy["id"] = cls._next_id
+        cls._next_id += 1
+        cls._strategies[strategy["id"]] = strategy
+        cls._record_version(strategy, "Initial version")
+        return strategy
+
+    @classmethod
+    def update(
+        cls,
+        strategy_id: int,
+        payload: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        existing = cls.get(strategy_id)
+        if not existing:
+            return None
+        updated = cls._normalize(payload, existing=existing)
+        updated["id"] = strategy_id
+        cls._strategies[strategy_id] = updated
+        cls._record_version(updated, "Updated strategy")
+        return updated
+
+    @classmethod
+    def delete(cls, strategy_id: int) -> bool:
+        cls.ensure_seeded()
+        if strategy_id not in cls._strategies:
+            return False
+        cls._strategies.pop(strategy_id, None)
+        cls._versions.pop(strategy_id, None)
+        return True
+
+    @classmethod
+    def versions(cls, strategy_id: int) -> List[Dict[str, Any]]:
+        cls.ensure_seeded()
+        return cls._versions.get(strategy_id, [])
+
+    @classmethod
+    def revert(
+        cls,
+        strategy_id: int,
+        version_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        versions = cls._versions.get(strategy_id, [])
+        version = next(
+            (item for item in versions if item["id"] == version_id),
+            None,
+        )
+        if not version:
+            return None
+        reverted = cls.update(strategy_id, version["config"])
+        return reverted
+
+
+def _bot_manager_ready() -> bool:
+    return bot_manager is not None
+
+
+def _bot_manager_unavailable_response() -> JSONResponse:
+    return api_response(
+        success=False,
+        message="Bot manager unavailable in this environment",
+        status_code=503,
+    )
+
+
+def _strategy_to_backtest_request(
+    strategy: Dict[str, Any],
+    request: BacktestRunRequestCompat,
+) -> BacktestConfigRequest:
+    pairs = request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)]
+    trading_parameters = dict(request.trading_parameters or {})
+    if not trading_parameters:
+        trading_parameters = {
+            "zscore_threshold": strategy["zscore_threshold"],
+            "stats_window": strategy["stats_window"],
+            "usd_per_trade": strategy["usd_per_trade"],
+            "close_at_zscore_cross": strategy["close_at_zscore_cross"],
+            "max_positions": strategy["max_positions"],
+            "max_drawdown_pct": strategy["max_drawdown_pct"],
+            "stop_loss_pct": strategy["stop_loss_pct"],
+            "take_profit_pct": strategy["take_profit_pct"],
+            "trailing_stop_pct": strategy["trailing_stop_pct"],
+        }
+
+    return BacktestConfigRequest(
+        name=request.name or f"{strategy['name']} Backtest",
+        description=request.description or strategy.get("description", ""),
+        start_date=request.start_date,
+        end_date=request.end_date,
+        initial_balance=request.initial_balance,
+        trading_parameters=trading_parameters,
+        pairs=pairs,
+    )
 
 
 # Custom OpenAPI schema for JWT Bearer authentication
@@ -116,7 +474,21 @@ app.add_middleware(
 
 # Include authentication routes
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
-app.include_router(password_2fa_router, prefix="/auth", tags=["Authentication"])
+app.include_router(
+    password_2fa_router,
+    prefix="/auth",
+    tags=["Authentication"],
+)
+app.include_router(
+    auth_router,
+    prefix="/api/v1/auth",
+    tags=["Authentication"],
+)
+app.include_router(
+    password_2fa_router,
+    prefix="/api/v1/auth",
+    tags=["Authentication"],
+)
 
 # ============================================================================
 # API RESPONSE WRAPPER
@@ -131,7 +503,10 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
         "data": data,
         "timestamp": datetime.now().isoformat(),
     }
-    return JSONResponse(content=response_data, status_code=status_code)
+    return JSONResponse(
+        content=jsonable_encoder(response_data),
+        status_code=status_code,
+    )
 
 
 # ============================================================================
@@ -145,6 +520,8 @@ async def create_bot_instance(
 ):
     """Create a new bot instance"""
     try:
+        if not _bot_manager_ready():
+            return _bot_manager_unavailable_response()
         result = await bot_manager.create_instance(config)
 
         if result.success:
@@ -187,7 +564,8 @@ async def create_bot_instance(
                     f"Bot instance '{config.instance_id}' persisted to database"
                 )
             except Exception as db_error:
-                logger.warning(f"Failed to persist bot to database: {db_error}")
+                logger.warning(
+                    f"Failed to persist bot to database: {db_error}")
                 # Continue anyway - bot was created in manager
 
             return api_response(
@@ -209,26 +587,21 @@ async def create_bot_instance(
 async def list_bot_instances(current_user: User = Depends(get_current_active_user)):
     """Get list of all bot instances"""
     try:
+        if not _bot_manager_ready():
+            return api_response(
+                success=True,
+                data={"bots": [], "total": 0},
+                message="Retrieved 0 bot instances (bot manager unavailable)",
+            )
         instances = await bot_manager.list_instances()
-
-        # Calculate summary statistics
-        total_instances = len(instances)
-        running_instances = len([i for i in instances if i.status == BotStatus.RUNNING])
-        stopped_instances = len([i for i in instances if i.status == BotStatus.STOPPED])
-        error_instances = len([i for i in instances if i.status == BotStatus.ERROR])
-
-        result = BotInstanceList(
-            instances=instances,
-            total_instances=total_instances,
-            running_instances=running_instances,
-            stopped_instances=stopped_instances,
-            error_instances=error_instances,
-        )
 
         return api_response(
             success=True,
-            data=result.model_dump(),
-            message=f"Retrieved {total_instances} bot instances",
+            data={
+                "bots": [instance.model_dump() for instance in instances],
+                "total": len(instances),
+            },
+            message=f"Retrieved {len(instances)} bot instances",
         )
 
     except Exception as e:
@@ -244,6 +617,8 @@ async def get_bot_instance(
 ):
     """Get specific bot instance status"""
     try:
+        if not _bot_manager_ready():
+            return _bot_manager_unavailable_response()
         instance = await bot_manager.get_instance_status(instance_id)
 
         if instance is None:
@@ -272,6 +647,8 @@ async def delete_bot_instance(
 ):
     """Delete bot instance"""
     try:
+        if not _bot_manager_ready():
+            return _bot_manager_unavailable_response()
         result = await bot_manager.delete_instance(instance_id)
 
         if result.success:
@@ -303,6 +680,8 @@ async def start_bot_instance(
 ):
     """Start bot instance"""
     try:
+        if not _bot_manager_ready():
+            return _bot_manager_unavailable_response()
         result = await bot_manager.start_instance(instance_id)
 
         if result.success:
@@ -331,7 +710,8 @@ async def start_bot_instance(
 
                 session.close()
             except Exception as db_error:
-                logger.warning(f"Failed to update database on bot start: {db_error}")
+                logger.warning(
+                    f"Failed to update database on bot start: {db_error}")
 
             return api_response(
                 success=True,
@@ -356,6 +736,8 @@ async def stop_bot_instance(
 ):
     """Stop bot instance"""
     try:
+        if not _bot_manager_ready():
+            return _bot_manager_unavailable_response()
         result = await bot_manager.stop_instance(instance_id, force=force)
 
         if result.success:
@@ -378,7 +760,8 @@ async def stop_bot_instance(
 
                 session.close()
             except Exception as db_error:
-                logger.warning(f"Failed to update database on bot stop: {db_error}")
+                logger.warning(
+                    f"Failed to update database on bot stop: {db_error}")
 
             return api_response(
                 success=True,
@@ -401,6 +784,8 @@ async def restart_bot_instance(
 ):
     """Restart bot instance"""
     try:
+        if not _bot_manager_ready():
+            return _bot_manager_unavailable_response()
         # Stop first
         stop_result = await bot_manager.stop_instance(instance_id, force=False)
         if not stop_result.success:
@@ -719,6 +1104,8 @@ async def quick_deploy_bot(
 ):
     """Quick deploy and optionally start a new bot instance"""
     try:
+        if not _bot_manager_ready():
+            return _bot_manager_unavailable_response()
         # Generate instance ID from name
         import re
 
@@ -806,10 +1193,53 @@ async def health_check():
     )
 
 
+@app.get("/api/v1/users/me")
+async def get_current_user_profile(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Frontend-compatible current user endpoint used after login."""
+    return api_response(
+        success=True,
+        data={
+            "id": int(getattr(current_user, "id", 1) or 1),
+            "username": str(getattr(current_user, "username", "admin")),
+            "email": str(
+                getattr(current_user, "email", "admin@example.local")
+            ),
+            "is_active": bool(getattr(current_user, "is_active", True)),
+            "is_admin": bool(
+                getattr(
+                    current_user,
+                    "is_admin",
+                    getattr(current_user, "is_superuser", False),
+                )
+            ),
+            "created_at": (
+                getattr(current_user, "created_at", datetime.now())
+            ).isoformat(),
+        },
+        message="Current user profile retrieved",
+    )
+
+
 @app.get("/api/v1/system/status")
 async def system_status(current_user: User = Depends(get_current_active_user)):
     """Get system status and statistics"""
     try:
+        if not _bot_manager_ready():
+            return api_response(
+                success=True,
+                data={
+                    "bot_instances": {"total": 0, "running": 0, "max_allowed": 0},
+                    "system_resources": {
+                        "cpu_usage_percent": 0,
+                        "memory_usage_percent": 0,
+                        "memory_available_gb": 0,
+                    },
+                    "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
+                },
+                message="System status available; bot manager unavailable",
+            )
         instances = await bot_manager.list_instances()
 
         # Cleanup any dead processes
@@ -817,7 +1247,8 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
 
         # Calculate system stats
         total_instances = len(instances)
-        running_instances = len([i for i in instances if i.status == BotStatus.RUNNING])
+        running_instances = len(
+            [i for i in instances if i.status == BotStatus.RUNNING])
 
         # System resource usage
         import psutil
@@ -1159,7 +1590,8 @@ async def get_position_history(bot_instance_id: int, position_id: str, hours: in
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        snapshots = uow.snapshots.get_position_history(position_id, hours=hours)
+        snapshots = uow.snapshots.get_position_history(
+            position_id, hours=hours)
 
         return api_response(
             success=True,
@@ -1271,6 +1703,56 @@ async def create_backtest(
         )
 
 
+@app.post("/api/v1/backtests/run")
+async def run_backtest_compat(
+    request: BacktestRunRequestCompat,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Frontend-compatible backtest execution route."""
+    del current_user
+    try:
+        if request.strategy_id is not None:
+            strategy = InMemoryStrategyStore.get(request.strategy_id)
+            if not strategy:
+                return api_response(
+                    success=False,
+                    message=f"Strategy '{request.strategy_id}' not found",
+                    status_code=404,
+                )
+            backtest_request = _strategy_to_backtest_request(strategy, request)
+        else:
+            backtest_request = BacktestConfigRequest(
+                name=request.name or "manual-backtest",
+                description=request.description or "Manual backtest run",
+                start_date=request.start_date,
+                end_date=request.end_date,
+                initial_balance=request.initial_balance,
+                trading_parameters=request.trading_parameters or {
+                    "zscore_threshold": 1.5,
+                    "stats_window": 21,
+                    "usd_per_trade": 10.0,
+                    "close_at_zscore_cross": True,
+                },
+                pairs=request.pairs or DEFAULT_PAIRS[: max(
+                    1, request.max_pairs)],
+            )
+
+        service = get_backtest_service()
+        result = await service.create_and_run_backtest(backtest_request)
+        return api_response(
+            success=True,
+            data=result.model_dump(),
+            message=f"Backtest '{result.name}' completed",
+        )
+    except Exception as e:
+        logger.error(f"Error running compatibility backtest: {e}")
+        return api_response(
+            success=False,
+            message=f"Internal server error: {str(e)}",
+            status_code=500,
+        )
+
+
 @app.get("/api/v1/backtests", response_model=BacktestListResponse)
 async def list_backtests(
     limit: int = 50,
@@ -1356,6 +1838,40 @@ async def get_backtest_status(
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )
+
+
+@app.post("/api/v1/backtests/{run_id}/create-strategy")
+async def create_strategy_from_backtest(
+    run_id: str,
+    request: BacktestCreateStrategyRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a strategy snapshot from an existing backtest."""
+    del current_user
+    service = get_backtest_service()
+    details = service.get_backtest_details(run_id)
+    if not details:
+        return api_response(
+            success=False,
+            message=f"Backtest '{run_id}' not found",
+            status_code=404,
+        )
+
+    payload = {
+        "name": request.name,
+        "description": request.description,
+        **request.config,
+        "is_public": False,
+    }
+    strategy = InMemoryStrategyStore.create(payload)
+    return api_response(
+        success=True,
+        data={
+            **strategy,
+            "source_backtest_run_id": run_id,
+        },
+        message="Strategy created from backtest",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/trades")
@@ -1655,8 +2171,144 @@ async def get_live_progress(
 async def startup_event():
     """Initialize bot manager on startup"""
     logger.info("Starting Bot API Server...")
-    await bot_manager.cleanup_dead_processes()
+    if bot_manager is not None:
+        await bot_manager.cleanup_dead_processes()
+    else:
+        logger.warning(
+            "Bot manager unavailable; bot-instance endpoints may be degraded"
+        )
     logger.info("Bot API Server ready")
+
+
+# ============================================================================
+# STRATEGY ENDPOINTS
+# ============================================================================
+
+
+@app.get("/api/v1/strategies")
+async def list_strategies(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(get_current_active_user),
+):
+    """List stored strategies for the UI."""
+    del current_user
+    data = InMemoryStrategyStore.list(skip=skip, limit=limit)
+    return api_response(
+        success=True,
+        data=data,
+        message=f"Retrieved {len(data['strategies'])} strategies",
+    )
+
+
+@app.get("/api/v1/strategies/public")
+async def list_public_strategies():
+    """List public strategies."""
+    data = InMemoryStrategyStore.list_public()
+    return api_response(
+        success=True,
+        data=data,
+        message=f"Retrieved {len(data['strategies'])} public strategies",
+    )
+
+
+@app.post("/api/v1/strategies")
+async def create_strategy(
+    request: StrategyRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a strategy."""
+    del current_user
+    strategy = InMemoryStrategyStore.create(request.model_dump())
+    return api_response(
+        success=True,
+        data=strategy,
+        message=f"Strategy '{strategy['name']}' created successfully",
+    )
+
+
+@app.get("/api/v1/strategies/{strategy_id}")
+async def get_strategy(
+    strategy_id: int,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get one strategy."""
+    del current_user
+    strategy = InMemoryStrategyStore.get(strategy_id)
+    if not strategy:
+        return api_response(
+            success=False,
+            message=f"Strategy '{strategy_id}' not found",
+            status_code=404,
+        )
+    return api_response(success=True, data=strategy, message="Strategy retrieved")
+
+
+@app.put("/api/v1/strategies/{strategy_id}")
+async def update_strategy(
+    strategy_id: int,
+    request: StrategyRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update one strategy."""
+    del current_user
+    strategy = InMemoryStrategyStore.update(strategy_id, request.model_dump())
+    if not strategy:
+        return api_response(
+            success=False,
+            message=f"Strategy '{strategy_id}' not found",
+            status_code=404,
+        )
+    return api_response(success=True, data=strategy, message="Strategy updated")
+
+
+@app.delete("/api/v1/strategies/{strategy_id}")
+async def delete_strategy(
+    strategy_id: int,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Delete one strategy."""
+    del current_user
+    if not InMemoryStrategyStore.delete(strategy_id):
+        return api_response(
+            success=False,
+            message=f"Strategy '{strategy_id}' not found",
+            status_code=404,
+        )
+    return api_response(success=True, message="Strategy deleted")
+
+
+@app.get("/api/v1/strategies/{strategy_id}/versions")
+async def get_strategy_versions(
+    strategy_id: int,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get in-memory version history for a strategy."""
+    del current_user
+    return api_response(
+        success=True,
+        data={"versions": InMemoryStrategyStore.versions(strategy_id)},
+        message="Strategy version history retrieved",
+    )
+
+
+@app.post("/api/v1/strategies/{strategy_id}/versions/{version_id}/revert")
+async def revert_strategy_version(
+    strategy_id: int,
+    version_id: int,
+    request: StrategyVersionRevertRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Revert a strategy to a prior stored version."""
+    del request, current_user
+    strategy = InMemoryStrategyStore.revert(strategy_id, version_id)
+    if not strategy:
+        return api_response(
+            success=False,
+            message="Strategy version not found",
+            status_code=404,
+        )
+    return api_response(success=True, data=strategy, message="Strategy reverted")
 
 
 @app.on_event("shutdown")
@@ -1679,7 +2331,7 @@ if __name__ == "__main__":
 
     # Run server
     uvicorn.run(
-        "bot_api_server:app",
+        "src.api.server:app",
         host=host,
         port=port,
         workers=workers,

@@ -1,4 +1,99 @@
 {
-  "instances": [],
-  "last_saved": "2025-11-06T21:44:25.337276"
+  "instances": [
+    {
+      "instance_id": "smoke-bot-1",
+      "config": {
+        "instance_id": "smoke-bot-1",
+        "instance_name": null,
+        "credentials": {
+          "chain_id": "dydx-testnet-4",
+          "address": "dydx123test",
+          "mnemonic": "test test test test test test test test test test test junk"
+        },
+        "trading_params": {
+          "is_testnet": true,
+          "find_cointegrated_pairs": true,
+          "manage_exits": true,
+          "place_trades": true,
+          "abort_all_positions": false,
+          "resolution_timeframe": "1HOUR",
+          "strategy": "mean_reversion",
+          "stats_window": 21,
+          "max_half_life": 24,
+          "zscore_threshold": 1.5,
+          "usd_per_trade": 10.0,
+          "usd_min_collateral": 100.0,
+          "close_at_zscore_cross": true
+        }
+      },
+      "trading_stats": {
+        "active_positions": 0
+      },
+      "created_at": "2026-03-14T13:05:51.727169",
+      "last_update": "2026-03-14T13:27:13.267715"
+    },
+    {
+      "instance_id": "ui-smoke-bot-2",
+      "config": {
+        "instance_id": "ui-smoke-bot-2",
+        "instance_name": null,
+        "credentials": {
+          "chain_id": "dydx-testnet-4",
+          "address": "dydx-ui-smoke",
+          "mnemonic": "test test test test test test test test test test test junk"
+        },
+        "trading_params": {
+          "is_testnet": true,
+          "find_cointegrated_pairs": true,
+          "manage_exits": true,
+          "place_trades": true,
+          "abort_all_positions": false,
+          "resolution_timeframe": "1HOUR",
+          "strategy": "mean_reversion",
+          "stats_window": 21,
+          "max_half_life": 24,
+          "zscore_threshold": 1.4,
+          "usd_per_trade": 15.0,
+          "usd_min_collateral": 100.0,
+          "close_at_zscore_cross": true
+        }
+      },
+      "trading_stats": {
+        "active_positions": 0
+      },
+      "created_at": "2026-03-14T13:12:00.911044",
+      "last_update": "2026-03-14T13:27:13.267734"
+    },
+    {
+      "instance_id": "ui-verify-1773495013",
+      "config": {
+        "instance_id": "ui-verify-1773495013",
+        "instance_name": "UI Verify Bot",
+        "credentials": {
+          "chain_id": "dydx-testnet-4",
+          "address": "dydx1testaddress",
+          "mnemonic": "test test test test test test test test test test test junk"
+        },
+        "trading_params": {
+          "is_testnet": true,
+          "find_cointegrated_pairs": true,
+          "manage_exits": true,
+          "place_trades": true,
+          "abort_all_positions": false,
+          "resolution_timeframe": "1HOUR",
+          "strategy": "mean_reversion",
+          "stats_window": 21,
+          "max_half_life": 24,
+          "zscore_threshold": 1.5,
+          "usd_per_trade": 10.0,
+          "usd_min_collateral": 100.0,
+          "close_at_zscore_cross": true
+        }
+      },
+      "trading_stats": {},
+      "created_at": "2026-03-14T13:30:13.973101",
+      "last_update": "2026-03-14T13:30:22.608549"
+    }
+  ],
+  "last_saved": "2026-03-14T13:30:22.608595"
 }

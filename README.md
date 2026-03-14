@@ -68,7 +68,7 @@ Starts:
 
 - `frontend` on `http://localhost:5173`
 - `api` on `http://localhost:8889`
-- `worker` (background service)
+- worker processes (spawned/managed by API on demand)
 - `postgres` and `redis`
 
 ### 3) Verify services

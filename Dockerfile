@@ -1,85 +1,46 @@
-# Multi-stage Dockerfile for dYdX Trading Bot
-# Built for production efficiency and development flexibility
+# Monorepo root Dockerfile (Bot API image)
+# Canonical stack runtime uses docker-compose.stack.yml with bot/docker/Dockerfile.
+# This file is kept for standalone image workflows from repo root.
 
-FROM python:3.12-slim as base
+FROM python:3.12-slim AS base
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app
 
-# Install system dependencies required for scientific libraries
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     build-essential \
     gcc \
     g++ \
-    python3-dev \
-    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash dydx
 WORKDIR /app
-RUN chown dydx:dydx /app
 
-# Development stage - includes dev tools and source code
-FROM base as development
+# Install dependencies from bot service
+COPY bot/requirements.txt /tmp/requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r /tmp/requirements.txt
 
+# Copy bot source tree as runtime app
+COPY bot/ /app/
+
+RUN useradd --create-home --shell /bin/bash dydx && \
+    chown -R dydx:dydx /app
+
+EXPOSE 8889
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+    CMD curl -f http://localhost:8889/health || exit 1
+
+FROM base AS development
 USER dydx
+CMD ["python", "-m", "uvicorn", "src.api.server:app", "--host", "0.0.0.0", "--port", "8889", "--reload"]
 
-# Copy requirements and install dependencies
-COPY --chown=dydx:dydx requirements.txt .
-RUN pip install --user -r requirements.txt
-
-# Install development tools
-RUN pip install --user flake8 pylint mypy bandit black isort pytest
-
-# Copy source code
-COPY --chown=dydx:dydx . .
-
-# Ensure config.yaml exists (will use default if not mounted)
-RUN if [ ! -f app/config.yaml ]; then \
-        echo "Creating default config.yaml for development..." && \
-        make config || echo "Warning: Could not create default config"; \
-    fi
-
-# Set Python path
-ENV PYTHONPATH=/app
-
-# Default command for development
-CMD ["python", "app/main.py"]
-
-# Production stage - optimized for deployment
-FROM base as production
-
+FROM base AS production
 USER dydx
+CMD ["python", "-m", "uvicorn", "src.api.server:app", "--host", "0.0.0.0", "--port", "8889"]
 
-# Copy only requirements first for better layer caching
-COPY --chown=dydx:dydx requirements.txt .
-
-# Install only production dependencies
-RUN pip install --user -r requirements.txt
-
-# Copy application code
-COPY --chown=dydx:dydx backend/app/ ./app/
-COPY --chown=dydx:dydx scripts/ ./scripts/
-
-# Set Python path
-ENV PYTHONPATH=/app
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "from app.config import ConfigurationManager; print('OK')" || exit 1
-
-# Default command
-CMD ["python", "app/main.py"]
-
-# Testing stage - for running tests in CI/CD
-FROM development as testing
-
-# Run tests during build (optional)
-RUN PYTHONPATH=. python -m pytest tests/ -v || echo "Warning: Tests failed"
-
-# Final stage selector
-FROM ${BUILD_TARGET:-production} as final
+FROM ${BUILD_TARGET:-production} AS final

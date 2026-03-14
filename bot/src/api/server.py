@@ -38,6 +38,9 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     bot_manager = None
 
 from src.api.v1.auth.password_2fa import router as password_2fa_router
+from src.api.realtime_serializers import (serialize_market_core,
+                                          serialize_realtime_position,
+                                          serialize_stats_risk_fields)
 from src.api.websocket_server import WebSocketServer
 # Import database utilities
 from src.infrastructure.database import db
@@ -1305,40 +1308,7 @@ async def get_current_positions(
             data={
                 "bot_instance_id": bot_instance_id,
                 "positions": [
-                    {
-                        "position_id": p.position_id,
-                        "pair1": p.pair1,
-                        "pair2": p.pair2,
-                        "side1": p.side1,
-                        "side2": p.side2,
-                        "status": p.status.value,
-                        "entry_price1": float(p.entry_price1)
-                        if p.entry_price1 is not None
-                        else None,
-                        "entry_price2": float(p.entry_price2)
-                        if p.entry_price2 is not None
-                        else None,
-                        "current_price1": float(p.current_price1)
-                        if p.current_price1
-                        else None,
-                        "current_price2": float(p.current_price2)
-                        if p.current_price2
-                        else None,
-                        "current_size1": float(p.current_size1),
-                        "current_size2": float(p.current_size2),
-                        "unrealized_pnl": float(p.unrealized_pnl),
-                        "unrealized_pnl_pct": float(p.unrealized_pnl_pct),
-                        "z_score_entry": float(p.z_score_entry)
-                        if p.z_score_entry
-                        else None,
-                        "z_score_current": float(p.z_score_current)
-                        if p.z_score_current
-                        else None,
-                        "entered_at": p.entry_time.isoformat(),
-                        "updated_at": p.updated_at.isoformat()
-                        if p.updated_at
-                        else None,
-                    }
+                    serialize_realtime_position(p, include_updated_at=True)
                     for p in positions
                 ],
                 "count": len(positions),
@@ -1433,14 +1403,7 @@ async def get_market_data(bot_instance_id: int):
                 "bot_instance_id": bot_instance_id,
                 "market_data": [
                     {
-                        "symbol": m.symbol,
-                        "current_price": float(m.current_price),
-                        "bid_price": float(m.bid_price) if m.bid_price else None,
-                        "ask_price": float(m.ask_price) if m.ask_price else None,
-                        "volume_24h": float(m.volume_24h) if m.volume_24h else None,
-                        "volatility_24h": float(m.volatility_24h)
-                        if m.volatility_24h
-                        else None,
+                        **serialize_market_core(m, include_volatility=True),
                         "rsi": float(m.rsi) if m.rsi else None,
                         "macd": float(m.macd) if m.macd else None,
                         "moving_avg_20": float(m.moving_avg_20)
@@ -1516,13 +1479,7 @@ async def get_realtime_stats(bot_instance_id: int):
                     "daily_losses": stats.daily_losses
                     if hasattr(stats, "daily_losses")
                     else 0,
-                    "daily_win_rate": float(stats.daily_win_rate),
-                    "max_drawdown": float(stats.max_drawdown_session)
-                    if stats.max_drawdown_session
-                    else 0,
-                    "current_drawdown": float(stats.current_drawdown)
-                    if stats.current_drawdown
-                    else 0,
+                    **serialize_stats_risk_fields(stats),
                     "var_95": float(stats.var_95) if stats.var_95 else None,
                     "avg_trade_duration": stats.avg_trade_duration_seconds
                     if hasattr(stats, "avg_trade_duration_seconds")

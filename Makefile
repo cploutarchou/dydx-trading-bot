@@ -362,18 +362,18 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 		exit 0; \
 	fi
 
-stack-up-dev: ## Start split app stack (api + frontend dev + postgres + redis)
+stack-up-dev: ## Start split app stack (api + worker + frontend dev + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
 		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev up -d --remove-orphans; \
-		echo "✅ Dev stack started (frontend:5173, api:8889; workers are API-managed)"; \
+		echo "✅ Dev stack started (frontend:5173, api:8889, worker enabled)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
 		exit 0; \
 	fi
 
-stack-up-prod: ## Start split app stack (api + frontend preview + postgres + redis)
+stack-up-prod: ## Start split app stack (api + worker + frontend preview + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
 		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \

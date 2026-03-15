@@ -1,0 +1,75 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "stack: up dev",
+			"type": "shell",
+			"command": "make stack-up-dev",
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "stack: down",
+			"type": "shell",
+			"command": "make stack-down",
+			"problemMatcher": []
+		},
+		{
+			"label": "stack: logs",
+			"type": "shell",
+			"command": "make stack-logs",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "bot: api",
+			"type": "shell",
+			"command": "python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload",
+			"options": {
+				"cwd": "${workspaceFolder}/bot"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "bot: worker",
+			"type": "shell",
+			"command": "python src/main_instance.py --instance-id bot-1",
+			"options": {
+				"cwd": "${workspaceFolder}/bot"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "bot: tests",
+			"type": "shell",
+			"command": "python -m pytest tests/ -v",
+			"options": {
+				"cwd": "${workspaceFolder}/bot"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "frontend: dev",
+			"type": "shell",
+			"command": "npm run dev",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "frontend: lint",
+			"type": "shell",
+			"command": "npm run lint",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend"
+			},
+			"group": "test",
+			"problemMatcher": []
+		}
+	]
+}

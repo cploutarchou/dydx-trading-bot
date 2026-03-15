@@ -1,0 +1,59 @@
+{
+	"name": "dYdX Trading Bot Backend (Go)",
+	"image": "mcr.microsoft.com/devcontainers/go:1-1.22-bookworm",
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/devcontainers/features/github-cli:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.go",
+				"ms-vscode.makefile-tools",
+				"ms-azuretools.vscode-docker",
+				"redhat.vscode-yaml",
+				"eamodio.gitlens",
+				"github.copilot",
+				"github.copilot-chat"
+			],
+			"settings": {
+				"go.useLanguageServer": true,
+				"go.formatTool": "gofmt",
+				"go.lintTool": "golangci-lint",
+				"[go]": {
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.organizeImports": "explicit"
+					}
+				},
+				"files.exclude": {
+					"**/.git": false,
+					"**/bin": true,
+					"**/.air.toml": false
+				}
+			}
+		}
+	},
+	"forwardPorts": [
+		8888,
+		5433,
+		6380
+	],
+	"portsAttributes": {
+		"8888": {
+			"label": "Go Backend API",
+			"onAutoForward": "notify"
+		},
+		"5433": {
+			"label": "Backend Postgres (host mapped)",
+			"onAutoForward": "silent"
+		},
+		"6380": {
+			"label": "Backend Redis (host mapped)",
+			"onAutoForward": "silent"
+		}
+	},
+	"postCreateCommand": "go mod download",
+	"remoteUser": "vscode"
+}

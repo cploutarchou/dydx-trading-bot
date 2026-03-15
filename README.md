@@ -20,9 +20,11 @@ Use this checklist to get productive quickly:
 Tip: if you only work on one area, use `dydx-frontend.code-workspace` or `dydx-backend.code-workspace`.
 
 **Prefer containerized tooling?** Devcontainer configs are ready to use — open the repo (or a sub-folder) in VS Code and select "Reopen in Container" to get a fully configured environment without manual dependency setup:
-- Root `.devcontainer/` — full-stack (Python + Node + Docker-in-Docker)
 - `bot/.devcontainer/` — Python/API/worker focused
+- `backend/.devcontainer/` — Go backend focused
 - `frontend/.devcontainer/` — Node 20/React/TS focused
+
+Optional: root `.devcontainer/` is still available for full-stack development.
 
 ## What the 3 apps do
 

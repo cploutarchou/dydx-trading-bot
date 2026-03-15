@@ -115,6 +115,49 @@ make stack-up-prod
 
 ---
 
+## Developer setup (VS Code)
+
+This repository is configured so frontend and backend teams can work in a shared setup without opening separate random folders manually.
+
+### Recommended workspace files
+
+- `dydx-monorepo.code-workspace` → default for most contributors (full repo)
+- `dydx-frontend.code-workspace` → frontend-focused view
+- `dydx-backend.code-workspace` → backend-focused view (`bot` + legacy `backend`)
+
+Open one of these files directly in VS Code.
+
+### Shared Run/Debug profiles (one per service)
+
+From **Run and Debug**, use:
+
+- `Frontend (Vite :5173)`
+- `Backend API (FastAPI :8889)`
+- `Bot Worker (instance bot-1)`
+
+These are defined in `.vscode/launch.json` and are team-shared.
+
+### Shared tasks
+
+From **Terminal → Run Task**, use team tasks in `.vscode/tasks.json`:
+
+- `stack: up dev`
+- `stack: down`
+- `stack: logs`
+- `frontend: dev`
+- `bot: api`
+- `bot: worker`
+
+### Typical team workflow
+
+1. Open `dydx-monorepo.code-workspace`.
+2. Start infra/app stack with `stack: up dev` (or `make stack-up-dev`).
+3. Frontend team runs `Frontend (Vite :5173)`.
+4. Backend team runs `Backend API (FastAPI :8889)` and/or `Bot Worker (instance bot-1)`.
+5. Validate with `make stack-ps` and `make stack-logs`.
+
+---
+
 ## Notes
 
 - The repository also contains a Go backend in `backend/` for legacy/parallel backend work.

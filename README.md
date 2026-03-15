@@ -19,6 +19,11 @@ Use this checklist to get productive quickly:
 
 Tip: if you only work on one area, use `dydx-frontend.code-workspace` or `dydx-backend.code-workspace`.
 
+**Prefer containerized tooling?** Devcontainer configs are ready to use — open the repo (or a sub-folder) in VS Code and select "Reopen in Container" to get a fully configured environment without manual dependency setup:
+- Root `.devcontainer/` — full-stack (Python + Node + Docker-in-Docker)
+- `bot/.devcontainer/` — Python/API/worker focused
+- `frontend/.devcontainer/` — Node 20/React/TS focused
+
 ## What the 3 apps do
 
 ### 1) Frontend (`frontend/`)
@@ -179,3 +184,30 @@ From **Terminal → Run Task**, use team tasks in `.vscode/tasks.json`:
 
 - The repository also contains a Go backend in `backend/` for legacy/parallel backend work.
 - Current UI-to-bot control flow in this workspace is centered around the Python Bot API under `bot/`.
+
+---
+
+## Troubleshooting first-run issues
+
+**Stack won't start / Docker error**
+- Make sure Docker daemon is running: `docker info`
+- Ensure no port conflicts: `lsof -i :5173,8889,5432,6379`
+
+**Missing `.env.stack` error**
+- Run `make stack-env` to generate it from the example template, then edit any required secrets.
+
+**Service stays unhealthy**
+- Check logs: `make stack-logs`
+- Check per-service status: `make stack-ps`
+- If Postgres fails to start, ensure no existing local Postgres is using port 5432.
+
+**Port already in use**
+- Frontend 5173: `kill $(lsof -ti :5173)`
+- Bot API 8889: `kill $(lsof -ti :8889)`
+
+**VS Code debug profile won't launch**
+- Open the repo via a `.code-workspace` file (not a plain folder) so `.vscode/launch.json` is picked up.
+- Confirm the correct Python interpreter or Node executable is on `PATH` inside your terminal.
+
+**Devcontainer not building**
+- Run `docker system prune` to clear stale layers, then rebuild via VS Code command palette → "Dev Containers: Rebuild Container".

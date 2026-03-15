@@ -20,9 +20,11 @@ Use this checklist to get productive quickly:
 Tip: if you only work on one area, use `dydx-frontend.code-workspace` or `dydx-backend.code-workspace`.
 
 **Prefer containerized tooling?** Devcontainer configs are ready to use — open the repo (or a sub-folder) in VS Code and select "Reopen in Container" to get a fully configured environment without manual dependency setup:
-- Root `.devcontainer/` — full-stack (Python + Node + Docker-in-Docker)
 - `bot/.devcontainer/` — Python/API/worker focused
+- `backend/.devcontainer/` — Go backend focused
 - `frontend/.devcontainer/` — Node 20/React/TS focused
+
+Optional: root `.devcontainer/` is still available for full-stack development.
 
 ## What the 3 apps do
 
@@ -183,10 +185,10 @@ cp example.env .env
 
 | Method | Command |
 |---|---|
-| Local dev (with reload) | `cd bot && python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload` |
+| Local dev (with reload) | `cd bot && python3 -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload` |
 | Full stack | `make stack-up-dev` (from repo root) |
 | VS Code | Run & Debug → `Backend API (FastAPI :8889)` |
-| Run tests | `cd bot && python -m pytest tests/ -v` |
+| Run tests | `cd bot && python3 -m pytest tests/ -v` |
 
 Health check: `curl http://localhost:8889/health`
 
@@ -198,7 +200,7 @@ The worker is a long-running process — one per trading instance. It shares the
 
 | Method | Command |
 |---|---|
-| Local | `cd bot && python src/main_instance.py --instance-id bot-1` |
+| Local | `cd bot && python3 src/main_instance.py --instance-id bot-1` |
 | Full stack | Starts automatically with `make stack-up-dev` |
 | VS Code | Run & Debug → `Bot Worker (instance bot-1)` |
 | Multiple instances | Repeat with a different `--instance-id` value |

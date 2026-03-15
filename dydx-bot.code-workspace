@@ -1,0 +1,27 @@
+{
+	"folders": [
+		{
+			"name": "bot",
+			"path": "bot"
+		}
+	],
+	"settings": {
+		"python.testing.pytestEnabled": true,
+		"python.testing.unittestEnabled": false,
+		"editor.formatOnSave": true,
+		"files.exclude": {
+			"**/__pycache__": true,
+			"**/.pytest_cache": true,
+			"**/.mypy_cache": true
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"ms-python.black-formatter",
+			"charliermarsh.ruff",
+			"ms-azuretools.vscode-docker"
+		]
+	}
+}

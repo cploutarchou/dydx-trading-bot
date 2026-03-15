@@ -17,7 +17,7 @@ Use this checklist to get productive quickly:
 6. Follow logs as needed: `make stack-logs`.
 7. Stop services when done: `make stack-down`.
 
-Tip: if you only work on one area, use `dydx-frontend.code-workspace` or `dydx-backend.code-workspace`.
+Tip: if you only work on one area, use `dydx-bot.code-workspace`, `dydx-frontend.code-workspace`, or `dydx-backend.code-workspace`.
 
 **Prefer containerized tooling?** Devcontainer configs are ready to use — open the repo (or a sub-folder) in VS Code and select "Reopen in Container" to get a fully configured environment without manual dependency setup:
 - `bot/.devcontainer/` — Python/API/worker focused
@@ -229,11 +229,12 @@ State files are written to `bot/bot_states/` per instance.
 
 ## Developer setup (VS Code)
 
-This repository is configured so frontend and backend teams can work in a shared setup without opening separate random folders manually.
+This repository is configured so bot, frontend, and backend teams can work in a shared setup without opening separate random folders manually.
 
 ### Recommended workspace files
 
 - `dydx-monorepo.code-workspace` → default for most contributors (full repo)
+- `dydx-bot.code-workspace` → bot-focused view (`bot/` only)
 - `dydx-frontend.code-workspace` → frontend-focused view
 - `dydx-backend.code-workspace` → backend-focused view (`bot` + legacy `backend`)
 

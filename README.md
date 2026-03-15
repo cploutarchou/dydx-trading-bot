@@ -183,10 +183,10 @@ cp example.env .env
 
 | Method | Command |
 |---|---|
-| Local dev (with reload) | `cd bot && python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload` |
+| Local dev (with reload) | `cd bot && python3 -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload` |
 | Full stack | `make stack-up-dev` (from repo root) |
 | VS Code | Run & Debug → `Backend API (FastAPI :8889)` |
-| Run tests | `cd bot && python -m pytest tests/ -v` |
+| Run tests | `cd bot && python3 -m pytest tests/ -v` |
 
 Health check: `curl http://localhost:8889/health`
 
@@ -198,7 +198,7 @@ The worker is a long-running process — one per trading instance. It shares the
 
 | Method | Command |
 |---|---|
-| Local | `cd bot && python src/main_instance.py --instance-id bot-1` |
+| Local | `cd bot && python3 src/main_instance.py --instance-id bot-1` |
 | Full stack | Starts automatically with `make stack-up-dev` |
 | VS Code | Run & Debug → `Bot Worker (instance bot-1)` |
 | Multiple instances | Repeat with a different `--instance-id` value |

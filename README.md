@@ -2,6 +2,23 @@
 
 This repository contains a full-stack trading system with **3 application services** plus infrastructure.
 
+## New developer onboarding (5 minutes)
+
+Use this checklist to get productive quickly:
+
+1. Open `dydx-monorepo.code-workspace` in VS Code.
+2. Copy stack env defaults once: `make stack-env`.
+3. Start local services: `make stack-up-dev`.
+4. Verify service health: `make stack-ps`.
+5. Start your service from **Run and Debug**:
+	- `Frontend (Vite :5173)` for UI work
+	- `Backend API (FastAPI :8889)` for API/control-plane work
+	- `Bot Worker (instance bot-1)` for trading runtime work
+6. Follow logs as needed: `make stack-logs`.
+7. Stop services when done: `make stack-down`.
+
+Tip: if you only work on one area, use `dydx-frontend.code-workspace` or `dydx-backend.code-workspace`.
+
 ## What the 3 apps do
 
 ### 1) Frontend (`frontend/`)

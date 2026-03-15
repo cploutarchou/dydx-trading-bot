@@ -17,7 +17,7 @@ Use this checklist to get productive quickly:
 6. Follow logs as needed: `make stack-logs`.
 7. Stop services when done: `make stack-down`.
 
-Tip: if you only work on one area, use `dydx-frontend.code-workspace` or `dydx-backend.code-workspace`.
+Tip: if you only work on one area, use `dydx-bot.code-workspace`, `dydx-frontend.code-workspace`, or `dydx-backend.code-workspace`.
 
 **Prefer containerized tooling?** Devcontainer configs are ready to use — open the repo (or a sub-folder) in VS Code and select "Reopen in Container" to get a fully configured environment without manual dependency setup:
 - `bot/.devcontainer/` — Python/API/worker focused
@@ -60,10 +60,14 @@ Python trading runtime process that executes strategy logic:
 
 ## Architecture at a glance
 
-- `frontend` calls `api`
-- `api` manages worker instances and persistence
-- `worker` runs trading loops and execution logic
-- `postgres` and `redis` support state, metadata, and caching
+Two request paths are supported (depending on `VITE_API_URL`):
+
+1. **Direct (default in this workspace):**
+	- `frontend` → Python Bot API (`:8889`) → worker/runtime
+2. **Delegated via Go backend (legacy/parallel path):**
+	- `frontend` → Go backend (`:8888`) → Python Bot API → worker/runtime
+
+In both cases, `postgres` and `redis` support state, metadata, and caching.
 
 ---
 
@@ -209,7 +213,7 @@ State files are written to `bot/bot_states/` per instance.
 
 ---
 
-### Go Backend (`backend/`) — legacy
+### Go Backend (`backend/`) — legacy/parallel gateway path
 
 **Port:** `http://localhost:8888`
 
@@ -223,17 +227,18 @@ State files are written to `bot/bot_states/` per instance.
 | Tests | `cd backend && make test` |
 | Lint | `cd backend && make lint` |
 
-> The Go backend is a legacy/parallel path. The primary control plane for the UI is the Python Bot API.
+> The Go backend can act as a gateway/proxy to the Python Bot API. In this repo's default local setup, frontend points directly to Python Bot API (`:8889`) unless `VITE_API_URL` is set to Go backend (`:8888`).
 
 ---
 
 ## Developer setup (VS Code)
 
-This repository is configured so frontend and backend teams can work in a shared setup without opening separate random folders manually.
+This repository is configured so bot, frontend, and backend teams can work in a shared setup without opening separate random folders manually.
 
 ### Recommended workspace files
 
 - `dydx-monorepo.code-workspace` → default for most contributors (full repo)
+- `dydx-bot.code-workspace` → bot-focused view (`bot/` only)
 - `dydx-frontend.code-workspace` → frontend-focused view
 - `dydx-backend.code-workspace` → backend-focused view (`bot` + legacy `backend`)
 

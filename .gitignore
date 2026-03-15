@@ -197,6 +197,10 @@ build/
 
 # IDE
 .vscode/
+!.vscode/
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/launch.json
 .idea/
 *.swp
 *.swo

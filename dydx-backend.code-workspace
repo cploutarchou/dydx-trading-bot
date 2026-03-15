@@ -1,0 +1,26 @@
+{
+	"folders": [
+		{
+			"name": "bot-python",
+			"path": "bot"
+		},
+		{
+			"name": "backend-go",
+			"path": "backend"
+		}
+	],
+	"settings": {
+		"python.testing.pytestEnabled": true,
+		"python.testing.unittestEnabled": false,
+		"go.useLanguageServer": true
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"ms-python.black-formatter",
+			"golang.go",
+			"ms-azuretools.vscode-docker"
+		]
+	}
+}

@@ -11,14 +11,10 @@ COPY . .
 RUN npm run build
 
 # Production image
-FROM ${BASE_IMAGE}
+FROM nginx:1.27-alpine
 
-WORKDIR /app
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-RUN npm install -g serve
+EXPOSE 80
 
-COPY --from=builder /backend/app/dist ./dist
-
-EXPOSE 3000
-
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["nginx", "-g", "daemon off;"]

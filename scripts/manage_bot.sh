@@ -7,12 +7,12 @@ case "$1" in
         echo "Starting dYdX trading bot..."
         cd "$(dirname "$0")/.."
         source .venv/bin/activate
-        python app/main.py
+        python bot/main.py
         ;;
     "stop")
         echo "Stopping dYdX trading bot..."
         # Find and kill the bot process
-        PIDS=$(ps aux | grep "python.*main.py" | grep -v grep | awk '{print $2}')
+        PIDS=$(ps aux | grep -E "python(3)? .*bot/main\.py" | grep -v grep | awk '{print $2}')
         if [ -z "$PIDS" ]; then
             echo "No dYdX bot processes found running."
         else
@@ -32,7 +32,7 @@ case "$1" in
         ;;
     "status")
         echo "Checking dYdX trading bot status..."
-        PIDS=$(ps aux | grep "python.*main.py" | grep -v grep | awk '{print $2}')
+        PIDS=$(ps aux | grep -E "python(3)? .*bot/main\.py" | grep -v grep | awk '{print $2}')
         if [ -z "$PIDS" ]; then
             echo "dYdX bot is not running."
         else

@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down stack-env stack-up-dev stack-up-prod stack-down stack-logs stack-ps
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down stack-env stack-env-check stack-up-dev stack-up-prod stack-down stack-logs stack-ps
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -7,10 +7,10 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Quick start:"
-	@echo "  1. make setup           # Create virtual environment"
-	@echo "  2. make install         # Install dependencies"
-	@echo "  3. make config          # Create configuration file"
-	@echo "  4. make start           # Start the trading bot"
+	@echo "  1. make stack-env       # Create .env.stack from template"
+	@echo "  2. make stack-up-dev    # Start frontend + api + worker + db + redis"
+	@echo "  3. make stack-ps        # Check service status"
+	@echo "  4. make stack-logs      # Follow logs"
 	@echo ""
 
 # ============================================================================
@@ -30,16 +30,9 @@ install: ## Install all dependencies including backend package
 	@echo "✅ All dependencies installed"
 	@echo "📌 Backend package installed in editable mode"
 
-config: ## Create configuration file from template
-	@if [ -f app/config.yaml ]; then \
-		echo "⚠️  app/config.yaml already exists. Backing up to app/config.yaml.bak"; \
-		cp app/config.yaml app/config.yaml.bak; \
-	fi
-	@echo "Creating app/config.yaml from template..."
-	@if [ ! -f app/config.yaml ]; then \
-		cp app/config.yaml.example app/config.yaml 2>/dev/null || echo "⚠️  config.yaml.example not found. Please create app/config.yaml manually."; \
-	fi
-	@echo "✅ Configuration file ready at app/config.yaml"
+config: ## Deprecated legacy config target (bot uses runtime config under bot/)
+	@echo "⚠️  'make config' is deprecated for this monorepo layout."
+	@echo "Use stack/dev workflows and bot runtime config under bot/ instead."
 
 env-setup: ## Set up environment variables from .env.example
 	@if [ -f .env ]; then \
@@ -68,11 +61,11 @@ test: ## Run pytest suite (tests/ directory only)
 	PYTHONPATH=$(PWD) .venv/bin/pytest tests/ -v --tb=short
 
 lint: ## Check code with flake8 and pylint
-	.venv/bin/flake8 app/ backend/ --max-line-length=120 --exclude=__pycache__
-	.venv/bin/pylint app/ backend/ --disable=C0111,W0212 || true
+	.venv/bin/flake8 bot/src tests scripts --max-line-length=120 --exclude=__pycache__
+	.venv/bin/pylint bot/src --disable=C0111,W0212 || true
 
 format: ## Auto-format code with black
-	.venv/bin/black app/ backend/ --line-length=120
+	.venv/bin/black bot/src tests scripts --line-length=120
 
 clean: ## Remove build artifacts and cache files
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -87,12 +80,16 @@ clean: ## Remove build artifacts and cache files
 # ============================================================================
 
 run: ## Run bot in foreground
-	.venv/bin/python app/main.py
+	.venv/bin/python bot/main.py
 
-backend-run: worker-run ## Start backend server (alias for worker-run)
+backend-run: api-run ## Start bot API server (alias for api-run)
 
-worker-run: ## Start backend worker (FastAPI server on port 8888)
-	.venv/bin/python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8888
+api-run: ## Start bot API server on port 8889
+	.venv/bin/python -m uvicorn bot.src.api.server:app --reload --host 0.0.0.0 --port 8889
+
+worker-run: ## Deprecated alias (kept for compatibility)
+	@echo "⚠️  'make worker-run' is deprecated; use 'make api-run' instead."
+	@$(MAKE) api-run
 
 start: ## Start bot in background
 	@if [ ! -f scripts/manage_bot.sh ]; then \
@@ -367,9 +364,11 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 
 stack-up-dev: ## Start split app stack (api + worker + frontend dev + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		set -e; \
+		python3 scripts/validate_stack_env.py; \
 		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev up -d; \
-		echo "✅ Dev stack started (frontend:5173, api:8889)"; \
+		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev up -d --remove-orphans; \
+		echo "✅ Dev stack started (frontend:5173, api:8889, worker enabled)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
 		exit 0; \
@@ -377,8 +376,10 @@ stack-up-dev: ## Start split app stack (api + worker + frontend dev + postgres +
 
 stack-up-prod: ## Start split app stack (api + worker + frontend preview + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		set -e; \
+		python3 scripts/validate_stack_env.py --strict-prod; \
 		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile prod up -d; \
+		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile prod up -d --remove-orphans; \
 		echo "✅ Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
@@ -388,7 +389,7 @@ stack-up-prod: ## Start split app stack (api + worker + frontend preview + postg
 stack-down: ## Stop split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml down; \
+		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev --profile prod down --remove-orphans; \
 		echo "✅ Stack stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop stack"; \
@@ -420,5 +421,11 @@ stack-env: ## Create .env.stack from template (safe; won't overwrite existing)
 		cp .env.stack.example .env.stack; \
 		echo "✅ Created .env.stack (edit secrets before production use)"; \
 	fi
+
+stack-env-check: ## Validate required variables in .env.stack
+	python3 scripts/validate_stack_env.py
+
+stack-env-check-prod: ## Validate .env.stack with strict production rules
+	python3 scripts/validate_stack_env.py --strict-prod
 
 .DEFAULT_GOAL := help

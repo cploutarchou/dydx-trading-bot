@@ -12,14 +12,17 @@ logger = logging.getLogger(__name__)
 class TelegramMessenger:
     """Professional Telegram messaging system for dYdX Trading Bot."""
 
+    _disabled_notice_logged = False
+
     def __init__(self):
         self.bot_token = TELEGRAM_TOKEN
         self.chat_id = TELEGRAM_CHAT_ID
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self.enabled = bool(self.bot_token and self.chat_id)
 
-        if not self.enabled:
-            logger.warning("Telegram messaging disabled - missing token or chat_id")
+        if not self.enabled and not TelegramMessenger._disabled_notice_logged:
+            logger.info("Telegram messaging disabled (token/chat_id not configured)")
+            TelegramMessenger._disabled_notice_logged = True
 
     def _format_timestamp(self) -> str:
         """Format current timestamp for messages."""
@@ -65,7 +68,7 @@ class TelegramMessenger:
         strategy = config_info.get("strategy", "unknown")
 
         # Smart environment detection
-        if environment == "unknown" or environment == "development":
+        if environment in ("unknown", "development"):
             environment = "development" if is_testnet else "production"
 
         network = "🧪 TESTNET" if is_testnet else "🔴 MAINNET"
@@ -282,7 +285,7 @@ def send_trade_notification(action: str, trade_info: Dict[str, Any], **kwargs) -
     """Send trade-related notifications."""
     if action == "opened":
         return _messenger.send_trade_opened_message(trade_info)
-    elif action == "closed":
+    if action == "closed":
         reason = kwargs.get("reason", "Z-score reversion")
         return _messenger.send_trade_closed_message(trade_info, reason)
     return False

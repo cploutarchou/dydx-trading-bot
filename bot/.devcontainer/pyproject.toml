@@ -41,8 +41,7 @@ ignore = [
 [tool.ruff.isort]
 known-first-party = ["dydx_bot"]
 case-sensitive = true
-multi-line-mode = 3
-profile = "black"
+split-on-trailing-comma = true
 
 [tool.mypy]
 python_version = "3.11"

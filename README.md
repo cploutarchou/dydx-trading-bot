@@ -137,6 +137,94 @@ make stack-up-prod
 
 ---
 
+## Running each service
+
+Each service can be started three ways: **via the full Docker stack** (recommended for integration), **locally** (fastest iteration loop), or **via VS Code** (with debugger attached).
+
+---
+
+### Frontend (`frontend/`)
+
+**Port:** `http://localhost:5173`
+
+**Prerequisites:** Node 18+ and npm.
+
+```bash
+# Install dependencies (first time only)
+cd frontend
+npm install
+```
+
+| Method | Command |
+|---|---|
+| Local dev | `cd frontend && npm run dev` |
+| Build for production | `cd frontend && npm run build` |
+| Lint | `cd frontend && npm run lint` |
+| Full stack | `make stack-up-dev` (from repo root) |
+| VS Code | Run & Debug → `Frontend (Vite :5173)` |
+
+---
+
+### Bot API (`bot/`)
+
+**Port:** `http://localhost:8889`
+
+**Prerequisites:** Python 3.11+.
+
+```bash
+# Install dependencies (first time only)
+cd bot
+pip install -r requirements.txt
+
+# Copy and configure env (first time only)
+cp example.env .env
+# Edit .env — set DB, Redis, and any API credentials
+```
+
+| Method | Command |
+|---|---|
+| Local dev (with reload) | `cd bot && python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload` |
+| Full stack | `make stack-up-dev` (from repo root) |
+| VS Code | Run & Debug → `Backend API (FastAPI :8889)` |
+| Run tests | `cd bot && python -m pytest tests/ -v` |
+
+Health check: `curl http://localhost:8889/health`
+
+---
+
+### Bot Worker (`bot/src/main_instance.py`)
+
+The worker is a long-running process — one per trading instance. It shares the same Python env and `.env` as the Bot API.
+
+| Method | Command |
+|---|---|
+| Local | `cd bot && python src/main_instance.py --instance-id bot-1` |
+| Full stack | Starts automatically with `make stack-up-dev` |
+| VS Code | Run & Debug → `Bot Worker (instance bot-1)` |
+| Multiple instances | Repeat with a different `--instance-id` value |
+
+State files are written to `bot/bot_states/` per instance.
+
+---
+
+### Go Backend (`backend/`) — legacy
+
+**Port:** `http://localhost:8888`
+
+**Prerequisites:** Go 1.21+. For hot-reload, install [`air`](https://github.com/air-verse/air): `go install github.com/air-verse/air@latest`.
+
+| Method | Command |
+|---|---|
+| Run | `cd backend && make run` |
+| Run with hot-reload | `cd backend && make dev` |
+| Build binary | `cd backend && make build` |
+| Tests | `cd backend && make test` |
+| Lint | `cd backend && make lint` |
+
+> The Go backend is a legacy/parallel path. The primary control plane for the UI is the Python Bot API.
+
+---
+
 ## Developer setup (VS Code)
 
 This repository is configured so frontend and backend teams can work in a shared setup without opening separate random folders manually.

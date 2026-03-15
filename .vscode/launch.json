@@ -1,0 +1,43 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Bot API (uvicorn, reload)",
+			"type": "node-terminal",
+			"request": "launch",
+			"command": "python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload",
+			"cwd": "${workspaceFolder}/bot"
+		},
+		{
+			"name": "Bot Worker (instance bot-1)",
+			"type": "node-terminal",
+			"request": "launch",
+			"command": "python src/main_instance.py --instance-id bot-1",
+			"cwd": "${workspaceFolder}/bot"
+		},
+		{
+			"name": "Frontend Dev Server (Vite)",
+			"type": "node-terminal",
+			"request": "launch",
+			"command": "npm run dev",
+			"cwd": "${workspaceFolder}/frontend"
+		},
+		{
+			"name": "Frontend in Chrome (:5173)",
+			"type": "chrome",
+			"request": "launch",
+			"url": "http://localhost:5173",
+			"webRoot": "${workspaceFolder}/frontend/src"
+		}
+	],
+	"compounds": [
+		{
+			"name": "Fullstack: API + Worker + Frontend",
+			"configurations": [
+				"Bot API (uvicorn, reload)",
+				"Bot Worker (instance bot-1)",
+				"Frontend Dev Server (Vite)"
+			]
+		}
+	]
+}

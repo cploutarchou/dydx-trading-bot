@@ -2,6 +2,23 @@
 
 This repository contains a full-stack trading system with **3 application services** plus infrastructure.
 
+## New developer onboarding (5 minutes)
+
+Use this checklist to get productive quickly:
+
+1. Open `dydx-monorepo.code-workspace` in VS Code.
+2. Copy stack env defaults once: `make stack-env`.
+3. Start local services: `make stack-up-dev`.
+4. Verify service health: `make stack-ps`.
+5. Start your service from **Run and Debug**:
+	- `Frontend (Vite :5173)` for UI work
+	- `Backend API (FastAPI :8889)` for API/control-plane work
+	- `Bot Worker (instance bot-1)` for trading runtime work
+6. Follow logs as needed: `make stack-logs`.
+7. Stop services when done: `make stack-down`.
+
+Tip: if you only work on one area, use `dydx-frontend.code-workspace` or `dydx-backend.code-workspace`.
+
 ## What the 3 apps do
 
 ### 1) Frontend (`frontend/`)
@@ -112,6 +129,49 @@ make stack-up-prod
 - `make stack-ps` – status
 - `make stack-logs` – tail logs
 - `make stack-down` – stop stack
+
+---
+
+## Developer setup (VS Code)
+
+This repository is configured so frontend and backend teams can work in a shared setup without opening separate random folders manually.
+
+### Recommended workspace files
+
+- `dydx-monorepo.code-workspace` → default for most contributors (full repo)
+- `dydx-frontend.code-workspace` → frontend-focused view
+- `dydx-backend.code-workspace` → backend-focused view (`bot` + legacy `backend`)
+
+Open one of these files directly in VS Code.
+
+### Shared Run/Debug profiles (one per service)
+
+From **Run and Debug**, use:
+
+- `Frontend (Vite :5173)`
+- `Backend API (FastAPI :8889)`
+- `Bot Worker (instance bot-1)`
+
+These are defined in `.vscode/launch.json` and are team-shared.
+
+### Shared tasks
+
+From **Terminal → Run Task**, use team tasks in `.vscode/tasks.json`:
+
+- `stack: up dev`
+- `stack: down`
+- `stack: logs`
+- `frontend: dev`
+- `bot: api`
+- `bot: worker`
+
+### Typical team workflow
+
+1. Open `dydx-monorepo.code-workspace`.
+2. Start infra/app stack with `stack: up dev` (or `make stack-up-dev`).
+3. Frontend team runs `Frontend (Vite :5173)`.
+4. Backend team runs `Backend API (FastAPI :8889)` and/or `Bot Worker (instance bot-1)`.
+5. Validate with `make stack-ps` and `make stack-logs`.
 
 ---
 

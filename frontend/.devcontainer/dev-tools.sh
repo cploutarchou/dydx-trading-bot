@@ -115,7 +115,8 @@ cmd_start_backend() {
     echo -e "${GREEN}✅ Backend services started${NC}"
     echo "  PostgreSQL: postgresql://postgres:postgres@localhost:5432/dydx_trading"
     echo "  Redis: redis://localhost:6379"
-    echo "  Backend: http://localhost:8888"
+    echo "  Go Backend (legacy): http://localhost:8888"
+    echo "  Bot API (default): http://localhost:8889"
 }
 
 cmd_stop_backend() {

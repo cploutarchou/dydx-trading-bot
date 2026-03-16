@@ -35,7 +35,7 @@ For more details: [docs/devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md)
 
 - Node.js 20+
 - npm or yarn
-- Docker (optional, for legacy backend services)
+- Docker (optional, for backend services)
 
 ### Setup
 
@@ -55,7 +55,7 @@ Visit <http://localhost:5173>
 ### Optional: Start Backend Services
 
 ```bash
-docker-compose up -d    # Start PostgreSQL + Redis + legacy Go backend
+docker-compose up -d    # Start PostgreSQL + Redis + Go backend
 docker-compose logs -f  # View logs
 ```
 
@@ -129,7 +129,7 @@ docker-compose ps           # List running services
 ### Development (.env.local)
 
 ```bash
-VITE_API_URL=http://localhost:8889
+VITE_API_URL=http://localhost:8888
 NODE_ENV=development
 ```
 
@@ -175,13 +175,13 @@ docker-compose up -d
 
 ### Available Services
 
-| Service             | Port | URL                                                        |
-| ------------------- | ---- | ---------------------------------------------------------- |
-| Frontend (Vite)     | 5173 | <http://localhost:5173>                                    |
-| Bot API (default)   | 8889 | <http://localhost:8889>                                    |
-| Go Backend (legacy) | 8888 | <http://localhost:8888>                                    |
-| PostgreSQL          | 5432 | postgresql://postgres:postgres@localhost:5432/dydx_trading |
-| Redis               | 6379 | redis://localhost:6379                                     |
+| Service               | Port | URL                                                        |
+| --------------------- | ---- | ---------------------------------------------------------- |
+| Frontend (Vite)       | 5173 | <http://localhost:5173>                                    |
+| Go Backend API (UI)   | 8888 | <http://localhost:8888>                                    |
+| Bot API (via backend) | 8889 | <http://localhost:8889>                                    |
+| PostgreSQL            | 5432 | postgresql://postgres:postgres@localhost:5432/dydx_trading |
+| Redis                 | 6379 | redis://localhost:6379                                     |
 
 ### View Logs
 
@@ -208,7 +208,7 @@ docker-compose down
 docker-compose down
 
 # Option 2: Use different port in devcontainer.json
-"forwardPorts": [5174, 3000, 8889, 8888, 5432, 6379]
+"forwardPorts": [5174, 3000, 8888, 8889, 5432, 6379]
 ```
 
 ### npm Dependencies Not Installing

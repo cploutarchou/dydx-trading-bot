@@ -4,7 +4,7 @@
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8889';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
 
 // Type-safe error message extractor
 const getErrorMessage = (error: unknown): string => {
@@ -955,7 +955,7 @@ class ApiClient {
     try {
       const apiUrl = new URL(API_BASE_URL);
       const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      const backendHost = apiUrl.host; // e.g. localhost:8889
+      const backendHost = apiUrl.host; // e.g. localhost:8888
       // Ensure path starts with '/'
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
       const wsUrl = `${wsProtocol}//${backendHost}${normalizedPath}${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;

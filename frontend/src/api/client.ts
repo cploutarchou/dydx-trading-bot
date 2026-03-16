@@ -157,7 +157,7 @@ profile ?: {
 		this.config = {
 			last_name?: string;
 
-			baseURL: config.baseURL || import.meta.env.VITE_API_URL || 'http://localhost:8889',
+			baseURL: config.baseURL || import.meta.env.VITE_API_URL || 'http://localhost:8888',
 		};
 
 		timeout: config.timeout || 30000, created_at: string;
@@ -588,7 +588,7 @@ if (Date.now() > entry.timestamp + entry.ttl) {
 
 
   private delay(ms: number): Promise < void> {
-	constructor(baseURL: string = 'http://localhost:8889') {
+	constructor(baseURL: string = 'http://localhost:8888') {
 
 		return new Promise(resolve => setTimeout(resolve, ms)); this.baseURL = baseURL;
 

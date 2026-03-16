@@ -4,16 +4,16 @@ All project documentation organized in one place.
 
 ## Quick Links
 
-| Purpose | Link | Time |
-|---------|------|------|
-| **Backend API Integration** | [BACKEND_API_INTEGRATION.md](./BACKEND_API_INTEGRATION.md) | 10 min |
+| Purpose                        | Link                                                             | Time   |
+| ------------------------------ | ---------------------------------------------------------------- | ------ |
+| **Backend API Integration**    | [BACKEND_API_INTEGRATION.md](./BACKEND_API_INTEGRATION.md)       | 10 min |
 | **Frontend Development Guide** | [FRONTEND_DEVELOPMENT_GUIDE.md](./FRONTEND_DEVELOPMENT_GUIDE.md) | 15 min |
-| **API Coverage Checklist** | [API_COVERAGE_CHECKLIST.md](./API_COVERAGE_CHECKLIST.md) | 5 min |
-| **Integration Summary** | [INTEGRATION_SUMMARY.md](./INTEGRATION_SUMMARY.md) | 5 min |
-| **React Component Examples** | [REACT_COMPONENT_EXAMPLES.tsx](./REACT_COMPONENT_EXAMPLES.tsx) | 20 min |
-| **Setup** | [SETUP.md](SETUP.md) | 5 min |
-| **DevContainer quick start** | [devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md) | 2 min |
-| **Troubleshooting** | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) | varies |
+| **API Coverage Checklist**     | [API_COVERAGE_CHECKLIST.md](./API_COVERAGE_CHECKLIST.md)         | 5 min  |
+| **Integration Summary**        | [INTEGRATION_SUMMARY.md](./INTEGRATION_SUMMARY.md)               | 5 min  |
+| **React Component Examples**   | [REACT_COMPONENT_EXAMPLES.tsx](./REACT_COMPONENT_EXAMPLES.tsx)   | 20 min |
+| **Setup**                      | [SETUP.md](SETUP.md)                                             | 5 min  |
+| **DevContainer quick start**   | [devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md)         | 2 min  |
+| **Troubleshooting**            | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)           | varies |
 
 ## Directory Structure
 
@@ -47,15 +47,15 @@ docs/
 
 ### Common Tasks
 
-| Task | Link |
-|------|------|
-| Set up development environment | [SETUP.md](SETUP.md) |
-| Use DevContainer | [devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md) |
-| Deploy to production | [SETUP.md](SETUP.md#-production-build) |
-| Start backend services | [SETUP.md](SETUP.md#-docker-services) |
-| Fix a problem | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) |
-| Understand architecture | [architecture/](architecture/) |
-| Learn code patterns | [../.github/copilot-instructions.md](../.github/copilot-instructions.md) |
+| Task                           | Link                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| Set up development environment | [SETUP.md](SETUP.md)                                                     |
+| Use DevContainer               | [devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md)                 |
+| Deploy to production           | [SETUP.md](SETUP.md#-production-build)                                   |
+| Start backend services         | [SETUP.md](SETUP.md#-docker-services)                                    |
+| Fix a problem                  | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)                   |
+| Understand architecture        | [architecture/](architecture/)                                           |
+| Learn code patterns            | [../.github/copilot-instructions.md](../.github/copilot-instructions.md) |
 
 ## Documentation Files
 
@@ -180,18 +180,19 @@ docker-compose down         # Stop services
 Create `.env.local`:
 
 ```bash
-VITE_API_URL=http://localhost:8888
+VITE_API_URL=http://localhost:8889
 ```
 
 ### Ports
 
-| Port | Service |
-|------|---------|
-| 5173 | Dev server |
-| 3000 | Production server |
-| 8888 | Backend API |
-| 5432 | PostgreSQL |
-| 6379 | Redis |
+| Port | Service                 |
+| ---- | ----------------------- |
+| 5173 | Dev server              |
+| 3000 | Production server       |
+| 8889 | Bot API (default)       |
+| 8888 | Go Backend API (legacy) |
+| 5432 | PostgreSQL              |
+| 6379 | Redis                   |
 
 ## Need Help?
 

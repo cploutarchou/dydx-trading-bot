@@ -4,11 +4,11 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 
 ## Quick Links
 
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[Data Flow](DATA_FLOW.md)** | Component interactions and data movement | 10 min |
-| **[Patterns](PATTERNS.md)** | Code patterns and conventions | 15 min |
-| **[API Integration](API_INTEGRATION.md)** | Backend communication patterns | 10 min |
+| Document                                  | Purpose                                  | Read Time |
+| ----------------------------------------- | ---------------------------------------- | --------- |
+| **[Data Flow](DATA_FLOW.md)**             | Component interactions and data movement | 10 min    |
+| **[Patterns](PATTERNS.md)**               | Code patterns and conventions            | 15 min    |
+| **[API Integration](API_INTEGRATION.md)** | Backend communication patterns           | 10 min    |
 
 ## System Architecture
 
@@ -53,8 +53,8 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 └────────────┼────────────────────────────────────────────────────┘
              │
         ┌────▼─────────────────────┐
-        │   Backend API            │
-        │   http://localhost:8888  │
+        │   Bot API (default)      │
+        │   http://localhost:8889  │
         └─────────────────────────┘
              │
         ┌────▼────┬──────────┬────────────┐
@@ -296,7 +296,7 @@ class ApiClient {
 - **JWT Interceptor**: Automatically attaches token to every request
 - **Error Handling**: Extracts error messages, handles 401 (logout + redirect)
 - **Debug Logging**: Emoji-prefixed logs (🔐, 📊, 🔌, ❌) for filtering
-- **Base URL**: Automatically set from environment: `http://localhost:8888/api/v1/`
+- **Base URL**: Automatically set from environment: `http://localhost:8889/api/v1/`
 
 ### Error Handling
 
@@ -374,7 +374,7 @@ if (error) return <div className="bg-red-900 border-red-700 p-4">Error: {error}<
 ### Development (.env.local)
 
 ```bash
-VITE_API_URL=http://localhost:8888
+VITE_API_URL=http://localhost:8889
 ```
 
 ### Production (.env.production)

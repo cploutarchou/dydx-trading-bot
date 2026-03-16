@@ -1,10 +1,10 @@
 # API Integration Guide
 
-How to communicate with the dYdX Trading Bot Backend.
+How to communicate with the dYdX Trading Bot API.
 
-## Backend Overview
+## API Overview
 
-**Base URL (Development):** `http://localhost:8888`
+**Base URL (Development):** `http://localhost:8889`
 
 **Base URL (Production):** Set via `VITE_API_URL` environment variable
 
@@ -325,7 +325,7 @@ const handleDelete = async (runId: string) => {
 **Full URL:**
 
 ```
-ws://localhost:8888/ws/backtest/backtest-002?token=eyJhbGci...
+ws://localhost:8889/ws/backtest/backtest-002?token=eyJhbGci...
 ```
 
 ### Connection Flow
@@ -334,7 +334,7 @@ ws://localhost:8888/ws/backtest/backtest-002?token=eyJhbGci...
 // In useBacktestProgress hook
 const connectToBacktest = (runId: string, token: string) => {
   const ws = new WebSocket(
-    `ws://localhost:8888/ws/backtest/${runId}?token=${token}`
+    `ws://localhost:8889/ws/backtest/${runId}?token=${token}`
   );
 
   ws.onopen = () => {
@@ -443,15 +443,15 @@ const BacktestProgress = ({ runId }: { runId: string }) => {
 
 ### HTTP Status Codes
 
-| Code | Meaning | Action |
-|------|---------|--------|
-| 200 | OK | Process response |
-| 201 | Created | Process response |
-| 400 | Bad Request | Show user error message |
-| 401 | Unauthorized | Clear token, redirect to login |
-| 403 | Forbidden | Show "Access Denied" |
-| 404 | Not Found | Show "Not found" |
-| 500 | Server Error | Show "Server error, try again" |
+| Code | Meaning      | Action                         |
+| ---- | ------------ | ------------------------------ |
+| 200  | OK           | Process response               |
+| 201  | Created      | Process response               |
+| 400  | Bad Request  | Show user error message        |
+| 401  | Unauthorized | Clear token, redirect to login |
+| 403  | Forbidden    | Show "Access Denied"           |
+| 404  | Not Found    | Show "Not found"               |
+| 500  | Server Error | Show "Server error, try again" |
 
 ### Error Response Format
 
@@ -518,7 +518,7 @@ import axios from 'axios';
 import { useAuthStore } from './store/auth';
 
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8888',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8889',
   timeout: 30000,
 });
 
@@ -578,7 +578,7 @@ export const api = {
 ### Development (.env.local)
 
 ```bash
-VITE_API_URL=http://localhost:8888
+VITE_API_URL=http://localhost:8889
 ```
 
 ### Production (.env.production)
@@ -675,16 +675,16 @@ return <button onClick={handleRefresh}>Refresh</button>;
 
 ```bash
 # Login
-curl -X POST http://localhost:8888/api/v1/auth/login \
+curl -X POST http://localhost:8889/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"user@example.com","password":"password123"}'
 
 # List backtests
-curl -X GET http://localhost:8888/api/v1/backtests \
+curl -X GET http://localhost:8889/api/v1/backtests \
   -H "Authorization: Bearer {token}"
 
 # Run backtest
-curl -X POST http://localhost:8888/api/v1/backtests/run \
+curl -X POST http://localhost:8889/api/v1/backtests/run \
   -H "Authorization: Bearer {token}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -707,7 +707,7 @@ const authStore = JSON.parse(localStorage.getItem('auth-store'));
 const token = authStore.state.token;
 
 // Make test request
-fetch('http://localhost:8888/api/v1/backtests', {
+fetch('http://localhost:8889/api/v1/backtests', {
   headers: {
     'Authorization': `Bearer ${token}`
   }
@@ -735,7 +735,7 @@ fetch('http://localhost:8888/api/v1/backtests', {
 
 **Solution:** Verify `VITE_API_URL` matches backend URL
 
-- Development: `http://localhost:8888`
+- Development: `http://localhost:8889`
 - Production: Your production backend URL
 
 ### WebSocket Connection Fails
@@ -744,7 +744,7 @@ fetch('http://localhost:8888/api/v1/backtests', {
 
 **Solutions:**
 
-1. Check backend is running: `curl http://localhost:8888`
+1. Check API is running: `curl http://localhost:8889`
 2. Check token is valid
 3. Check run_id exists
 4. Check WebSocket endpoint is implemented

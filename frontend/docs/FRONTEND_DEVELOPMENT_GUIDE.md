@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-This is your complete guide for building React components that interact with the dYdX Trading Bot backend. The backend provides a complete proxy to the Python bot API with additional database persistence, authentication, and rate limiting.
+This is your complete guide for building React components that interact with the dYdX Trading Bot API. The default local flow is Frontend → Bot API (`localhost:8889`); the legacy Go backend proxy (`localhost:8888`) remains available for compatibility workflows.
 
 ---
 
@@ -18,7 +18,7 @@ This is your complete guide for building React components that interact with the
            │ Bearer JWT Token
            │
 ┌──────────▼──────────┐
-│   Go Backend API    │  Port: 8888
+│  Bot API (default)  │  Port: 8889
 │  - Authentication   │
 │  - Proxy Layer      │
 │  - Database Sync    │
@@ -29,7 +29,7 @@ This is your complete guide for building React components that interact with the
            │ No Auth (Internal)
            │
 ┌──────────▼──────────┐
-│  Python Bot API     │  Port: 8000
+│ Trading Engine      │  Port: 8000
 │  - Trading Logic    │
 │  - Position Mgmt    │
 │  - Backtest Engine  │
@@ -70,7 +70,7 @@ Create `frontend/src/api/index.ts`:
 import { DydxBotAPIClient } from './client';
 
 // Initialize the API client
-export const apiClient = new DydxBotAPIClient('http://localhost:8888');
+export const apiClient = new DydxBotAPIClient('http://localhost:8889');
 
 // Load saved auth on app startup
 export const initializeAuth = async () => {
@@ -499,7 +499,7 @@ export function BotStatsWithHook({ instanceId }: { instanceId: string }) {
 Open browser DevTools → Network tab to see all API requests:
 
 1. Filter by XHR/Fetch
-2. Look for requests to `http://localhost:8888`
+2. Look for requests to `http://localhost:8889`
 3. Check request headers for `Authorization: Bearer ...`
 4. Check response status and body
 
@@ -519,10 +519,10 @@ console.log('Expires:', new Date(decoded.exp * 1000));
 
 ```bash
 # Terminal: Test backend health
-curl http://localhost:8888/health
+curl http://localhost:8889/api/v1/health
 
 # Test bot API health
-curl http://localhost:8888/api/v1/system/status \
+curl http://localhost:8889/api/v1/system/status \
   -H "Authorization: Bearer <your-token>"
 ```
 
@@ -557,7 +557,7 @@ localStorage.setItem('mnemonic', userMnemonic);
 
 ```typescript
 // Development
-const apiClient = new DydxBotAPIClient('http://localhost:8888');
+const apiClient = new DydxBotAPIClient('http://localhost:8889');
 
 // Production
 const apiClient = new DydxBotAPIClient('https://api.yoursite.com');
@@ -734,12 +734,12 @@ describe('BotList', () => {
 
 ## 📚 Key Files Reference
 
-| File | Purpose |
-|------|---------|
-| `src/api/client.ts` | Full API client implementation |
-| `src/store/auth.ts` | Authentication store (Zustand) |
-| `docs/BACKEND_API_INTEGRATION.md` | Complete API reference |
-| `docs/API_COVERAGE_CHECKLIST.md` | Endpoint availability matrix |
+| File                                | Purpose                         |
+| ----------------------------------- | ------------------------------- |
+| `src/api/client.ts`                 | Full API client implementation  |
+| `src/store/auth.ts`                 | Authentication store (Zustand)  |
+| `docs/BACKEND_API_INTEGRATION.md`   | Complete API reference          |
+| `docs/API_COVERAGE_CHECKLIST.md`    | Endpoint availability matrix    |
 | `docs/REACT_COMPONENT_EXAMPLES.tsx` | Component patterns and examples |
 
 ---
@@ -764,5 +764,5 @@ For issues or questions:
 1. Check `API_COVERAGE_CHECKLIST.md` for endpoint availability
 2. Review `REACT_COMPONENT_EXAMPLES.tsx` for pattern usage
 3. Check browser DevTools Network tab for API responses
-4. Verify backend is running: `curl http://localhost:8888/health`
+4. Verify the Bot API is running: `curl http://localhost:8889/api/v1/health`
 5. Check backend logs for error details

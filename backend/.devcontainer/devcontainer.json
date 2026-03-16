@@ -57,6 +57,6 @@
 			"onAutoForward": "silent"
 		}
 	},
-	"postCreateCommand": "go mod download",
+	"postCreateCommand": "bash -lc 'go mod download && make install-tools'",
 	"remoteUser": "vscode"
 }

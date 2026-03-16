@@ -120,15 +120,15 @@ install-tools:
 	fi
 	@echo "Installing air (hot reload)..."
 	@if ! command -v air > /dev/null; then \
-		go install github.com/air-verse/air@latest; \
+		go install github.com/air-verse/air@v1.61.7; \
 	fi
 	@echo "Installing golang-migrate..."
 	@if ! command -v migrate > /dev/null; then \
-		go install -tags 'postgres sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@latest; \
+		go install -tags 'postgres sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0; \
 	fi
 	@echo "Installing mockgen..."
 	@if ! command -v mockgen > /dev/null; then \
-		go install github.com/golang/mock/mockgen@latest; \
+		go install github.com/golang/mock/mockgen@v1.6.0; \
 	fi
 	@echo "$(GREEN)✓ Tools installed$(NC)"
 

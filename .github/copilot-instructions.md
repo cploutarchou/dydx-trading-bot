@@ -17,6 +17,7 @@ Current integration path is: `frontend` → Python API in `bot/` → worker subp
 Prefer these canonical commands:
 
 - Root stack: `make stack-env`, `make stack-up-dev`, `make stack-ps`, `make stack-logs`, `make stack-down`
+- Infra-only daily flow: `make stack-env`, `make infra-up`, `make infra-ps`, `make infra-logs`, `make infra-down`
 - Bot API (local): from `bot/`, run `python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload`
 - Bot worker (local): from `bot/`, run `python src/main_instance.py --instance-id "bot-1"`
 - Bot tests: `python -m pytest bot/tests/ -v`

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Bot API defaults to `localhost:8889` (legacy Go backend proxy remains on `localhost:8888`).
+React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Frontend uses the Go backend on `localhost:8888`, which orchestrates/proxies Bot API operations.
 
 ## Architecture & Tech Stack
 
@@ -306,7 +306,7 @@ All Recharts visualizations follow this structure - responsive containers with d
 
 ```bash
 # .env.local (development)
-VITE_API_URL=http://localhost:8889
+VITE_API_URL=http://localhost:8888
 
 # Production uses VITE_API_URL from environment at build time
 ```

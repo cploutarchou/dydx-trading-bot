@@ -167,13 +167,13 @@ For more issues: [../guides/TROUBLESHOOTING.md](../guides/TROUBLESHOOTING.md)
 
 Included in `docker-compose.yml`:
 
-| Service             | Port | Purpose        |
-| ------------------- | ---- | -------------- |
-| PostgreSQL          | 5432 | Database       |
-| Redis               | 6379 | Cache          |
-| Bot API (default)   | 8889 | REST API       |
-| Go Backend (legacy) | 8888 | REST API proxy |
-| Frontend            | 5173 | Dev server     |
+| Service               | Port | Purpose        |
+| --------------------- | ---- | -------------- |
+| PostgreSQL            | 5432 | Database       |
+| Redis                 | 6379 | Cache          |
+| Go Backend API (UI)   | 8888 | REST API       |
+| Bot API (via backend) | 8889 | Bot engine API |
+| Frontend              | 5173 | Dev server     |
 
 Start them:
 

@@ -509,7 +509,7 @@ Hook called with run_id
               │
               ├─ Create WebSocket:
               │  const ws = new WebSocket(
-              │    `ws://localhost:8889/ws/backtest/${runId}?token=${token}`
+              │    `ws://localhost:8888/ws/backtest/${runId}?token=${token}`
               │  )
               │
               ├─ ws.onopen:
@@ -572,7 +572,7 @@ Return state to component:
 Component calls api.getBacktest(runId)
        │
        ├─ Axios GET request:
-       │  GET http://localhost:8889/api/v1/backtests/{runId}
+       │  GET http://localhost:8888/api/v1/backtests/{runId}
        │
        ├─ Request interceptor runs:
        │  ├─ Retrieve token from localStorage

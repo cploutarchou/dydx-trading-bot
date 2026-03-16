@@ -1,10 +1,10 @@
 # Integration Summary & Quick Reference
 
-> Legacy backend-proxy integration reference. For the default service-first frontend flow, use the Bot API at `localhost:8889`.
+> Active integration path: Frontend → Go backend (`localhost:8888`) → Bot API.
 
 ## ✅ System Status
 
-### Legacy Backend (Go @ localhost:8888)
+### Backend (Go @ localhost:8888)
 
 - ✅ **Status**: RUNNING
 - ✅ **Routes**: 83 endpoints registered
@@ -408,8 +408,8 @@ apiClient.debug = true; // Logs all requests/responses
 
 ### For DevOps
 
-1. ✅ Default frontend Bot API target: 8889
-2. ✅ Legacy backend proxy port: 8888
+1. ✅ Frontend backend API target: 8888
+2. ✅ Bot API backend target: 8889 (or configured internal port)
 3. ✅ Bot engine internal port: 8000
 4. ✅ Frontend port: 5173
 5. ✅ Database: PostgreSQL on 5432

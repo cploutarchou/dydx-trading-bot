@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-This is your complete guide for building React components that interact with the dYdX Trading Bot API. The default local flow is Frontend → Bot API (`localhost:8889`); the legacy Go backend proxy (`localhost:8888`) remains available for compatibility workflows.
+This is your complete guide for building React components that interact with the Go backend API. The active local flow is Frontend → Go backend (`localhost:8888`) → Bot API.
 
 ---
 
@@ -18,7 +18,7 @@ This is your complete guide for building React components that interact with the
            │ Bearer JWT Token
            │
 ┌──────────▼──────────┐
-│  Bot API (default)  │  Port: 8889
+│   Go Backend API    │  Port: 8888
 │  - Authentication   │
 │  - Proxy Layer      │
 │  - Database Sync    │
@@ -29,7 +29,7 @@ This is your complete guide for building React components that interact with the
            │ No Auth (Internal)
            │
 ┌──────────▼──────────┐
-│ Trading Engine      │  Port: 8000
+│  Python Bot API     │  Port: 8000
 │  - Trading Logic    │
 │  - Position Mgmt    │
 │  - Backtest Engine  │
@@ -70,7 +70,7 @@ Create `frontend/src/api/index.ts`:
 import { DydxBotAPIClient } from './client';
 
 // Initialize the API client
-export const apiClient = new DydxBotAPIClient('http://localhost:8889');
+export const apiClient = new DydxBotAPIClient('http://localhost:8888');
 
 // Load saved auth on app startup
 export const initializeAuth = async () => {
@@ -499,7 +499,7 @@ export function BotStatsWithHook({ instanceId }: { instanceId: string }) {
 Open browser DevTools → Network tab to see all API requests:
 
 1. Filter by XHR/Fetch
-2. Look for requests to `http://localhost:8889`
+2. Look for requests to `http://localhost:8888`
 3. Check request headers for `Authorization: Bearer ...`
 4. Check response status and body
 
@@ -519,10 +519,10 @@ console.log('Expires:', new Date(decoded.exp * 1000));
 
 ```bash
 # Terminal: Test backend health
-curl http://localhost:8889/api/v1/health
+curl http://localhost:8888/api/v1/health
 
 # Test bot API health
-curl http://localhost:8889/api/v1/system/status \
+curl http://localhost:8888/api/v1/system/status \
   -H "Authorization: Bearer <your-token>"
 ```
 
@@ -557,7 +557,7 @@ localStorage.setItem('mnemonic', userMnemonic);
 
 ```typescript
 // Development
-const apiClient = new DydxBotAPIClient('http://localhost:8889');
+const apiClient = new DydxBotAPIClient('http://localhost:8888');
 
 // Production
 const apiClient = new DydxBotAPIClient('https://api.yoursite.com');
@@ -764,5 +764,5 @@ For issues or questions:
 1. Check `API_COVERAGE_CHECKLIST.md` for endpoint availability
 2. Review `REACT_COMPONENT_EXAMPLES.tsx` for pattern usage
 3. Check browser DevTools Network tab for API responses
-4. Verify the Bot API is running: `curl http://localhost:8889/api/v1/health`
+4. Verify the backend is running: `curl http://localhost:8888/api/v1/health`
 5. Check backend logs for error details

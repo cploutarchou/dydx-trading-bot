@@ -9,7 +9,7 @@ Use this checklist to get productive quickly:
 1. Open your team workspace in VS Code:
    - Frontend team → `dydx-frontend.code-workspace`
    - Bot/API team → `dydx-bot.code-workspace`
-   - Backend team (legacy/parallel) → `dydx-backend.code-workspace`
+   - Backend team (Go gateway/orchestration) → `dydx-backend.code-workspace`
 2. Reopen in your **service devcontainer** (`frontend/.devcontainer`, `bot/.devcontainer`, or `backend/.devcontainer`).
 3. Start shared infra once (from repo root):
    - `make stack-env` (first time)
@@ -65,14 +65,12 @@ Python trading runtime process that executes strategy logic:
 
 ## Architecture at a glance
 
-Two request paths are supported (depending on `VITE_API_URL`):
+Primary request path in this workspace:
 
-1. **Direct (default in this workspace):**
-   - `frontend` → Python Bot API (`:8889`) → worker/runtime
-2. **Delegated via Go backend (legacy/parallel path):**
-   - `frontend` → Go backend (`:8888`) → Python Bot API → worker/runtime
+- `frontend` → Go backend (`:8888`) → Python Bot API (`:8889`) → worker/runtime
 
-In both cases, `postgres` and `redis` support state, metadata, and caching.
+The Go backend is the UI-facing API layer and triggers/orchestrates bot actions through the Python Bot API.
+`postgres` and `redis` support state, metadata, and caching.
 
 ---
 
@@ -87,7 +85,7 @@ In both cases, `postgres` and `redis` support state, metadata, and caching.
 
 - Frontend team → `dydx-frontend.code-workspace`
 - Bot/API team → `dydx-bot.code-workspace`
-- Backend team (legacy/parallel) → `dydx-backend.code-workspace`
+- Backend team (Go gateway/orchestration) → `dydx-backend.code-workspace`
 
 ### 2) Start shared infra only
 
@@ -103,7 +101,7 @@ This creates `.env.stack` from `.env.stack.example` (if missing).
 - Frontend: `cd frontend && npm run dev`
 - Bot API: `cd bot && python3 -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload`
 - Bot worker: `cd bot && python3 src/main_instance.py --instance-id bot-1`
-- Backend (legacy): `cd backend && make dev`
+- Backend (UI gateway): `cd backend && make dev`
 
 ### 4) Stop infra when done
 
@@ -254,7 +252,7 @@ State files are written to `bot/bot_states/` per instance.
 
 ---
 
-### Go Backend (`backend/`) — legacy/parallel gateway path
+### Go Backend (`backend/`) — UI gateway + bot orchestration path
 
 **Port:** `http://localhost:8888`
 
@@ -268,7 +266,7 @@ State files are written to `bot/bot_states/` per instance.
 | Tests               | `cd backend && make test`  |
 | Lint                | `cd backend && make lint`  |
 
-> The Go backend can act as a gateway/proxy to the Python Bot API. In this repo's default local setup, frontend points directly to Python Bot API (`:8889`) unless `VITE_API_URL` is set to Go backend (`:8888`).
+> The Go backend is the UI-facing gateway/proxy to the Python Bot API. In the preferred local setup, frontend targets Go backend (`:8888`), and backend triggers bot actions through Python Bot API (`:8889`).
 
 ---
 
@@ -280,7 +278,7 @@ This repository is configured for **service-first daily work** and **monorepo in
 
 - `dydx-bot.code-workspace` → **default** for bot/API contributors (`bot/` only)
 - `dydx-frontend.code-workspace` → **default** for frontend contributors
-- `dydx-backend.code-workspace` → **default** for backend contributors (`bot` + legacy `backend`)
+- `dydx-backend.code-workspace` → **default** for backend contributors (`bot` + `backend`)
 - `dydx-monorepo.code-workspace` → integration/release/QA validation across services
 
 Open one of these files directly in VS Code.
@@ -330,8 +328,8 @@ Monorepo integration tasks live in root `.vscode/tasks.json`:
 
 ## Notes
 
-- The repository also contains a Go backend in `backend/` for legacy/parallel backend work.
-- Current UI-to-bot control flow in this workspace is centered around the Python Bot API under `bot/`.
+- The Go backend in `backend/` is the active UI-facing API gateway and orchestration layer.
+- Current UI-to-bot control flow in this workspace is: frontend → Go backend → Python Bot API.
 
 ---
 
@@ -340,7 +338,7 @@ Monorepo integration tasks live in root `.vscode/tasks.json`:
 ### Stack won't start / Docker error
 
 - Make sure Docker daemon is running: `docker info`
-- Ensure no port conflicts: `lsof -i :5173,8889,5432,6379`
+- Ensure no port conflicts: `lsof -i :5173,8888,8889,5432,6379`
 
 ### Missing `.env.stack` error
 
@@ -355,6 +353,7 @@ Monorepo integration tasks live in root `.vscode/tasks.json`:
 ### Port already in use
 
 - Frontend 5173: `kill $(lsof -ti :5173)`
+- Go backend 8888: `kill $(lsof -ti :8888)`
 - Bot API 8889: `kill $(lsof -ti :8889)`
 
 ### VS Code debug profile won't launch

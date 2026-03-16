@@ -1,6 +1,9 @@
 {
 	"name": "dYdX Trading Bot Backend (Go)",
-	"image": "mcr.microsoft.com/devcontainers/go:1-1.22-bookworm",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
 	"features": {
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
 		"ghcr.io/devcontainers/features/git:1": {},
@@ -54,6 +57,6 @@
 			"onAutoForward": "silent"
 		}
 	},
-	"postCreateCommand": "go mod download",
+	"postCreateCommand": "bash -lc 'go mod download && make install-tools'",
 	"remoteUser": "vscode"
 }

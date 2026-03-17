@@ -9,7 +9,7 @@ services:
     image: dydx-bot-dev:latest
     volumes:
       - ..:/workspace
-      - /workspace/venv:/workspace/venv
+      - venv:/workspace/venv
       - ~/.ssh:/home/vscode/.ssh:ro
       - ~/.gitconfig:/home/vscode/.gitconfig:ro
     ports:
@@ -72,6 +72,7 @@ services:
   # Optional: pgAdmin for database management
   pgadmin:
     image: dpage/pgadmin4:latest
+    platform: linux/amd64
     container_name: dydx-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@dydx.local
@@ -86,6 +87,7 @@ services:
   # Optional: Redis Commander for Redis management
   redis-commander:
     image: rediscommander/redis-commander:latest
+    platform: linux/amd64
     container_name: dydx-redis-commander
     environment:
       - REDIS_HOSTS=local:redis:6379
@@ -100,6 +102,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  venv:
     driver: local
 
 networks:

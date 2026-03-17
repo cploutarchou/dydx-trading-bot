@@ -1,11 +1,8 @@
-version: "3.8"
-
 services:
   dev:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
-    container_name: dydx-bot-dev
     image: dydx-bot-dev:latest
     volumes:
       - ..:/workspace
@@ -13,11 +10,9 @@ services:
       - ~/.ssh:/home/vscode/.ssh:ro
       - ~/.gitconfig:/home/vscode/.gitconfig:ro
     ports:
-      - "8889:8889" # Bot API Server
-      - "8000:8000" # FastAPI app
-      - "5432:5432" # PostgreSQL
-      - "6379:6379" # Redis
-      - "8888:8888" # Jupyter
+      - "127.0.0.1:${DEV_BOT_API_PORT:-8889}:8889" # Bot API Server
+      - "127.0.0.1:${DEV_FASTAPI_PORT:-8000}:8000" # FastAPI app
+      - "127.0.0.1:${DEV_JUPYTER_PORT:-8888}:8888" # Jupyter
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
@@ -34,7 +29,6 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: dydx-postgres
     environment:
       POSTGRES_DB: dydx_bot
       POSTGRES_USER: postgres
@@ -44,7 +38,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${DEV_POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -55,9 +49,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: dydx-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${DEV_REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -73,12 +66,11 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     platform: linux/amd64
-    container_name: dydx-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@dydx.local
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
-      - "5050:80"
+      - "127.0.0.1:${DEV_PGADMIN_PORT:-5050}:80"
     depends_on:
       - postgres
     networks:
@@ -88,11 +80,10 @@ services:
   redis-commander:
     image: rediscommander/redis-commander:latest
     platform: linux/amd64
-    container_name: dydx-redis-commander
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports:
-      - "8081:8081"
+      - "127.0.0.1:${DEV_REDIS_COMMANDER_PORT:-8081}:8081"
     depends_on:
       - redis
     networks:

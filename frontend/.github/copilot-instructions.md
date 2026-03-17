@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Backend API runs on `localhost:8888`.
+React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Frontend uses the Go backend on `localhost:8888`, which orchestrates/proxies Bot API operations.
 
 ## Architecture & Tech Stack
 

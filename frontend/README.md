@@ -63,7 +63,7 @@ Quick access:
 
 ## 🔧 Project Structure
 
-```
+```text
 src/
 ├── components/       # Reusable React components
 ├── pages/           # Route-level components
@@ -83,7 +83,7 @@ docs/               # All documentation
 Create `.env.local` for local development:
 
 ```bash
-VITE_API_URL=http://localhost:8889
+VITE_API_URL=http://localhost:8888
 ```
 
 See [.env.local.example](.env.local.example) for all available variables.
@@ -109,7 +109,8 @@ docker-compose down     # Stop services
 Services available at:
 
 - **Frontend:** <http://localhost:5173> (dev) or <http://localhost:3000> (prod)
-- **Backend API:** <http://localhost:8889>
+- **Go Backend API (UI):** <http://localhost:8888>
+- **Bot API (via backend):** <http://localhost:8889>
 - **PostgreSQL:** localhost:5432
 - **Redis:** localhost:6379
 

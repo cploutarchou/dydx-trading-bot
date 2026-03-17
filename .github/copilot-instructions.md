@@ -8,15 +8,16 @@ This is a monorepo with 3 practical areas:
 
 - `bot/` (active): Python FastAPI control plane + async trading worker (`bot/src/main_instance.py`)
 - `frontend/` (active): React + TypeScript + Vite dashboard
-- `backend/` (legacy/parallel): Go API stack; still maintained but not the default UI control path
+- `backend/` (active): Go API gateway/orchestration layer used by the UI and delegating bot actions to Python Bot API
 
-Current integration path is: `frontend` → Python API in `bot/` → worker subprocesses + DB/Redis.
+Current integration path is: `frontend` → Go backend in `backend/` → Python API in `bot/` → worker subprocesses + DB/Redis.
 
 ## Build and test
 
 Prefer these canonical commands:
 
 - Root stack: `make stack-env`, `make stack-up-dev`, `make stack-ps`, `make stack-logs`, `make stack-down`
+- Infra-only daily flow: `make stack-env`, `make infra-up`, `make infra-ps`, `make infra-logs`, `make infra-down`
 - Bot API (local): from `bot/`, run `python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload`
 - Bot worker (local): from `bot/`, run `python src/main_instance.py --instance-id "bot-1"`
 - Bot tests: `python -m pytest bot/tests/ -v`
@@ -26,6 +27,7 @@ Prefer these canonical commands:
 Default dev ports in this repo:
 
 - Frontend: `5173`
+- Go Backend API: `8888`
 - Python Bot API: `8889` in stack/dev workflows (some standalone scripts/docs may still mention `8000`)
 
 ## Python trading conventions (critical)
@@ -60,7 +62,7 @@ When editing `bot/src/**`, follow these rules:
 ## Pitfalls to avoid
 
 - Stale paths from older docs (`app/...`, `bot_api_server.py`) — prefer `bot/src/...` paths.
-- Mixing port assumptions (`8000` vs `8889`) without checking target workflow.
+- Mixing port assumptions (`8888` vs `8889` or `8000`) without checking target workflow.
 - Missing `await` on async trading/API methods.
 - Breaking atomic two-leg trade safety.
 

@@ -1,5 +1,7 @@
 # Integration Summary & Quick Reference
 
+> Active integration path: Frontend → Go backend (`localhost:8888`) → Bot API.
+
 ## ✅ System Status
 
 ### Backend (Go @ localhost:8888)
@@ -99,64 +101,64 @@ try {
 
 ### Authentication (5 endpoints)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/auth/register` | Create account |
-| POST | `/auth/login` | User login |
-| POST | `/auth/refresh` | Refresh token |
-| GET | `/users/me` | Current user |
-| PUT | `/profile` | Update profile |
+| Method | Path             | Purpose        |
+| ------ | ---------------- | -------------- |
+| POST   | `/auth/register` | Create account |
+| POST   | `/auth/login`    | User login     |
+| POST   | `/auth/refresh`  | Refresh token  |
+| GET    | `/users/me`      | Current user   |
+| PUT    | `/profile`       | Update profile |
 
 ### Bot Management (10 endpoints)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/bots` | Create bot |
-| GET | `/bots` | List bots |
-| GET | `/bots/:id` | Get bot details |
-| DELETE | `/bots/:id` | Delete bot |
-| POST | `/bots/:id/start` | Start trading |
-| POST | `/bots/:id/stop` | Stop trading |
-| POST | `/bots/:id/restart` | Restart bot |
-| GET | `/bots/:id/stats` | Get statistics |
-| GET | `/bots/:id/trades` | Trade history |
-| POST | `/bots/quick-deploy` | Create & start |
+| Method | Path                 | Purpose         |
+| ------ | -------------------- | --------------- |
+| POST   | `/bots`              | Create bot      |
+| GET    | `/bots`              | List bots       |
+| GET    | `/bots/:id`          | Get bot details |
+| DELETE | `/bots/:id`          | Delete bot      |
+| POST   | `/bots/:id/start`    | Start trading   |
+| POST   | `/bots/:id/stop`     | Stop trading    |
+| POST   | `/bots/:id/restart`  | Restart bot     |
+| GET    | `/bots/:id/stats`    | Get statistics  |
+| GET    | `/bots/:id/trades`   | Trade history   |
+| POST   | `/bots/quick-deploy` | Create & start  |
 
 ### Real-Time Data (6 endpoints)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/bots/:id/positions/current` | Open positions |
-| GET | `/bots/:id/positions/:pos_id` | Single position |
-| GET | `/bots/:id/position-history/:pos_id` | Position history |
-| GET | `/bots/:id/market-data` | Current prices |
-| GET | `/bots/:id/realtime-stats` | Live statistics |
-| GET | `/bots/:id/alerts` | Alerts/warnings |
+| Method | Path                                 | Purpose          |
+| ------ | ------------------------------------ | ---------------- |
+| GET    | `/bots/:id/positions/current`        | Open positions   |
+| GET    | `/bots/:id/positions/:pos_id`        | Single position  |
+| GET    | `/bots/:id/position-history/:pos_id` | Position history |
+| GET    | `/bots/:id/market-data`              | Current prices   |
+| GET    | `/bots/:id/realtime-stats`           | Live statistics  |
+| GET    | `/bots/:id/alerts`                   | Alerts/warnings  |
 
 ### Backtest Management (13 endpoints)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/backtests` | Create backtest |
-| GET | `/backtests` | List backtests |
-| GET | `/backtests/:id` | Get details |
-| DELETE | `/backtests/:id` | Delete backtest |
-| GET | `/backtests/:id/status` | Progress status |
-| GET | `/backtests/:id/trades` | Backtest trades |
-| GET | `/backtests/:id/analytics` | Analytics data |
-| GET | `/backtests/:id/performance-metrics` | Metrics |
-| GET | `/backtests/:id/position-snapshots` | Snapshots |
-| GET | `/backtests/:id/dydx-validation` | Validation |
-| POST | `/backtests/:id/cancel` | Cancel backtest |
-| GET | `/backtests/stats/summary` | Summary stats |
-| POST | `/backtests/compare` | Compare backtests |
+| Method | Path                                 | Purpose           |
+| ------ | ------------------------------------ | ----------------- |
+| POST   | `/backtests`                         | Create backtest   |
+| GET    | `/backtests`                         | List backtests    |
+| GET    | `/backtests/:id`                     | Get details       |
+| DELETE | `/backtests/:id`                     | Delete backtest   |
+| GET    | `/backtests/:id/status`              | Progress status   |
+| GET    | `/backtests/:id/trades`              | Backtest trades   |
+| GET    | `/backtests/:id/analytics`           | Analytics data    |
+| GET    | `/backtests/:id/performance-metrics` | Metrics           |
+| GET    | `/backtests/:id/position-snapshots`  | Snapshots         |
+| GET    | `/backtests/:id/dydx-validation`     | Validation        |
+| POST   | `/backtests/:id/cancel`              | Cancel backtest   |
+| GET    | `/backtests/stats/summary`           | Summary stats     |
+| POST   | `/backtests/compare`                 | Compare backtests |
 
 ### System (2 endpoints)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/health` | Health check |
-| GET | `/system/status` | System status |
+| Method | Path             | Purpose       |
+| ------ | ---------------- | ------------- |
+| GET    | `/health`        | Health check  |
+| GET    | `/system/status` | System status |
 
 ---
 
@@ -237,15 +239,15 @@ console.log('Best total_return:', comparison.best.total_return);
 
 ### Status Code Meanings
 
-| Status | Meaning | Action |
-|--------|---------|--------|
-| 200 | Success | Continue |
-| 400 | Bad Request | Fix request, retry |
-| 401 | Unauthorized | Redirect to login |
-| 403 | Forbidden | Show permission error |
-| 404 | Not Found | Handle gracefully |
-| 429 | Rate Limited | Wait and retry |
-| 500 | Server Error | Show error, offer retry |
+| Status | Meaning      | Action                  |
+| ------ | ------------ | ----------------------- |
+| 200    | Success      | Continue                |
+| 400    | Bad Request  | Fix request, retry      |
+| 401    | Unauthorized | Redirect to login       |
+| 403    | Forbidden    | Show permission error   |
+| 404    | Not Found    | Handle gracefully       |
+| 429    | Rate Limited | Wait and retry          |
+| 500    | Server Error | Show error, offer retry |
 
 ### Automatic Retry Logic
 
@@ -372,13 +374,13 @@ apiClient.debug = true; // Logs all requests/responses
 
 ## 📚 Documentation Files
 
-| File | Purpose |
-|------|---------|
-| `BACKEND_API_INTEGRATION.md` | Complete API reference with examples |
-| `FRONTEND_DEVELOPMENT_GUIDE.md` | React development patterns |
-| `REACT_COMPONENT_EXAMPLES.tsx` | 8+ component patterns |
-| `API_COVERAGE_CHECKLIST.md` | Endpoint availability matrix |
-| `INTEGRATION_SUMMARY.md` | This file |
+| File                            | Purpose                              |
+| ------------------------------- | ------------------------------------ |
+| `BACKEND_API_INTEGRATION.md`    | Complete API reference with examples |
+| `FRONTEND_DEVELOPMENT_GUIDE.md` | React development patterns           |
+| `REACT_COMPONENT_EXAMPLES.tsx`  | 8+ component patterns                |
+| `API_COVERAGE_CHECKLIST.md`     | Endpoint availability matrix         |
+| `INTEGRATION_SUMMARY.md`        | This file                            |
 
 ---
 
@@ -406,14 +408,15 @@ apiClient.debug = true; // Logs all requests/responses
 
 ### For DevOps
 
-1. ✅ Backend port: 8888
-2. ✅ Bot API port: 8000
-3. ✅ Frontend port: 5173
-4. ✅ Database: PostgreSQL on 5432
-5. ✅ Ensure CORS is configured
-6. ✅ Monitor API rate limits
-7. ✅ Set up log aggregation
-8. ✅ Configure HTTPS for production
+1. ✅ Frontend backend API target: 8888
+2. ✅ Bot API backend target: 8889 (or configured internal port)
+3. ✅ Bot engine internal port: 8000
+4. ✅ Frontend port: 5173
+5. ✅ Database: PostgreSQL on 5432
+6. ✅ Ensure CORS is configured
+7. ✅ Monitor API rate limits
+8. ✅ Set up log aggregation
+9. ✅ Configure HTTPS for production
 
 ---
 

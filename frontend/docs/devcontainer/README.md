@@ -156,23 +156,24 @@ For more issues: [../guides/TROUBLESHOOTING.md](../guides/TROUBLESHOOTING.md)
 
 ## Performance
 
-| Metric | Time |
-|--------|------|
-| First build | 2-5 min |
+| Metric            | Time    |
+| ----------------- | ------- |
+| First build       | 2-5 min |
 | Container startup | <10 sec |
-| Dev server start | <5 sec |
-| HMR reload | <1 sec |
+| Dev server start  | <5 sec  |
+| HMR reload        | <1 sec  |
 
 ## Docker Services
 
 Included in `docker-compose.yml`:
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| PostgreSQL | 5432 | Database |
-| Redis | 6379 | Cache |
-| Backend API | 8888 | REST API |
-| Frontend | 5173 | Dev server |
+| Service               | Port | Purpose        |
+| --------------------- | ---- | -------------- |
+| PostgreSQL            | 5432 | Database       |
+| Redis                 | 6379 | Cache          |
+| Go Backend API (UI)   | 8888 | REST API       |
+| Bot API (via backend) | 8889 | Bot engine API |
+| Frontend              | 5173 | Dev server     |
 
 Start them:
 

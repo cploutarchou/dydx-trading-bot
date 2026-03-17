@@ -1,0 +1,12 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Go Backend API (:8888)",
+			"type": "node-terminal",
+			"request": "launch",
+			"command": "make run",
+			"cwd": "${workspaceFolder}"
+		}
+	]
+}

@@ -1,0 +1,26 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "bot: api",
+			"type": "shell",
+			"command": "python3 -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "bot: worker",
+			"type": "shell",
+			"command": "python3 src/main_instance.py --instance-id bot-1",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "bot: tests",
+			"type": "shell",
+			"command": "python3 -m pytest tests/ -v",
+			"group": "test",
+			"problemMatcher": []
+		}
+	]
+}

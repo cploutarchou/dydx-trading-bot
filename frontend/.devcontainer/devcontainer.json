@@ -1,173 +1,186 @@
 {
-  "name": "dYdX Trading Bot Frontend",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".",
-    "args": {
-      "VARIANT": "20-bullseye",
-      "NODE_VERSION": "20"
-    }
-  },
-  "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
-    "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {}
-  },
-  "customizations": {
-    "jetbrains": {
-      "settings": {
-        "com.intellij:app:HttpConfigurable.use_proxy_pac": true
-      }
-    },
-    "vscode": {
-      "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "ms-vscode.vscode-typescript-next",
-        "bradlc.vscode-tailwindcss",
-        "dsznajder.es7-react-js-snippets",
-        "xabikos.ReactSnippets",
-        "mgmcdermott.vscode-language-babel",
-        "wix.vscode-import-cost",
-        "yandeu.five-server",
-        "mtxr.sqltools",
-        "mtxr.sqltools-driver-pg",
-        "GitHub.copilot",
-        "eamodio.gitlens",
-        "ms-vscode.makefile-tools",
-        "streetsidesoftware.code-spell-checker",
-        "ms-vscode-remote.remote-containers",
-        "ms-vscode-remote.remote-ssh",
-        "vscode-icons-team.vscode-icons",
-        "ms-azuretools.vscode-docker",
-        "chrisdias.vscode-open-in-github",
-        "mhutchie.git-graph",
-        "tamasfe.even-better-toml",
-        "orta.vscode-jest-runner",
-        "firsttris.vscode-jest-runner"
-      ],
-      "settings": {
-        "editor.formatOnSave": true,
-        "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "editor.codeActionsOnSave": {
-          "source.fixAll.eslint": "explicit"
-        },
-        "editor.quickSuggestions": {
-          "strings": true
-        },
-        "[typescriptreact]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
-          "editor.formatOnSave": true,
-          "editor.codeActionsOnSave": {
-            "source.fixAll.eslint": "explicit"
-          }
-        },
-        "[typescript]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
-          "editor.formatOnSave": true,
-          "editor.codeActionsOnSave": {
-            "source.fixAll.eslint": "explicit"
-          }
-        },
-        "[javascript]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
-          "editor.formatOnSave": true,
-          "editor.codeActionsOnSave": {
-            "source.fixAll.eslint": "explicit"
-          }
-        },
-        "[jsx]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
-          "editor.formatOnSave": true
-        },
-        "typescript.tsdk": "node_modules/typescript/lib",
-        "typescript.enablePromptUseWorkspaceTsdk": true,
-        "typescript.preferGoToProjectRootOnClickOnUnimportedSymbols": true,
-        "typescript.enablePromptUseLibraryCodeForNewProjects": true,
-        "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
-        "eslint.format.enable": true,
-        "files.exclude": {
-          "**/__pycache__": true,
-          "**/*.pyc": true,
-          "**/node_modules": false
-        },
-        "search.exclude": {
-          "**/node_modules": true,
-          "dist": true,
-          ".vite": true
-        },
-        "python.linting.enabled": false,
-        "tailwindCSS.experimental.classRegex": [
-          ["clsx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
-        ],
-        "tailwindCSS.emmetCompletions": true,
-        "emmet.includeLanguages": {
-          "javascript": "javascriptreact",
-          "typescript": "typescriptreact"
-        },
-        "files.watcherExclude": {
-          "**/.git/objects/**": true,
-          "**/.git/subtree-cache/**": true,
-          "**/node_modules/*/**": true,
-          "**/.vite/**": true
-        },
-        "explorer.excludeGitIgnore": true,
-        "git.ignoreLimitWarning": true,
-        "[json]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode"
-        },
-        "editor.inlineSuggest.enabled": true
-      }
-    }
-  },
-  "mounts": [
-    "type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/node/.ssh,readonly",
-    "type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/home/node/.gitconfig,readonly",
-    "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock"
-  ],
-  "forwardPorts": [5173, 3000, 5432, 6379],
-  "portsAttributes": {
-    "5173": {
-      "label": "Vite Dev Server",
-      "onAutoForward": "notify",
-      "requireLocalPort": false
-    },
-    "3000": {
-      "label": "Preview Server",
-      "onAutoForward": "notify",
-      "requireLocalPort": false
-    },
-    "5432": {
-      "label": "PostgreSQL",
-      "onAutoForward": "silent",
-      "requireLocalPort": false
-    },
-    "6379": {
-      "label": "Redis",
-      "onAutoForward": "silent",
-      "requireLocalPort": false
-    }
-  },
-  "remoteUser": "node",
-  "remoteEnv": {
-    "PATH": "/home/node/.local/bin:${containerEnv:PATH}",
-    "NODE_OPTIONS": "--max-old-space-size=4096"
-  },
-  "updateContentCommand": "npm ci",
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/post-start.sh",
-  "containerEnv": {
-    "npm_config_cache": "/workspace/.npm",
-    "npm_config_tmp": "/workspace/.tmp"
-  },
-  "runArgs": [
-    "--cap-add=SYS_PTRACE",
-    "--security-opt",
-    "seccomp=unconfined",
-    "--memory=4g",
-    "--cpus=2"
-  ],
-  "privileged": false,
-  "init": true,
-  "overrideCommand": false
+	"name": "dYdX Trading Bot Frontend",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".",
+		"args": {
+			"VARIANT": "20-bullseye",
+			"NODE_VERSION": "20"
+		}
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/devcontainers/features/github-cli:1": {}
+	},
+	"customizations": {
+		"jetbrains": {
+			"settings": {
+				"com.intellij:app:HttpConfigurable.use_proxy_pac": true
+			}
+		},
+		"vscode": {
+			"extensions": [
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"ms-vscode.vscode-typescript-next",
+				"bradlc.vscode-tailwindcss",
+				"dsznajder.es7-react-js-snippets",
+				"xabikos.ReactSnippets",
+				"mgmcdermott.vscode-language-babel",
+				"wix.vscode-import-cost",
+				"yandeu.five-server",
+				"mtxr.sqltools",
+				"mtxr.sqltools-driver-pg",
+				"GitHub.copilot",
+				"eamodio.gitlens",
+				"ms-vscode.makefile-tools",
+				"streetsidesoftware.code-spell-checker",
+				"ms-vscode-remote.remote-containers",
+				"ms-vscode-remote.remote-ssh",
+				"vscode-icons-team.vscode-icons",
+				"ms-azuretools.vscode-docker",
+				"chrisdias.vscode-open-in-github",
+				"mhutchie.git-graph",
+				"tamasfe.even-better-toml",
+				"orta.vscode-jest-runner",
+				"firsttris.vscode-jest-runner"
+			],
+			"settings": {
+				"editor.formatOnSave": true,
+				"editor.defaultFormatter": "esbenp.prettier-vscode",
+				"editor.codeActionsOnSave": {
+					"source.fixAll.eslint": "explicit"
+				},
+				"editor.quickSuggestions": {
+					"strings": true
+				},
+				"[typescriptreact]": {
+					"editor.defaultFormatter": "esbenp.prettier-vscode",
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.fixAll.eslint": "explicit"
+					}
+				},
+				"[typescript]": {
+					"editor.defaultFormatter": "esbenp.prettier-vscode",
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.fixAll.eslint": "explicit"
+					}
+				},
+				"[javascript]": {
+					"editor.defaultFormatter": "esbenp.prettier-vscode",
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.fixAll.eslint": "explicit"
+					}
+				},
+				"[jsx]": {
+					"editor.defaultFormatter": "esbenp.prettier-vscode",
+					"editor.formatOnSave": true
+				},
+				"typescript.tsdk": "node_modules/typescript/lib",
+				"typescript.enablePromptUseWorkspaceTsdk": true,
+				"typescript.preferGoToProjectRootOnClickOnUnimportedSymbols": true,
+				"typescript.enablePromptUseLibraryCodeForNewProjects": true,
+				"eslint.validate": [
+					"javascript",
+					"javascriptreact",
+					"typescript",
+					"typescriptreact"
+				],
+				"eslint.format.enable": true,
+				"files.exclude": {
+					"**/__pycache__": true,
+					"**/*.pyc": true,
+					"**/node_modules": false
+				},
+				"search.exclude": {
+					"**/node_modules": true,
+					"dist": true,
+					".vite": true
+				},
+				"python.linting.enabled": false,
+				"tailwindCSS.experimental.classRegex": [
+					[
+						"clsx\\(([^)]*)\\)",
+						"(?:'|\"|`)([^']*)(?:'|\"|`)"
+					]
+				],
+				"tailwindCSS.emmetCompletions": true,
+				"emmet.includeLanguages": {
+					"javascript": "javascriptreact",
+					"typescript": "typescriptreact"
+				},
+				"files.watcherExclude": {
+					"**/.git/objects/**": true,
+					"**/.git/subtree-cache/**": true,
+					"**/node_modules/*/**": true,
+					"**/.vite/**": true
+				},
+				"explorer.excludeGitIgnore": true,
+				"git.ignoreLimitWarning": true,
+				"[json]": {
+					"editor.defaultFormatter": "esbenp.prettier-vscode"
+				},
+				"editor.inlineSuggest.enabled": true
+			}
+		}
+	},
+	"mounts": [
+		"type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/node/.ssh,readonly",
+		"type=bind,source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/home/node/.gitconfig,readonly",
+		"type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock"
+	],
+	"forwardPorts": [
+		5173,
+		3000,
+		5432,
+		6379
+	],
+	"portsAttributes": {
+		"5173": {
+			"label": "Vite Dev Server",
+			"onAutoForward": "notify",
+			"requireLocalPort": false
+		},
+		"3000": {
+			"label": "Preview Server",
+			"onAutoForward": "notify",
+			"requireLocalPort": false
+		},
+		"5432": {
+			"label": "PostgreSQL",
+			"onAutoForward": "silent",
+			"requireLocalPort": false
+		},
+		"6379": {
+			"label": "Redis",
+			"onAutoForward": "silent",
+			"requireLocalPort": false
+		}
+	},
+	"remoteUser": "node",
+	"remoteEnv": {
+		"PATH": "/home/node/.local/bin:${containerEnv:PATH}",
+		"NODE_OPTIONS": "--max-old-space-size=4096"
+	},
+	"updateContentCommand": "npm ci",
+	"postCreateCommand": "bash .devcontainer/setup.sh",
+	"postStartCommand": "bash .devcontainer/post-start.sh",
+	"containerEnv": {
+		"npm_config_cache": "/workspace/.npm",
+		"npm_config_tmp": "/workspace/.tmp"
+	},
+	"runArgs": [
+		"--cap-add=SYS_PTRACE",
+		"--security-opt",
+		"seccomp=unconfined",
+		"--memory=4g",
+		"--cpus=2"
+	],
+	"privileged": false,
+	"init": true,
+	"overrideCommand": false
 }

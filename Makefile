@@ -1,4 +1,4 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging devcontainer devcontainer-build devcontainer-up devcontainer-down devcontainer-shell devcontainer-logs test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down stack-env stack-env-check stack-up-dev stack-up-prod stack-down stack-logs stack-ps
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -6,11 +6,15 @@ help: ## Show this help message
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Quick start:"
+	@echo "Daily service-first quick start:"
 	@echo "  1. make stack-env       # Create .env.stack from template"
-	@echo "  2. make stack-up-dev    # Start frontend + api + worker + db + redis"
-	@echo "  3. make stack-ps        # Check service status"
-	@echo "  4. make stack-logs      # Follow logs"
+	@echo "  2. make infra-up        # Start shared postgres + redis only"
+	@echo "  3. Start your service from its own workspace/devcontainer"
+	@echo ""
+	@echo "Integration quick start:"
+	@echo "  1. make stack-up-dev    # Start frontend + api + worker + db + redis"
+	@echo "  2. make stack-ps        # Check service status"
+	@echo "  3. make stack-logs      # Follow logs"
 	@echo ""
 
 # ============================================================================
@@ -184,31 +188,6 @@ docker-down-logging: ## Stop logging stack
 	@echo "✅ Logging stack stopped"
 
 # ============================================================================
-# DEVELOPMENT CONTAINER
-# ============================================================================
-
-devcontainer: ## Open in VS Code Dev Container (recommended)
-	code --remote="container-url?" .
-
-devcontainer-build: ## Build dev container image
-	docker-compose -f docker-compose.yml build --no-cache
-	@echo "✅ Dev container built"
-
-devcontainer-up: ## Start dev container with Docker Compose
-	docker-compose up -d
-	@echo "✅ Dev container started"
-
-devcontainer-down: ## Stop dev container
-	docker-compose down
-	@echo "✅ Dev container stopped"
-
-devcontainer-shell: ## Open shell in dev container
-	docker-compose exec -it dydx-bot /bin/bash
-
-devcontainer-logs: ## View dev container logs
-	docker-compose logs -f
-
-# ============================================================================
 # TESTING
 # ============================================================================
 
@@ -362,7 +341,45 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 		exit 0; \
 	fi
 
-stack-up-dev: ## Start split app stack (api + worker + frontend dev + postgres + redis)
+infra-up: ## Start shared infra only (postgres + redis) for local service development
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		docker compose $$ENV_OPT -f docker-compose.infra.yml up -d --remove-orphans; \
+		echo "✅ Infra started (postgres:5432, redis:6379)"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot start infra"; \
+		exit 0; \
+	fi
+
+infra-down: ## Stop shared infra only (postgres + redis)
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		docker compose $$ENV_OPT -f docker-compose.infra.yml down --remove-orphans; \
+		echo "✅ Infra stopped"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot stop infra"; \
+		exit 0; \
+	fi
+
+infra-logs: ## Follow logs for shared infra services (postgres + redis)
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		docker compose $$ENV_OPT -f docker-compose.infra.yml logs -f --tail=100; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch infra logs"; \
+		exit 0; \
+	fi
+
+infra-ps: ## Show status for shared infra services (postgres + redis)
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		docker compose $$ENV_OPT -f docker-compose.infra.yml ps; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch infra status"; \
+		exit 0; \
+	fi
+
+stack-up-dev: ## Start full integration stack (api + worker + frontend dev + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
 		python3 scripts/validate_stack_env.py; \
@@ -385,6 +402,8 @@ stack-up-prod: ## Start split app stack (api + worker + frontend preview + postg
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
 		exit 0; \
 	fi
+
+stack-up-integration: stack-up-dev ## Alias for full integration stack in dev profile
 
 stack-down: ## Stop split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \

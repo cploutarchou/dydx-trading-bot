@@ -4,11 +4,11 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 
 ## Quick Links
 
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[Data Flow](DATA_FLOW.md)** | Component interactions and data movement | 10 min |
-| **[Patterns](PATTERNS.md)** | Code patterns and conventions | 15 min |
-| **[API Integration](API_INTEGRATION.md)** | Backend communication patterns | 10 min |
+| Document                                  | Purpose                                  | Read Time |
+| ----------------------------------------- | ---------------------------------------- | --------- |
+| **[Data Flow](DATA_FLOW.md)**             | Component interactions and data movement | 10 min    |
+| **[Patterns](PATTERNS.md)**               | Code patterns and conventions            | 15 min    |
+| **[API Integration](API_INTEGRATION.md)** | Backend communication patterns           | 10 min    |
 
 ## System Architecture
 
@@ -53,7 +53,7 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 └────────────┼────────────────────────────────────────────────────┘
              │
         ┌────▼─────────────────────┐
-        │   Backend API            │
+        │   Go Backend API         │
         │   http://localhost:8888  │
         └─────────────────────────┘
              │

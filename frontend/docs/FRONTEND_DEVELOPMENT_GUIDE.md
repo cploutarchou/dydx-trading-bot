@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-This is your complete guide for building React components that interact with the dYdX Trading Bot backend. The backend provides a complete proxy to the Python bot API with additional database persistence, authentication, and rate limiting.
+This is your complete guide for building React components that interact with the Go backend API. The active local flow is Frontend → Go backend (`localhost:8888`) → Bot API.
 
 ---
 
@@ -519,7 +519,7 @@ console.log('Expires:', new Date(decoded.exp * 1000));
 
 ```bash
 # Terminal: Test backend health
-curl http://localhost:8888/health
+curl http://localhost:8888/api/v1/health
 
 # Test bot API health
 curl http://localhost:8888/api/v1/system/status \
@@ -734,12 +734,12 @@ describe('BotList', () => {
 
 ## 📚 Key Files Reference
 
-| File | Purpose |
-|------|---------|
-| `src/api/client.ts` | Full API client implementation |
-| `src/store/auth.ts` | Authentication store (Zustand) |
-| `docs/BACKEND_API_INTEGRATION.md` | Complete API reference |
-| `docs/API_COVERAGE_CHECKLIST.md` | Endpoint availability matrix |
+| File                                | Purpose                         |
+| ----------------------------------- | ------------------------------- |
+| `src/api/client.ts`                 | Full API client implementation  |
+| `src/store/auth.ts`                 | Authentication store (Zustand)  |
+| `docs/BACKEND_API_INTEGRATION.md`   | Complete API reference          |
+| `docs/API_COVERAGE_CHECKLIST.md`    | Endpoint availability matrix    |
 | `docs/REACT_COMPONENT_EXAMPLES.tsx` | Component patterns and examples |
 
 ---
@@ -764,5 +764,5 @@ For issues or questions:
 1. Check `API_COVERAGE_CHECKLIST.md` for endpoint availability
 2. Review `REACT_COMPONENT_EXAMPLES.tsx` for pattern usage
 3. Check browser DevTools Network tab for API responses
-4. Verify backend is running: `curl http://localhost:8888/health`
+4. Verify the backend is running: `curl http://localhost:8888/api/v1/health`
 5. Check backend logs for error details

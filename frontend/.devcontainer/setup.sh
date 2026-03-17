@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Check if running inside DevContainer
-if [ -z "$CONTAINER_NAME" ]; then
+if [ -z "${CONTAINER_NAME:-}" ]; then
     echo "⚠️  Warning: This script should be run inside the DevContainer"
 fi
 
@@ -35,7 +35,7 @@ fi
 if [ ! -f ".env.local" ]; then
     echo -e "${BLUE}📝 Creating .env.local...${NC}"
     cat > .env.local << EOF
-VITE_API_URL=http://localhost:8888
+VITE_API_URL=http://localhost:8889
 NODE_ENV=development
 EOF
     echo -e "${GREEN}✅ .env.local created${NC}"
@@ -63,7 +63,7 @@ echo ""
 echo -e "${YELLOW}📚 Next steps:${NC}"
 echo "1. Start the development server: npm run dev"
 echo "2. Access the app at: http://localhost:5173"
-echo "3. Backend API is at: http://localhost:8888"
+echo "3. Backend API is at: http://localhost:8889"
 echo ""
 echo -e "${YELLOW}💡 Available commands:${NC}"
 echo "  - npm run dev      : Start dev server"

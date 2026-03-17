@@ -1,8 +1,8 @@
 # API Integration Guide
 
-How to communicate with the dYdX Trading Bot Backend.
+How to communicate with the dYdX Trading Bot backend API.
 
-## Backend Overview
+## Backend API Overview
 
 **Base URL (Development):** `http://localhost:8888`
 
@@ -443,15 +443,15 @@ const BacktestProgress = ({ runId }: { runId: string }) => {
 
 ### HTTP Status Codes
 
-| Code | Meaning | Action |
-|------|---------|--------|
-| 200 | OK | Process response |
-| 201 | Created | Process response |
-| 400 | Bad Request | Show user error message |
-| 401 | Unauthorized | Clear token, redirect to login |
-| 403 | Forbidden | Show "Access Denied" |
-| 404 | Not Found | Show "Not found" |
-| 500 | Server Error | Show "Server error, try again" |
+| Code | Meaning      | Action                         |
+| ---- | ------------ | ------------------------------ |
+| 200  | OK           | Process response               |
+| 201  | Created      | Process response               |
+| 400  | Bad Request  | Show user error message        |
+| 401  | Unauthorized | Clear token, redirect to login |
+| 403  | Forbidden    | Show "Access Denied"           |
+| 404  | Not Found    | Show "Not found"               |
+| 500  | Server Error | Show "Server error, try again" |
 
 ### Error Response Format
 

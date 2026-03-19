@@ -1,0 +1,12 @@
+{
+	"recommendations": [
+		"golang.go",
+		"GitHub.copilot",
+		"GitHub.copilot-chat",
+		"ms-vscode.makefile-tools",
+		"ms-azuretools.vscode-docker",
+		"redhat.vscode-yaml",
+		"eamodio.gitlens",
+		"ms-vscode-remote.remote-containers"
+	]
+}

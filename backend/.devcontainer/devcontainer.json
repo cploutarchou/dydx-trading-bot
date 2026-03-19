@@ -17,23 +17,65 @@
 				"ms-azuretools.vscode-docker",
 				"redhat.vscode-yaml",
 				"eamodio.gitlens",
-				"github.copilot",
-				"github.copilot-chat"
+				"GitHub.copilot",
+				"GitHub.copilot-chat",
+				"ms-vscode-remote.remote-containers"
 			],
 			"settings": {
+				"go.toolsManagement.autoUpdate": true,
+				"go.toolsManagement.checkForUpdates": "local",
 				"go.useLanguageServer": true,
-				"go.formatTool": "gofmt",
 				"go.lintTool": "golangci-lint",
+				"go.lintOnSave": "package",
+				"go.vetOnSave": "package",
+				"go.testOnSave": false,
+				"go.testTimeout": "30s",
+				"go.coverOnTestPackage": true,
+				"go.generateTestsFlags": [
+					"-all"
+				],
+				"gopls": {
+					"ui.semanticTokens": true,
+					"ui.completion.usePlaceholders": true,
+					"formatting.gofumpt": true,
+					"analyses": {
+						"unusedparams": true,
+						"shadow": true,
+						"unusedwrite": true
+					},
+					"staticcheck": true
+				},
 				"[go]": {
 					"editor.formatOnSave": true,
 					"editor.codeActionsOnSave": {
 						"source.organizeImports": "explicit"
-					}
+					},
+					"editor.defaultFormatter": "golang.go",
+					"editor.tabSize": 4,
+					"editor.insertSpaces": false
+				},
+				"go.testFlags": [
+					"-v",
+					"-race"
+				],
+				"testing.automaticallyOpenPeekView": "never",
+				"go.envFile": "${workspaceFolder}/.env",
+				"[sql]": {
+					"editor.formatOnSave": true
 				},
 				"files.exclude": {
 					"**/.git": false,
 					"**/bin": true,
-					"**/.air.toml": false
+					"**/.air.toml": false,
+					"**/__debug_bin*": true
+				},
+				"files.watcherExclude": {
+					"**/.git/objects/**": true,
+					"**/bin/**": true
+				},
+				"search.exclude": {
+					"**/bin": true,
+					"**/vendor": true
 				}
 			}
 		}

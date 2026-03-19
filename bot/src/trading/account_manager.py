@@ -1,8 +1,10 @@
 """Private account operations and order management for dYdX."""
+
 import json
 import logging
 import random
 import time
+from pathlib import Path
 
 from src.constants import DYDX_ADDRESS
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
@@ -14,14 +16,16 @@ from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 logger = logging.getLogger(__name__)
 
+BOT_AGENTS_PATH = Path(__file__).resolve().parents[2] / "bot_agents.json"
+
 
 async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
     market = Market(
-        (await client.indexer.markets.get_perpetual_markets(order["ticker"]))[
-            "markets"
-        ][order["ticker"]]
+        (await client.indexer.markets.get_perpetual_markets(order["ticker"]))["markets"][
+            order["ticker"]
+        ]
     )
     # Use the client's wallet address when available to derive client id
     address = getattr(client.wallet, "address", DYDX_ADDRESS)
@@ -63,16 +67,13 @@ async def get_open_positions(client):
     except Exception:
         # If primary address fails (likely 404 for fresh account), try configured address
         try:
-            response = await client.indexer_account.account.get_subaccount(
-                DYDX_ADDRESS, 0
-            )
+            response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
         except Exception as e2:
             # Both addresses failed - likely fresh testnet account with no trading history
             import httpx
 
             if isinstance(e2, httpx.HTTPStatusError) and e2.response.status_code == 404:
-                logger.debug(
-                    "No subaccount found (404) - likely fresh testnet account")
+                logger.debug("No subaccount found (404) - likely fresh testnet account")
                 return {}
             raise e2
     return response["subaccount"]["openPerpetualPositions"]
@@ -94,9 +95,7 @@ async def is_open_positions(client, market):
         response = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
         try:
-            response = await client.indexer_account.account.get_subaccount(
-                DYDX_ADDRESS, 0
-            )
+            response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
         except Exception as e:
             # Both addresses failed - likely fresh testnet account
             import httpx
@@ -147,9 +146,7 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Initialize
     ticker = market
     current_block = await client.node.latest_block_height()
-    market = Market(
-        (await client.indexer.markets.get_perpetual_markets(market))["markets"][market]
-    )
+    market = Market((await client.indexer.markets.get_perpetual_markets(market))["markets"][market])
     address = getattr(client.wallet, "address", DYDX_ADDRESS)
     market_order_id = market.order_id(
         address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
@@ -191,20 +188,14 @@ async def place_market_order(client, market, side, size, price, reduce_only):
         client_id = int(order["clientId"])
         clob_pair_id = int(order["clobPairId"])
         order["createdAtHeight"] = int(order["createdAtHeight"])
-        if (
-                client_id == market_order_id.client_id
-                and clob_pair_id == market_order_id.clob_pair_id
-        ):
+        if client_id == market_order_id.client_id and clob_pair_id == market_order_id.clob_pair_id:
             order_id = order["id"]
             break
 
     # Ensure latest order
     if order_id == "":
-        sorted_orders = sorted(
-            orders, key=lambda x: x["createdAtHeight"], reverse=True)
-        logger.error(
-            "Unable to detect latest order; most recent entry: %s", sorted_orders[0]
-        )
+        sorted_orders = sorted(orders, key=lambda x: x["createdAtHeight"], reverse=True)
+        logger.error("Unable to detect latest order; most recent entry: %s", sorted_orders[0])
         logger.error("Please verify the order status on the dashboard")
         exit(1)
 
@@ -302,9 +293,8 @@ async def abort_all_positions(client):
 
         # Override json file with empty list
         bot_agents = []
-        with open("../bot_agents.json", "w") as f:
+        with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
             json.dump(bot_agents, f)
 
         # Return closed orders
         return close_orders
-

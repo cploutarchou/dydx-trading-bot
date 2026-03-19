@@ -1,4 +1,5 @@
 """Telegram messaging system for dYdX Trading Bot."""
+
 import logging
 from datetime import datetime
 from typing import Any, Dict
@@ -40,6 +41,15 @@ class TelegramMessenger:
             if response.status_code == 200:
                 return True
             else:
+                if (
+                    response.status_code == 403
+                    and "bots can't send messages to bots" in response.text.lower()
+                ):
+                    logger.error(
+                        "Telegram delivery blocked: TELEGRAM_CHAT_ID '%s' appears to belong to a bot account. "
+                        "Use a user/group/channel chat id and ensure that chat has started/interacted with this bot.",
+                        self.chat_id,
+                    )
                 logger.error(f"Telegram API error {response.status_code}: {response.text}")
                 return False
 
@@ -56,7 +66,7 @@ class TelegramMessenger:
             "chat_id": self.chat_id,
             "text": text,
             "parse_mode": parse_mode,
-            "disable_web_page_preview": True
+            "disable_web_page_preview": True,
         }
 
         return self._send_request("sendMessage", data)
@@ -72,7 +82,9 @@ class TelegramMessenger:
             environment = "development" if is_testnet else "production"
 
         network = "🧪 TESTNET" if is_testnet else "🔴 MAINNET"
-        env_emoji = "🧪" if environment == "development" else "🚀" if environment == "production" else "⚙️"
+        env_emoji = (
+            "🧪" if environment == "development" else "🚀" if environment == "production" else "⚙️"
+        )
 
         # Create clickable account link based on environment
         if environment == "development" or is_testnet:
@@ -99,7 +111,9 @@ class TelegramMessenger:
 
         return self.send_message(message)
 
-    def send_error_message(self, error_type: str, error_details: str, is_critical: bool = False) -> bool:
+    def send_error_message(
+        self, error_type: str, error_details: str, is_critical: bool = False
+    ) -> bool:
         """Send formatted error notification."""
         emoji = "🚨" if is_critical else "⚠️"
         severity = "CRITICAL ERROR" if is_critical else "ERROR"
@@ -147,7 +161,9 @@ class TelegramMessenger:
 
         return self.send_message(message)
 
-    def send_trade_closed_message(self, trade_info: Dict[str, Any], reason: str = "Z-score reversion") -> bool:
+    def send_trade_closed_message(
+        self, trade_info: Dict[str, Any], reason: str = "Z-score reversion"
+    ) -> bool:
         """Send notification when trade is closed."""
         market_1 = trade_info.get("market_1", "Unknown")
         market_2 = trade_info.get("market_2", "Unknown")
@@ -157,7 +173,7 @@ class TelegramMessenger:
             "Z-score reversion": "🎯",
             "Manual close": "👨‍💼",
             "Error recovery": "🛠️",
-            "Emergency stop": "🚨"
+            "Emergency stop": "🚨",
         }.get(reason, "✅")
 
         message = f"""
@@ -174,8 +190,9 @@ class TelegramMessenger:
 
         return self.send_message(message)
 
-    def send_cointegration_results(self, pairs_found: int, analysis_time: float,
-                                   high_confidence_pairs: int = 0) -> bool:
+    def send_cointegration_results(
+        self, pairs_found: int, analysis_time: float, high_confidence_pairs: int = 0
+    ) -> bool:
         """Send enhanced cointegration analysis results."""
         confidence_ratio = (high_confidence_pairs / pairs_found * 100) if pairs_found > 0 else 0
 
@@ -309,4 +326,3 @@ def send_daily_summary(summary_info: Dict[str, Any]) -> bool:
 def send_shutdown_notification(reason: str = "Manual stop") -> bool:
     """Send shutdown notification."""
     return _messenger.send_shutdown_message(reason)
-

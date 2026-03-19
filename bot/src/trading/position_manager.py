@@ -1,7 +1,9 @@
 """Position entry and exit management for pairs trading."""
+
 import json
 import logging
 import time
+from pathlib import Path
 
 import pandas as pd
 from src.constants import CLOSE_AT_ZSCORE_CROSS, USD_MIN_COLLATERAL, USD_PER_TRADE, ZSCORE_THRESH
@@ -20,6 +22,8 @@ from src.shared.utils import format_number
 from src.infrastructure.domain.cointegration_storage import pair_storage
 
 logger = logging.getLogger(__name__)
+
+BOT_AGENTS_PATH = Path(__file__).resolve().parents[2] / "bot_agents.json"
 
 IGNORE_ASSETS = [
     "BTC-USD_x",
@@ -57,13 +61,13 @@ async def open_positions(client):
 
     # Opening JSON file
     try:
-        open_positions_file = open("../bot_agents.json")
-        open_positions_dict = json.load(open_positions_file)
+        with BOT_AGENTS_PATH.open("r", encoding="utf-8") as open_positions_file:
+            open_positions_dict = json.load(open_positions_file)
         for p in open_positions_dict:
             bot_agents.append(p)
     except Exception:
         bot_agents = []
-        logger.debug("No existing bot_agents.json found; starting fresh")
+        logger.debug("No existing %s found; starting fresh", BOT_AGENTS_PATH)
 
     # Find ZScore triggers
     for index, row in df.iterrows():
@@ -83,9 +87,7 @@ async def open_positions(client):
             series_1 = await get_candles_recent(client, base_market)
             series_2 = await get_candles_recent(client, quote_market)
         except Exception:
-            logger.exception(
-                "Failed to fetch candles for %s / %s", base_market, quote_market
-            )
+            logger.exception("Failed to fetch candles for %s / %s", base_market, quote_market)
             continue
 
         # Get ZScore
@@ -111,31 +113,21 @@ async def open_positions(client):
                     base_price = series_1[-1]
                     quote_price = series_2[-1]
                     accept_base_price = (
-                        float(base_price) * 1.01
-                        if z_score < 0
-                        else float(base_price) * 0.99
+                        float(base_price) * 1.01 if z_score < 0 else float(base_price) * 0.99
                     )
                     accept_quote_price = (
-                        float(quote_price) * 1.01
-                        if z_score > 0
-                        else float(quote_price) * 0.99
+                        float(quote_price) * 1.01 if z_score > 0 else float(quote_price) * 0.99
                     )
                     failsafe_base_price = (
-                        float(base_price) * 0.05
-                        if z_score < 0
-                        else float(base_price) * 1.7
+                        float(base_price) * 0.05 if z_score < 0 else float(base_price) * 1.7
                     )
                     base_tick_size = markets["markets"][base_market]["tickSize"]
                     quote_tick_size = markets["markets"][quote_market]["tickSize"]
 
                     # Format prices
                     accept_base_price = format_number(accept_base_price, base_tick_size)
-                    accept_quote_price = format_number(
-                        accept_quote_price, quote_tick_size
-                    )
-                    accept_failsafe_base_price = format_number(
-                        failsafe_base_price, base_tick_size
-                    )
+                    accept_quote_price = format_number(accept_quote_price, quote_tick_size)
+                    accept_failsafe_base_price = format_number(failsafe_base_price, base_tick_size)
 
                     # Get size
                     base_quantity = 1 / base_price * USD_PER_TRADE
@@ -148,9 +140,7 @@ async def open_positions(client):
                     quote_size = format_number(quote_quantity, quote_step_size)
 
                     # Ensure size (minimum order size greater than $1 according to V4 documentation)
-                    base_min_order_size = 1 / float(
-                        markets["markets"][base_market]["oraclePrice"]
-                    )
+                    base_min_order_size = 1 / float(markets["markets"][base_market]["oraclePrice"])
                     quote_min_order_size = 1 / float(
                         markets["markets"][quote_market]["oraclePrice"]
                     )
@@ -211,8 +201,8 @@ async def open_positions(client):
 
                         # Handle success in opening trades
                         if (
-                                isinstance(bot_open_dict, dict)
-                                and bot_open_dict.get("pair_status") == "LIVE"
+                            isinstance(bot_open_dict, dict)
+                            and bot_open_dict.get("pair_status") == "LIVE"
                         ):
                             # Send trade opened notification before deleting bot_open_dict
                             trade_info = {
@@ -227,7 +217,7 @@ async def open_positions(client):
                                 "hedge_ratio": bot_open_dict.get("hedge_ratio", 0),
                                 "half_life": bot_open_dict.get("half_life", 0),
                                 "market_1_order_id": bot_open_dict.get("market_1_order_id", ""),
-                                "market_2_order_id": bot_open_dict.get("market_2_order_id", "")
+                                "market_2_order_id": bot_open_dict.get("market_2_order_id", ""),
                             }
                             messenger.send_trade_opened_message(trade_info)
 
@@ -236,7 +226,7 @@ async def open_positions(client):
                             del bot_open_dict
 
                             # Save trade
-                            with open("../bot_agents.json", "w") as f:
+                            with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
                                 json.dump(bot_agents, f)
 
                             # Confirm live status in print
@@ -265,11 +255,11 @@ async def manage_trade_exits(client):
 
     # Opening a JSON file
     try:
-        open_positions_file = open("../bot_agents.json")
-        open_positions_dict = json.load(open_positions_file)
+        with BOT_AGENTS_PATH.open("r", encoding="utf-8") as open_positions_file:
+            open_positions_dict = json.load(open_positions_file)
         logger.debug("Loaded %d tracked positions", len(open_positions_dict))
     except Exception as e:
-        logger.info(f"No bot_agents.json found; nothing to close!{e}")
+        logger.info("No %s found; nothing to close (%s)", BOT_AGENTS_PATH, e)
         return "complete"
 
     # Guard: Exit if no open positions in file
@@ -328,18 +318,16 @@ async def manage_trade_exits(client):
 
         # Perform matching checks
         check_m1 = (
-                position_market_m1 == order_market_m1
-                and position_size_m1 == order_size_m1
-                and position_side_m1 == order_side_m1
+            position_market_m1 == order_market_m1
+            and position_size_m1 == order_size_m1
+            and position_side_m1 == order_side_m1
         )
         check_m2 = (
-                position_market_m2 == order_market_m2
-                and position_size_m2 == order_size_m2
-                and position_side_m2 == order_side_m2
+            position_market_m2 == order_market_m2
+            and position_size_m2 == order_size_m2
+            and position_side_m2 == order_side_m2
         )
-        check_live = (
-                position_market_m1 in markets_live and position_market_m2 in markets_live
-        )
+        check_live = position_market_m1 in markets_live and position_market_m2 in markets_live
 
         # Guard: If not all match exit with error
         if not check_m1 or not check_m2 or not check_live:
@@ -379,7 +367,7 @@ async def manage_trade_exits(client):
             # Determine trigger
             z_score_level_check = abs(z_score_current) >= abs(z_score_traded)
             z_score_cross_check = (z_score_current < 0 < z_score_traded) or (
-                    z_score_current > 0 > z_score_traded
+                z_score_current > 0 > z_score_traded
             )
 
             # Close trade
@@ -461,7 +449,7 @@ async def manage_trade_exits(client):
                     "quote_size": position_size_m2,
                     "z_score": z_score_current,
                     "close_order_m1_id": close_order_m1.get("id", "") if close_order_m1 else "",
-                    "close_order_m2_id": close_order_m2.get("id", "") if close_order_m2 else ""
+                    "close_order_m2_id": close_order_m2.get("id", "") if close_order_m2 else "",
                 }
                 messenger.send_trade_closed_message(trade_info, "Z-score reversion")
 
@@ -479,6 +467,5 @@ async def manage_trade_exits(client):
 
     # Save remaining items
     logger.info("%d items remaining; persisting bot_agents.json", len(save_output))
-    with open("../bot_agents.json", "w") as f:
+    with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
         json.dump(save_output, f)
-

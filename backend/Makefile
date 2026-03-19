@@ -22,7 +22,17 @@ NC=\033[0m # No Color
 help:
 	@echo "$(CYAN)dYdX Trading Bot - Available Commands:$(NC)"
 	@echo ""
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /' | column -t -s ':' | sed 's/^/  /'
+	@awk '/^## / { \
+		line = $$0; \
+		sub(/^## /, "", line); \
+		sep = index(line, ":"); \
+		if (sep > 0) { \
+			cmd = substr(line, 1, sep - 1); \
+			desc = substr(line, sep + 2); \
+			gsub(/\r/, "", desc); \
+			printf "  %-16s %s\n", cmd, desc; \
+		} \
+	}' $(MAKEFILE_LIST)
 	@echo ""
 
 ## build: Build the application binary

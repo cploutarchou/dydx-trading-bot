@@ -1,6 +1,6 @@
 # Makefile for dYdX Trading Bot Backend
 
-.PHONY: help build run test clean lint fmt vet install-tools docker-build docker-run migrate-up migrate-down dev
+.PHONY: help help-check build run test clean lint fmt vet install-tools docker-build docker-run migrate-up migrate-down dev
 
 # Variables
 BINARY_NAME=dydx-bot
@@ -34,6 +34,32 @@ help:
 		} \
 	}' $(MAKEFILE_LIST)
 	@echo ""
+
+## help-check: Validate Makefile help metadata format
+help-check:
+	@echo "$(CYAN)Validating Makefile help metadata...$(NC)"
+	@awk 'BEGIN { ok = 1 } \
+		/^## / { \
+			line = $$0; \
+			sub(/^## /, "", line); \
+			sep = index(line, ":"); \
+			if (sep == 0) { \
+				printf "Invalid help entry (missing colon): %s\n", $$0; \
+				ok = 0; \
+				next; \
+			} \
+			cmd = substr(line, 1, sep - 1); \
+			if (cmd !~ /^[A-Za-z0-9_.-]+$$/) { \
+				printf "Invalid help command token '%s' in line: %s\n", cmd, $$0; \
+				ok = 0; \
+			} \
+		} \
+		END { \
+			if (!ok) { \
+				exit 1; \
+			} \
+		}' $(MAKEFILE_LIST)
+	@echo "$(GREEN)✓ Help metadata looks good$(NC)"
 
 ## build: Build the application binary
 build:

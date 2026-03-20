@@ -14,8 +14,10 @@ import time
 # This warning is harmless - the library automatically handles URL stripping
 _original_stderr = sys.stderr
 
+
 class _FilteredStderr:
     """Filter out specific warnings from dYdX client"""
+
     def __init__(self, stderr):
         self.stderr = stderr
 
@@ -29,6 +31,7 @@ class _FilteredStderr:
 
     def __getattr__(self, name):
         return getattr(self.stderr, name)
+
 
 sys.stderr = _FilteredStderr(_original_stderr)
 
@@ -68,9 +71,7 @@ async def main():
     try:
         current_config = load_config()
         logger.info("Configuration loaded successfully")
-        logger.info(
-            "Is Testnet: %s", current_config.is_testnet if current_config else "Unknown"
-        )
+        logger.info("Is Testnet: %s", current_config.is_testnet if current_config else "Unknown")
         logger.info(
             "Bot Strategy: %s",
             (
@@ -97,12 +98,16 @@ async def main():
     config_dict = {
         "environment": current_config.environment if current_config else "development",
         "is_testnet": current_config.is_testnet if current_config else False,
-        "strategy": current_config.botSettings.strategy
-        if current_config and current_config.botSettings
-        else "Unknown",
-        "usd_per_trade": current_config.botSettings.usdPerTrade
-        if current_config and current_config.botSettings
-        else 0,
+        "strategy": (
+            current_config.botSettings.strategy
+            if current_config and current_config.botSettings
+            else "Unknown"
+        ),
+        "usd_per_trade": (
+            current_config.botSettings.usdPerTrade
+            if current_config and current_config.botSettings
+            else 0
+        ),
         "abort_all_positions": ABORT_ALL_POSITIONS,
         "find_cointegrated": FIND_COINTEGRATED,
         "manage_exits": MANAGE_EXITS,
@@ -180,8 +185,8 @@ async def main():
             # Manage existing positions
             if MANAGE_EXITS:
                 try:
-                    print("")
-                    print("Managing exits...")
+                    # print("")
+                    # print("Managing exits...")
                     await manage_trade_exits(client)
                     time.sleep(1)
                 except Exception as e:

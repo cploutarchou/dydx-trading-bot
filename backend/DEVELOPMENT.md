@@ -151,7 +151,11 @@ go test -v -run TestFunctionName ./internal/auth
 
 ### Test Environment
 
-Tests use `.env.test` for configuration. Modify it as needed for your test environment.
+Tests use environment variables from your shell / `.env` setup.
+Use `.env.example` as the single source of truth, then copy it to `.env` and adjust values for test runs as needed.
+
+For standalone root utility scripts (`check_migrations.go`, `fix_migrations.go`, `test_path.go`),
+see `README.md` → [Utility Scripts (Root)](./README.md#utility-scripts-root).
 
 ## 🐛 Debugging
 

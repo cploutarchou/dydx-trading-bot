@@ -47,7 +47,6 @@ dist/
 .env.local
 .env.*.local
 !.env.example
-!.env.test
 
 # Database files
 *.db

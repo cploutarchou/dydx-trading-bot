@@ -7,29 +7,28 @@ import { immer } from 'zustand/middleware/immer';
 import { enhancedApiClient } from '../api/enhancedClient';
 import { cacheUtils } from '../api/queryClient';
 import type { User } from '../api/types';
-import { wsManager } from '../api/websocket';
 
 // Auth state interface
 interface AuthState {
   // User data
   user: User | null;
   isAuthenticated: boolean;
-  
+
   // Loading states
   isLoading: boolean;
   isLoggingIn: boolean;
   isLoggingOut: boolean;
   isRefreshing: boolean;
-  
+
   // Error states
   error: string | null;
   lastLoginAttempt: number | null;
-  
+
   // Session data
   sessionStarted: number | null;
   lastActivity: number;
   rememberMe: boolean;
-  
+
   // Preferences
   preferences: UserPreferences;
 }
@@ -60,19 +59,19 @@ interface AuthActions {
   logout: () => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   refreshToken: () => Promise<void>;
-  
+
   // User management
   updateUser: (updates: Partial<User>) => void;
   updatePreferences: (preferences: Partial<UserPreferences>) => void;
-  
+
   // Session management
   updateActivity: () => void;
   checkSession: () => boolean;
-  
+
   // Error handling
   clearError: () => void;
   setError: (error: string) => void;
-  
+
   // State management
   reset: () => void;
   initialize: () => Promise<void>;
@@ -140,10 +139,6 @@ export const useAuthStore = create<AuthStore>()(
               state.isLoggingIn = false;
               state.error = null;
             });
-
-            // Initialize WebSocket connection
-            await wsManager.connect();
-
           } catch (error: any) {
             set((state) => {
               state.error = error.message || 'Login failed';
@@ -161,12 +156,9 @@ export const useAuthStore = create<AuthStore>()(
           });
 
           try {
-            // Disconnect WebSocket
-            wsManager.disconnect();
-            
             // Clear API client
             enhancedApiClient.logout();
-            
+
             // Clear all cached data
             cacheUtils.clearCache();
 
@@ -178,7 +170,6 @@ export const useAuthStore = create<AuthStore>()(
               state.error = null;
               // Keep preferences
             });
-
           } catch (error: any) {
             console.error('Logout error:', error);
             // Force logout even on error
@@ -199,10 +190,9 @@ export const useAuthStore = create<AuthStore>()(
 
           try {
             await enhancedApiClient.register(username, email, password);
-            
+
             // Auto-login after registration
             await get().login(username, password);
-
           } catch (error: any) {
             set((state) => {
               state.error = error.message || 'Registration failed';
@@ -221,15 +211,14 @@ export const useAuthStore = create<AuthStore>()(
 
           try {
             await enhancedApiClient.refreshAccessToken();
-            
+
             set((state) => {
               state.isRefreshing = false;
               state.lastActivity = Date.now();
             });
-
           } catch (error) {
             console.error('Token refresh failed:', error);
-            
+
             set((state) => {
               state.isRefreshing = false;
               state.error = 'Session expired';
@@ -265,22 +254,22 @@ export const useAuthStore = create<AuthStore>()(
 
         checkSession: () => {
           const { sessionStarted, lastActivity, rememberMe } = get();
-          
+
           if (!sessionStarted) return false;
-          
+
           const now = Date.now();
           const sessionAge = now - sessionStarted;
           const inactiveTime = now - lastActivity;
-          
+
           // Session limits
           const maxSessionAge = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 7 days or 1 day
           const maxInactiveTime = 4 * 60 * 60 * 1000; // 4 hours
-          
+
           if (sessionAge > maxSessionAge || inactiveTime > maxInactiveTime) {
             get().logout();
             return false;
           }
-          
+
           return true;
         },
 
@@ -324,29 +313,25 @@ export const useAuthStore = create<AuthStore>()(
             // Check if we have stored auth data
             if (enhancedApiClient.isAuthenticated()) {
               const userResponse = await enhancedApiClient.getCurrentUser();
-              
+
               set((state) => {
                 state.user = userResponse.data || userResponse;
                 state.isAuthenticated = true;
                 state.lastActivity = Date.now();
                 state.isLoading = false;
               });
-
-              // Initialize WebSocket
-              await wsManager.connect();
             } else {
               set((state) => {
                 state.isLoading = false;
               });
             }
-
           } catch (error: any) {
             console.error('Auth initialization failed:', error);
             set((state) => {
               state.isLoading = false;
               state.error = 'Failed to initialize session';
             });
-            
+
             // Clear invalid auth data
             enhancedApiClient.logout();
           }

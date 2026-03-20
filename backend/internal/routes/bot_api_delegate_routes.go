@@ -11,24 +11,30 @@ import (
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (localhost:8000) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
+	createBacktestHandler := func(c *gin.Context) {
+		var config map[string]interface{}
+		if err := c.BindJSON(&config); err != nil {
+			c.JSON(400, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		result, err := apiClient.CreateBacktest(config)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(200, result)
+	}
+
 	// Backtest proxy endpoints
 	backtestGroup := router.Group("/api/v1/backtests")
 	backtestGroup.Use(middleware.RequireAuth())
 	{
 		// Create backtest
-		backtestGroup.POST("", func(c *gin.Context) {
-			var config map[string]interface{}
-			if err := c.BindJSON(&config); err != nil {
-				c.JSON(400, gin.H{"error": "Invalid request body"})
-				return
-			}
-			result, err := apiClient.CreateBacktest(config)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
-		})
+		backtestGroup.POST("", createBacktestHandler)
+		// Frontend compatibility alias
+		backtestGroup.POST("/run", createBacktestHandler)
 
 		// List backtests with filters
 		backtestGroup.GET("", func(c *gin.Context) {

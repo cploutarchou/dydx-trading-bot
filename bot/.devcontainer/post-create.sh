@@ -41,7 +41,7 @@ pip install \
 # Create .env file if it doesn't exist
 if [ ! -f /workspace/.env ]; then
     echo "📝 Creating .env file from example..."
-    cp /workspace/example.env /workspace/.env
+    cp /workspace/.env.example /workspace/.env
     echo "⚠️  Please update .env with your credentials"
 else
     echo "✅ .env file already exists"

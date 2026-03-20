@@ -56,10 +56,13 @@ interface UserProfile extends Record<string, unknown> {
 interface BacktestRequest extends Record<string, unknown> {
   start_date: string;
   end_date: string;
+  name?: string;
+  description?: string;
+  initial_balance?: number;
+  max_pairs?: number;
   pairs?: string[];
-  zscore_threshold?: number;
-  max_half_life?: number;
-  usd_per_trade?: number;
+  strategy_id?: number;
+  trading_parameters?: Record<string, unknown>;
 }
 
 interface StrategyRequest extends Record<string, unknown> {
@@ -192,11 +195,14 @@ class ApiClient {
             // Refresh failed - session truly invalid
             const errorMsg =
               refreshError instanceof Error ? refreshError.message : String(refreshError);
-            console.error('❌ api.ts: Token refresh failed, logging out', errorMsg);
+            console.error('❌ api.ts: Token refresh failed', errorMsg);
             this.refreshSubscribers = [];
-            this.logout();
-            localStorage.setItem('auth_redirect', 'true');
-            window.location.href = '/login';
+
+            // IMPORTANT: avoid hard redirect/logout here.
+            // A 401 on a secondary request (or temporary backend auth mismatch)
+            // should not forcefully bounce the user to /login while other actions
+            // (like POST /backtests/run) already succeeded.
+            // Let calling UI/auth store decide whether to log out.
             return Promise.reject(refreshError);
           } finally {
             this.isRefreshing = false;

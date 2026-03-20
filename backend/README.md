@@ -271,6 +271,19 @@ go test -v ./...
 go test -cover ./...
 ```
 
+### Utility Scripts (Root)
+
+The files `check_migrations.go`, `fix_migrations.go`, and `test_path.go` are standalone maintenance/debug utility scripts.
+They are intentionally excluded from normal package builds and `go test ./...`.
+
+Run them directly only when needed:
+
+```bash
+go run check_migrations.go
+go run fix_migrations.go
+go run test_path.go
+```
+
 ### Building Docker Image
 
 ```bash

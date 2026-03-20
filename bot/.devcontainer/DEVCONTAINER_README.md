@@ -84,7 +84,7 @@ docker-compose down
 
 The dev container automatically loads:
 
-- `.env` - copied from `example.env` on first setup
+- `.env` - copied from `.env.example` on first setup
 - `config.yaml` - your trading configuration
 
 Key variables:
@@ -235,7 +235,7 @@ chmod +x .devcontainer/*.sh
 
 ## Next Steps
 
-1. Copy `.env` from `example.env` and add your credentials
+1. Copy `.env` from `.env.example` and add your credentials
 2. Update `config.yaml` with trading parameters
 3. Run migrations: `alembic upgrade head`
 4. Test bot: `pytest`

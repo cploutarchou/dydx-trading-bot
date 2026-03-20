@@ -65,7 +65,7 @@ pytest --version
 
 ```bash
 # Copy example environment file
-cp example.env .env
+cp .env.example .env
 
 # Edit .env with your dYdX credentials
 nano .env

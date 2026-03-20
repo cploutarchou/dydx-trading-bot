@@ -4,20 +4,14 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/dydx-trading-bot/backend-go/config"
-	database2 "github.com/golang-migrate/migrate/v4/database"
 
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
-	"github.com/golang-migrate/migrate/v4/database/sqlite3"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
@@ -31,7 +25,7 @@ func main() {
 	}
 
 	config.LoadConfig()
-	log.Printf("Loaded config: %+v", config.ConfigInstance)
+	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
 
 	if config.ConfigInstance.Database.Type == "postgresql" {
 		config.ConfigInstance.Database.Type = "postgres"
@@ -59,10 +53,6 @@ func main() {
 
 	if database == nil {
 		log.Fatalf("Failed to initialize database: %v", err)
-	}
-
-	if err = runMigrations(database, config.ConfigInstance.Database.Type); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
 	// Initialize auth middleware with config
@@ -178,83 +168,4 @@ func main() {
 	if err := router.Run(fmt.Sprintf(":%s", port)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
-}
-
-func runMigrations(database *db.Database, dbDriver string) error {
-	var driverInstance database2.Driver
-	var err error
-
-	if dbDriver == "sqlite3" || dbDriver == "sqlite" {
-		driverInstance, err = sqlite3.WithInstance(database.DB, &sqlite3.Config{})
-		if err != nil {
-			return fmt.Errorf("failed to create sqlite3 driver: %w", err)
-		}
-	} else if dbDriver == "postgres" {
-		driverInstance, err = postgres.WithInstance(database.DB, &postgres.Config{})
-		if err != nil {
-			return fmt.Errorf("failed to create postgres driver: %w", err)
-		}
-	} else {
-		return fmt.Errorf("unsupported driver: %s", dbDriver)
-	}
-
-	// Use a dialect-specific migration path
-	migrationsPath := ""
-	switch dbDriver {
-	case "postgres":
-		migrationsPath = "postgres://postgres@localhost:5432/dydx_trading_bot?sslmode=disable"
-	case "sqlite3", "sqlite":
-		migrationsPath = "file://migrations/sqlite/dydx_trading_bot.db"
-	default:
-		return fmt.Errorf("unsupported driver: %s", dbDriver)
-
-	}
-
-	m, err := migrate.NewWithDatabaseInstance(migrationsPath, dbDriver, driverInstance)
-	if err != nil {
-		// Handle migration state issues
-		errStr := err.Error()
-		if strings.Contains(strings.ToLower(errStr), "no migration found") {
-			log.Printf("⚠️  Migration state issue detected: %v. Attempting recovery...", err)
-			// Try to recover by forcing the current version
-			ver, _, verErr := m.Version()
-			if verErr == nil {
-				log.Printf("⚠️  Forcing version %d to resolve migration state...", ver)
-				if fErr := m.Force(int(ver)); fErr == nil {
-					log.Printf("✅ Migration state recovered. Retrying...")
-					// Retry creating the migrate instance
-					m, err = migrate.NewWithDatabaseInstance(migrationsPath, dbDriver, driverInstance)
-				}
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("failed to create migrate instance: %w", err)
-		}
-	}
-	// Note: We don't defer m.Close() here because it would close the database connection
-	// The migrate instance will be garbage collected, and the database connection
-	// will be properly closed in main's defer statement
-
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		// Handle post-creation migration errors
-		errStr := err.Error()
-		if strings.Contains(strings.ToLower(errStr), "no migration found") || strings.Contains(strings.ToLower(errStr), "dirty") {
-			log.Printf("⚠️  Migration error detected: %v. Attempting recovery...", err)
-			ver, _, verErr := m.Version()
-			if verErr == nil {
-				log.Printf("⚠️  Forcing version %d to resolve state...", ver)
-				if fErr := m.Force(int(ver)); fErr == nil {
-					if rErr := m.Up(); rErr != nil && rErr != migrate.ErrNoChange {
-						return fmt.Errorf("failed to run migrations after recovery: %w", rErr)
-					}
-					log.Printf("✅ Migrations completed successfully after recovery")
-					return nil
-				}
-			}
-		}
-		return fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	log.Println("Migrations completed successfully")
-	return nil
 }

@@ -6,18 +6,11 @@ SQLAlchemy models for user authentication, JWT tokens, and related data.
 
 from __future__ import annotations
 
-import os
-import uuid
 from datetime import datetime
 
 from internal.domain import Base
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
-
-# Use String for UUID on SQLite, UUID for PostgreSQL.
-# For now this project stores UUID values as String consistently.
-DB_TYPE = os.getenv("DB_TYPE", "sqlite")
-UUIDType = String if DB_TYPE == "sqlite" else String
 
 
 class User(Base):
@@ -25,22 +18,30 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id = Column(UUIDType, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
-    is_superuser = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow,
-                        onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     tokens = relationship(
         "UserToken",
         back_populates="user",
         cascade="all, delete-orphan",
     )
+
+    @property
+    def is_superuser(self) -> bool:
+        """Backward-compatible alias used by middleware/routes."""
+        return bool(self.is_admin)
+
+    @is_superuser.setter
+    def is_superuser(self, value: bool) -> None:
+        self.is_admin = bool(value)
 
 
 class UserToken(Base):
@@ -49,7 +50,9 @@ class UserToken(Base):
     __tablename__ = "user_tokens"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(UUIDType, nullable=False, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     token = Column(Text, nullable=False, unique=True)
     token_type = Column(String(20), default="refresh")
     expires_at = Column(DateTime, nullable=False)

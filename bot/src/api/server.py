@@ -6,15 +6,20 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+# Load .env BEFORE importing project modules that initialize config/database.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # Import authentication modules
 from src.api.v1.auth import router as auth_router
@@ -126,171 +131,73 @@ class BacktestCreateStrategyRequest(BaseModel):
 
 
 class InMemoryStrategyStore:
-    """Lightweight in-memory strategy storage for UI/API smoke tests."""
-
-    _strategies: Dict[int, Dict[str, Any]] = {}
-    _versions: Dict[int, List[Dict[str, Any]]] = {}
-    _next_id: int = 1
-    _next_version_id: int = 1
-
-    @classmethod
-    def _now(cls) -> str:
-        return datetime.now().isoformat()
-
-    @classmethod
-    def _record_version(cls, strategy: Dict[str, Any], note: str) -> None:
-        version = {
-            "id": cls._next_version_id,
-            "strategy_id": strategy["id"],
-            "name": strategy["name"],
-            "description": note,
-            "created_at": cls._now(),
-            "config": {
-                key: value
-                for key, value in strategy.items()
-                if key not in {"id", "created_at", "updated_at"}
-            },
-        }
-        cls._next_version_id += 1
-        cls._versions.setdefault(strategy["id"], []).append(version)
-
-    @classmethod
-    def _normalize(
-        cls,
-        payload: Dict[str, Any],
-        existing: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        base = dict(existing or {})
-        now = cls._now()
-        normalized = {
-            "id": base.get("id"),
-            "name": payload.get("name", base.get("name", "Untitled Strategy")),
-            "category": payload.get("category", base.get("category", "custom")),
-            "description": payload.get("description", base.get("description", "")),
-            "is_public": bool(payload.get("is_public", base.get("is_public", False))),
-            "user_id": int(payload.get("user_id", base.get("user_id", 1))),
-            "resolution": payload.get("resolution", base.get("resolution", "1H")),
-            "zscore_threshold": float(
-                payload.get(
-                    "zscore_threshold",
-                    base.get("zscore_threshold", 1.5),
-                )
-            ),
-            "stats_window": int(payload.get("stats_window", base.get("stats_window", 21))),
-            "max_half_life": int(payload.get("max_half_life", base.get("max_half_life", 24))),
-            "usd_per_trade": float(payload.get("usd_per_trade", base.get("usd_per_trade", 10.0))),
-            "usd_min_collateral": float(
-                payload.get(
-                    "usd_min_collateral",
-                    base.get("usd_min_collateral", 100.0),
-                )
-            ),
-            "close_at_zscore_cross": bool(
-                payload.get(
-                    "close_at_zscore_cross",
-                    base.get("close_at_zscore_cross", True),
-                )
-            ),
-            "find_cointegrated_pairs": bool(
-                payload.get(
-                    "find_cointegrated_pairs",
-                    base.get("find_cointegrated_pairs", True),
-                )
-            ),
-            "manage_exits": bool(payload.get("manage_exits", base.get("manage_exits", True))),
-            "place_trades": bool(payload.get("place_trades", base.get("place_trades", True))),
-            "abort_all_positions": bool(
-                payload.get(
-                    "abort_all_positions",
-                    base.get("abort_all_positions", False),
-                )
-            ),
-            "max_positions": int(payload.get("max_positions", base.get("max_positions", 5))),
-            "max_drawdown_pct": float(
-                payload.get(
-                    "max_drawdown_pct",
-                    base.get("max_drawdown_pct", 15.0),
-                )
-            ),
-            "stop_loss_pct": float(payload.get("stop_loss_pct", base.get("stop_loss_pct", 3.0))),
-            "take_profit_pct": float(
-                payload.get("take_profit_pct", base.get("take_profit_pct", 8.0))
-            ),
-            "trailing_stop_pct": float(
-                payload.get(
-                    "trailing_stop_pct",
-                    base.get("trailing_stop_pct", 2.0),
-                )
-            ),
-            "rebalance_interval_hours": int(
-                payload.get(
-                    "rebalance_interval_hours",
-                    base.get("rebalance_interval_hours", 24),
-                )
-            ),
-            "position_timeout_hours": int(
-                payload.get(
-                    "position_timeout_hours",
-                    base.get("position_timeout_hours", 72),
-                )
-            ),
-            "created_at": base.get("created_at", now),
-            "updated_at": now,
-        }
-        return normalized
+    """DB-backed strategy storage with the same interface as the prior in-memory store."""
 
     @classmethod
     def ensure_seeded(cls) -> None:
-        if cls._strategies:
-            return
-        cls.create(
-            {
-                "name": "Balanced Mean Reversion",
-                "category": "balanced",
-                "description": "Default balanced strategy for UI smoke tests.",
-                "is_public": True,
-                "zscore_threshold": 1.5,
-                "stats_window": 21,
-                "usd_per_trade": 10.0,
-            },
-            seed=True,
-        )
-        cls.create(
-            {
-                "name": "Aggressive Entry",
-                "category": "aggressive",
-                "description": ("More active entry profile for quick comparisons."),
-                "is_public": True,
-                "zscore_threshold": 1.0,
-                "stats_window": 14,
-                "usd_per_trade": 25.0,
-            },
-            seed=True,
-        )
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            existing = uow.strategies.list(skip=0, limit=1)
+            if existing.get("total", 0) > 0:
+                return
+
+            uow.strategies.create(
+                {
+                    "name": "Balanced Mean Reversion",
+                    "category": "balanced",
+                    "description": "Default balanced strategy for UI smoke tests.",
+                    "is_public": True,
+                    "zscore_threshold": 1.5,
+                    "stats_window": 21,
+                    "usd_per_trade": 10.0,
+                },
+                note="Seeded default strategy",
+            )
+            uow.strategies.create(
+                {
+                    "name": "Aggressive Entry",
+                    "category": "aggressive",
+                    "description": "More active entry profile for quick comparisons.",
+                    "is_public": True,
+                    "zscore_threshold": 1.0,
+                    "stats_window": 14,
+                    "usd_per_trade": 25.0,
+                },
+                note="Seeded default strategy",
+            )
+        finally:
+            session.close()
 
     @classmethod
     def list(cls, skip: int = 0, limit: int = 50) -> Dict[str, Any]:
         cls.ensure_seeded()
-        strategies = sorted(
-            cls._strategies.values(),
-            key=lambda item: item["id"],
-            reverse=True,
-        )
-        return {
-            "strategies": strategies[skip : skip + limit],
-            "total": len(strategies),
-        }
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            return uow.strategies.list(skip=skip, limit=limit)
+        finally:
+            session.close()
 
     @classmethod
     def list_public(cls) -> Dict[str, Any]:
         cls.ensure_seeded()
-        strategies = [s for s in cls._strategies.values() if s["is_public"]]
-        return {"strategies": strategies, "total": len(strategies)}
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            return uow.strategies.list_public()
+        finally:
+            session.close()
 
     @classmethod
     def get(cls, strategy_id: int) -> Optional[Dict[str, Any]]:
         cls.ensure_seeded()
-        return cls._strategies.get(strategy_id)
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            return uow.strategies.get(strategy_id)
+        finally:
+            session.close()
 
     @classmethod
     def create(
@@ -300,12 +207,13 @@ class InMemoryStrategyStore:
     ) -> Dict[str, Any]:
         if not seed:
             cls.ensure_seeded()
-        strategy = cls._normalize(payload)
-        strategy["id"] = cls._next_id
-        cls._next_id += 1
-        cls._strategies[strategy["id"]] = strategy
-        cls._record_version(strategy, "Initial version")
-        return strategy
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            note = "Seeded default strategy" if seed else "Initial version"
+            return uow.strategies.create(payload, note=note)
+        finally:
+            session.close()
 
     @classmethod
     def update(
@@ -313,28 +221,33 @@ class InMemoryStrategyStore:
         strategy_id: int,
         payload: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        existing = cls.get(strategy_id)
-        if not existing:
-            return None
-        updated = cls._normalize(payload, existing=existing)
-        updated["id"] = strategy_id
-        cls._strategies[strategy_id] = updated
-        cls._record_version(updated, "Updated strategy")
-        return updated
+        cls.ensure_seeded()
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            return uow.strategies.update(strategy_id, payload, note="Updated strategy")
+        finally:
+            session.close()
 
     @classmethod
     def delete(cls, strategy_id: int) -> bool:
         cls.ensure_seeded()
-        if strategy_id not in cls._strategies:
-            return False
-        cls._strategies.pop(strategy_id, None)
-        cls._versions.pop(strategy_id, None)
-        return True
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            return uow.strategies.delete(strategy_id)
+        finally:
+            session.close()
 
     @classmethod
     def versions(cls, strategy_id: int) -> List[Dict[str, Any]]:
         cls.ensure_seeded()
-        return cls._versions.get(strategy_id, [])
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            return uow.strategies.versions(strategy_id)
+        finally:
+            session.close()
 
     @classmethod
     def revert(
@@ -342,15 +255,13 @@ class InMemoryStrategyStore:
         strategy_id: int,
         version_id: int,
     ) -> Optional[Dict[str, Any]]:
-        versions = cls._versions.get(strategy_id, [])
-        version = next(
-            (item for item in versions if item["id"] == version_id),
-            None,
-        )
-        if not version:
-            return None
-        reverted = cls.update(strategy_id, version["config"])
-        return reverted
+        cls.ensure_seeded()
+        session = db.get_session()
+        try:
+            uow = UnitOfWork(session)
+            return uow.strategies.revert(strategy_id, version_id)
+        finally:
+            session.close()
 
 
 def _bot_manager_ready() -> bool:
@@ -1545,11 +1456,55 @@ def get_backtest_service():
 
 @app.post("/api/v1/backtests", response_model=BacktestResponse)
 async def create_backtest(
-    request: BacktestConfigRequest,
+    request: BacktestConfigRequest | BacktestRunRequestCompat,
 ):
     """Create and start a new backtest"""
     try:
         service = get_backtest_service()
+
+        if isinstance(request, BacktestRunRequestCompat):
+            if request.strategy_id is not None:
+                strategy = InMemoryStrategyStore.get(request.strategy_id)
+                if strategy:
+                    normalized_request = _strategy_to_backtest_request(strategy, request)
+                else:
+                    logger.warning(
+                        "Strategy '%s' not found; falling back to manual backtest payload",
+                        request.strategy_id,
+                    )
+                    normalized_request = BacktestConfigRequest(
+                        name=request.name or "manual-backtest",
+                        description=request.description or "Manual backtest run",
+                        start_date=request.start_date,
+                        end_date=request.end_date,
+                        initial_balance=request.initial_balance,
+                        trading_parameters=request.trading_parameters
+                        or {
+                            "zscore_threshold": 1.5,
+                            "stats_window": 21,
+                            "usd_per_trade": 10.0,
+                            "close_at_zscore_cross": True,
+                        },
+                        pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                    )
+            else:
+                normalized_request = BacktestConfigRequest(
+                    name=request.name or "manual-backtest",
+                    description=request.description or "Manual backtest run",
+                    start_date=request.start_date,
+                    end_date=request.end_date,
+                    initial_balance=request.initial_balance,
+                    trading_parameters=request.trading_parameters
+                    or {
+                        "zscore_threshold": 1.5,
+                        "stats_window": 21,
+                        "usd_per_trade": 10.0,
+                        "close_at_zscore_cross": True,
+                    },
+                    pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                )
+        else:
+            normalized_request = request
 
         # Create WebSocket progress callback (if needed)
         async def progress_callback(run_id: str, progress: float, current_pair: str, eta: int):
@@ -1558,12 +1513,12 @@ async def create_backtest(
                 f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
             )
 
-        result = await service.create_and_run_backtest(request, progress_callback)
+        result = await service.create_and_run_backtest(normalized_request, progress_callback)
 
         return api_response(
             success=True,
             data=result.model_dump(),
-            message=f"Backtest '{request.name}' created and started",
+            message=f"Backtest '{normalized_request.name}' created and started",
         )
 
     except ValueError as e:
@@ -1583,13 +1538,28 @@ async def run_backtest_compat(
     try:
         if request.strategy_id is not None:
             strategy = InMemoryStrategyStore.get(request.strategy_id)
-            if not strategy:
-                return api_response(
-                    success=False,
-                    message=f"Strategy '{request.strategy_id}' not found",
-                    status_code=404,
+            if strategy:
+                backtest_request = _strategy_to_backtest_request(strategy, request)
+            else:
+                logger.warning(
+                    "Strategy '%s' not found in /backtests/run; falling back to manual payload",
+                    request.strategy_id,
                 )
-            backtest_request = _strategy_to_backtest_request(strategy, request)
+                backtest_request = BacktestConfigRequest(
+                    name=request.name or "manual-backtest",
+                    description=request.description or "Manual backtest run",
+                    start_date=request.start_date,
+                    end_date=request.end_date,
+                    initial_balance=request.initial_balance,
+                    trading_parameters=request.trading_parameters
+                    or {
+                        "zscore_threshold": 1.5,
+                        "stats_window": 21,
+                        "usd_per_trade": 10.0,
+                        "close_at_zscore_cross": True,
+                    },
+                    pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                )
         else:
             backtest_request = BacktestConfigRequest(
                 name=request.name or "manual-backtest",
@@ -2027,6 +1997,15 @@ async def get_live_progress(
 async def startup_event():
     """Initialize bot manager on startup"""
     logger.info("Starting Bot API Server...")
+    logger.info(
+        "Runtime DB target: type=%s host=%s port=%s name=%s",
+        os.getenv("DB_TYPE", "sqlite"),
+        os.getenv("DB_HOST", "localhost"),
+        os.getenv("DB_PORT", "5432"),
+        os.getenv("DB_NAME", "trading_bot.db"),
+    )
+    db.create_all_tables()
+    InMemoryStrategyStore.ensure_seeded()
     if bot_manager is not None:
         await bot_manager.cleanup_dead_processes()
     else:

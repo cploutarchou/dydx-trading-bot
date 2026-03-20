@@ -5,8 +5,16 @@ Core database models for the trading bot system
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Float, Boolean,
-    ForeignKey, Enum, JSON
+    Column,
+    Integer,
+    String,
+    Text,
+    DateTime,
+    Float,
+    Boolean,
+    ForeignKey,
+    Enum,
+    JSON,
 )
 from sqlalchemy.orm import relationship
 from . import Base
@@ -123,3 +131,75 @@ class Event(Base):
 
     # Relationships
     # bot = relationship("Bot", back_populates="events")  # Uncomment if needed
+
+
+class Strategy(Base):
+    __tablename__ = "backtest_strategies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    category = Column(String(64), nullable=True)
+    description = Column(String(255), nullable=True)
+    is_public = Column(Boolean, nullable=True)
+    is_default = Column(Boolean, nullable=True)
+    user_id = Column(Integer, nullable=False, default=1)
+    zscore_threshold = Column(Float, nullable=False, default=1.5)
+    stats_window = Column(Integer, nullable=False, default=21)
+    max_half_life = Column(Float, nullable=False, default=24.0)
+    usd_per_trade = Column(Float, nullable=False, default=10.0)
+    usd_min_collateral = Column(Float, nullable=False, default=100.0)
+    close_at_zscore_cross = Column(Boolean, nullable=False, default=True)
+    find_cointegrated_pairs = Column(Boolean, nullable=False, default=True)
+    manage_exits = Column(Boolean, nullable=False, default=True)
+    place_trades = Column(Boolean, nullable=False, default=True)
+    abort_all_positions = Column(Boolean, nullable=False, default=False)
+    max_positions = Column(Integer, nullable=False, default=5)
+    max_drawdown_pct = Column(Float, nullable=False, default=15.0)
+    stop_loss_pct = Column(Float, nullable=False, default=3.0)
+    take_profit_pct = Column(Float, nullable=False, default=8.0)
+    trailing_stop_pct = Column(Float, nullable=False, default=2.0)
+    rebalance_interval_hours = Column(Integer, nullable=False, default=24)
+    position_timeout_hours = Column(Integer, nullable=False, default=72)
+    transaction_fee = Column(Float, nullable=False, default=0.0005)
+    slippage = Column(Float, nullable=False, default=0.001)
+    starting_balance = Column(Float, nullable=False, default=1000.0)
+    candle_resolution = Column(String(32), nullable=False, default="1HOUR")
+    max_history_days = Column(Integer, nullable=False, default=90)
+    benchmark_symbol = Column(String(64), nullable=True)
+    risk_free_rate = Column(Float, nullable=False, default=0.02)
+    initial_amount = Column(Float, nullable=False, default=1000.0)
+    usage_count = Column(Integer, nullable=True, default=0)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+
+    versions = relationship(
+        "StrategyVersion",
+        back_populates="strategy",
+        cascade="all, delete-orphan",
+        order_by="StrategyVersion.id",
+    )
+
+
+class StrategyVersion(Base):
+    __tablename__ = "strategy_version_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    strategy_id = Column(
+        Integer,
+        ForeignKey("backtest_strategies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number = Column(Integer, nullable=False, default=1)
+    change_description = Column(String(255), nullable=True)
+    config_snapshot = Column(JSON, nullable=False)
+    changes = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=True)
+    created_by_user_id = Column(Integer, nullable=True)
+    backtest_count = Column(Integer, nullable=True)
+    best_backtest_pnl = Column(Float, nullable=True)
+    average_backtest_pnl = Column(Float, nullable=True)
+
+    strategy = relationship("Strategy", back_populates="versions")

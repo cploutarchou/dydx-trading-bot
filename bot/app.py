@@ -7,12 +7,14 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
-from middleware.auth_middleware import get_admin_user, get_current_active_user
+from src.middleware.auth_middleware import get_admin_user, get_current_active_user
 from src.infrastructure.domain.models.auth_models import User
 
 # Import authentication modules
 from src.api.v1.auth import router as auth_router
-from src.api.v1.password_2fa_routes import router as password_2fa_router
+
+# password_2fa_routes module not found - commented out
+# from src.api.v1.password_2fa_routes import router as password_2fa_router
 
 
 def create_app() -> FastAPI:
@@ -39,7 +41,8 @@ def create_app() -> FastAPI:
 
     # Include authentication routes
     app.include_router(auth_router)
-    app.include_router(password_2fa_router)
+    # password_2fa_routes module not found - commented out
+    # app.include_router(password_2fa_router)
 
     # Custom OpenAPI schema with JWT Bearer authentication
     def custom_openapi():

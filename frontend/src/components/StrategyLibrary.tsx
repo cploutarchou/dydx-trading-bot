@@ -87,7 +87,7 @@ export default function StrategyLibrary() {
         ...newStrategy,
         name: `${strategy.name} (Copy)`,
       };
-      
+
       const response = await api.createStrategy(duplicatedStrategy);
       if (response.data) {
         setStrategies([...strategies, response.data]);
@@ -128,7 +128,7 @@ export default function StrategyLibrary() {
       console.log('🔄 Token check:', {
         hasToken: !!token,
         tokenLength: token?.length || 0,
-        tokenpreview: token ? `${token.substring(0, 20)}...` : 'NONE'
+        tokenpreview: token ? `${token.substring(0, 20)}...` : 'NONE',
       });
 
       if (!token) {
@@ -153,7 +153,7 @@ export default function StrategyLibrary() {
       if (response.data?.run_id) {
         console.log('✅ Navigating to backtest results:', response.data.run_id);
         // Navigate to backtest results page
-        navigate(`/backtests/${response.data.run_id}`);
+        navigate(`/backtest/${response.data.run_id}`);
         setRunModalOpen(false);
         setSelectedStrategy(null);
       } else {
@@ -166,7 +166,7 @@ export default function StrategyLibrary() {
         message: err.message,
         data: err.response?.data,
       });
-      
+
       // Handle specific error cases
       if (err.response?.status === 401) {
         setRunError('Your session has expired. Please login again.');
@@ -175,7 +175,11 @@ export default function StrategyLibrary() {
       } else if (err.response?.status === 404) {
         setRunError('Strategy not found. It may have been deleted.');
       } else {
-        const errorMsg = err.response?.data?.message || err.response?.data?.detail || err.message || 'Failed to run backtest';
+        const errorMsg =
+          err.response?.data?.message ||
+          err.response?.data?.detail ||
+          err.message ||
+          'Failed to run backtest';
         setRunError(errorMsg);
       }
     } finally {
@@ -183,9 +187,10 @@ export default function StrategyLibrary() {
     }
   };
 
-  const filteredStrategies = strategies.filter((s) =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.description.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredStrategies = strategies.filter(
+    (s) =>
+      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const totalPages = Math.ceil(totalStrategies / ITEMS_PER_PAGE);
@@ -240,7 +245,9 @@ export default function StrategyLibrary() {
         {filteredStrategies.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-400 mb-4">
-              {strategies.length === 0 ? 'No strategies yet. Create one to get started!' : 'No strategies match your search.'}
+              {strategies.length === 0
+                ? 'No strategies yet. Create one to get started!'
+                : 'No strategies match your search.'}
             </p>
             {strategies.length === 0 && (
               <button
@@ -279,7 +286,9 @@ export default function StrategyLibrary() {
                 <div className="grid grid-cols-3 gap-4 my-4 py-4 border-t border-slate-700">
                   <div>
                     <p className="text-xs text-gray-500">Z-Score Threshold</p>
-                    <p className="text-lg font-semibold text-blue-400">{strategy.zscore_threshold}</p>
+                    <p className="text-lg font-semibold text-blue-400">
+                      {strategy.zscore_threshold}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Stats Window (h)</p>
@@ -385,18 +394,38 @@ export default function StrategyLibrary() {
         {runModalOpen && selectedStrategy && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full">
-              <h2 className="text-xl font-bold text-white mb-4">Run Backtest: {selectedStrategy.name}</h2>
+              <h2 className="text-xl font-bold text-white mb-4">
+                Run Backtest: {selectedStrategy.name}
+              </h2>
 
               {/* Strategy Preview */}
               <div className="bg-slate-700/50 rounded p-4 mb-4">
                 <p className="text-sm text-gray-400 mb-2">Strategy Parameters:</p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="text-gray-300">Z-Score: <span className="text-blue-400">{selectedStrategy.zscore_threshold}</span></div>
-                  <div className="text-gray-300">Stats Window: <span className="text-blue-400">{selectedStrategy.stats_window}h</span></div>
-                  <div className="text-gray-300">Max Positions: <span className="text-blue-400">{selectedStrategy.max_positions}</span></div>
-                  <div className="text-gray-300">USD/Trade: <span className="text-blue-400">${selectedStrategy.usd_per_trade}</span></div>
-                  <div className="text-gray-300">Max Drawdown: <span className="text-blue-400">{selectedStrategy.max_drawdown_pct}%</span></div>
-                  <div className="text-gray-300">Stop Loss: <span className="text-blue-400">{selectedStrategy.stop_loss_pct}%</span></div>
+                  <div className="text-gray-300">
+                    Z-Score:{' '}
+                    <span className="text-blue-400">{selectedStrategy.zscore_threshold}</span>
+                  </div>
+                  <div className="text-gray-300">
+                    Stats Window:{' '}
+                    <span className="text-blue-400">{selectedStrategy.stats_window}h</span>
+                  </div>
+                  <div className="text-gray-300">
+                    Max Positions:{' '}
+                    <span className="text-blue-400">{selectedStrategy.max_positions}</span>
+                  </div>
+                  <div className="text-gray-300">
+                    USD/Trade:{' '}
+                    <span className="text-blue-400">${selectedStrategy.usd_per_trade}</span>
+                  </div>
+                  <div className="text-gray-300">
+                    Max Drawdown:{' '}
+                    <span className="text-blue-400">{selectedStrategy.max_drawdown_pct}%</span>
+                  </div>
+                  <div className="text-gray-300">
+                    Stop Loss:{' '}
+                    <span className="text-blue-400">{selectedStrategy.stop_loss_pct}%</span>
+                  </div>
                 </div>
               </div>
 

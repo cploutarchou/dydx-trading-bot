@@ -110,6 +110,15 @@ export default function StrategyLibrary() {
     setBacktestEndDate(endDate.toISOString().split('T')[0]);
   };
 
+  const buildRunPayload = () => {
+    if (!selectedStrategy || !backtestStartDate || !backtestEndDate) return null;
+    return {
+      start_date: backtestStartDate,
+      end_date: backtestEndDate,
+      strategy_id: selectedStrategy.id,
+    };
+  };
+
   const handleExecuteBacktest = async () => {
     if (!selectedStrategy || !backtestStartDate || !backtestEndDate) {
       setRunError('Please enter valid start and end dates');
@@ -137,16 +146,30 @@ export default function StrategyLibrary() {
         return;
       }
 
-      console.log('🔄 Executing backtest with token present');
+      const runPayload = buildRunPayload();
+      if (!runPayload) {
+        setRunError('Unable to build backtest payload. Please check dates and strategy.');
+        return;
+      }
 
-      // Call API to run backtest - only send required + supported fields
-      const response = await api.runBacktest({
-        start_date: backtestStartDate,
-        end_date: backtestEndDate,
-        strategy_id: selectedStrategy.id,
-        // Only send these optional params if NOT using strategy_id
-        // (strategy_id takes precedence on backend)
+      console.log('🔄 Executing backtest with token present');
+      console.log('📦 Rerun payload:', runPayload);
+      console.log('🧠 Strategy snapshot used for rerun:', {
+        id: selectedStrategy.id,
+        name: selectedStrategy.name,
+        zscore_threshold: selectedStrategy.zscore_threshold,
+        stats_window: selectedStrategy.stats_window,
+        max_half_life: selectedStrategy.max_half_life,
+        usd_per_trade: selectedStrategy.usd_per_trade,
+        max_positions: selectedStrategy.max_positions,
+        max_drawdown_pct: selectedStrategy.max_drawdown_pct,
+        stop_loss_pct: selectedStrategy.stop_loss_pct,
+        take_profit_pct: selectedStrategy.take_profit_pct,
+        trailing_stop_pct: selectedStrategy.trailing_stop_pct,
       });
+
+      // Call API to run backtest using strategy_id
+      const response = await api.runBacktest(runPayload);
 
       console.log('✅ Backtest response received:', response);
 
@@ -456,6 +479,14 @@ export default function StrategyLibrary() {
                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
                   />
                 </div>
+              </div>
+
+              {/* Request Preview */}
+              <div className="mb-4 p-3 bg-slate-900/70 border border-slate-600 rounded">
+                <p className="text-xs text-slate-300 mb-2">Request payload preview</p>
+                <pre className="text-[11px] text-slate-400 whitespace-pre-wrap break-all">
+                  {JSON.stringify(buildRunPayload(), null, 2)}
+                </pre>
               </div>
 
               {/* Action Buttons */}

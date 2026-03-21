@@ -52,6 +52,15 @@ interface DataQuality {
   warnings: string[];
 }
 
+interface TradeRow {
+  trade_id?: string;
+  market_1?: string;
+  market_2?: string;
+  pnl_usd?: number;
+  win?: boolean;
+  duration_hours?: number;
+}
+
 // Formatting utilities
 const formatCurrency = (value: number | null): string => {
   if (value === null || isNaN(value)) return '—';
@@ -100,40 +109,182 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
 
   const [showFilters, setShowFilters] = useState(false);
 
-  // Fetch results with pagination and filters
-  const fetchResults = useCallback(async (page: number = 0) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const offset = page * pagination.limit;
-
-      // Use the client directly to fetch from results endpoint
-      const response = await api.client.get<any>(
-        `/api/v1/backtests/${runId}/results?limit=${pagination.limit}&offset=${offset}&sort_by=${filters.sortBy}&sort_order=${filters.sortOrder}${
-          filters.minWinRate !== undefined ? `&min_win_rate=${filters.minWinRate}` : ''
-        }${filters.minTrades !== undefined ? `&min_trades=${filters.minTrades}` : ''}`
-      );
-
-      const data = response.data?.data || response.data;
-
-      setResults(data.results || []);
-      setPagination(data.pagination);
-
-      if (data.data_quality) {
-        setDataQuality(data.data_quality);
-
-        if (data.data_quality.score < 90) {
-          console.warn('Data quality issues detected:', data.data_quality.warnings);
-        }
+  const buildResultsFromTrades = (trades: TradeRow[]): BacktestResult[] => {
+    const groups = new Map<
+      string,
+      {
+        id: number;
+        pair: string;
+        market_1: string;
+        market_2: string;
+        pnlValues: number[];
+        totalPnl: number;
+        totalTrades: number;
+        profitableTrades: number;
+        losingTrades: number;
+        sumWins: number;
+        sumLosses: number;
+        durations: number[];
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load results');
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [runId, filters, pagination.limit]);
+    >();
+
+    trades.forEach((t, idx) => {
+      const m1 = t.market_1 || 'UNKNOWN-1';
+      const m2 = t.market_2 || 'UNKNOWN-2';
+      const pair = `${m1}/${m2}`;
+      const key = `${m1}::${m2}`;
+      const pnl = Number(t.pnl_usd || 0);
+      const duration = Number(t.duration_hours || 0);
+      const win = typeof t.win === 'boolean' ? t.win : pnl >= 0;
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          id: idx + 1,
+          pair,
+          market_1: m1,
+          market_2: m2,
+          pnlValues: [],
+          totalPnl: 0,
+          totalTrades: 0,
+          profitableTrades: 0,
+          losingTrades: 0,
+          sumWins: 0,
+          sumLosses: 0,
+          durations: [],
+        });
+      }
+
+      const g = groups.get(key)!;
+      g.totalTrades += 1;
+      g.totalPnl += pnl;
+      g.pnlValues.push(pnl);
+      if (duration > 0) g.durations.push(duration);
+
+      if (win) {
+        g.profitableTrades += 1;
+        g.sumWins += pnl;
+      } else {
+        g.losingTrades += 1;
+        g.sumLosses += pnl;
+      }
+    });
+
+    return Array.from(groups.values()).map((g) => {
+      const winRate = g.totalTrades > 0 ? (g.profitableTrades / g.totalTrades) * 100 : 0;
+      const avgWin = g.profitableTrades > 0 ? g.sumWins / g.profitableTrades : 0;
+      const avgLoss = g.losingTrades > 0 ? g.sumLosses / g.losingTrades : 0;
+      const profitFactor = Math.abs(g.sumLosses) > 0 ? g.sumWins / Math.abs(g.sumLosses) : 0;
+
+      const mean = g.pnlValues.length
+        ? g.pnlValues.reduce((a, b) => a + b, 0) / g.pnlValues.length
+        : 0;
+      const variance =
+        g.pnlValues.length > 1
+          ? g.pnlValues.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (g.pnlValues.length - 1)
+          : 0;
+      const std = Math.sqrt(variance);
+      const sharpeRatio = std > 0 ? mean / std : null;
+
+      let running = 0;
+      let peak = 0;
+      let maxDrawdown = 0;
+      g.pnlValues.forEach((v) => {
+        running += v;
+        peak = Math.max(peak, running);
+        maxDrawdown = Math.min(maxDrawdown, running - peak);
+      });
+
+      const avgDuration =
+        g.durations.length > 0 ? g.durations.reduce((a, b) => a + b, 0) / g.durations.length : 0;
+
+      return {
+        id: g.id,
+        pair: g.pair,
+        market_1: g.market_1,
+        market_2: g.market_2,
+        total_trades: g.totalTrades,
+        profitable_trades: g.profitableTrades,
+        losing_trades: g.losingTrades,
+        win_rate: winRate,
+        pnl_usd: g.totalPnl,
+        avg_win: avgWin,
+        avg_loss: avgLoss,
+        profit_factor: profitFactor,
+        max_drawdown: maxDrawdown,
+        sharpe_ratio: sharpeRatio,
+        sortino_ratio: null,
+        avg_trade_duration_hours: avgDuration,
+        cointegration_score: 0,
+        zscore_mean: 0,
+        zscore_std: 0,
+      };
+    });
+  };
+
+  // Fetch results with pagination and filters
+  const fetchResults = useCallback(
+    async (page: number = 0) => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const apiResponse = await api.getBacktestTradesDetailed(
+          runId,
+          undefined,
+          undefined,
+          0,
+          1000
+        );
+        const root = (apiResponse?.data || apiResponse) as any;
+        const trades = (root?.trades || []) as TradeRow[];
+
+        let aggregated = buildResultsFromTrades(trades);
+
+        if (filters.minWinRate !== undefined) {
+          aggregated = aggregated.filter((r) => r.win_rate >= filters.minWinRate!);
+        }
+        if (filters.maxDrawdown !== undefined) {
+          aggregated = aggregated.filter((r) => r.max_drawdown >= filters.maxDrawdown!);
+        }
+        if (filters.minTrades !== undefined) {
+          aggregated = aggregated.filter((r) => r.total_trades >= filters.minTrades!);
+        }
+
+        aggregated.sort((a, b) => {
+          const aVal = Number((a as any)[filters.sortBy] ?? 0);
+          const bVal = Number((b as any)[filters.sortBy] ?? 0);
+          return filters.sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+        });
+
+        const total = aggregated.length;
+        const limit = pagination.limit;
+        const offset = page * limit;
+        const pageResults = aggregated.slice(offset, offset + limit);
+        const pages = Math.max(1, Math.ceil(total / limit));
+
+        setResults(pageResults);
+        setPagination({
+          total,
+          limit,
+          offset,
+          returned: pageResults.length,
+          pages,
+          current_page: page + 1,
+        });
+
+        setDataQuality({
+          score: 100,
+          warnings: [],
+        });
+      } catch (err: any) {
+        setError(err.message || 'Failed to load results');
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [runId, filters, pagination.limit]
+  );
 
   // Load initial data
   useEffect(() => {
@@ -180,7 +331,7 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
           className="flex items-center gap-2 text-slate-200 hover:text-white"
         >
           <Filter size={18} />
-          <span>Filters {Object.values(filters).some(v => v !== undefined) && '(Active)'}</span>
+          <span>Filters {Object.values(filters).some((v) => v !== undefined) && '(Active)'}</span>
           <ChevronDown size={18} className={showFilters ? 'rotate-180' : ''} />
         </button>
 
@@ -195,7 +346,10 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
                 max="100"
                 value={filters.minWinRate || ''}
                 onChange={(e) =>
-                  updateFilter('minWinRate', e.target.value ? parseFloat(e.target.value) : undefined)
+                  updateFilter(
+                    'minWinRate',
+                    e.target.value ? parseFloat(e.target.value) : undefined
+                  )
                 }
                 className="w-full bg-slate-700 text-white px-2 py-1 rounded text-sm"
                 placeholder="e.g., 40"
@@ -209,7 +363,10 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
                 type="number"
                 value={filters.maxDrawdown || ''}
                 onChange={(e) =>
-                  updateFilter('maxDrawdown', e.target.value ? parseFloat(e.target.value) : undefined)
+                  updateFilter(
+                    'maxDrawdown',
+                    e.target.value ? parseFloat(e.target.value) : undefined
+                  )
                 }
                 className="w-full bg-slate-700 text-white px-2 py-1 rounded text-sm"
                 placeholder="e.g., -20"

@@ -1,6 +1,6 @@
 /**
  * Enhanced BacktestDetailsV2 Component
- * 
+ *
  * Displays real candle data and position information from persistent database.
  * Replaces placeholder data with actual market data, P&L by pair, and trade records.
  */
@@ -23,641 +23,867 @@ import api from '../api';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 
 interface Candle {
-	market: string;
-	timestamp: string;
-	open: number;
-	high: number;
-	low: number;
-	close: number;
-	volume: number;
+  market: string;
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
 }
 
 interface Position {
-	position_id: number;
-	market_1: string;
-	market_2: string;
-	entry_timestamp: string;
-	exit_timestamp: string | null;
-	entry_price_m1: number;
-	exit_price_m1: number | null;
-	entry_price_m2: number;
-	exit_price_m2: number | null;
-	hedge_ratio: number;
-	entry_zscore: number;
-	exit_zscore: number | null;
-	pnl_m1_usd: number;
-	pnl_m2_usd: number;
-	total_pnl_usd: number;
-	status: string;
+  position_id: number;
+  market_1: string;
+  market_2: string;
+  entry_timestamp: string;
+  exit_timestamp: string | null;
+  entry_price_m1: number;
+  exit_price_m1: number | null;
+  entry_price_m2: number;
+  exit_price_m2: number | null;
+  hedge_ratio: number;
+  entry_zscore: number;
+  exit_zscore: number | null;
+  pnl_m1_usd: number;
+  pnl_m2_usd: number;
+  total_pnl_usd: number;
+  status: string;
 }
 
 interface Trade {
-	trade_id: string;
-	market_1: string;
-	market_2: string;
-	entry_timestamp: string;
-	exit_timestamp: string;
-	entry_zscore: number;
-	exit_zscore: number;
-	entry_price_m1: number;
-	exit_price_m1: number;
-	entry_price_m2: number;
-	exit_price_m2: number;
-	hedge_ratio: number;
-	pnl_usd: number;
-	pnl_pct: number;
-	duration_hours: number;
-	win: boolean;
+  trade_id: string;
+  market_1: string;
+  market_2: string;
+  entry_timestamp: string;
+  exit_timestamp: string;
+  entry_zscore: number;
+  exit_zscore: number;
+  entry_price_m1: number;
+  exit_price_m1: number;
+  entry_price_m2: number;
+  exit_price_m2: number;
+  hedge_ratio: number;
+  pnl_usd: number;
+  pnl_pct: number;
+  duration_hours: number;
+  win: boolean;
 }
 
 interface BacktestResponse {
-	run_id: string;
-	status: string;
-	created_at: string;
-	start_date: string;
-	end_date: string;
-	total_pnl_usd: number;
-	win_rate: number;
-	sharpe_ratio: number;
-	max_drawdown: number;
-	profit_factor: number;
+  run_id: string;
+  status: string;
+  created_at: string;
+  start_date: string;
+  end_date: string;
+  total_pnl_usd: number;
+  win_rate: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  profit_factor: number;
 }
 
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+};
+
+const toNumber = (value: unknown, fallback: number = 0): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+};
+
+const toStringValue = (value: unknown, fallback: string = ''): string => {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  return fallback;
+};
+
 export const BacktestDetailsV2: React.FC = () => {
-	const { runId } = useParams<{ runId: string }>();
+  const { runId } = useParams<{ runId: string }>();
 
-	// Main backtest data
-	const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
+  // Main backtest data
+  const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
 
-	// Real data from API
-	const [candles, setCandles] = useState<Candle[]>([]);
-	const [positions, setPositions] = useState<Position[]>([]);
-	const [trades, setTrades] = useState<Trade[]>([]);
-	const [markets, setMarkets] = useState<string[]>([]);
+  // Real data from API
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [markets, setMarkets] = useState<string[]>([]);
 
-	// UI state
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-	const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
-	const [activeTab, setActiveTab] = useState<'summary' | 'candles' | 'positions' | 'trades' | 'results'>('summary');
+  // UI state
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<
+    'summary' | 'candles' | 'positions' | 'trades' | 'results'
+  >('summary');
 
-	// Fetch backtest metadata
-	useEffect(() => {
-		const fetchBacktestMetadata = async () => {
-			try {
-				if (runId) {
-					const response = await api.getBacktest(runId);
-					const data = response?.data || response;
-					setBacktest(data);
-				}
-			} catch (err: any) {
-				setError(err.message || 'Failed to fetch backtest');
-			}
-		};
+  // Fetch backtest metadata
+  useEffect(() => {
+    const fetchBacktestMetadata = async () => {
+      try {
+        if (runId) {
+          const response = await api.getBacktest(runId);
+          const data = response?.data || response;
+          setBacktest(data);
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch backtest');
+      }
+    };
 
-		fetchBacktestMetadata();
-	}, [runId]);
+    fetchBacktestMetadata();
+  }, [runId]);
 
-	// Fetch candles for selected market
-	useEffect(() => {
-		const fetchCandles = async () => {
-			if (!runId) return;
+  // Fetch analytics and map it to chart-friendly candle-like series
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      if (!runId || !backtest) return;
+      if (backtest.status.toLowerCase() !== 'completed') {
+        setCandles([]);
+        setMarkets([]);
+        return;
+      }
 
-			try {
-				const response = await api.getBacktestCandles(runId, selectedMarket || undefined);
+      try {
+        const response = await api.getBacktestAnalytics(runId);
+        const payload = asRecord(response?.data || response);
+        const root = asRecord(payload?.data) || payload;
+        const daily = root?.daily_pnl;
 
-				const data = response?.data || response;
+        if (!Array.isArray(daily) || daily.length === 0) {
+          setCandles([]);
+          setMarkets([]);
+          return;
+        }
 
-				if (data.candles) {
-					setCandles(data.candles);
+        let runningCumulative = 0;
+        const marketSet = new Set<string>();
 
-					// Extract unique markets from candles
-					const uniqueMarkets = [...new Set(data.candles.map((c: Candle) => c.market))];
-					setMarkets(uniqueMarkets as string[]);
+        const mapped: Candle[] = daily
+          .map((item) => asRecord(item))
+          .filter((item): item is Record<string, unknown> => item !== null)
+          .map((point) => {
+            const market = toStringValue(point.market, 'PORTFOLIO');
+            const tsRaw =
+              toStringValue(point.timestamp) ||
+              toStringValue(point.date) ||
+              new Date().toISOString();
 
-					// Set first market as selected if not already selected
-					if (!selectedMarket && uniqueMarkets.length > 0) {
-						setSelectedMarket(uniqueMarkets[0] as string);
-					}
-				}
-			} catch (err: any) {
-				console.error('Failed to fetch candles:', err);
-			}
-		};
+            const pnlValue = toNumber(point.pnl, 0);
+            const explicitCumulative = toNumber(point.cumulative_pnl, Number.NaN);
 
-		// Debounce candle fetch
-		const timer = setTimeout(fetchCandles, 500);
-		return () => clearTimeout(timer);
-	}, [runId, selectedMarket]);
+            if (Number.isFinite(explicitCumulative)) {
+              runningCumulative = explicitCumulative;
+            } else {
+              runningCumulative += pnlValue;
+            }
 
-	// Fetch positions
-	useEffect(() => {
-		const fetchPositions = async () => {
-			if (!runId) return;
+            marketSet.add(market);
 
-			try {
-				// Don't pass status parameter - get all positions
-				const response = await api.getBacktestPositions(runId);
+            return {
+              market,
+              timestamp: tsRaw,
+              open: runningCumulative,
+              high: runningCumulative,
+              low: runningCumulative,
+              close: runningCumulative,
+              volume: toNumber(point.trades, 0),
+            };
+          });
 
-				const data = response?.data || response;
+        setCandles(mapped);
+        setMarkets(Array.from(marketSet));
+      } catch (err: unknown) {
+        console.error('Failed to fetch backtest analytics:', err);
+        setCandles([]);
+        setMarkets([]);
+      }
+    };
 
-				if (data.positions) {
-					setPositions(data.positions);
-				}
-			} catch (err: any) {
-				console.error('Failed to fetch positions:', err);
-			}
-		};
+    fetchAnalytics();
+  }, [runId, backtest?.status]);
 
-		fetchPositions();
-	}, [runId]);
+  // Keep selected market valid when available markets update
+  useEffect(() => {
+    if (markets.length === 0) {
+      setSelectedMarket(null);
+      return;
+    }
 
-	// Fetch trades
-	useEffect(() => {
-		const fetchTrades = async () => {
-			if (!runId) return;
+    if (!selectedMarket || !markets.includes(selectedMarket)) {
+      setSelectedMarket(markets[0]);
+    }
+  }, [markets, selectedMarket]);
 
-			try {
-				const response = await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 500);
+  // Fetch position snapshots and flatten to latest known entries per snapshot
+  useEffect(() => {
+    const fetchPositionSnapshots = async () => {
+      if (!runId || !backtest) return;
+      if (backtest.status.toLowerCase() !== 'completed') {
+        setPositions([]);
+        return;
+      }
 
-				const data = response?.data || response;
+      try {
+        const response = await api.getBacktestPositionSnapshots(runId, 1000, 0);
+        const payload = asRecord(response?.data || response);
+        const root = asRecord(payload?.data) || payload;
+        const snapshots = root?.snapshots;
 
-				if (data.trades) {
-					setTrades(data.trades);
-				}
-			} catch (err: any) {
-				console.error('Failed to fetch trades:', err);
-			}
-		};
+        if (!Array.isArray(snapshots) || snapshots.length === 0) {
+          setPositions([]);
+          return;
+        }
 
-		fetchTrades();
-	}, [runId]);
+        const flattened: Position[] = [];
 
-	// Mark loading complete after essential data fetched
-	useEffect(() => {
-		// Only require backtest and candles to be loaded
-		// Positions and trades are optional and may be empty
-		if (backtest && candles.length > 0) {
-			setLoading(false);
-		}
-		// If we have backtest but no candles after 3 seconds, still show the page
-		if (backtest && !loading) {
-			const timer = setTimeout(() => {
-				setLoading(false);
-			}, 3000);
-			return () => clearTimeout(timer);
-		}
-	}, [backtest, candles]);
+        snapshots.forEach((snapshot, snapshotIndex) => {
+          const snapshotRecord = asRecord(snapshot);
+          if (!snapshotRecord) return;
 
-	// Generate Equity Curve from candles
-	const generateEquityCurveData = () => {
-		if (candles.length === 0) return [];
+          const snapshotTimestamp =
+            toStringValue(snapshotRecord.timestamp) || new Date().toISOString();
+          const snapshotPositions = snapshotRecord.positions;
 
-		const startBalance = 1000;
-		let runningBalance = startBalance;
-		const data: any[] = [];
+          if (!Array.isArray(snapshotPositions)) return;
 
-		// Group candles by timestamp and calculate cumulative PnL
-		const candlesByTime = new Map<string, Candle[]>();
+          snapshotPositions.forEach((rawPos, posIndex) => {
+            const pos = asRecord(rawPos);
+            if (!pos) return;
 
-		candles.forEach((candle) => {
-			const time = candle.timestamp;
-			if (!candlesByTime.has(time)) {
-				candlesByTime.set(time, []);
-			}
-			candlesByTime.get(time)!.push(candle);
-		});
+            const pnl = toNumber(pos.total_pnl_usd, Number.NaN) || toNumber(pos.unrealized_pnl, 0);
 
-		// Calculate balance at each point
-		Array.from(candlesByTime.entries())
-			.sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-			.forEach(([time, marketCandles]) => {
-				// Sum PnL from all market positions at this time
-				const hourlyPnL = marketCandles.reduce((sum, c) => sum + (c.volume * 0.001 || 0), 0);
-				runningBalance += hourlyPnL;
+            flattened.push({
+              position_id: Number(toStringValue(pos.position_id, `${snapshotIndex}-${posIndex}`)),
+              market_1: toStringValue(pos.market_1, '-'),
+              market_2: toStringValue(pos.market_2, '-'),
+              entry_timestamp:
+                toStringValue(pos.entry_timestamp) ||
+                toStringValue(pos.entry_time) ||
+                snapshotTimestamp,
+              exit_timestamp: toStringValue(pos.exit_timestamp) || null,
+              entry_price_m1: toNumber(pos.entry_price_m1, toNumber(pos.entry_price_1, 0)),
+              exit_price_m1: null,
+              entry_price_m2: toNumber(pos.entry_price_m2, toNumber(pos.entry_price_2, 0)),
+              exit_price_m2: null,
+              hedge_ratio: toNumber(pos.hedge_ratio, 0),
+              entry_zscore: toNumber(pos.entry_zscore, toNumber(pos.current_z_score, 0)),
+              exit_zscore: null,
+              pnl_m1_usd: 0,
+              pnl_m2_usd: 0,
+              total_pnl_usd: Number.isFinite(pnl) ? pnl : 0,
+              status: toStringValue(pos.status, 'OPEN'),
+            });
+          });
+        });
 
-				data.push({
-					timestamp: new Date(time).toLocaleDateString(),
-					balance: runningBalance,
-					time,
-				});
-			});
+        setPositions(flattened);
+      } catch (err: unknown) {
+        console.error('Failed to fetch position snapshots:', err);
+        setPositions([]);
+      }
+    };
 
-		return data;
-	};
+    fetchPositionSnapshots();
+  }, [runId, backtest?.status]);
 
-	// Generate P&L by Pair
-	const generatePnlByPairData = () => {
-		if (positions.length === 0) return [];
+  // Fetch trades
+  useEffect(() => {
+    const fetchTrades = async () => {
+      if (!runId || !backtest) return;
+      if (backtest.status.toLowerCase() !== 'completed') {
+        setTrades([]);
+        return;
+      }
 
-		const pairMap = new Map<string, { pnl: number; count: number }>();
+      try {
+        const response = await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 500);
 
-		positions.forEach((pos) => {
-			const pairKey = `${pos.market_1}/${pos.market_2}`;
-			if (!pairMap.has(pairKey)) {
-				pairMap.set(pairKey, { pnl: 0, count: 0 });
-			}
-			const pair = pairMap.get(pairKey)!;
-			pair.pnl += pos.total_pnl_usd;
-			pair.count += 1;
-		});
+        const payload = asRecord(response?.data || response);
+        const root = asRecord(payload?.data) || payload;
+        const rawTrades = root?.trades;
 
-		return Array.from(pairMap.entries())
-			.map(([pair, data]) => ({
-				pair,
-				pnl: data.pnl,
-				count: data.count,
-			}))
-			.sort((a, b) => b.pnl - a.pnl);
-	};
+        if (Array.isArray(rawTrades)) {
+          const normalizedTrades: Trade[] = rawTrades
+            .map((item) => asRecord(item))
+            .filter((item): item is Record<string, unknown> => item !== null)
+            .map((trade) => {
+              const pnlUsd = toNumber(trade.pnl_usd, toNumber(trade.pnl, 0));
+              return {
+                trade_id: toStringValue(trade.trade_id, crypto.randomUUID()),
+                market_1: toStringValue(trade.market_1, toStringValue(trade.base_market, '-')),
+                market_2: toStringValue(trade.market_2, toStringValue(trade.quote_market, '-')),
+                entry_timestamp:
+                  toStringValue(trade.entry_timestamp) || toStringValue(trade.entry_time),
+                exit_timestamp:
+                  toStringValue(trade.exit_timestamp) || toStringValue(trade.exit_time),
+                entry_zscore: toNumber(trade.entry_zscore, toNumber(trade.entry_z_score, 0)),
+                exit_zscore: toNumber(trade.exit_zscore, toNumber(trade.exit_z_score, 0)),
+                entry_price_m1: toNumber(trade.entry_price_m1, toNumber(trade.entry_price_1, 0)),
+                exit_price_m1: toNumber(trade.exit_price_m1, toNumber(trade.exit_price_1, 0)),
+                entry_price_m2: toNumber(trade.entry_price_m2, toNumber(trade.entry_price_2, 0)),
+                exit_price_m2: toNumber(trade.exit_price_m2, toNumber(trade.exit_price_2, 0)),
+                hedge_ratio: toNumber(trade.hedge_ratio, 0),
+                pnl_usd: pnlUsd,
+                pnl_pct: toNumber(trade.pnl_pct, toNumber(trade.pnl_percent, 0)),
+                duration_hours: toNumber(
+                  trade.duration_hours,
+                  toNumber(trade.duration_minutes, 0) / 60
+                ),
+                win: toNumber(trade.pnl_usd, toNumber(trade.pnl, 0)) >= 0,
+              };
+            });
 
-	// Filter candles for selected market
-	const selectedCandles = candles.filter((c) => c.market === selectedMarket);
+          setTrades(normalizedTrades);
+        }
+      } catch (err: unknown) {
+        console.error('Failed to fetch trades:', err);
+      }
+    };
 
-	// Format candle chart data
-	const candleChartData = selectedCandles.map((c) => ({
-		timestamp: new Date(c.timestamp).toLocaleDateString(),
-		close: c.close,
-		high: c.high,
-		low: c.low,
-	}));
+    fetchTrades();
+  }, [runId, backtest?.status]);
 
-	const equityData = generateEquityCurveData();
-	const pnlByPairData = generatePnlByPairData();
+  // Mark loading complete after essential data fetched
+  useEffect(() => {
+    if (backtest) {
+      setLoading(false);
+    }
+  }, [backtest]);
 
-	if (loading) {
-		return (
-			<div className="flex items-center justify-center h-screen bg-slate-900">
-				<Loader className="w-8 h-8 animate-spin text-blue-500" />
-			</div>
-		);
-	}
+  // Auto-refresh status when backtest is still in progress
+  useEffect(() => {
+    if (!backtest || !runId) return;
+    const sn = backtest.status.toLowerCase();
+    if (sn !== 'running' && sn !== 'pending') return;
 
-	if (error || !backtest) {
-		return (
-			<div className="min-h-screen bg-slate-900 p-8 flex items-center justify-center">
-				<div className="text-center text-red-500">
-					<p className="text-xl font-bold mb-2">Error</p>
-					<p>{error || 'Backtest not found'}</p>
-				</div>
-			</div>
-		);
-	}
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await api.getBacktest(runId);
+        setBacktest(res?.data || res);
+      } catch {
+        // ignore polling errors
+      }
+    }, 5000);
 
-	const metrics = [
-		{
-			label: 'Total Trades',
-			value: trades.length,
-			icon: '📊',
-		},
-		{
-			label: 'Win Rate',
-			value: `${backtest.win_rate.toFixed(1)}%`,
-			icon: '✅',
-		},
-		{
-			label: 'Total PnL',
-			value: `$${(backtest.total_pnl_usd || 0).toFixed(2)}`,
-			icon: '💰',
-			color: (backtest.total_pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400',
-		},
-		{
-			label: 'Sharpe Ratio',
-			value: (backtest.sharpe_ratio !== undefined && backtest.sharpe_ratio !== null) ? backtest.sharpe_ratio.toFixed(2) : 'N/A',
-			icon: '📈',
-		},
-		{
-			label: 'Max Drawdown',
-			value: `${(backtest.max_drawdown || 0).toFixed(1)}%`,
-			icon: '📉',
-		},
-		{
-			label: 'Profit Factor',
-			value: (backtest.profit_factor !== undefined && backtest.profit_factor !== null) ? backtest.profit_factor.toFixed(2) : 'N/A',
-			icon: '🎯',
-		},
-	];
+    return () => clearInterval(intervalId);
+  }, [backtest?.status, runId]);
 
-	return (
-		<div className="min-h-screen bg-slate-900 text-white">
-			<div className="max-w-7xl mx-auto p-8">
-				{/* Header */}
-				<div className="mb-8">
-					<h1 className="text-4xl font-bold mb-2">Backtest Results</h1>
-					<div className="flex items-center gap-4 text-slate-300">
-						<span>
-							{backtest.start_date} to {backtest.end_date}
-						</span>
-						<span
-							className={`px-3 py-1 rounded-full text-sm font-medium ${
-								backtest.status === 'completed'
-									? 'bg-green-900 text-green-200'
-									: 'bg-yellow-900 text-yellow-200'
-							}`}
-						>
-							{backtest.status}
-						</span>
-					</div>
-				</div>
+  // Generate Equity Curve from candles
+  const generateEquityCurveData = () => {
+    if (candles.length === 0) return [];
 
-				{/* Metrics Grid */}
-				<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-					{metrics.map((metric) => (
-						<div
-							key={metric.label}
-							className="bg-slate-800 p-4 rounded-lg border border-slate-700"
-						>
-							<p className="text-2xl mb-2">{metric.icon}</p>
-							<p className="text-xs text-slate-400 mb-1">{metric.label}</p>
-							<p className={`text-lg font-bold ${metric.color || 'text-slate-100'}`}>
-								{metric.value}
-							</p>
-						</div>
-					))}
-				</div>
+    const startBalance = 1000;
+    let runningBalance = startBalance;
+    const data: any[] = [];
 
-				{/* Tabs */}
-				<div className="flex gap-4 mb-8 border-b border-slate-700">
-					{(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
-						<button
-							key={tab}
-							onClick={() => setActiveTab(tab)}
-							className={`px-4 py-2 border-b-2 transition ${
-								activeTab === tab
-									? 'border-blue-500 text-blue-400'
-									: 'border-transparent text-slate-400 hover:text-slate-200'
-							}`}
-						>
-							{tab.charAt(0).toUpperCase() + tab.slice(1)}
-						</button>
-					))}
-				</div>
+    // Group candles by timestamp and calculate cumulative PnL
+    const candlesByTime = new Map<string, Candle[]>();
 
-				{/* Summary Tab */}
-				{activeTab === 'summary' && (
-					<div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-						{/* Equity Curve */}
-						<div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
-							<h2 className="text-xl font-bold mb-4">Equity Curve</h2>
-							{equityData.length > 0 ? (
-								<ResponsiveContainer width="100%" height={300}>
-									<LineChart data={equityData}>
-										<CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-										<XAxis
-											dataKey="timestamp"
-											stroke="#94a3b8"
-											tick={{ fontSize: 12 }}
-										/>
-										<YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
-										<Tooltip
-											contentStyle={{
-												backgroundColor: '#1e293b',
-												border: '1px solid #475569',
-											}}
-											formatter={(value: any) => `$${(value as number).toFixed(2)}`}
-										/>
-										<Line
-											type="monotone"
-											dataKey="balance"
-											stroke="#22c55e"
-											dot={false}
-											isAnimationActive={false}
-										/>
-									</LineChart>
-								</ResponsiveContainer>
-							) : (
-								<div className="h-300 flex items-center justify-center text-slate-400">
-									No candle data available
-								</div>
-							)}
-						</div>
+    candles.forEach((candle) => {
+      const time = candle.timestamp;
+      if (!candlesByTime.has(time)) {
+        candlesByTime.set(time, []);
+      }
+      candlesByTime.get(time)!.push(candle);
+    });
 
-						{/* P&L by Pair */}
-						<div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
-							<h2 className="text-xl font-bold mb-4">P&L by Pair</h2>
-							{pnlByPairData.length > 0 ? (
-								<ResponsiveContainer width="100%" height={300}>
-									<BarChart data={pnlByPairData}>
-										<CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-										<XAxis
-											dataKey="pair"
-											stroke="#94a3b8"
-											tick={{ fontSize: 12 }}
-										/>
-										<YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
-										<Tooltip
-											contentStyle={{
-												backgroundColor: '#1e293b',
-												border: '1px solid #475569',
-											}}
-											formatter={(value: any) => `$${(value as number).toFixed(2)}`}
-										/>
-										<Bar
-											dataKey="pnl"
-											fill="#3b82f6"
-											radius={[4, 4, 0, 0]}
-										/>
-									</BarChart>
-								</ResponsiveContainer>
-							) : (
-								<div className="h-300 flex items-center justify-center text-slate-400">
-									No position data available
-								</div>
-							)}
-						</div>
-					</div>
-				)}
+    // Calculate balance at each point
+    Array.from(candlesByTime.entries())
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+      .forEach(([time, marketCandles]) => {
+        // Sum PnL from all market positions at this time
+        const hourlyPnL = marketCandles.reduce((sum, c) => sum + (c.volume * 0.001 || 0), 0);
+        runningBalance += hourlyPnL;
 
-				{/* Candles Tab */}
-				{activeTab === 'candles' && (
-					<div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
-						<div className="mb-4">
-							<p className="text-sm text-slate-400 mb-2">Select Market</p>
-							<div className="flex gap-2 flex-wrap">
-								{markets.map((market) => (
-									<button
-										key={market}
-										onClick={() => setSelectedMarket(market)}
-										className={`px-3 py-1 rounded text-sm transition ${
-											selectedMarket === market
-												? 'bg-blue-600 text-white'
-												: 'bg-slate-700 text-slate-200 hover:bg-slate-600'
-										}`}
-									>
-										{market}
-									</button>
-								))}
-							</div>
-						</div>
+        data.push({
+          timestamp: new Date(time).toLocaleDateString(),
+          balance: runningBalance,
+          time,
+        });
+      });
 
-						{selectedMarket && candleChartData.length > 0 ? (
-							<ResponsiveContainer width="100%" height={400}>
-								<LineChart data={candleChartData}>
-									<CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-									<XAxis
-										dataKey="timestamp"
-										stroke="#94a3b8"
-										tick={{ fontSize: 12 }}
-									/>
-									<YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
-									<Tooltip
-										contentStyle={{
-											backgroundColor: '#1e293b',
-											border: '1px solid #475569',
-										}}
-										formatter={(value: any) => `$${(value as number).toFixed(2)}`}
-									/>
-									<Line
-										type="monotone"
-										dataKey="close"
-										stroke="#f59e0b"
-										dot={false}
-										isAnimationActive={false}
-									/>
-								</LineChart>
-							</ResponsiveContainer>
-						) : (
-							<div className="h-400 flex items-center justify-center text-slate-400">
-								No candle data for selected market
-							</div>
-						)}
-					</div>
-				)}
+    return data;
+  };
 
-				{/* Positions Tab */}
-				{activeTab === 'positions' && (
-					<div className="bg-slate-800 p-6 rounded-lg border border-slate-700 overflow-x-auto">
-						<h2 className="text-xl font-bold mb-4">Positions ({positions.length})</h2>
-						<table className="w-full text-sm">
-							<thead className="border-b border-slate-700">
-								<tr>
-									<th className="px-4 py-2 text-left text-slate-400">Pair</th>
-									<th className="px-4 py-2 text-left text-slate-400">Entry Time</th>
-									<th className="px-4 py-2 text-left text-slate-400">Exit Time</th>
-									<th className="px-4 py-2 text-right text-slate-400">Entry Z-Score</th>
-									<th className="px-4 py-2 text-right text-slate-400">Exit Z-Score</th>
-									<th className="px-4 py-2 text-right text-slate-400">PnL ($)</th>
-									<th className="px-4 py-2 text-left text-slate-400">Status</th>
-								</tr>
-							</thead>
-							<tbody>
-								{positions.map((pos, idx) => (
-									<tr
-										key={idx}
-										className={`border-b border-slate-700 ${
-											pos.total_pnl_usd >= 0
-												? 'bg-green-900/20'
-												: 'bg-red-900/20'
-										}`}
-									>
-										<td className="px-4 py-2 text-white font-medium">
-											{pos.market_1}/{pos.market_2}
-										</td>
-										<td className="px-4 py-2 text-slate-300">
-											{new Date(pos.entry_timestamp).toLocaleDateString()}
-										</td>
-										<td className="px-4 py-2 text-slate-300">
-											{pos.exit_timestamp
-												? new Date(pos.exit_timestamp).toLocaleDateString()
-												: '-'}
-										</td>
-									<td className="px-4 py-2 text-right text-slate-300">
-										{pos.entry_zscore !== undefined && pos.entry_zscore !== null ? pos.entry_zscore.toFixed(3) : '-'}
-									</td>
-									<td className="px-4 py-2 text-right text-slate-300">
-										{pos.exit_zscore !== undefined && pos.exit_zscore !== null ? pos.exit_zscore.toFixed(3) : '-'}
-									</td>
-									<td
-										className={`px-4 py-2 text-right font-bold ${
-											(pos.total_pnl_usd || 0) >= 0
-												? 'text-green-400'
-												: 'text-red-400'
-										}`}
-									>
-										${(pos.total_pnl_usd || 0).toFixed(2)}
-									</td>
-										<td className="px-4 py-2 text-slate-300">{pos.status}</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-				)}
+  // Generate P&L by Pair
+  const generatePnlByPairData = () => {
+    if (positions.length === 0) return [];
 
-				{/* Trades Tab */}
-				{activeTab === 'trades' && (
-					<div className="bg-slate-800 p-6 rounded-lg border border-slate-700 overflow-x-auto">
-						<h2 className="text-xl font-bold mb-4">Trades ({trades.length})</h2>
-						<table className="w-full text-sm">
-							<thead className="border-b border-slate-700">
-								<tr>
-									<th className="px-4 py-2 text-left text-slate-400">Pair</th>
-									<th className="px-4 py-2 text-left text-slate-400">Entry Time</th>
-									<th className="px-4 py-2 text-left text-slate-400">Exit Time</th>
-									<th className="px-4 py-2 text-right text-slate-400">Duration (h)</th>
-									<th className="px-4 py-2 text-right text-slate-400">PnL ($)</th>
-									<th className="px-4 py-2 text-right text-slate-400">Return %</th>
-									<th className="px-4 py-2 text-center text-slate-400">Result</th>
-								</tr>
-							</thead>
-							<tbody>
-								{trades.map((trade, idx) => (
-									<tr
-										key={idx}
-										className={`border-b border-slate-700 ${
-											trade.win ? 'bg-green-900/20' : 'bg-red-900/20'
-										}`}
-									>
-										<td className="px-4 py-2 text-white font-medium">
-											{trade.market_1}/{trade.market_2}
-										</td>
-										<td className="px-4 py-2 text-slate-300">
-											{new Date(trade.entry_timestamp).toLocaleDateString()}
-										</td>
-										<td className="px-4 py-2 text-slate-300">
-											{new Date(trade.exit_timestamp).toLocaleDateString()}
-										</td>
-									<td className="px-4 py-2 text-right text-slate-300">
-										{(trade.duration_hours || 0).toFixed(1)}
-									</td>
-									<td
-										className={`px-4 py-2 text-right font-bold ${
-											(trade.pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-										}`}
-									>
-										${(trade.pnl_usd || 0).toFixed(2)}
-									</td>
-									<td
-										className={`px-4 py-2 text-right font-bold ${
-											(trade.pnl_pct || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-										}`}
-									>
-										{((trade.pnl_pct || 0) / 100).toFixed(2)}%
-									</td>
-										<td className="px-4 py-2 text-center">
-											{trade.win ? (
-												<ArrowUp className="w-4 h-4 text-green-400 mx-auto" />
-											) : (
-												<ArrowDown className="w-4 h-4 text-red-400 mx-auto" />
-											)}
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-				)}
+    const pairMap = new Map<string, { pnl: number; count: number }>();
 
-				{/* Results Tab */}
-				{activeTab === 'results' && (
-					<div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
-						<h2 className="text-xl font-bold mb-4">Detailed Results</h2>
-						<BacktestResultsEnhanced runId={runId || ''} />
-					</div>
-				)}
-			</div>
-		</div>
-	);
+    positions.forEach((pos) => {
+      const pairKey = `${pos.market_1}/${pos.market_2}`;
+      if (!pairMap.has(pairKey)) {
+        pairMap.set(pairKey, { pnl: 0, count: 0 });
+      }
+      const pair = pairMap.get(pairKey)!;
+      pair.pnl += pos.total_pnl_usd;
+      pair.count += 1;
+    });
+
+    return Array.from(pairMap.entries())
+      .map(([pair, data]) => ({
+        pair,
+        pnl: data.pnl,
+        count: data.count,
+      }))
+      .sort((a, b) => b.pnl - a.pnl);
+  };
+
+  // Filter candles for selected market
+  const selectedCandles = candles.filter((c) => c.market === selectedMarket);
+
+  // Format candle chart data
+  const candleChartData = selectedCandles.map((c) => ({
+    timestamp: new Date(c.timestamp).toLocaleDateString(),
+    close: c.close,
+    high: c.high,
+    low: c.low,
+  }));
+
+  const equityData = generateEquityCurveData();
+  const pnlByPairData = generatePnlByPairData();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-900">
+        <Loader className="w-8 h-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
+
+  if (error || !backtest) {
+    return (
+      <div className="min-h-screen bg-slate-900 p-8 flex items-center justify-center">
+        <div className="text-center text-red-500">
+          <p className="text-xl font-bold mb-2">Error</p>
+          <p>{error || 'Backtest not found'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const statusNorm = backtest.status.toLowerCase();
+  const isRunning = statusNorm === 'running' || statusNorm === 'pending';
+  const isFailed = statusNorm === 'failed' || statusNorm === 'cancelled';
+
+  const renderEmptyState = (label: string): React.ReactNode => {
+    if (isRunning) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 gap-3">
+          <Loader className="w-6 h-6 animate-spin text-blue-400" />
+          <p className="text-slate-400 text-center text-sm">
+            Backtest is still running — {label} will appear here once complete.
+          </p>
+        </div>
+      );
+    }
+    if (isFailed) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 gap-2">
+          <p className="text-red-400 font-medium capitalize">Backtest {statusNorm}</p>
+          <p className="text-slate-500 text-sm">
+            No {label} available — the backtest did not complete successfully.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-2">
+        <p className="text-slate-400 font-medium">No {label} found</p>
+        <p className="text-slate-500 text-sm">
+          This backtest completed but produced no {label} records.
+        </p>
+      </div>
+    );
+  };
+
+  const metrics = [
+    {
+      label: 'Total Trades',
+      value: trades.length,
+      icon: '📊',
+    },
+    {
+      label: 'Win Rate',
+      value: `${backtest.win_rate.toFixed(1)}%`,
+      icon: '✅',
+    },
+    {
+      label: 'Total PnL',
+      value: `$${(backtest.total_pnl_usd || 0).toFixed(2)}`,
+      icon: '💰',
+      color: (backtest.total_pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400',
+    },
+    {
+      label: 'Sharpe Ratio',
+      value:
+        backtest.sharpe_ratio !== undefined && backtest.sharpe_ratio !== null
+          ? backtest.sharpe_ratio.toFixed(2)
+          : 'N/A',
+      icon: '📈',
+    },
+    {
+      label: 'Max Drawdown',
+      value: `${(backtest.max_drawdown || 0).toFixed(1)}%`,
+      icon: '📉',
+    },
+    {
+      label: 'Profit Factor',
+      value:
+        backtest.profit_factor !== undefined && backtest.profit_factor !== null
+          ? backtest.profit_factor.toFixed(2)
+          : 'N/A',
+      icon: '🎯',
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-white">
+      <div className="max-w-7xl mx-auto p-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-2">Backtest Results</h1>
+          <div className="flex items-center gap-4 text-slate-300">
+            <span>
+              {backtest.start_date} to {backtest.end_date}
+            </span>
+            <span
+              className={`px-3 py-1 rounded-full text-sm font-medium ${
+                statusNorm === 'completed'
+                  ? 'bg-green-900 text-green-200'
+                  : statusNorm === 'running'
+                    ? 'bg-blue-900 text-blue-200'
+                    : statusNorm === 'failed' || statusNorm === 'cancelled'
+                      ? 'bg-red-900 text-red-200'
+                      : 'bg-yellow-900 text-yellow-200'
+              }`}
+            >
+              {backtest.status}
+            </span>
+          </div>
+        </div>
+
+        {/* Status Banner */}
+        {isRunning && (
+          <div className="mb-6 p-4 bg-blue-900/40 border border-blue-700 rounded-lg flex items-start gap-3">
+            <Loader className="w-5 h-5 animate-spin text-blue-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-blue-300 font-medium">Backtest in progress</p>
+              <p className="text-slate-400 text-sm mt-0.5">
+                Tab data is hidden until the backtest completes. This page refreshes automatically
+                every 5 seconds.
+              </p>
+            </div>
+          </div>
+        )}
+        {isFailed && (
+          <div className="mb-6 p-4 bg-red-900/40 border border-red-700 rounded-lg">
+            <p className="text-red-300 font-medium capitalize">Backtest {statusNorm}</p>
+            <p className="text-slate-400 text-sm mt-1">
+              This backtest did not complete successfully. No result data is available.
+            </p>
+          </div>
+        )}
+
+        {/* Metrics Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+          {metrics.map((metric) => (
+            <div key={metric.label} className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+              <p className="text-2xl mb-2">{metric.icon}</p>
+              <p className="text-xs text-slate-400 mb-1">{metric.label}</p>
+              <p className={`text-lg font-bold ${metric.color || 'text-slate-100'}`}>
+                {metric.value}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-4 mb-8 border-b border-slate-700">
+          {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 border-b-2 transition ${
+                activeTab === tab
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Summary Tab */}
+        {activeTab === 'summary' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Equity Curve */}
+            <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+              <h2 className="text-xl font-bold mb-4">Equity Curve</h2>
+              {equityData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={equityData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                    <XAxis dataKey="timestamp" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1e293b',
+                        border: '1px solid #475569',
+                      }}
+                      formatter={(value: any) => `$${(value as number).toFixed(2)}`}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="balance"
+                      stroke="#22c55e"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                renderEmptyState('equity curve data')
+              )}
+            </div>
+
+            {/* P&L by Pair */}
+            <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+              <h2 className="text-xl font-bold mb-4">P&L by Pair</h2>
+              {pnlByPairData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={pnlByPairData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                    <XAxis dataKey="pair" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1e293b',
+                        border: '1px solid #475569',
+                      }}
+                      formatter={(value: any) => `$${(value as number).toFixed(2)}`}
+                    />
+                    <Bar dataKey="pnl" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                renderEmptyState('P&L data')
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Candles Tab */}
+        {activeTab === 'candles' && (
+          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+            {candles.length === 0 ? (
+              renderEmptyState('candle data')
+            ) : (
+              <>
+                <div className="mb-4">
+                  <p className="text-sm text-slate-400 mb-2">Select Market</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {markets.map((market) => (
+                      <button
+                        key={market}
+                        onClick={() => setSelectedMarket(market)}
+                        className={`px-3 py-1 rounded text-sm transition ${
+                          selectedMarket === market
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+                        }`}
+                      >
+                        {market}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {selectedMarket && candleChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={400}>
+                    <LineChart data={candleChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                      <XAxis dataKey="timestamp" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                      <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#1e293b',
+                          border: '1px solid #475569',
+                        }}
+                        formatter={(value: any) => `$${(value as number).toFixed(2)}`}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="close"
+                        stroke="#f59e0b"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-100 flex items-center justify-center text-slate-400">
+                    Select a market above to view its equity curve
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Positions Tab */}
+        {activeTab === 'positions' && (
+          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 overflow-x-auto">
+            <h2 className="text-xl font-bold mb-4">Positions ({positions.length})</h2>
+            {positions.length === 0 ? (
+              renderEmptyState('position data')
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-700">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-slate-400">Pair</th>
+                    <th className="px-4 py-2 text-left text-slate-400">Entry Time</th>
+                    <th className="px-4 py-2 text-left text-slate-400">Exit Time</th>
+                    <th className="px-4 py-2 text-right text-slate-400">Entry Z-Score</th>
+                    <th className="px-4 py-2 text-right text-slate-400">Exit Z-Score</th>
+                    <th className="px-4 py-2 text-right text-slate-400">PnL ($)</th>
+                    <th className="px-4 py-2 text-left text-slate-400">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map((pos, idx) => (
+                    <tr
+                      key={idx}
+                      className={`border-b border-slate-700 ${
+                        pos.total_pnl_usd >= 0 ? 'bg-green-900/20' : 'bg-red-900/20'
+                      }`}
+                    >
+                      <td className="px-4 py-2 text-white font-medium">
+                        {pos.market_1}/{pos.market_2}
+                      </td>
+                      <td className="px-4 py-2 text-slate-300">
+                        {new Date(pos.entry_timestamp).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-2 text-slate-300">
+                        {pos.exit_timestamp
+                          ? new Date(pos.exit_timestamp).toLocaleDateString()
+                          : '-'}
+                      </td>
+                      <td className="px-4 py-2 text-right text-slate-300">
+                        {pos.entry_zscore !== undefined && pos.entry_zscore !== null
+                          ? pos.entry_zscore.toFixed(3)
+                          : '-'}
+                      </td>
+                      <td className="px-4 py-2 text-right text-slate-300">
+                        {pos.exit_zscore !== undefined && pos.exit_zscore !== null
+                          ? pos.exit_zscore.toFixed(3)
+                          : '-'}
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right font-bold ${
+                          (pos.total_pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}
+                      >
+                        ${(pos.total_pnl_usd || 0).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-2 text-slate-300">{pos.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Trades Tab */}
+        {activeTab === 'trades' && (
+          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 overflow-x-auto">
+            <h2 className="text-xl font-bold mb-4">Trades ({trades.length})</h2>
+            {trades.length === 0 ? (
+              renderEmptyState('trade data')
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-700">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-slate-400">Pair</th>
+                    <th className="px-4 py-2 text-left text-slate-400">Entry Time</th>
+                    <th className="px-4 py-2 text-left text-slate-400">Exit Time</th>
+                    <th className="px-4 py-2 text-right text-slate-400">Duration (h)</th>
+                    <th className="px-4 py-2 text-right text-slate-400">PnL ($)</th>
+                    <th className="px-4 py-2 text-right text-slate-400">Return %</th>
+                    <th className="px-4 py-2 text-center text-slate-400">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trades.map((trade, idx) => (
+                    <tr
+                      key={idx}
+                      className={`border-b border-slate-700 ${
+                        trade.win ? 'bg-green-900/20' : 'bg-red-900/20'
+                      }`}
+                    >
+                      <td className="px-4 py-2 text-white font-medium">
+                        {trade.market_1}/{trade.market_2}
+                      </td>
+                      <td className="px-4 py-2 text-slate-300">
+                        {new Date(trade.entry_timestamp).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-2 text-slate-300">
+                        {new Date(trade.exit_timestamp).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-2 text-right text-slate-300">
+                        {(trade.duration_hours || 0).toFixed(1)}
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right font-bold ${
+                          (trade.pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}
+                      >
+                        ${(trade.pnl_usd || 0).toFixed(2)}
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right font-bold ${
+                          (trade.pnl_pct || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}
+                      >
+                        {((trade.pnl_pct || 0) / 100).toFixed(2)}%
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {trade.win ? (
+                          <ArrowUp className="w-4 h-4 text-green-400 mx-auto" />
+                        ) : (
+                          <ArrowDown className="w-4 h-4 text-red-400 mx-auto" />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Results Tab */}
+        {activeTab === 'results' && (
+          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+            <h2 className="text-xl font-bold mb-4">Detailed Results</h2>
+            <BacktestResultsEnhanced runId={runId || ''} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 export default BacktestDetailsV2;

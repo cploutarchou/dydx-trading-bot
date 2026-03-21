@@ -9,15 +9,15 @@ import { ArrowDown, ArrowUp, Loader } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    Line,
-    LineChart,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
+	Bar,
+	BarChart,
+	CartesianGrid,
+	Line,
+	LineChart,
+	ResponsiveContainer,
+	Tooltip,
+	XAxis,
+	YAxis,
 } from 'recharts';
 import api from '../api';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
@@ -74,13 +74,17 @@ interface BacktestResponse {
   run_id: string;
   status: string;
   created_at: string;
-  start_date: string;
-  end_date: string;
-  total_pnl_usd: number;
+  start_date?: string;
+  end_date?: string;
+  // Python field names
+  total_pnl: number;
+  total_pnl_usd?: number;
   win_rate: number;
   sharpe_ratio: number;
-  max_drawdown: number;
-  profit_factor: number;
+  max_drawdown_pct: number;
+  max_drawdown?: number;
+  profit_factor?: number;
+  total_trades?: number;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -132,10 +136,11 @@ export const BacktestDetailsV2: React.FC = () => {
         if (runId) {
           const response = await api.getBacktest(runId);
           const data = response?.data || response;
-          setBacktest(data);
+          setBacktest(data as unknown as BacktestResponse);
         }
-      } catch (err: any) {
-        setError(err.message || 'Failed to fetch backtest');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to fetch backtest';
+        setError(msg);
       }
     };
 
@@ -338,7 +343,7 @@ export const BacktestDetailsV2: React.FC = () => {
                   trade.duration_hours,
                   toNumber(trade.duration_minutes, 0) / 60
                 ),
-                win: toNumber(trade.pnl_usd, toNumber(trade.pnl, 0)) >= 0,
+                win: pnlUsd >= 0,
               };
             });
 
@@ -368,7 +373,7 @@ export const BacktestDetailsV2: React.FC = () => {
     const intervalId = setInterval(async () => {
       try {
         const res = await api.getBacktest(runId);
-        setBacktest(res?.data || res);
+        setBacktest((res?.data || res) as unknown as BacktestResponse);
       } catch {
         // ignore polling errors
       }
@@ -377,41 +382,16 @@ export const BacktestDetailsV2: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [backtest?.status, runId]);
 
-  // Generate Equity Curve from candles
+  // Generate Equity Curve from candles (cumulative PnL series)
   const generateEquityCurveData = () => {
     if (candles.length === 0) return [];
-
-    const startBalance = 1000;
-    let runningBalance = startBalance;
-    const data: any[] = [];
-
-    // Group candles by timestamp and calculate cumulative PnL
-    const candlesByTime = new Map<string, Candle[]>();
-
-    candles.forEach((candle) => {
-      const time = candle.timestamp;
-      if (!candlesByTime.has(time)) {
-        candlesByTime.set(time, []);
-      }
-      candlesByTime.get(time)!.push(candle);
-    });
-
-    // Calculate balance at each point
-    Array.from(candlesByTime.entries())
-      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-      .forEach(([time, marketCandles]) => {
-        // Sum PnL from all market positions at this time
-        const hourlyPnL = marketCandles.reduce((sum, c) => sum + (c.volume * 0.001 || 0), 0);
-        runningBalance += hourlyPnL;
-
-        data.push({
-          timestamp: new Date(time).toLocaleDateString(),
-          balance: runningBalance,
-          time,
-        });
-      });
-
-    return data;
+    return candles
+      .slice()
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .map((c) => ({
+        timestamp: new Date(c.timestamp).toLocaleDateString(),
+        balance: c.close,
+      }));
   };
 
   // Generate P&L by Pair
@@ -475,6 +455,8 @@ export const BacktestDetailsV2: React.FC = () => {
   const statusNorm = backtest.status.toLowerCase();
   const isRunning = statusNorm === 'running' || statusNorm === 'pending';
   const isFailed = statusNorm === 'failed' || statusNorm === 'cancelled';
+  const totalPnl = backtest.total_pnl_usd ?? backtest.total_pnl ?? 0;
+  const maxDrawdown = backtest.max_drawdown ?? backtest.max_drawdown_pct ?? 0;
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -510,19 +492,19 @@ export const BacktestDetailsV2: React.FC = () => {
   const metrics = [
     {
       label: 'Total Trades',
-      value: trades.length,
+      value: backtest.total_trades ?? trades.length,
       icon: '📊',
     },
     {
       label: 'Win Rate',
-      value: `${backtest.win_rate.toFixed(1)}%`,
+      value: `${((backtest.win_rate ?? 0) * 100).toFixed(1)}%`,
       icon: '✅',
     },
     {
       label: 'Total PnL',
-      value: `$${(backtest.total_pnl_usd || 0).toFixed(2)}`,
+      value: `$${totalPnl.toFixed(2)}`,
       icon: '💰',
-      color: (backtest.total_pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400',
+      color: totalPnl >= 0 ? 'text-green-400' : 'text-red-400',
     },
     {
       label: 'Sharpe Ratio',
@@ -534,7 +516,7 @@ export const BacktestDetailsV2: React.FC = () => {
     },
     {
       label: 'Max Drawdown',
-      value: `${(backtest.max_drawdown || 0).toFixed(1)}%`,
+      value: `${maxDrawdown.toFixed(1)}%`,
       icon: '📉',
     },
     {
@@ -555,7 +537,7 @@ export const BacktestDetailsV2: React.FC = () => {
           <h1 className="text-4xl font-bold mb-2">Backtest Results</h1>
           <div className="flex items-center gap-4 text-slate-300">
             <span>
-              {backtest.start_date} to {backtest.end_date}
+              {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
             </span>
             <span
               className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -642,7 +624,7 @@ export const BacktestDetailsV2: React.FC = () => {
                         backgroundColor: '#1e293b',
                         border: '1px solid #475569',
                       }}
-                      formatter={(value: any) => `$${(value as number).toFixed(2)}`}
+                      formatter={(value: unknown) => `$${(value as number).toFixed(2)}`}
                     />
                     <Line
                       type="monotone"
@@ -672,7 +654,7 @@ export const BacktestDetailsV2: React.FC = () => {
                         backgroundColor: '#1e293b',
                         border: '1px solid #475569',
                       }}
-                      formatter={(value: any) => `$${(value as number).toFixed(2)}`}
+                      formatter={(value: unknown) => `$${(value as number).toFixed(2)}`}
                     />
                     <Bar dataKey="pnl" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -721,7 +703,7 @@ export const BacktestDetailsV2: React.FC = () => {
                           backgroundColor: '#1e293b',
                           border: '1px solid #475569',
                         }}
-                        formatter={(value: any) => `$${(value as number).toFixed(2)}`}
+                        formatter={(value: unknown) => `$${(value as number).toFixed(2)}`}
                       />
                       <Line
                         type="monotone"
@@ -857,7 +839,7 @@ export const BacktestDetailsV2: React.FC = () => {
                           (trade.pnl_pct || 0) >= 0 ? 'text-green-400' : 'text-red-400'
                         }`}
                       >
-                        {((trade.pnl_pct || 0) / 100).toFixed(2)}%
+                        {((trade.pnl_pct || 0) * 100).toFixed(2)}%
                       </td>
                       <td className="px-4 py-2 text-center">
                         {trade.win ? (

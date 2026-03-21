@@ -675,6 +675,30 @@ class ApiClient {
     return response.data;
   }
 
+  async getBacktestAnalytics(runId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse>(`/api/v1/backtests/${runId}/analytics`);
+    return response.data;
+  }
+
+  async getBacktestPositionSnapshots(
+    runId: string,
+    limit: number = 100,
+    offset: number = 0,
+    marketPair?: string
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const params = new URLSearchParams();
+    params.append('limit', limit.toString());
+    params.append('offset', offset.toString());
+    if (marketPair) params.append('market_pair', marketPair);
+
+    const response = await this.client.get<ApiResponse>(
+      `/api/v1/backtests/${runId}/position-snapshots?${params}`
+    );
+    return response.data;
+  }
+
   // Bot Instance Management (delegated from Python bot API to backend)
   async createBotInstance(data: {
     instance_id: string;

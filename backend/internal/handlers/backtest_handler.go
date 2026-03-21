@@ -54,6 +54,7 @@ func (h *BacktestHandler) ListBacktests(c *gin.Context) {
 
 	runs, err := h.repo.GetRunsByUserID(userID.(int), skip, limit)
 	if err != nil {
+		fmt.Printf("ERROR in GetRunsByUserID: %v\n", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",

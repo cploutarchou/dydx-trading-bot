@@ -135,6 +135,18 @@ dev: ## Start development environment (with hot reload)
 	@echo "$(CYAN)🚀 Starting development environment...$(RESET)"
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up --build
 
+.PHONY: dev-api
+dev-api: ## Start bot API server locally with Python (port 8000)
+	@echo "$(CYAN)🚀 Starting bot API server on http://0.0.0.0:8000$(RESET)"
+	@echo "$(YELLOW)💡 Make sure .venv is activated$(RESET)"
+	@if [ -d .venv ]; then \
+		. .venv/bin/activate && python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload; \
+	else \
+		echo "$(RED)❌ Virtual environment not found at .venv$(RESET)"; \
+		echo "$(YELLOW)Run: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt$(RESET)"; \
+		exit 1; \
+	fi
+
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background
 	@echo "$(CYAN)🚀 Starting development environment (detached)...$(RESET)"

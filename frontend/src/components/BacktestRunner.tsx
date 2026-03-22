@@ -207,9 +207,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         },
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
       };
-      console.log('📊 BacktestRunner: Starting backtest with:', cleanedData);
-      const response = await api.runBacktest(cleanedData);
-      console.log('📊 BacktestRunner: Backtest started:', response);
+      await api.runBacktest(cleanedData);
       setSuccess(true);
       setShowSaveDialog(true);
 
@@ -218,8 +216,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
     } catch (err: any) {
       console.error('❌ BacktestRunner: Error:', err);
-      console.log('📊 BacktestRunner: Payload:', formData);
-      console.log('📊 BacktestRunner: Response error:', err.response?.data);
       setError(err.response?.data?.message || err.message || 'Failed to start backtest');
     } finally {
       setLoading(false);

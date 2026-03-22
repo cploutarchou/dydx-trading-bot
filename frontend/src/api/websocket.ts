@@ -67,8 +67,8 @@ export class WebSocketManager {
   private subscriptions = new Map<string, Subscription>();
   private messageQueue: WebSocketMessage[] = [];
   private reconnectAttempts = 0;
-  private reconnectTimer?: NodeJS.Timeout;
-  private heartbeatTimer?: NodeJS.Timeout;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private heartbeatTimer?: ReturnType<typeof setTimeout>;
   private lastHeartbeat = 0;
   private listeners = new Map<string, Set<(event: any) => void>>();
 
@@ -97,6 +97,7 @@ export class WebSocketManager {
 
   private log(message: string, ...args: any[]): void {
     if (this.config.debug) {
+      // eslint-disable-next-line no-console
       console.log(`[WebSocket] ${message}`, ...args);
     }
   }
@@ -120,8 +121,10 @@ export class WebSocketManager {
       try {
         // Add authentication token to connection
         const token = localStorage.getItem('access_token');
-        const urlWithAuth = token ? `${this.config.url}?token=${encodeURIComponent(token)}` : this.config.url;
-        
+        const urlWithAuth = token
+          ? `${this.config.url}?token=${encodeURIComponent(token)}`
+          : this.config.url;
+
         this.ws = new WebSocket(urlWithAuth, this.config.protocols);
 
         this.ws.onopen = (event) => {
@@ -143,7 +146,7 @@ export class WebSocketManager {
           this.setState(WebSocketState.DISCONNECTED);
           this.stopHeartbeat();
           this.emit('close', event);
-          
+
           // Attempt reconnection if not manually closed
           if (event.code !== 1000) {
             this.scheduleReconnect();
@@ -156,7 +159,6 @@ export class WebSocketManager {
           this.emit('error', event);
           reject(new Error('WebSocket connection failed'));
         };
-
       } catch (error) {
         this.error('Failed to create WebSocket connection', error);
         this.setState(WebSocketState.ERROR);
@@ -167,7 +169,7 @@ export class WebSocketManager {
 
   disconnect(): void {
     this.log('Disconnecting...');
-    
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -233,7 +235,7 @@ export class WebSocketManager {
   private handleMessage(event: MessageEvent): void {
     try {
       const message: WebSocketMessage = JSON.parse(event.data);
-      
+
       // Handle heartbeat
       if (message.type === MessageType.HEARTBEAT) {
         this.lastHeartbeat = Date.now();
@@ -254,7 +256,6 @@ export class WebSocketManager {
       });
 
       this.emit('message', message);
-
     } catch (error) {
       this.error('Failed to parse message', error, event.data);
     }
@@ -275,7 +276,10 @@ export class WebSocketManager {
   }
 
   send(message: WebSocketMessage | object): void {
-    const msgToSend = 'type' in message ? message : { type: 'CUSTOM', payload: message, timestamp: new Date().toISOString() };
+    const msgToSend =
+      'type' in message
+        ? message
+        : { type: 'CUSTOM', payload: message, timestamp: new Date().toISOString() };
 
     if (this.isConnected() && this.ws) {
       try {
@@ -315,7 +319,7 @@ export class WebSocketManager {
     filter?: (message: WebSocketMessage) => boolean
   ): string {
     const id = `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     const subscription: Subscription = {
       id,
       channel,
@@ -354,7 +358,7 @@ export class WebSocketManager {
   unsubscribeAll(): void {
     this.log('Removing all subscriptions');
     this.subscriptions.clear();
-    
+
     this.send({
       type: 'UNSUBSCRIBE_ALL',
       payload: {},
@@ -421,27 +425,51 @@ export class WebSocketManager {
   // ==================== Convenience Methods ====================
 
   subscribeToBotUpdates(instanceId: string, callback: (data: any) => void): string {
-    return this.subscribe(`bot.${instanceId}`, callback, (msg) => msg.type === MessageType.BOT_UPDATE);
+    return this.subscribe(
+      `bot.${instanceId}`,
+      callback,
+      (msg) => msg.type === MessageType.BOT_UPDATE
+    );
   }
 
   subscribeToTradeUpdates(instanceId: string, callback: (data: any) => void): string {
-    return this.subscribe(`bot.${instanceId}.trades`, callback, (msg) => msg.type === MessageType.TRADE_UPDATE);
+    return this.subscribe(
+      `bot.${instanceId}.trades`,
+      callback,
+      (msg) => msg.type === MessageType.TRADE_UPDATE
+    );
   }
 
   subscribeToPositionUpdates(instanceId: string, callback: (data: any) => void): string {
-    return this.subscribe(`bot.${instanceId}.positions`, callback, (msg) => msg.type === MessageType.POSITION_UPDATE);
+    return this.subscribe(
+      `bot.${instanceId}.positions`,
+      callback,
+      (msg) => msg.type === MessageType.POSITION_UPDATE
+    );
   }
 
   subscribeToAlerts(instanceId: string, callback: (data: any) => void): string {
-    return this.subscribe(`bot.${instanceId}.alerts`, callback, (msg) => msg.type === MessageType.ALERT);
+    return this.subscribe(
+      `bot.${instanceId}.alerts`,
+      callback,
+      (msg) => msg.type === MessageType.ALERT
+    );
   }
 
   subscribeToBacktestProgress(runId: string, callback: (data: any) => void): string {
-    return this.subscribe(`backtest.${runId}`, callback, (msg) => msg.type === MessageType.BACKTEST_PROGRESS);
+    return this.subscribe(
+      `backtest.${runId}`,
+      callback,
+      (msg) => msg.type === MessageType.BACKTEST_PROGRESS
+    );
   }
 
   subscribeToSystemStatus(callback: (data: any) => void): string {
-    return this.subscribe('system.status', callback, (msg) => msg.type === MessageType.SYSTEM_STATUS);
+    return this.subscribe(
+      'system.status',
+      callback,
+      (msg) => msg.type === MessageType.SYSTEM_STATUS
+    );
   }
 
   // ==================== Statistics ====================
@@ -466,7 +494,7 @@ let wasAuthenticated = enhancedApiClient.isAuthenticated();
 
 setInterval(() => {
   const isAuthenticated = enhancedApiClient.isAuthenticated();
-  
+
   if (isAuthenticated && !wasAuthenticated) {
     // User just logged in
     wsManager.connect().catch(console.error);
@@ -474,7 +502,7 @@ setInterval(() => {
     // User just logged out
     wsManager.disconnect();
   }
-  
+
   wasAuthenticated = isAuthenticated;
 }, 1000);
 

@@ -1,7 +1,7 @@
-import { AlertCircle, Check, RefreshCw, Trash2, X } from "lucide-react";
-import React, { useEffect, useState } from "react";
-import { AxiosError } from "axios";
-import api from "../api";
+import { AxiosError } from 'axios';
+import { AlertCircle, Check, RefreshCw, Trash2, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import api from '../api';
 
 interface RedisSettings {
   id: number;
@@ -49,19 +49,22 @@ interface CacheStats {
   error?: string;
 }
 
+interface RedisStatusPayload {
+  settings: RedisSettings | null;
+  connection: ConnectionStatus | null;
+  cache_stats: CacheStats | null;
+}
+
 const RedisSettings: React.FC = () => {
   const [settings, setSettings] = useState<RedisSettings | null>(null);
-  const [connectionStatus, setConnectionStatus] =
-    useState<ConnectionStatus | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [flushingCache, setFlushingCache] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [editedSettings, setEditedSettings] = useState<Partial<RedisSettings>>(
-    {}
-  );
+  const [editedSettings, setEditedSettings] = useState<Partial<RedisSettings>>({});
 
   useEffect(() => {
     fetchRedisStatus();
@@ -73,13 +76,14 @@ const RedisSettings: React.FC = () => {
       const response = await api.getRedisStatus();
 
       if (response.success && response.data) {
-        setSettings(response.data.settings || null);
-        setConnectionStatus(response.data.connection || null);
-        setCacheStats(response.data.cache_stats || null);
+        const data = response.data as unknown as RedisStatusPayload;
+        setSettings(data.settings || null);
+        setConnectionStatus(data.connection || null);
+        setCacheStats(data.cache_stats || null);
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || "Failed to load settings");
+      setError(axiosError.message || 'Failed to load settings');
     } finally {
       setLoading(false);
     }
@@ -90,14 +94,14 @@ const RedisSettings: React.FC = () => {
       setTestingConnection(true);
       const response = await api.testRedisConnection();
 
-      if (response.success) {
-        setConnectionStatus(response.data);
+      if (response.success && response.data) {
+        setConnectionStatus(response.data as unknown as ConnectionStatus);
       } else {
-        setError(response.message || "Connection test failed");
+        setError(response.message || 'Connection test failed');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || "Connection test failed");
+      setError(axiosError.message || 'Connection test failed');
     } finally {
       setTestingConnection(false);
     }
@@ -107,19 +111,19 @@ const RedisSettings: React.FC = () => {
     try {
       const response = await api.toggleRedis(!settings?.enabled);
 
-      if (response.success) {
-        setSettings(response.data);
+      if (response.success && response.data) {
+        setSettings(response.data as unknown as RedisSettings);
       } else {
-        setError(response.message || "Failed to toggle Redis");
+        setError(response.message || 'Failed to toggle Redis');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || "Failed to toggle Redis");
+      setError(axiosError.message || 'Failed to toggle Redis');
     }
   };
 
   const handleFlushCache = async () => {
-    if (!window.confirm("Are you sure? This will clear all Redis cache data.")) {
+    if (!window.confirm('Are you sure? This will clear all Redis cache data.')) {
       return;
     }
 
@@ -130,11 +134,11 @@ const RedisSettings: React.FC = () => {
       if (response.success) {
         setCacheStats({ enabled: true, total_keys: 0 });
       } else {
-        setError(response.message || "Failed to flush cache");
+        setError(response.message || 'Failed to flush cache');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || "Failed to flush cache");
+      setError(axiosError.message || 'Failed to flush cache');
     } finally {
       setFlushingCache(false);
     }
@@ -144,16 +148,16 @@ const RedisSettings: React.FC = () => {
     try {
       const response = await api.getRedisSettings();
 
-      if (response.success) {
-        setSettings(response.data);
+      if (response.success && response.data) {
+        setSettings(response.data as unknown as RedisSettings);
         setIsEditing(false);
         setError(null);
       } else {
-        setError(response.message || "Failed to save settings");
+        setError(response.message || 'Failed to save settings');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || "Failed to save settings");
+      setError(axiosError.message || 'Failed to save settings');
     }
   };
 
@@ -185,9 +189,7 @@ const RedisSettings: React.FC = () => {
             disabled={testingConnection}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition disabled:opacity-50"
           >
-            <RefreshCw
-              className={`w-4 h-4 ${testingConnection ? "animate-spin" : ""}`}
-            />
+            <RefreshCw className={`w-4 h-4 ${testingConnection ? 'animate-spin' : ''}`} />
             Test Connection
           </button>
         </div>
@@ -200,16 +202,12 @@ const RedisSettings: React.FC = () => {
                 {connectionStatus.connected ? (
                   <>
                     <Check className="w-5 h-5 text-green-400" />
-                    <span className="text-green-400 font-semibold">
-                      Connected
-                    </span>
+                    <span className="text-green-400 font-semibold">Connected</span>
                   </>
                 ) : (
                   <>
                     <X className="w-5 h-5 text-red-400" />
-                    <span className="text-red-400 font-semibold">
-                      Disconnected
-                    </span>
+                    <span className="text-red-400 font-semibold">Disconnected</span>
                   </>
                 )}
               </div>
@@ -221,7 +219,7 @@ const RedisSettings: React.FC = () => {
                   <div className="p-3 bg-slate-700/50 rounded-lg">
                     <p className="text-slate-400 text-sm">Redis Version</p>
                     <p className="text-white font-mono">
-                      {connectionStatus.redis_version || "N/A"}
+                      {connectionStatus.redis_version || 'N/A'}
                     </p>
                   </div>
                   <div className="p-3 bg-slate-700/50 rounded-lg">
@@ -229,7 +227,7 @@ const RedisSettings: React.FC = () => {
                     <p className="text-white font-mono">
                       {connectionStatus.uptime_seconds
                         ? `${Math.floor(connectionStatus.uptime_seconds / 3600)}h`
-                        : "N/A"}
+                        : 'N/A'}
                     </p>
                   </div>
                   <div className="p-3 bg-slate-700/50 rounded-lg">
@@ -240,9 +238,7 @@ const RedisSettings: React.FC = () => {
                   </div>
                   <div className="p-3 bg-slate-700/50 rounded-lg">
                     <p className="text-slate-400 text-sm">Memory Used</p>
-                    <p className="text-white font-mono">
-                      {connectionStatus.used_memory_mb}MB
-                    </p>
+                    <p className="text-white font-mono">{connectionStatus.used_memory_mb}MB</p>
                   </div>
                 </div>
               </>
@@ -256,21 +252,19 @@ const RedisSettings: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold text-white">Enable Redis</h2>
-            <p className="text-slate-400 text-sm mt-1">
-              Toggle Redis caching functionality on/off
-            </p>
+            <p className="text-slate-400 text-sm mt-1">Toggle Redis caching functionality on/off</p>
           </div>
           <button
             onClick={handleToggleRedis}
             className={`relative inline-flex h-8 w-14 rounded-full transition ${
               settings?.enabled
-                ? "bg-green-600 hover:bg-green-700"
-                : "bg-slate-600 hover:bg-slate-700"
+                ? 'bg-green-600 hover:bg-green-700'
+                : 'bg-slate-600 hover:bg-slate-700'
             }`}
           >
             <span
               className={`inline-block h-7 w-7 transform rounded-full bg-white transition ${
-                settings?.enabled ? "translate-x-7" : "translate-x-0"
+                settings?.enabled ? 'translate-x-7' : 'translate-x-0'
               }`}
             />
           </button>
@@ -298,12 +292,10 @@ const RedisSettings: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">
-                  Host
-                </label>
+                <label className="block text-slate-300 text-sm font-medium mb-2">Host</label>
                 <input
                   type="text"
-                  value={editedSettings.host || ""}
+                  value={editedSettings.host || ''}
                   onChange={(e) =>
                     setEditedSettings({
                       ...editedSettings,
@@ -314,12 +306,10 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">
-                  Port
-                </label>
+                <label className="block text-slate-300 text-sm font-medium mb-2">Port</label>
                 <input
                   type="number"
-                  value={editedSettings.port || ""}
+                  value={editedSettings.port || ''}
                   onChange={(e) =>
                     setEditedSettings({
                       ...editedSettings,
@@ -330,12 +320,10 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">
-                  Database
-                </label>
+                <label className="block text-slate-300 text-sm font-medium mb-2">Database</label>
                 <input
                   type="number"
-                  value={editedSettings.database || ""}
+                  value={editedSettings.database || ''}
                   onChange={(e) =>
                     setEditedSettings({
                       ...editedSettings,
@@ -351,7 +339,7 @@ const RedisSettings: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  value={editedSettings.timeout || ""}
+                  value={editedSettings.timeout || ''}
                   onChange={(e) =>
                     setEditedSettings({
                       ...editedSettings,
@@ -362,12 +350,10 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-slate-300 text-sm font-medium mb-2">
-                  Password
-                </label>
+                <label className="block text-slate-300 text-sm font-medium mb-2">Password</label>
                 <input
                   type="password"
-                  value={editedSettings.password || ""}
+                  value={editedSettings.password || ''}
                   onChange={(e) =>
                     setEditedSettings({
                       ...editedSettings,
@@ -387,7 +373,7 @@ const RedisSettings: React.FC = () => {
               </label>
               <input
                 type="number"
-                value={editedSettings.cache_ttl_seconds || ""}
+                value={editedSettings.cache_ttl_seconds || ''}
                 onChange={(e) =>
                   setEditedSettings({
                     ...editedSettings,
@@ -396,35 +382,27 @@ const RedisSettings: React.FC = () => {
                 }
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
               />
-              <p className="text-slate-400 text-xs mt-1">
-                Default: 24 hours (86400 seconds)
-              </p>
+              <p className="text-slate-400 text-xs mt-1">Default: 24 hours (86400 seconds)</p>
             </div>
 
             {/* Cache Features */}
             <div className="bg-slate-700/50 rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-slate-200">
-                Cache Features
-              </h3>
+              <h3 className="text-sm font-medium text-slate-200">Cache Features</h3>
               {[
                 {
-                  key: "cache_backtest_results",
-                  label: "Cache Backtest Results",
+                  key: 'cache_backtest_results',
+                  label: 'Cache Backtest Results',
                 },
-                { key: "cache_market_data", label: "Cache Market Data" },
+                { key: 'cache_market_data', label: 'Cache Market Data' },
                 {
-                  key: "cache_analysis_results",
-                  label: "Cache Analysis Results",
+                  key: 'cache_analysis_results',
+                  label: 'Cache Analysis Results',
                 },
               ].map((feature) => (
                 <label key={feature.key} className="flex items-center gap-3">
                   <input
                     type="checkbox"
-                    checked={
-                      editedSettings[
-                        feature.key as keyof Partial<RedisSettings>
-                      ] as boolean
-                    }
+                    checked={editedSettings[feature.key as keyof Partial<RedisSettings>] as boolean}
                     onChange={(e) =>
                       setEditedSettings({
                         ...editedSettings,
@@ -477,7 +455,8 @@ const RedisSettings: React.FC = () => {
             <div className="p-3 bg-slate-700/50 rounded-lg">
               <p className="text-slate-400 text-sm">Cache TTL</p>
               <p className="text-white font-mono">
-                {settings?.cache_ttl_seconds}s ({Math.floor((settings?.cache_ttl_seconds || 0) / 3600)}h)
+                {settings?.cache_ttl_seconds}s (
+                {Math.floor((settings?.cache_ttl_seconds || 0) / 3600)}h)
               </p>
             </div>
           </div>
@@ -502,9 +481,7 @@ const RedisSettings: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-700/50 rounded-lg">
               <p className="text-slate-400 text-sm">Total Keys</p>
-              <p className="text-2xl font-bold text-green-400">
-                {cacheStats.total_keys || 0}
-              </p>
+              <p className="text-2xl font-bold text-green-400">{cacheStats.total_keys || 0}</p>
             </div>
             <div className="p-4 bg-slate-700/50 rounded-lg">
               <p className="text-slate-400 text-sm">Cache Hit Rate</p>
@@ -520,9 +497,7 @@ const RedisSettings: React.FC = () => {
             </div>
             <div className="p-4 bg-slate-700/50 rounded-lg">
               <p className="text-slate-400 text-sm">Evictions</p>
-              <p className="text-2xl font-bold text-orange-400">
-                {cacheStats.evictions || 0}
-              </p>
+              <p className="text-2xl font-bold text-orange-400">{cacheStats.evictions || 0}</p>
             </div>
           </div>
         </div>

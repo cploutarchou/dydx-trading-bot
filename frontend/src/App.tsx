@@ -39,7 +39,6 @@ export const App: React.FC = () => {
   const initializeSession = useAuthStore((state) => state.initializeSession);
 
   useEffect(() => {
-    console.log('🔧 App.tsx: Component mounted, setting mounted=true');
     setMounted(true);
   }, []);
 
@@ -85,7 +84,6 @@ export const App: React.FC = () => {
     );
   }
 
-  console.log('🔧 App.tsx: Rendering router with enhanced features');
   return (
     <QueryProvider>
       <EnhancedErrorBoundary>

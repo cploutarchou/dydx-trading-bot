@@ -134,7 +134,6 @@ export default function StrategyBuilder() {
   useEffect(() => {
     const preloadedConfig = getPreloadedConfig();
     if (preloadedConfig && !isEditMode) {
-      console.log('📋 Loading preloaded strategy config:', preloadedConfig);
       reset({
         ...formValues,
         ...preloadedConfig,
@@ -230,8 +229,6 @@ export default function StrategyBuilder() {
       }
     } catch (err: any) {
       console.error('Submit error:', err);
-      console.log('Payload:', data);
-      console.log('Response:', err.response?.data);
       setError(err.response?.data?.message || err.message || 'An error occurred');
     } finally {
       setLoading(false);

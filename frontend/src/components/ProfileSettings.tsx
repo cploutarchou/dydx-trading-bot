@@ -32,11 +32,12 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
     const loadUserData = async () => {
       try {
         const response = await apiClient.getCurrentUser();
-        const userData = response.data || response;
-        console.log('✅ ProfileSettings: Loaded fresh user data:', userData);
-        
-        // Update auth store with fresh data
-        useAuthStore.setState({ user: userData });
+        const userData = response.data;
+
+        if (userData) {
+          // Update auth store with fresh data
+          useAuthStore.setState({ user: userData });
+        }
       } catch (error) {
         console.error('❌ ProfileSettings: Failed to load user data:', error);
       }
@@ -82,20 +83,20 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
       setSaving(true);
       setMessage(null);
 
-      const profileData: ProfileUpdateData = {
-        full_name: fullName || null,
-        email: email,
+      const profileData = {
+        full_name: fullName || undefined,
+        email,
         avatar: avatar || undefined,
       };
 
       // Call API to save profile
       const response = await apiClient.updateProfile(profileData);
-      
-      if (response.success) {
+
+      if (response.success && response.data?.user) {
         // Update auth store with new user data
-        const { user: updatedUser } = response.data;
+        const updatedUser = response.data.user;
         useAuthStore.setState({ user: updatedUser });
-        
+
         setMessage({ type: 'success', text: 'Profile saved successfully' });
       } else {
         setMessage({
@@ -104,7 +105,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
         });
       }
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to save profile';
+      const errorMessage =
+        error.response?.data?.detail || error.message || 'Failed to save profile';
       setMessage({
         type: 'error',
         text: errorMessage,
@@ -247,7 +249,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           <label className="block">
             <div className="flex items-center gap-2 mb-2">
               <span className="font-semibold text-white">Username</span>
-              <span className="text-gray-500 text-xs bg-slate-700 px-2 py-1 rounded">READ-ONLY</span>
+              <span className="text-gray-500 text-xs bg-slate-700 px-2 py-1 rounded">
+                READ-ONLY
+              </span>
             </div>
             <p className="text-sm text-gray-400 mb-3">Your unique username cannot be changed</p>
 
@@ -309,7 +313,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
       <div className="mt-6 p-4 bg-blue-900 border border-blue-700 rounded-lg">
         <h4 className="font-semibold text-blue-200 mb-2">💡 Privacy Note</h4>
         <p className="text-sm text-blue-100">
-          Your profile information is private and only visible to you. Email is used for account recovery and notifications.
+          Your profile information is private and only visible to you. Email is used for account
+          recovery and notifications.
         </p>
       </div>
     </div>

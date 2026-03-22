@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -116,14 +115,9 @@ func (m *Manager) DecodeToken(tokenString string) (*TokenClaims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(m.config.Secret), nil
-	})
+	}, jwt.WithLeeway(60*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
-	}
-
-	// Check expiry
-	if claims.ExpiresAt == nil || claims.ExpiresAt.Time.Before(time.Now()) {
-		return nil, errors.New("token expired")
 	}
 
 	return claims, nil

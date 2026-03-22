@@ -147,14 +147,13 @@ export default function StrategyLibrary() {
         return;
       }
 
-
       // Call API to run backtest using strategy_id
       const response = await api.runBacktest(runPayload);
 
-
-      if (response.data?.run_id) {
-        // Navigate to backtest results page
-        navigate(`/backtest/${response.data.run_id}`);
+      // Handle both wrapped (ApiResponse.data.run_id) and direct (response.run_id) formats
+      const runId = (response as any)?.run_id || (response as any)?.data?.run_id;
+      if (runId) {
+        navigate(`/backtest/${runId}`);
         setRunModalOpen(false);
         setSelectedStrategy(null);
       } else {

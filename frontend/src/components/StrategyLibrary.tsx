@@ -58,7 +58,7 @@ export default function StrategyLibrary() {
       setError(null);
       const response = await api.listStrategies(currentPage * ITEMS_PER_PAGE, ITEMS_PER_PAGE);
       if (response.data) {
-        setStrategies(response.data.strategies || []);
+        setStrategies((response.data.strategies || []) as Strategy[]);
         setTotalStrategies(response.data.total || 0);
       }
     } catch (err: any) {
@@ -90,7 +90,7 @@ export default function StrategyLibrary() {
 
       const response = await api.createStrategy(duplicatedStrategy);
       if (response.data) {
-        setStrategies([...strategies, response.data]);
+        setStrategies([...strategies, response.data as Strategy]);
       }
     } catch (err: any) {
       console.error('Failed to duplicate strategy:', err);
@@ -134,11 +134,6 @@ export default function StrategyLibrary() {
 
       // Check if token exists
       const token = localStorage.getItem('access_token');
-      console.log('🔄 Token check:', {
-        hasToken: !!token,
-        tokenLength: token?.length || 0,
-        tokenpreview: token ? `${token.substring(0, 20)}...` : 'NONE',
-      });
 
       if (!token) {
         console.error('❌ No auth token found - user needs to login');
@@ -152,29 +147,12 @@ export default function StrategyLibrary() {
         return;
       }
 
-      console.log('🔄 Executing backtest with token present');
-      console.log('📦 Rerun payload:', runPayload);
-      console.log('🧠 Strategy snapshot used for rerun:', {
-        id: selectedStrategy.id,
-        name: selectedStrategy.name,
-        zscore_threshold: selectedStrategy.zscore_threshold,
-        stats_window: selectedStrategy.stats_window,
-        max_half_life: selectedStrategy.max_half_life,
-        usd_per_trade: selectedStrategy.usd_per_trade,
-        max_positions: selectedStrategy.max_positions,
-        max_drawdown_pct: selectedStrategy.max_drawdown_pct,
-        stop_loss_pct: selectedStrategy.stop_loss_pct,
-        take_profit_pct: selectedStrategy.take_profit_pct,
-        trailing_stop_pct: selectedStrategy.trailing_stop_pct,
-      });
 
       // Call API to run backtest using strategy_id
       const response = await api.runBacktest(runPayload);
 
-      console.log('✅ Backtest response received:', response);
 
       if (response.data?.run_id) {
-        console.log('✅ Navigating to backtest results:', response.data.run_id);
         // Navigate to backtest results page
         navigate(`/backtest/${response.data.run_id}`);
         setRunModalOpen(false);

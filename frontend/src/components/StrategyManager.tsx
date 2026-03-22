@@ -1,6 +1,6 @@
 /**
  * Strategy Manager Component
- * 
+ *
  * Manages multiple strategies with:
  * - List of active strategies
  * - Enable/Disable toggles (async, non-blocking)
@@ -10,7 +10,16 @@
  * - Thread-safe execution
  */
 
-import { AlertCircle, AlertTriangle, BarChart3, Copy, Pause, Play, Settings, Trash2 } from 'lucide-react';
+import {
+    AlertCircle,
+    AlertTriangle,
+    BarChart3,
+    Copy,
+    Pause,
+    Play,
+    Settings,
+    Trash2,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import apiClient from '../api';
 import { Strategy, useStrategyStore } from '../store/strategies';
@@ -56,7 +65,6 @@ export default function StrategyManager() {
 
         ws.onopen = () => {
           setWebSocketConnected(true);
-          console.log('✅ Strategy WebSocket connected');
         };
 
         ws.onmessage = (event) => {
@@ -167,7 +175,14 @@ export default function StrategyManager() {
     }
 
     try {
-      await apiClient.updateStrategy(editingConfig.id, editingConfig);
+      const updatePayload = {
+        name: editingConfig.name || 'Untitled Strategy',
+        description: editingConfig.description,
+        zscore_threshold: editingConfig.zscore_threshold,
+        max_half_life: editingConfig.max_half_life,
+        usd_per_trade: editingConfig.usd_per_trade,
+      };
+      await apiClient.updateStrategy(editingConfig.id, updatePayload);
 
       setMessage({
         type: 'success',
@@ -212,7 +227,7 @@ export default function StrategyManager() {
         end_date: endDate.toISOString().split('T')[0],
       });
 
-      if (response.success || response.run_id) {
+      if (response.success || response.data?.run_id) {
         setMessage({
           type: 'success',
           text: `✅ Backtest started for "${strategy.name}"`,
@@ -329,7 +344,9 @@ export default function StrategyManager() {
               <div
                 key={strategy.id}
                 className={`bg-slate-800 rounded-lg border transition-all duration-300 p-6 ${
-                  status.status === 'running' ? 'border-green-600 shadow-lg shadow-green-900/50' : 'border-slate-700'
+                  status.status === 'running'
+                    ? 'border-green-600 shadow-lg shadow-green-900/50'
+                    : 'border-slate-700'
                 }`}
               >
                 {/* Strategy Header */}
@@ -353,8 +370,8 @@ export default function StrategyManager() {
                         status.status === 'running'
                           ? 'bg-green-400 animate-pulse'
                           : status.status === 'error'
-                          ? 'bg-red-400'
-                          : 'bg-gray-400'
+                            ? 'bg-red-400'
+                            : 'bg-gray-400'
                       }`}
                     />
                     <span className={`text-sm font-medium ${getStatusColor(status.status)}`}>
@@ -408,7 +425,11 @@ export default function StrategyManager() {
                           : 'bg-red-900/20 border-red-700'
                       }`}
                     >
-                      <p className={status.pnl && status.pnl > 0 ? 'text-green-300' : 'text-red-300'}>P&L</p>
+                      <p
+                        className={status.pnl && status.pnl > 0 ? 'text-green-300' : 'text-red-300'}
+                      >
+                        P&L
+                      </p>
                       <p
                         className={`font-bold text-lg ${
                           status.pnl && status.pnl > 0 ? 'text-green-100' : 'text-red-100'
@@ -518,7 +539,9 @@ export default function StrategyManager() {
                 <label className="block text-white font-medium mb-2">
                   Z-Score Threshold
                   {configErrors.zscore_threshold && (
-                    <span className="text-red-400 text-sm ml-2">• {configErrors.zscore_threshold}</span>
+                    <span className="text-red-400 text-sm ml-2">
+                      • {configErrors.zscore_threshold}
+                    </span>
                   )}
                 </label>
                 <input
@@ -535,7 +558,9 @@ export default function StrategyManager() {
                   }
                   className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <p className="text-gray-400 text-xs mt-1">Entry trigger when |Z-score| exceeds this</p>
+                <p className="text-gray-400 text-xs mt-1">
+                  Entry trigger when |Z-score| exceeds this
+                </p>
               </div>
 
               {/* USD Per Trade */}
@@ -543,7 +568,9 @@ export default function StrategyManager() {
                 <label className="block text-white font-medium mb-2">
                   USD Per Trade
                   {configErrors.usd_per_trade && (
-                    <span className="text-red-400 text-sm ml-2">• {configErrors.usd_per_trade}</span>
+                    <span className="text-red-400 text-sm ml-2">
+                      • {configErrors.usd_per_trade}
+                    </span>
                   )}
                 </label>
                 <input
@@ -564,7 +591,9 @@ export default function StrategyManager() {
 
               {/* Max Positions */}
               <div>
-                <label className="block text-white font-medium mb-2">Max Concurrent Positions</label>
+                <label className="block text-white font-medium mb-2">
+                  Max Concurrent Positions
+                </label>
                 <input
                   type="number"
                   step="1"
@@ -587,7 +616,9 @@ export default function StrategyManager() {
                 <label className="block text-white font-medium mb-2">
                   Max Drawdown %
                   {configErrors.max_drawdown_pct && (
-                    <span className="text-red-400 text-sm ml-2">• {configErrors.max_drawdown_pct}</span>
+                    <span className="text-red-400 text-sm ml-2">
+                      • {configErrors.max_drawdown_pct}
+                    </span>
                   )}
                 </label>
                 <input
@@ -604,7 +635,9 @@ export default function StrategyManager() {
                   }
                   className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <p className="text-gray-400 text-xs mt-1">Stop if account drawdown exceeds this %</p>
+                <p className="text-gray-400 text-xs mt-1">
+                  Stop if account drawdown exceeds this %
+                </p>
               </div>
 
               {/* Take Profit */}

@@ -37,7 +37,7 @@ export interface AuthResponse {
 }
 
 export interface User {
-  id: string;
+  id: number;
   username: string;
   email: string;
   full_name?: string;
@@ -45,7 +45,7 @@ export interface User {
   is_active: boolean;
   is_admin: boolean;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
   profile?: UserProfile;
 }
 
@@ -191,7 +191,12 @@ export interface BotAlert {
 }
 
 export type AlertSeverity = 'CRITICAL' | 'ERROR' | 'WARNING' | 'INFO';
-export type AlertType = 'TRADE_ERROR' | 'CONNECTION_ERROR' | 'RISK_ALERT' | 'PERFORMANCE_ALERT' | 'SYSTEM_ERROR';
+export type AlertType =
+  | 'TRADE_ERROR'
+  | 'CONNECTION_ERROR'
+  | 'RISK_ALERT'
+  | 'PERFORMANCE_ALERT'
+  | 'SYSTEM_ERROR';
 
 export interface BotRealtimeStats {
   bot_instance_id: string;

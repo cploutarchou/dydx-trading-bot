@@ -1,6 +1,6 @@
 /**
  * Trade History Component - Task 19
- * 
+ *
  * Displays paginated table of all trades in a backtest:
  * - Entry/exit prices and timestamps
  * - Market pairs and trade sides
@@ -31,11 +31,6 @@ interface Trade {
   duration_hours: number;
 }
 
-interface TradesResponse {
-  trades: Trade[];
-  total: number;
-}
-
 interface TradeHistoryProps {
   runId: string;
   onTradeSelect?: (trade: Trade) => void;
@@ -58,9 +53,9 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
       setLoading(true);
       setError(null);
       const response = await apiClient.getBacktestTrades(runId, limit, offset);
-      if (response.success) {
-        const data = response.data as TradesResponse;
-        setTrades(data.trades || []);
+      if (response.success && response.data) {
+        const data = response.data;
+        setTrades((Array.isArray(data.trades) ? data.trades : []) as unknown as Trade[]);
         setTotal(data.total || 0);
       } else {
         setError(response.message || 'Failed to load trades');
@@ -74,7 +69,11 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return (
+      date.toLocaleDateString() +
+      ' ' +
+      date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    );
   };
 
   const currentPage = Math.floor(offset / limit) + 1;
@@ -93,9 +92,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-        {error}
-      </div>
+      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>
     );
   }
 
@@ -136,8 +133,12 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
               {trades.map((trade, index) => (
                 <tr key={trade.id} className="hover:bg-slate-700 transition-colors">
                   <td className="px-4 py-3 text-gray-300">{offset + index + 1}</td>
-                  <td className="px-4 py-3 text-gray-300 text-xs">{formatDate(trade.entry_timestamp)}</td>
-                  <td className="px-4 py-3 text-gray-300 text-xs">{formatDate(trade.exit_timestamp)}</td>
+                  <td className="px-4 py-3 text-gray-300 text-xs">
+                    {formatDate(trade.entry_timestamp)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-300 text-xs">
+                    {formatDate(trade.exit_timestamp)}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="font-mono text-xs">
                       <div className="text-blue-400">{trade.market_1}</div>
@@ -156,7 +157,9 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
                     <div className={trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
                       ${trade.pnl.toFixed(2)}
                     </div>
-                    <div className={`text-xs ${trade.pnl_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    <div
+                      className={`text-xs ${trade.pnl_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                    >
                       ({trade.pnl_pct.toFixed(2)}%)
                     </div>
                   </td>

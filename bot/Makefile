@@ -11,6 +11,7 @@ ENV_FILE := $(DOCKER_DIR)/.env
 PROJECT_NAME := dydx-trading-bot
 DOCKER_REPO := dydx-trading-bot
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "latest")
+VENV_PYTHON := .venv/bin/python
 
 # Colors for output
 RED := \033[0;31m
@@ -138,9 +139,8 @@ dev: ## Start development environment (with hot reload)
 .PHONY: dev-api
 dev-api: ## Start bot API server locally with Python (port 8000)
 	@echo "$(CYAN)🚀 Starting bot API server on http://0.0.0.0:8000$(RESET)"
-	@echo "$(YELLOW)💡 Make sure .venv is activated$(RESET)"
 	@if [ -d .venv ]; then \
-		. .venv/bin/activate && python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload; \
+		$(VENV_PYTHON) -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload; \
 	else \
 		echo "$(RED)❌ Virtual environment not found at .venv$(RESET)"; \
 		echo "$(YELLOW)Run: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt$(RESET)"; \
@@ -336,22 +336,22 @@ update: ## Update all images to latest versions
 .PHONY: preflight-testnet
 preflight-testnet: ## Run local testnet preflight with production-like simulation checks
 	@echo "$(CYAN)🧪 Running testnet preflight checks...$(RESET)"
-	@python3 scripts/testnet_preflight.py --simulate-production
+	@$(VENV_PYTHON) scripts/testnet_preflight.py --simulate-production
 
 .PHONY: preflight-testnet-strict
 preflight-testnet-strict: ## Run strict preflight (warnings fail)
 	@echo "$(CYAN)🧪 Running strict testnet preflight checks...$(RESET)"
-	@python3 scripts/testnet_preflight.py --simulate-production --strict
+	@$(VENV_PYTHON) scripts/testnet_preflight.py --simulate-production --strict
 
 .PHONY: test-execution-safety
 test-execution-safety: ## Run regression test for emergency cleanup on second-leg failure
 	@echo "$(CYAN)🧪 Running execution safety regression tests...$(RESET)"
-	@PYTHONPATH=$(PWD) pytest -q tests/test_bot_agent_emergency_cleanup.py
+	@PYTHONPATH=$(PWD) $(VENV_PYTHON) -m pytest -q tests/test_bot_agent_emergency_cleanup.py
 
 .PHONY: simulate-production-profile
 simulate-production-profile: ## Run baseline vs production-profile simulation via backtest API
 	@echo "$(CYAN)📈 Running production-profile simulation...$(RESET)"
-	@python3 scripts/simulate_production_profile.py --skip-auth
+	@$(VENV_PYTHON) scripts/simulate_production_profile.py --skip-auth
 
 .PHONY: ps
 ps: ## Show running containers

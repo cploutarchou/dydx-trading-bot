@@ -5,10 +5,18 @@ This file is NOT run by pytest. It's a standalone script for manual testing.
 Use with: python app/manual_trading_test.py
 """
 
+if __name__ != "__main__":
+    import pytest
+
+    pytest.skip(
+        "manual_trading_test.py is a manual script and is excluded from automated test runs",
+        allow_module_level=True,
+    )
+
 import asyncio
 
-from functions.func_connections import connect_dydx
-from functions.func_private import place_market_order
+from src.trading.account_manager import place_market_order
+from src.trading.dydx_client import connect_dydx
 
 
 async def main():

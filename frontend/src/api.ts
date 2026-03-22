@@ -5,6 +5,7 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
+const BOT_API_BASE_URL = import.meta.env.VITE_BOT_API_URL || 'http://localhost:8889';
 
 // Type-safe error message extractor
 const getErrorMessage = (error: unknown): string => {
@@ -1157,7 +1158,21 @@ class ApiClient {
 
   // Backwards-compatible helper specifically for backtest progress
   connectBacktestSocket(runId: string, token?: string): WebSocket {
-    return this.connectSocket(`/ws/backtest/${runId}`, token);
+    const useToken = token || this.getTokenFromStorage() || '';
+
+    try {
+      const botApiUrl = new URL(BOT_API_BASE_URL);
+      const wsProtocol = botApiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      const botHost = botApiUrl.host;
+      const wsUrl = `${wsProtocol}//${botHost}/api/v1/backtests/${encodeURIComponent(runId)}/live${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
+      return new WebSocket(wsUrl);
+    } catch (e) {
+      console.warn(
+        '⚠️ api.ts: Failed to parse VITE_BOT_API_URL for backtest WebSocket, falling back to generic socket path',
+        e
+      );
+      return this.connectSocket(`/api/v1/backtests/${encodeURIComponent(runId)}/live`, token);
+    }
   }
 
   // Keys Management (centralized from DYDXKeyManager.tsx)

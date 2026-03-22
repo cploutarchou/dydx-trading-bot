@@ -115,7 +115,7 @@ func main() {
 	// Initialize bot API client for delegating calls to Python bot API
 	botAPIURL := os.Getenv("BOT_API_URL")
 	if botAPIURL == "" {
-		botAPIURL = "http://localhost:8000" // Default to local bot API
+		botAPIURL = "http://localhost:8889" // Default to local bot API
 	}
 	botAPIToken := os.Getenv("BOT_API_TOKEN")
 	// Token will typically be obtained via login in the frontend

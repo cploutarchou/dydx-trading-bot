@@ -4,6 +4,7 @@ Test script to verify API database integration endpoints
 Tests bot history, jobs, trades, and statistics endpoints
 """
 import logging
+import uuid
 
 from internal.domain import BotStatusEnum
 from src.infrastructure.database import db
@@ -33,9 +34,19 @@ def test_api_database_integration():
         # ====================================================================
         print("📝 SETUP: Creating test bot with sample data...")
 
+        run_suffix = uuid.uuid4().hex[:8]
+        api_test_bot_instance_id = f"api-test-bot-{run_suffix}"
+        lifecycle_bot_instance_id = f"lifecycle-test-bot-{run_suffix}"
+        coint_job_id = f"coint-job-{run_suffix}"
+        trade_job_id = f"trade-job-{run_suffix}"
+        trade_one_id = f"trade-{run_suffix}-001"
+        trade_two_id = f"trade-{run_suffix}-002"
+        lifecycle_job_id = f"lifecycle-job-{run_suffix}"
+        lifecycle_trade_id = f"lifecycle-trade-{run_suffix}"
+
         # Create bot instance
         bot = uow.bots.create_bot(
-            instance_id="api-test-bot-001",
+            instance_id=api_test_bot_instance_id,
             network="testnet",
             strategy="test_strategy",
             config={
@@ -46,9 +57,7 @@ def test_api_database_integration():
         print(f"✅ Bot created: {bot.instance_id} (id={bot.id})")
 
         # Update bot status
-        uow.bots.update_status(
-            "api-test-bot-001", BotStatusEnum.RUNNING, process_id=54321
-        )
+        uow.bots.update_status(api_test_bot_instance_id, BotStatusEnum.RUNNING, process_id=54321)
         print("✅ Bot status updated to RUNNING (PID: 54321)")
 
         # ====================================================================
@@ -97,26 +106,26 @@ def test_api_database_integration():
         print("-" * 80)
 
         # Create jobs
-        job1 = uow.jobs.create_job("coint-job-001", bot.id, "cointegration_analysis")
+        job1 = uow.jobs.create_job(coint_job_id, bot.id, "cointegration_analysis")
         print(f"✅ Job 1 created: {job1.job_id}")
 
         # Start job
-        uow.jobs.start_job("coint-job-001", process_id=55001)
+        uow.jobs.start_job(coint_job_id, process_id=55001)
         print("✅ Job 1 started (PID: 55001)")
 
         # Complete job
         uow.jobs.complete_job(
-            "coint-job-001",
+            coint_job_id,
             result={"pairs_analyzed": 100, "cointegrated": [["ETH", "BTC"]]},
             execution_time_ms=2500,
         )
         print("✅ Job 1 completed (2500ms)")
 
         # Create another job that failed
-        job2 = uow.jobs.create_job("trade-job-001", bot.id, "trade_entry")
-        uow.jobs.start_job("trade-job-001", process_id=55002)
+        job2 = uow.jobs.create_job(trade_job_id, bot.id, "trade_entry")
+        uow.jobs.start_job(trade_job_id, process_id=55002)
         uow.jobs.fail_job(
-            "trade-job-001",
+            trade_job_id,
             error_message="Insufficient balance",
             error_traceback="Traceback: ...",
         )
@@ -144,7 +153,7 @@ def test_api_database_integration():
 
         # Create opened trade
         trade1 = uow.trades.create_trade(
-            trade_id="trade-001",
+            trade_id=trade_one_id,
             bot_id=bot.id,
             pair1="ETH",
             pair2="BTC",
@@ -157,7 +166,7 @@ def test_api_database_integration():
 
         # Close trade with P&L
         uow.trades.close_trade(
-            "trade-001",
+            trade_one_id,
             exit_price1=2100,
             exit_price2=46000,
             exit_size1=1.0,
@@ -167,7 +176,7 @@ def test_api_database_integration():
 
         # Create another open trade
         trade2 = uow.trades.create_trade(
-            trade_id="trade-002",
+            trade_id=trade_two_id,
             bot_id=bot.id,
             pair1="USDC",
             pair2="USDT",
@@ -203,7 +212,7 @@ def test_api_database_integration():
         print("-" * 80)
 
         # Get bot statistics
-        bot_stats = uow.bots.get_statistics("api-test-bot-001")
+        bot_stats = uow.bots.get_statistics(api_test_bot_instance_id)
         print("\n📊 Bot Statistics:")
         print(f"   Total Trades: {bot_stats.get('total_trades')}")
         print(f"   Successful Trades: {bot_stats.get('successful_trades')}")
@@ -234,7 +243,7 @@ def test_api_database_integration():
 
         # Create a new bot (simulates POST /api/v1/bots)
         bot2 = uow.bots.create_bot(
-            instance_id="lifecycle-test-bot",
+            instance_id=lifecycle_bot_instance_id,
             network="mainnet",
             strategy="test_lifecycle",
             config={"test": True},
@@ -242,24 +251,20 @@ def test_api_database_integration():
         print(f"✅ Bot created: {bot2.instance_id}")
 
         # Start bot (simulates POST /api/v1/bots/{id}/start)
-        uow.bots.update_status(
-            "lifecycle-test-bot", BotStatusEnum.RUNNING, process_id=66666
-        )
+        uow.bots.update_status(lifecycle_bot_instance_id, BotStatusEnum.RUNNING, process_id=66666)
         uow.events.log_event(bot2.id, "bot_started", "info", "Bot started")
         print("✅ Bot started (PID: 66666)")
 
         # Create a job (simulates bot executing a job)
-        job = uow.jobs.create_job("lifecycle-job", bot2.id, "analysis")
-        uow.jobs.start_job("lifecycle-job", process_id=66667)
+        job = uow.jobs.create_job(lifecycle_job_id, bot2.id, "analysis")
+        uow.jobs.start_job(lifecycle_job_id, process_id=66667)
         uow.events.log_event(
             bot2.id, "job_started", "info", "Job started", related_job_id=job.job_id
         )
         print(f"✅ Job started: {job.job_id}")
 
         # Complete job
-        uow.jobs.complete_job(
-            "lifecycle-job", result={"success": True}, execution_time_ms=1000
-        )
+        uow.jobs.complete_job(lifecycle_job_id, result={"success": True}, execution_time_ms=1000)
         uow.events.log_event(
             bot2.id, "job_completed", "info", "Job completed", related_job_id=job.job_id
         )
@@ -267,7 +272,7 @@ def test_api_database_integration():
 
         # Create a trade
         trade = uow.trades.create_trade(
-            trade_id="lifecycle-trade",
+            trade_id=lifecycle_trade_id,
             bot_id=bot2.id,
             pair1="BTC",
             pair2="USD",
@@ -287,7 +292,7 @@ def test_api_database_integration():
 
         # Close trade
         uow.trades.close_trade(
-            "lifecycle-trade",
+            lifecycle_trade_id,
             exit_price1=46000,
             exit_price2=1.0,
             exit_size1=0.1,
@@ -303,7 +308,7 @@ def test_api_database_integration():
         print("✅ Trade closed with P&L")
 
         # Stop bot (simulates POST /api/v1/bots/{id}/stop)
-        uow.bots.update_status("lifecycle-test-bot", BotStatusEnum.STOPPED)
+        uow.bots.update_status(lifecycle_bot_instance_id, BotStatusEnum.STOPPED)
         uow.events.log_event(bot2.id, "bot_stopped", "info", "Bot stopped")
         print("✅ Bot stopped")
 
@@ -312,7 +317,7 @@ def test_api_database_integration():
         events = uow.events.get_bot_events(bot2.id, days=7)
         jobs = uow.jobs.get_job_history(bot2.id, days=7)
         trades = uow.trades.get_bot_trades(bot2.id)
-        stats = uow.bots.get_statistics("lifecycle-test-bot")
+        stats = uow.bots.get_statistics(lifecycle_bot_instance_id)
 
         print(f"   Events: {len(events)}")
         print(f"   Jobs: {len(jobs)}")

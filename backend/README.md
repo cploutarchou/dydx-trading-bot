@@ -62,7 +62,7 @@ make dev
 make run
 ```
 
-That's it! The server will start on http://localhost:8888
+That's it! The server will start on <http://localhost:8888>
 
 ## 📋 Prerequisites
 
@@ -76,7 +76,7 @@ That's it! The server will start on http://localhost:8888
 ### 1. Navigate to project
 
 ```bash
-cd /Users/chris/workspace/dydx-trading-bot/backend-go
+cd /Users/chris/workspace/dydx-trading-bot/backend
 ```
 
 ### 2. Install dependencies
@@ -105,12 +105,15 @@ DB_NAME=trading_bot
 JWT_SECRET_KEY=your-secret-key-change-in-production
 ENCRYPTION_KEY=your-encryption-key-change-in-production
 
+# Bot API delegation target
+BOT_API_URL=http://localhost:8889
+
 # dYdX Configuration
 DYDX_TESTNET_ADDRESS=dydx1...
 DYDX_TESTNET_SECRET=your_mnemonic_phrase
 
 # API Port
-API_PORT=8080
+API_PORT=8888
 ```
 
 ### 4. Run database migrations
@@ -135,12 +138,12 @@ go build -o trading-bot ./cmd/server
 ./trading-bot
 ```
 
-The API will be available at `http://localhost:8080`
+The API will be available at `http://localhost:8888`
 
 ## Project Structure
 
 ```
-backend-go/
+backend/
 ├── cmd/
 │   └── server/
 │       └── main.go              # Application entry point
@@ -239,6 +242,7 @@ GET /health
 POST /api/v1/auth/login
 POST /api/v1/auth/refresh
 POST /api/v1/auth/logout
+POST /api/v1/auth/register
 ```
 
 ### Key Management
@@ -253,11 +257,24 @@ DELETE /api/v1/keys/{network}      # Delete key
 
 ### Backtest Data
 
+```text
+POST /api/v1/backtests                      # Create backtest run
+GET /api/v1/backtests                       # List backtest runs
+GET /api/v1/backtests/{run_id}              # Backtest details
+GET /api/v1/backtests/{run_id}/trades       # Individual trades
+GET /api/v1/backtests/{run_id}/analytics    # Analytics summary
 ```
-GET /api/v1/backtests/{run_id}/candles     # Historical candles
-GET /api/v1/backtests/{run_id}/positions   # Trading positions
-GET /api/v1/backtests/{run_id}/trades      # Individual trades
+
+### Live WebSocket Proxies (backend origin)
+
+```text
+GET /api/v1/backtests/{run_id}/live
+GET /api/v1/bots/{instance_id}/positions/live
+GET /api/v1/bots/{instance_id}/market/live
+GET /api/v1/bots/{instance_id}/alerts/live
 ```
+
+These proxy to the bot API websocket channels while preserving backend authentication checks.
 
 See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for full endpoint details.
 

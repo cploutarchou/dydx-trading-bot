@@ -1141,12 +1141,12 @@ class ApiClient {
       const backendHost = apiUrl.host; // e.g. localhost:8888
       // Ensure path starts with '/'
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-      const wsUrl = `${wsProtocol}//${backendHost}${normalizedPath}${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
+      const wsUrl = `${wsProtocol}//${backendHost}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
       return new WebSocket(wsUrl);
     } catch (e) {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-      const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
+      const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
       console.warn(
         '⚠️ api.ts: Failed to parse API_BASE_URL, falling back to window.location.host for WS',
         e
@@ -1157,7 +1157,7 @@ class ApiClient {
 
   // Backwards-compatible helper specifically for backtest progress
   connectBacktestSocket(runId: string, token?: string): WebSocket {
-    return this.connectSocket(`/ws/backtest/${runId}`, token);
+    return this.connectSocket(`/api/v1/backtests/${encodeURIComponent(runId)}/live`, token);
   }
 
   // Keys Management (centralized from DYDXKeyManager.tsx)

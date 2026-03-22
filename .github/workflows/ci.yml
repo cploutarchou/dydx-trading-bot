@@ -64,9 +64,26 @@ jobs:
               env:
                   PYTHONPATH: ${{ github.workspace }}/bot
 
+    backend-ws-smoke:
+        runs-on: ubuntu-latest
+        needs: devcontainer-consistency
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.23"
+
+            - name: Run delegated websocket smoke tests
+              working-directory: backend
+              run: go test -v ./internal/routes -run '^TestSmoke_.*WS$'
+
     docker:
         runs-on: ubuntu-latest
-        needs: test
+        needs:
+            - test
+            - backend-ws-smoke
         steps:
             - uses: actions/checkout@v4
 

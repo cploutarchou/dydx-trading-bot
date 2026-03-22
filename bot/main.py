@@ -8,7 +8,6 @@ import asyncio
 import logging
 import signal
 import sys
-import time
 
 # Suppress dYdX client's Node URL warning that gets printed to stderr during initialization
 # This warning is harmless - the library automatically handles URL stripping
@@ -36,14 +35,19 @@ class _FilteredStderr:
 sys.stderr = _FilteredStderr(_original_stderr)
 
 from config.config import config as load_config
-from src.constants import ABORT_ALL_POSITIONS, FIND_COINTEGRATED, MANAGE_EXITS, PLACE_TRADES
-from src.trading.analysis.cointegration import store_cointegration_results
-from src.trading.dydx_client import connect_dydx
-from src.trading.position_manager import open_positions, manage_trade_exits
+from src.constants import (
+    ABORT_ALL_POSITIONS,
+    FIND_COINTEGRATED,
+    MANAGE_EXITS,
+    PLACE_TRADES,
+)
+from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import abort_all_positions
+from src.trading.analysis.cointegration import store_cointegration_results
+from src.trading.dydx_client import connect_dydx
 from src.trading.market_data import construct_market_prices
-from src.shared.logging_setup import setup_logging
+from src.trading.position_manager import manage_trade_exits, open_positions
 
 
 # Signal handler for graceful shutdown
@@ -188,7 +192,7 @@ async def main():
                     # print("")
                     # print("Managing exits...")
                     await manage_trade_exits(client)
-                    time.sleep(1)
+                    await asyncio.sleep(1)
                 except Exception as e:
                     print("Error managing exiting positions: ", e)
                     telegram_messenger.send_error_message(

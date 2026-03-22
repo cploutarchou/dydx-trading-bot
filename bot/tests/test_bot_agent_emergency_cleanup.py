@@ -1,9 +1,10 @@
 """Regression tests for BotAgent emergency cleanup behavior."""
 
-from src.trading.bot_agent import BotAgent
 import asyncio
 import sys
 import types
+
+from src.trading.bot_agent import BotAgent
 
 notifications_stub = types.ModuleType("src.shared.notifications")
 
@@ -67,13 +68,14 @@ def test_open_trades_returns_error_dict_after_second_leg_failure(monkeypatch):
         }
         return status_map[order_id]
 
-    monkeypatch.setattr(
-        "src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr(
-        "src.trading.bot_agent.place_market_order", fake_place_market_order)
-    monkeypatch.setattr(
-        "src.trading.bot_agent.check_order_status", fake_check_order_status)
-    monkeypatch.setattr("src.trading.bot_agent.time.sleep", lambda _: None)
+    monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
+    monkeypatch.setattr("src.trading.bot_agent.place_market_order", fake_place_market_order)
+    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+
+    async def _fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
 
     calls = []
     agent = BotAgent(

@@ -18,7 +18,7 @@ func (c *BotAPIClient) UserLogin(username, password string, totpToken *string) (
 		payload["totp_token"] = *totpToken
 	}
 
-	return c.makeRequest("POST", "/auth/auth/login", payload)
+	return c.makeRequest("POST", "/api/v1/auth/login", payload)
 }
 
 // RefreshAccessToken refreshes the access token
@@ -27,22 +27,22 @@ func (c *BotAPIClient) RefreshAccessToken(refreshToken string) (map[string]inter
 		"refresh_token": refreshToken,
 	}
 
-	return c.makeRequest("POST", "/auth/auth/refresh", payload)
+	return c.makeRequest("POST", "/api/v1/auth/refresh", payload)
 }
 
 // Logout logs out the current user
 func (c *BotAPIClient) Logout() (map[string]interface{}, error) {
-	return c.makeRequest("POST", "/auth/auth/logout", nil)
+	return c.makeRequest("POST", "/api/v1/auth/logout", nil)
 }
 
 // LogoutAllSessions logs out from all sessions
 func (c *BotAPIClient) LogoutAllSessions() (map[string]interface{}, error) {
-	return c.makeRequest("POST", "/auth/auth/logout-all", nil)
+	return c.makeRequest("POST", "/api/v1/auth/logout-all", nil)
 }
 
 // GetCurrentUser retrieves current authenticated user info
 func (c *BotAPIClient) GetCurrentUser() (map[string]interface{}, error) {
-	return c.makeRequest("GET", "/auth/auth/me", nil)
+	return c.makeRequest("GET", "/api/v1/users/me", nil)
 }
 
 // ==================== BOT INSTANCE MANAGEMENT (EXTENDED) ====================

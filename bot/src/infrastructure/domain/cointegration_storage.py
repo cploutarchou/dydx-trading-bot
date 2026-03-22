@@ -7,12 +7,23 @@ cointegration analysis results, including enhanced metrics and confidence scorin
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_pair_storage_path() -> str:
+    """Resolve pair storage path from environment for multi-instance mode."""
+    configured_path = os.getenv("BOT_PAIRS_FILE")
+    if not configured_path:
+        return "pair_history/cointegration_results.json"
+
+    instance_id = os.getenv("BOT_INSTANCE_ID", "default")
+    return configured_path.replace("{instance_id}", instance_id)
 
 
 @dataclass
@@ -61,7 +72,7 @@ def calculate_confidence_score(
     half_life: float,
     zero_crossings: int,
     max_half_life: float = 14.0,
-    min_zero_crossings: int = 5
+    min_zero_crossings: int = 5,
 ) -> float:
     """
     Calculate a confidence score for a cointegrated pair.
@@ -117,14 +128,16 @@ class PairStorage:
     to a JSON-based storage system.
     """
 
-    def __init__(self, storage_path: str = "pair_history/cointegration_results.json"):
+    def __init__(self, storage_path: Optional[str] = None):
         """
         Initialize pair storage.
 
         Args:
-            storage_path: Path to JSON storage file
+            storage_path: Path to JSON storage file. If not provided, resolves from
+                BOT_PAIRS_FILE (or defaults to pair_history/cointegration_results.json).
         """
-        self.storage_path = Path(storage_path)
+        resolved_path = storage_path or _resolve_pair_storage_path()
+        self.storage_path = Path(resolved_path)
         self._ensure_storage_dir()
 
     def _ensure_storage_dir(self):
@@ -150,11 +163,11 @@ class PairStorage:
                 "timestamp": datetime.now().isoformat(),
                 "total_pairs": len(pairs),
                 "high_confidence_pairs": len([p for p in pairs if p.is_high_confidence]),
-                "pairs": pairs_data
+                "pairs": pairs_data,
             }
 
             # Write to file
-            with open(self.storage_path, 'w') as f:
+            with open(self.storage_path, "w") as f:
                 json.dump(storage_data, f, indent=2)
 
             logger.info(f"Saved {len(pairs)} cointegration results to {self.storage_path}")
@@ -163,15 +176,12 @@ class PairStorage:
                 "success": True,
                 "pairs_saved": len(pairs),
                 "high_confidence": len([p for p in pairs if p.is_high_confidence]),
-                "path": str(self.storage_path)
+                "path": str(self.storage_path),
             }
 
         except Exception as e:
             logger.error(f"Error saving pairs to {self.storage_path}: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     def load_pairs(self) -> List[CointegrationResult]:
         """
@@ -185,7 +195,7 @@ class PairStorage:
                 logger.debug(f"No pairs file found at {self.storage_path}")
                 return []
 
-            with open(self.storage_path, 'r') as f:
+            with open(self.storage_path, "r") as f:
                 storage_data = json.load(f)
 
             # Convert dictionaries to CointegrationResult objects
@@ -230,4 +240,3 @@ __all__ = [
     "PairStorage",
     "pair_storage",
 ]
-

@@ -1,22 +1,36 @@
 """Private account operations and order management for dYdX."""
 
+import asyncio
 import json
 import logging
+import os
 import random
-import time
 from pathlib import Path
 
-from src.constants import DYDX_ADDRESS
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
-from src.trading.market_data import get_markets
-from src.shared.utils import format_number
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
+
+from src.constants import DYDX_ADDRESS
+from src.shared.utils import format_number
+from src.trading.market_data import get_markets
 
 logger = logging.getLogger(__name__)
 
-BOT_AGENTS_PATH = Path(__file__).resolve().parents[2] / "bot_agents.json"
+
+def _resolve_bot_agents_path() -> Path:
+    """Resolve per-instance bot agents path from environment."""
+    configured_path = os.getenv("BOT_AGENTS_FILE", "bot_agents.json")
+    instance_id = os.getenv("BOT_INSTANCE_ID", "default")
+    resolved = configured_path.replace("{instance_id}", instance_id)
+    path = Path(resolved)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    return path
+
+
+BOT_AGENTS_PATH = _resolve_bot_agents_path()
 
 
 async def cancel_order(client, order_id):
@@ -87,7 +101,7 @@ async def get_order(client, order_id):
 async def is_open_positions(client, market):
     """Check if there are any open positions for a specific market."""
     # Protect API
-    time.sleep(0.2)
+    await asyncio.sleep(0.2)
 
     # Get positions (try wallet address then configured address)
     address = getattr(client.wallet, "address", DYDX_ADDRESS)
@@ -174,7 +188,7 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Get Recent Orders
     # We do this as in the current V4 version at the time of developing this,
     # the order response does not return the order number
-    time.sleep(1.5)
+    await asyncio.sleep(1.5)
     orders = await client.indexer_account.account.get_subaccount_orders(
         DYDX_ADDRESS,
         0,
@@ -197,7 +211,7 @@ async def place_market_order(client, market, side, size, price, reduce_only):
         sorted_orders = sorted(orders, key=lambda x: x["createdAtHeight"], reverse=True)
         logger.error("Unable to detect latest order; most recent entry: %s", sorted_orders[0])
         logger.error("Please verify the order status on the dashboard")
-        exit(1)
+        raise RuntimeError("Unable to detect latest exchange order id after placement")
 
     # Print something if error returned
     if "code" in str(order):
@@ -225,7 +239,9 @@ async def cancel_all_orders(client):
                 "Open order %s may persist; verify cancellation on the dashboard",
                 order["id"],
             )
-            exit(1)
+        raise RuntimeError(
+            "Cancellation requests submitted for open orders; verify dashboard before continuing"
+        )
 
 
 async def abort_all_positions(client):
@@ -238,13 +254,13 @@ async def abort_all_positions(client):
     await cancel_all_orders(client)
 
     # Protect API
-    time.sleep(0.5)
+    await asyncio.sleep(0.5)
 
     # Get markets for reference of tick size
     markets = await get_markets(client)
 
     # Protect API
-    time.sleep(0.5)
+    await asyncio.sleep(0.5)
 
     # Get all open positions
     try:
@@ -289,7 +305,7 @@ async def abort_all_positions(client):
             close_orders.append(order)
 
             # Protect API
-            time.sleep(0.2)
+            await asyncio.sleep(0.2)
 
         # Override json file with empty list
         bot_agents = []

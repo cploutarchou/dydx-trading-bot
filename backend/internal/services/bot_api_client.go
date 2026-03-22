@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,22 @@ func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 // SetToken sets the authentication token
 func (c *BotAPIClient) SetToken(token string) {
 	c.token = token
+}
+
+// WithToken returns a new client instance that shares transport settings
+// but uses a request-scoped token. This avoids mutating shared client state
+// across concurrent requests.
+func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
+	token = strings.TrimSpace(token)
+	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+		token = strings.TrimSpace(token[7:])
+	}
+
+	return &BotAPIClient{
+		baseURL:    c.baseURL,
+		token:      token,
+		httpClient: c.httpClient,
+	}
 }
 
 // makeRequest makes an HTTP request to the bot API

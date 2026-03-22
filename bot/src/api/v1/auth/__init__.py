@@ -1,12 +1,14 @@
 """Authentication router."""
 
 import os
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
-from src.api.auth_utils import JWTUtils, PasswordUtils
+
+from src.api.auth_utils import JWTUtils, PasswordUtils, SecurityUtils
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User
 
@@ -19,6 +21,15 @@ class LoginRequest(BaseModel):
 
     username: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    """JSON registration payload."""
+
+    username: str
+    email: EmailStr
+    password: str
+    full_name: str = ""
 
 
 def _build_token_response(username: str) -> dict:
@@ -69,10 +80,72 @@ async def login(
 
 
 @router.post("/register")
-async def register():
-    """Register endpoint"""
-    # Placeholder implementation
-    return {"message": "Registration not implemented"}
+async def register(
+    payload: RegisterRequest,
+    session: Session = Depends(db.get_session),
+):
+    """Register endpoint."""
+    username = SecurityUtils.sanitize_input(payload.username, max_length=50)
+    full_name = SecurityUtils.sanitize_input(payload.full_name, max_length=100)
+    email = payload.email.strip().lower()
+
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username is required",
+        )
+
+    if not SecurityUtils.is_email_valid(email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid email format",
+        )
+
+    password_strength = SecurityUtils.validate_password_strength(payload.password)
+    if not password_strength["is_valid"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="; ".join(password_strength["errors"]),
+        )
+
+    existing_user = (
+        session.query(User).filter((User.username == username) | (User.email == email)).first()
+    )
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already exists",
+        )
+
+    user = User(
+        username=username,
+        email=email,
+        hashed_password=PasswordUtils.hash_password(payload.password),
+        full_name=full_name or None,
+        is_active=True,
+        is_admin=False,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    token_response = _build_token_response(user.username)
+    return {
+        "message": "User registered successfully",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        **token_response,
+    }
 
 
 @router.post("/logout")
@@ -80,3 +153,10 @@ async def logout():
     """Logout endpoint"""
     # Placeholder implementation
     return {"message": "Logged out"}
+
+
+@router.post("/logout-all")
+async def logout_all():
+    """Logout all sessions endpoint (compatibility stub)."""
+    # Token revocation store is not yet wired; keep endpoint for contract compatibility.
+    return {"message": "Logged out from all sessions"}

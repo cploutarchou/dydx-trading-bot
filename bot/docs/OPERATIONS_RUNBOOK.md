@@ -61,6 +61,24 @@ After crash/redeploy:
 - **Trading state**: open orders/positions parity between exchange and local state
 - **Alerting**: Telegram startup/error/shutdown message flow
 
+## Backend ↔ Bot auth secret strategy
+
+Use one of these explicit operating models and keep it consistent across environments:
+
+1. **Shared JWT secret model (simple, internal deployments)**
+   - Backend `JWT_SECRET_KEY` and bot `SECRET_KEY` are the same value.
+   - Backend forwards user bearer token to bot delegated endpoints.
+   - Pros: easiest for delegated auth parity.
+   - Cons: tighter coupling between services; rotate both together.
+
+2. **Service token model (recommended for stricter separation)**
+   - Backend and bot use independent JWT secrets.
+   - Backend calls bot with `BOT_API_TOKEN` (service credential) instead of user JWT reuse.
+   - Pros: least privilege and cleaner trust boundary.
+   - Cons: requires explicit service-token lifecycle and rotation policy.
+
+**Do not run mixed modes unintentionally.** If migrating between models, deploy backend and bot config changes atomically and verify delegated routes + websocket proxies before enabling trading.
+
 ## Incident triage quick map
 
 - Jurisdiction/access failure: see `docs/FAILURE_MODES.md` (FM-001)

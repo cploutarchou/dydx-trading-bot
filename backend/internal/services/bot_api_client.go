@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -31,6 +32,48 @@ func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 // SetToken sets the authentication token
 func (c *BotAPIClient) SetToken(token string) {
 	c.token = token
+}
+
+// BaseURL returns the configured upstream bot API base URL.
+func (c *BotAPIClient) BaseURL() string {
+	return c.baseURL
+}
+
+// AuthToken returns the configured token (if any).
+func (c *BotAPIClient) AuthToken() string {
+	return strings.TrimSpace(c.token)
+}
+
+// WebSocketURL builds a websocket URL from the configured base URL and endpoint.
+func (c *BotAPIClient) WebSocketURL(endpoint string) (string, error) {
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse bot API base URL: %w", err)
+	}
+
+	switch strings.ToLower(base.Scheme) {
+	case "http":
+		base.Scheme = "ws"
+	case "https":
+		base.Scheme = "wss"
+	case "ws", "wss":
+		// already a websocket URL
+	default:
+		return "", fmt.Errorf("unsupported bot API URL scheme: %s", base.Scheme)
+	}
+
+	trimmedEndpoint := strings.TrimSpace(endpoint)
+	if trimmedEndpoint == "" {
+		trimmedEndpoint = "/"
+	}
+	if !strings.HasPrefix(trimmedEndpoint, "/") {
+		trimmedEndpoint = "/" + trimmedEndpoint
+	}
+
+	base.Path = strings.TrimRight(base.Path, "/") + trimmedEndpoint
+	base.RawQuery = ""
+
+	return base.String(), nil
 }
 
 // WithToken returns a new client instance that shares transport settings

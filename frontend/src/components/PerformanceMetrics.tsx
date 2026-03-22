@@ -1,6 +1,6 @@
 /**
  * Performance Metrics Component - Task 19
- * 
+ *
  * Displays comprehensive performance analytics for a backtest:
  * - Win rate, trade counts, PnL metrics
  * - Risk metrics (Sharpe ratio, max drawdown)
@@ -43,8 +43,8 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
       setLoading(true);
       setError(null);
       const response = await apiClient.getBacktestPerformance(runId);
-      if (response.success) {
-        setMetrics(response.data as PerformanceData);
+      if (response.success && response.data) {
+        setMetrics(response.data);
       } else {
         setError(response.message || 'Failed to load performance metrics');
       }
@@ -72,9 +72,7 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-        {error}
-      </div>
+      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>
     );
   }
 
@@ -82,13 +80,15 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
     return <div className="text-gray-400">No performance data available</div>;
   }
 
-  const MetricCard: React.FC<{ label: string; value: string | number; unit?: string; highlight?: boolean }> = ({
-    label,
-    value,
-    unit,
-    highlight = false,
-  }) => (
-    <div className={`p-4 rounded-lg border ${highlight ? 'bg-blue-900 border-blue-700' : 'bg-slate-700 border-slate-600'}`}>
+  const MetricCard: React.FC<{
+    label: string;
+    value: string | number;
+    unit?: string;
+    highlight?: boolean;
+  }> = ({ label, value, unit, highlight = false }) => (
+    <div
+      className={`p-4 rounded-lg border ${highlight ? 'bg-blue-900 border-blue-700' : 'bg-slate-700 border-slate-600'}`}
+    >
       <p className="text-gray-400 text-sm font-medium">{label}</p>
       <p className={`text-2xl font-bold mt-2 ${highlight ? 'text-blue-400' : 'text-white'}`}>
         {value}
@@ -119,13 +119,17 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
             <p className="text-gray-400 text-sm">Total P&L</p>
-            <p className={`text-2xl font-bold mt-2 ${metrics.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <p
+              className={`text-2xl font-bold mt-2 ${metrics.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+            >
               ${metrics.total_pnl.toFixed(2)}
             </p>
           </div>
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
             <p className="text-gray-400 text-sm">Average P&L per Trade</p>
-            <p className={`text-2xl font-bold mt-2 ${metrics.average_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <p
+              className={`text-2xl font-bold mt-2 ${metrics.average_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+            >
               ${metrics.average_pnl.toFixed(2)}
             </p>
           </div>
@@ -146,11 +150,15 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
           </div>
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
             <p className="text-gray-400 text-sm">Max Drawdown</p>
-            <p className="text-2xl font-bold mt-2 text-yellow-400">${metrics.max_drawdown.toFixed(2)}</p>
+            <p className="text-2xl font-bold mt-2 text-yellow-400">
+              ${metrics.max_drawdown.toFixed(2)}
+            </p>
           </div>
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
             <p className="text-gray-400 text-sm">Sharpe Ratio</p>
-            <p className={`text-2xl font-bold mt-2 ${metrics.sharpe_ratio >= 1 ? 'text-green-400' : 'text-yellow-400'}`}>
+            <p
+              className={`text-2xl font-bold mt-2 ${metrics.sharpe_ratio >= 1 ? 'text-green-400' : 'text-yellow-400'}`}
+            >
               {metrics.sharpe_ratio.toFixed(2)}
             </p>
           </div>
@@ -166,7 +174,9 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
         <h3 className="text-lg font-bold text-white mb-4">Trade Duration</h3>
         <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
           <p className="text-gray-400 text-sm">Average Duration</p>
-          <p className="text-3xl font-bold mt-2 text-blue-400">{metrics.average_duration.toFixed(1)} hours</p>
+          <p className="text-3xl font-bold mt-2 text-blue-400">
+            {metrics.average_duration.toFixed(1)} hours
+          </p>
         </div>
       </div>
 
@@ -174,10 +184,19 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
       <div className="bg-blue-900 bg-opacity-50 border border-blue-700 rounded-lg p-4">
         <h3 className="text-sm font-bold text-blue-300 mb-2">📈 How to Read These Metrics</h3>
         <ul className="text-xs text-blue-200 space-y-1">
-          <li>• <strong>Win Rate:</strong> Percentage of profitable trades (higher is better)</li>
-          <li>• <strong>Sharpe Ratio:</strong> Risk-adjusted return (higher is better, &gt;2 is excellent)</li>
-          <li>• <strong>Max Drawdown:</strong> Largest peak-to-trough decline (lower is better)</li>
-          <li>• <strong>Average Duration:</strong> How long positions are held on average</li>
+          <li>
+            • <strong>Win Rate:</strong> Percentage of profitable trades (higher is better)
+          </li>
+          <li>
+            • <strong>Sharpe Ratio:</strong> Risk-adjusted return (higher is better, &gt;2 is
+            excellent)
+          </li>
+          <li>
+            • <strong>Max Drawdown:</strong> Largest peak-to-trough decline (lower is better)
+          </li>
+          <li>
+            • <strong>Average Duration:</strong> How long positions are held on average
+          </li>
         </ul>
       </div>
     </div>

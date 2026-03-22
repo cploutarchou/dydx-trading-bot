@@ -48,12 +48,9 @@ export const useAuthStore = create<AuthStore>()(
       backupCodes: undefined,
 
       login: async (username: string, password: string) => {
-        console.log('🔐 auth.ts: login() called with username:', username);
         set({ loading: true, error: null });
         try {
-          console.log('🔐 auth.ts: Calling api.login()');
           const loginResult = await api.login({ username, password });
-          console.log('🔐 auth.ts: api.login() succeeded:', loginResult);
 
           // Ensure token is set in api client (api.login already does this but be explicit)
           if (loginResult?.access_token) {
@@ -67,9 +64,7 @@ export const useAuthStore = create<AuthStore>()(
             }
           }
 
-          console.log('🔐 auth.ts: Calling getCurrentUser()');
           await get().getCurrentUser();
-          console.log('🔐 auth.ts: getCurrentUser() succeeded');
         } catch (error: any) {
           console.error('❌ auth.ts: Login error:', error);
           set({ error: error.message || 'Login failed' });
@@ -79,17 +74,12 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       register: async (username: string, email: string, password: string) => {
-        console.log('🔐 auth.ts: register() called with username:', username);
         set({ loading: true, error: null });
         try {
-          console.log('🔐 auth.ts: Calling api.register()');
-          const registerResponse = await api.register({ username, email, password });
-          console.log('🔐 auth.ts: api.register() succeeded:', registerResponse);
+          await api.register({ username, email, password });
 
           // Registration successful, now try to auto-login
-          console.log('🔐 auth.ts: Registration successful, attempting auto-login');
           await get().login(username, password);
-          console.log('🔐 auth.ts: Auto-login after registration succeeded');
         } catch (error: Error | unknown) {
           const errorMessage = error instanceof Error ? error.message : 'Registration failed';
           console.error('❌ auth.ts: register() error:', error);
@@ -102,7 +92,6 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       logout: () => {
-        console.log('🔐 auth.ts: logout called');
         api.logout();
         set({ user: null });
       },
@@ -110,10 +99,8 @@ export const useAuthStore = create<AuthStore>()(
       getCurrentUser: async () => {
         try {
           const response = await api.getCurrentUser();
-          // API returns UserResponse directly
-          const userData = response.data || response;
-          console.log('🔐 auth.ts: getCurrentUser response:', userData);
-          set({ user: userData });
+          const userData = response.data;
+          set({ user: userData || null });
         } catch (error) {
           console.error('❌ auth.ts: getCurrentUser failed:', error);
           set({ user: null });
@@ -121,19 +108,16 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       initializeSession: async () => {
-        console.log('🔐 auth.ts: initializeSession() called');
         set({ loading: true, error: null });
 
         try {
           const restored = await api.restoreSession();
           if (!restored) {
-            console.log('🔐 auth.ts: no session to restore');
             set({ user: null, loading: false });
             return;
           }
 
           await get().getCurrentUser();
-          console.log('🔐 auth.ts: session restored successfully');
         } catch (error: unknown) {
           console.error('❌ auth.ts: initializeSession failed:', error);
           api.logout();
@@ -151,17 +135,19 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       setup2FA: async () => {
-        console.log('🔐 auth.ts: setup2FA() called');
         set({ loading: true, error: null });
         try {
           const response = await api.setup2FA();
-          const { qr_code, secret, backup_codes } = response.data || response;
+          const setupData = (response.data || {}) as {
+            qr_code?: string;
+            secret?: string;
+            backup_codes?: string[];
+          };
           set({
-            twoFAQRCode: qr_code,
-            twoFASecret: secret,
-            backupCodes: backup_codes,
+            twoFAQRCode: setupData.qr_code,
+            twoFASecret: setupData.secret,
+            backupCodes: setupData.backup_codes,
           });
-          console.log('🔐 auth.ts: 2FA setup successful');
         } catch (error: Error | unknown) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to setup 2FA';
           console.error('❌ auth.ts: setup2FA failed:', error);
@@ -172,7 +158,6 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       verify2FA: async (token: string) => {
-        console.log('🔐 auth.ts: verify2FA() called');
         set({ loading: true, error: null });
         try {
           const response = await api.verify2FA(token);
@@ -182,7 +167,6 @@ export const useAuthStore = create<AuthStore>()(
               twoFAQRCode: undefined,
               twoFASecret: undefined,
             });
-            console.log('🔐 auth.ts: 2FA verification successful');
           }
         } catch (error: Error | unknown) {
           const errorMessage =

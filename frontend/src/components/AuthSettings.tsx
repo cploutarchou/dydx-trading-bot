@@ -22,13 +22,11 @@ export const AuthSettingsComponent: React.FC = () => {
     const [setupError, setSetupError] = useState<string | null>(null);
 
     const handleLogout = () => {
-        console.log('🔐 AuthSettings: handleLogout called');
         logout();
         navigate('/login');
     };
 
     const handleSetup2FA = async () => {
-        console.log('🔐 AuthSettings: handleSetup2FA called');
         setSetupError(null);
         try {
             await setup2FA();
@@ -42,7 +40,6 @@ export const AuthSettingsComponent: React.FC = () => {
 
     const handleChangePassword = async (e: React.FormEvent) => {
         e.preventDefault();
-        console.log('🔐 AuthSettings: handleChangePassword called');
 
         if (changePasswordForm.newPassword !== changePasswordForm.confirmPassword) {
             setPasswordChangeStatus({ error: 'Passwords do not match' });
@@ -56,7 +53,6 @@ export const AuthSettingsComponent: React.FC = () => {
 
         try {
             // This would require a backend endpoint like PUT /api/v1/auth/change-password
-            console.log('🔐 AuthSettings: Sending password change request');
             // const response = await api.changePassword({
             //     current_password: changePasswordForm.currentPassword,
             //     new_password: changePasswordForm.newPassword,

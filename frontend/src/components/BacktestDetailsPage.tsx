@@ -50,7 +50,7 @@ interface StrategyVersion {
 export const BacktestDetailsPage: React.FC = () => {
   const { run_id } = useParams<{ run_id: string }>();
   const navigate = useNavigate();
-  
+
   const [backtest, setBacktest] = useState<BacktestData | null>(null);
   const [strategyVersions, setStrategyVersions] = useState<StrategyVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,16 +75,12 @@ export const BacktestDetailsPage: React.FC = () => {
       }
 
       const response = await api.getBacktest(run_id);
-      console.log('Backtest details API response:', response);
-      
-      // api.getBacktest returns the ApiResponse wrapper, actual data is in response.data
-      const backtestData = response?.data || response;
-      console.log('Extracted backtest data:', backtestData);
-      console.log('Strategy snapshot:', backtestData?.strategy_snapshot);
-      
+
+      const backtestData = response.data;
+
       if (backtestData) {
-        setBacktest(backtestData);
-        
+        setBacktest(backtestData as BacktestData);
+
         // If backtest has strategy_id, load version history
         if (backtestData.strategy_id) {
           loadStrategyVersions(backtestData.strategy_id);
@@ -103,8 +99,8 @@ export const BacktestDetailsPage: React.FC = () => {
   const loadStrategyVersions = async (strategyId: number) => {
     try {
       const response = await api.getStrategyVersionHistory(strategyId);
-      if (response.data?.versions) {
-        setStrategyVersions(response.data.versions);
+      if (Array.isArray(response.data?.versions)) {
+        setStrategyVersions(response.data.versions as unknown as StrategyVersion[]);
       }
     } catch (err) {
       console.error('Error loading strategy versions:', err);
@@ -190,16 +186,16 @@ export const BacktestDetailsPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <div className="bg-slate-800 border border-slate-700 rounded p-4">
             <p className="text-gray-400 text-sm">Total P&L</p>
-            <p className={`text-2xl font-bold ${backtest.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <p
+              className={`text-2xl font-bold ${backtest.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+            >
               ${backtest.total_pnl.toFixed(2)}
             </p>
           </div>
 
           <div className="bg-slate-800 border border-slate-700 rounded p-4">
             <p className="text-gray-400 text-sm">Win Rate</p>
-            <p className="text-2xl font-bold text-blue-400">
-              {backtest.win_rate.toFixed(1)}%
-            </p>
+            <p className="text-2xl font-bold text-blue-400">{backtest.win_rate.toFixed(1)}%</p>
           </div>
 
           <div className="bg-slate-800 border border-slate-700 rounded p-4">
@@ -218,10 +214,14 @@ export const BacktestDetailsPage: React.FC = () => {
         {/* Debug Section */}
         <div className="bg-slate-900 border border-slate-600 rounded p-4 mb-8 text-xs">
           <p className="text-gray-400 mb-2">🔍 DEBUG:</p>
-          <p className="text-gray-500">Has strategy_snapshot: {backtest.strategy_snapshot ? '✅ YES' : '❌ NO'}</p>
+          <p className="text-gray-500">
+            Has strategy_snapshot: {backtest.strategy_snapshot ? '✅ YES' : '❌ NO'}
+          </p>
           <p className="text-gray-500">strategy_id: {backtest.strategy_id || 'null'}</p>
           {backtest.strategy_snapshot && (
-            <p className="text-green-400 mt-2">strategy_snapshot keys: {Object.keys(backtest.strategy_snapshot).join(', ')}</p>
+            <p className="text-green-400 mt-2">
+              strategy_snapshot keys: {Object.keys(backtest.strategy_snapshot).join(', ')}
+            </p>
           )}
         </div>
 
@@ -250,39 +250,57 @@ export const BacktestDetailsPage: React.FC = () => {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Z-Score Threshold</p>
-                <p className="text-white font-semibold">{backtest.strategy_snapshot.zscore_threshold}</p>
+                <p className="text-white font-semibold">
+                  {backtest.strategy_snapshot.zscore_threshold}
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Stats Window</p>
-                <p className="text-white font-semibold">{backtest.strategy_snapshot.stats_window}</p>
+                <p className="text-white font-semibold">
+                  {backtest.strategy_snapshot.stats_window}
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Max Half-Life</p>
-                <p className="text-white font-semibold">{backtest.strategy_snapshot.max_half_life}h</p>
+                <p className="text-white font-semibold">
+                  {backtest.strategy_snapshot.max_half_life}h
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">USD per Trade</p>
-                <p className="text-white font-semibold">${backtest.strategy_snapshot.usd_per_trade}</p>
+                <p className="text-white font-semibold">
+                  ${backtest.strategy_snapshot.usd_per_trade}
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Min Collateral</p>
-                <p className="text-white font-semibold">${backtest.strategy_snapshot.usd_min_collateral}</p>
+                <p className="text-white font-semibold">
+                  ${backtest.strategy_snapshot.usd_min_collateral}
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Close at Z-Score Cross</p>
-                <p className="text-white font-semibold">{backtest.strategy_snapshot.close_at_zscore_cross ? '✓' : '✗'}</p>
+                <p className="text-white font-semibold">
+                  {backtest.strategy_snapshot.close_at_zscore_cross ? '✓' : '✗'}
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Max Positions</p>
-                <p className="text-white font-semibold">{backtest.strategy_snapshot.max_positions || 'N/A'}</p>
+                <p className="text-white font-semibold">
+                  {backtest.strategy_snapshot.max_positions || 'N/A'}
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Max Drawdown %</p>
-                <p className="text-white font-semibold">{backtest.strategy_snapshot.max_drawdown_pct || 'N/A'}%</p>
+                <p className="text-white font-semibold">
+                  {backtest.strategy_snapshot.max_drawdown_pct || 'N/A'}%
+                </p>
               </div>
               <div className="bg-slate-700 rounded p-3">
                 <p className="text-gray-400 text-xs">Stop Loss %</p>
-                <p className="text-white font-semibold">{backtest.strategy_snapshot.stop_loss_pct || 'N/A'}%</p>
+                <p className="text-white font-semibold">
+                  {backtest.strategy_snapshot.stop_loss_pct || 'N/A'}%
+                </p>
               </div>
             </div>
           </div>
@@ -311,7 +329,7 @@ export const BacktestDetailsPage: React.FC = () => {
                         {new Date(version.created_at).toLocaleString()}
                       </p>
                       <button
-                        onClick={() => console.log('Revert to version', version.id)}
+                        onClick={() => {}}
                         className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
                       >
                         Revert
@@ -329,52 +347,72 @@ export const BacktestDetailsPage: React.FC = () => {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
             <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-2xl w-full mx-4 my-8">
               <h2 className="text-xl font-bold text-white mb-4">Create Strategy from Backtest</h2>
-              
+
               {/* Strategy Parameters Preview */}
               {backtest?.strategy_snapshot && (
                 <div className="mb-6 bg-slate-700 border border-slate-600 rounded p-4">
-                  <h3 className="text-sm font-semibold text-gray-300 mb-3">Strategy Configuration</h3>
+                  <h3 className="text-sm font-semibold text-gray-300 mb-3">
+                    Strategy Configuration
+                  </h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                     <div>
                       <p className="text-gray-500">Z-Score Threshold</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.zscore_threshold}</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.zscore_threshold}
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Stats Window</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.stats_window}</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.stats_window}
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Max Half Life</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.max_half_life}</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.max_half_life}
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">USD Per Trade</p>
-                      <p className="text-white font-semibold">${backtest.strategy_snapshot.usd_per_trade}</p>
+                      <p className="text-white font-semibold">
+                        ${backtest.strategy_snapshot.usd_per_trade}
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Max Positions</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.max_positions}</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.max_positions}
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Max Drawdown %</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.max_drawdown_pct}%</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.max_drawdown_pct}%
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Stop Loss %</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.stop_loss_pct}%</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.stop_loss_pct}%
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Take Profit %</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.take_profit_pct}%</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.take_profit_pct}%
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Close at Z-Score Cross</p>
-                      <p className="text-white font-semibold">{backtest.strategy_snapshot.close_at_zscore_cross ? 'Yes' : 'No'}</p>
+                      <p className="text-white font-semibold">
+                        {backtest.strategy_snapshot.close_at_zscore_cross ? 'Yes' : 'No'}
+                      </p>
                     </div>
                   </div>
                 </div>
               )}
-              
+
               <div className="mb-4">
                 <label className="block text-gray-400 text-sm mb-2">Strategy Name *</label>
                 <input
@@ -435,13 +473,19 @@ export const BacktestDetailsPage: React.FC = () => {
                 <tbody>
                   {backtest.results.map((result, idx) => (
                     <tr key={idx} className="border-b border-slate-700">
-                      <td className="px-4 py-2">{result.market_1} / {result.market_2}</td>
+                      <td className="px-4 py-2">
+                        {result.market_1} / {result.market_2}
+                      </td>
                       <td className="px-4 py-2 text-center">{result.total_trades}</td>
-                      <td className={`px-4 py-2 text-right font-semibold ${result.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      <td
+                        className={`px-4 py-2 text-right font-semibold ${result.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                      >
                         ${result.pnl.toFixed(2)}
                       </td>
                       <td className="px-4 py-2 text-right">{result.win_rate.toFixed(1)}%</td>
-                      <td className="px-4 py-2 text-right">{result.sharpe_ratio ? result.sharpe_ratio.toFixed(2) : 'N/A'}</td>
+                      <td className="px-4 py-2 text-right">
+                        {result.sharpe_ratio ? result.sharpe_ratio.toFixed(2) : 'N/A'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

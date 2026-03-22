@@ -74,10 +74,26 @@ Use one of these explicit operating models and keep it consistent across environ
 2. **Service token model (recommended for stricter separation)**
    - Backend and bot use independent JWT secrets.
    - Backend calls bot with `BOT_API_TOKEN` (service credential) instead of user JWT reuse.
+   - Set backend `BOT_API_USE_SERVICE_TOKEN=true` to prevent delegated routes from forwarding caller JWT upstream.
+   - Bot validates service token explicitly on delegated HTTP/WebSocket paths.
    - Pros: least privilege and cleaner trust boundary.
    - Cons: requires explicit service-token lifecycle and rotation policy.
 
 **Do not run mixed modes unintentionally.** If migrating between models, deploy backend and bot config changes atomically and verify delegated routes + websocket proxies before enabling trading.
+
+### Service-token rotation policy (zero-downtime)
+
+Use overlap windows to rotate without breaking delegated backend traffic:
+
+1. Generate a new strong service token.
+2. Set bot env:
+   - `BOT_API_TOKEN=<new>`
+   - `BOT_API_TOKEN_PREVIOUS=<old>`
+3. Roll backend with `BOT_API_TOKEN=<new>`.
+4. Verify delegated HTTP and WS smoke paths (`/api/v1/backtests/{run_id}/live`, `/ws/strategies`).
+5. Remove `BOT_API_TOKEN_PREVIOUS` from bot env after verification.
+
+Optional list-based rollout is supported with `BOT_API_TOKENS` (comma-separated), but prefer the explicit current/previous pair for operational clarity.
 
 ## Incident triage quick map
 

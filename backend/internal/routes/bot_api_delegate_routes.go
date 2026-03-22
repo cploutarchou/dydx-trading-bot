@@ -3,6 +3,7 @@ package routes
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -109,6 +110,14 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 	}
 
 	withRequestScopedBotClient := func(c *gin.Context) {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN")), "true") {
+			// Service-token model: keep configured BOT_API_TOKEN and do not
+			// override upstream auth with caller JWT.
+			c.Set("bot_api_client", apiClient)
+			c.Next()
+			return
+		}
+
 		token := extractBotAuthToken(c)
 		if token != "" {
 			c.Set("bot_api_client", apiClient.WithToken(token))
@@ -561,6 +570,19 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 		}
 		c.JSON(200, result)
 	})
+
+	// Frontend strategy websocket compatibility endpoint.
+	// The UI currently connects to /ws/strategies, so keep this on backend origin
+	// and proxy upstream to the bot API channel.
+	strategyWSGroup := router.Group("/ws")
+	strategyWSGroup.Use(middleware.RequireAuth())
+	strategyWSGroup.Use(withRequestScopedBotClient)
+	{
+		strategyWSGroup.GET("/strategies", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			proxyWebSocket(c, requestClient, "/ws/strategies")
+		})
+	}
 }
 
 // Helper functions

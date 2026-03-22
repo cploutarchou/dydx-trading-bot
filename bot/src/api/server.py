@@ -3,6 +3,7 @@ Bot API Server - FastAPI server for controlling multiple bot instances
 """
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime
@@ -11,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket
+from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -35,7 +36,10 @@ from src.infrastructure.domain.bot_api_models import (
     TradingParameters,
 )
 from src.infrastructure.domain.models.auth_models import User
-from src.middleware.auth_middleware import get_current_active_user
+from src.middleware.auth_middleware import (
+    authenticate_bearer_token,
+    get_current_active_user,
+)
 
 try:
     from src.bot_instance_manager import bot_manager
@@ -1424,25 +1428,98 @@ async def get_position_history(bot_instance_id: int, position_id: str, hours: in
 @app.websocket("/api/v1/bots/{bot_instance_id}/positions/live")
 async def websocket_positions(websocket: WebSocket, bot_instance_id: int):
     """WebSocket endpoint for live position updates"""
+    if not await _authorize_websocket_connection(websocket):
+        return
     await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
 
 
 @app.websocket("/api/v1/bots/{bot_instance_id}/market/live")
 async def websocket_market(websocket: WebSocket, bot_instance_id: int):
     """WebSocket endpoint for live market data"""
+    if not await _authorize_websocket_connection(websocket):
+        return
     await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
 
 
 @app.websocket("/api/v1/bots/{bot_instance_id}/alerts/live")
 async def websocket_alerts(websocket: WebSocket, bot_instance_id: int):
     """WebSocket endpoint for live alerts"""
+    if not await _authorize_websocket_connection(websocket):
+        return
     await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
 
 
 @app.websocket("/api/v1/backtests/{run_id}/live")
 async def websocket_backtest_progress(websocket: WebSocket, run_id: str):
     """WebSocket endpoint for live backtest progress updates."""
+    if not await _authorize_websocket_connection(websocket):
+        return
     await WebSocketServer.handle_connection(websocket, f"backtest-{run_id}")
+
+
+async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
+    """Validate websocket bearer token via service-token or JWT path."""
+    if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
+        return True
+
+    auth_header = websocket.headers.get("authorization", "").strip()
+    token = ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+
+    if not token:
+        token = (websocket.query_params.get("access_token") or "").strip()
+
+    if not token:
+        await websocket.close(code=4401, reason="Missing websocket auth token")
+        return False
+
+    session = db.get_session()
+    try:
+        authenticate_bearer_token(token, session)
+        return True
+    except Exception:
+        await websocket.close(code=4401, reason="Invalid websocket auth token")
+        return False
+    finally:
+        session.close()
+
+
+@app.websocket("/ws/strategies")
+async def websocket_strategies(websocket: WebSocket):
+    """Frontend strategy status websocket channel."""
+    if not await _authorize_websocket_connection(websocket):
+        return
+
+    channel = "strategies"
+    await manager.connect(websocket, channel)
+    try:
+        await manager.send_personal_message(
+            {
+                "type": "strategy_channel_connected",
+                "channel": channel,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            websocket,
+        )
+
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                message = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            if message.get("type") == "ping":
+                await manager.send_personal_message(
+                    {"type": "pong", "timestamp": datetime.utcnow().isoformat()},
+                    websocket,
+                )
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, channel)
+    except Exception as e:
+        logger.error(f"Strategy websocket error: {e}")
+        manager.disconnect(websocket, channel)
 
 
 # ============================================================================

@@ -268,7 +268,16 @@ class ApiClient {
           config.headers.Authorization = `Bearer ${token}`;
         }
       } else {
-        console.warn('⚠️ NO TOKEN - Request to', config.url, 'will fail if auth is required');
+        const url = config.url || '';
+        const isPublicAuthRoute =
+          url.includes('/auth/login') ||
+          url.includes('/auth/register') ||
+          url.includes('/auth/refresh') ||
+          url.includes('/auth/token');
+
+        if (!isPublicAuthRoute) {
+          console.warn('⚠️ NO TOKEN - Request to', config.url, 'will fail if auth is required');
+        }
       }
       return config;
     });
@@ -387,8 +396,6 @@ class ApiClient {
       this.accessToken = cookieToken;
       return;
     }
-
-    console.warn('⚠️ No token in localStorage or cookie');
   }
 
   private getTokenFromCookie(): string | null {

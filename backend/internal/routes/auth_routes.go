@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -20,7 +21,7 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 	{
 		authRoutes.POST("/register", registerHandler(database))
 		authRoutes.POST("/login", loginHandler(database))
-		authRoutes.POST("/refresh", refreshHandler)
+		authRoutes.POST("/refresh", refreshHandler(database))
 	}
 
 	// User routes (require authentication)
@@ -220,11 +221,13 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		// Set access token as HttpOnly cookie (for browser clients)
 		// Cookie expiry matches access token lifetime (30 minutes)
 		cookieMaxAge := 30 * 60 // seconds
+		refreshCookieMaxAge := 7 * 24 * 60 * 60
 		secure := false
 		if os.Getenv("APP_ENV") == "production" {
 			secure = true
 		}
 		c.SetCookie("access_token", accessToken, cookieMaxAge, "/", "", secure, true)
+		c.SetCookie("refresh_token", refreshToken, refreshCookieMaxAge, "/", "", secure, true)
 
 		c.JSON(http.StatusOK, TokenResponse{
 			AccessToken:  accessToken,
@@ -236,8 +239,109 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 }
 
 // refreshHandler handles token refresh
-func refreshHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "Token refresh not yet implemented"})
+func refreshHandler(database *sql.DB) gin.HandlerFunc {
+	type RefreshRequest struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	return func(c *gin.Context) {
+		var req RefreshRequest
+		if c.Request.ContentLength > 0 {
+			_ = c.ShouldBindJSON(&req)
+		}
+
+		refreshToken := req.RefreshToken
+		if refreshToken == "" {
+			if cookieVal, err := c.Cookie("refresh_token"); err == nil {
+				refreshToken = cookieVal
+			}
+		}
+		if refreshToken == "" {
+			authHeader := c.GetHeader("Authorization")
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+				refreshToken = parts[1]
+			}
+		}
+
+		if refreshToken == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "missing refresh token",
+			})
+			return
+		}
+
+		claims, err := services.VerifyToken(refreshToken)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "invalid or expired refresh token",
+			})
+			return
+		}
+
+		tokenType, _ := claims["type"].(string)
+		if tokenType != "refresh" {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "invalid token type for refresh",
+			})
+			return
+		}
+
+		userIDFloat, ok := claims["user_id"].(float64)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "invalid refresh token payload",
+			})
+			return
+		}
+		userID := int(userIDFloat)
+
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(userID)
+		if err != nil || user == nil || !user.IsActive {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "user not found or inactive",
+			})
+			return
+		}
+
+		newAccessToken, err := services.GenerateAccessToken(user.ID, user.Username, user.IsAdmin)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "failed to generate access token",
+			})
+			return
+		}
+
+		newRefreshToken, err := services.GenerateRefreshToken(user.ID, user.Username)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "failed to generate refresh token",
+			})
+			return
+		}
+
+		secure := false
+		if os.Getenv("APP_ENV") == "production" {
+			secure = true
+		}
+		c.SetCookie("access_token", newAccessToken, 30*60, "/", "", secure, true)
+		c.SetCookie("refresh_token", newRefreshToken, 7*24*60*60, "/", "", secure, true)
+
+		c.JSON(http.StatusOK, TokenResponse{
+			AccessToken:  newAccessToken,
+			RefreshToken: newRefreshToken,
+			TokenType:    "bearer",
+			ExpiresIn:    1800,
+		})
+	}
 }
 
 // getCurrentUserHandler gets current user info

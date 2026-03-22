@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 
 @dataclass
@@ -20,7 +20,9 @@ class BacktestRun:
     run_id: str
 
 
-def _request_json(url: str, method: str = "GET", data: dict | None = None, token: str | None = None) -> Tuple[int, dict]:
+def _request_json(
+    url: str, method: str = "GET", data: Optional[dict] = None, token: Optional[str] = None
+) -> Tuple[int, dict]:
     payload = None
     headers = {"Content-Type": "application/json"}
     if token:
@@ -29,15 +31,14 @@ def _request_json(url: str, method: str = "GET", data: dict | None = None, token
     if data is not None:
         payload = json.dumps(data).encode("utf-8")
 
-    req = urllib.request.Request(
-        url=url, data=payload, method=method, headers=headers)
+    req = urllib.request.Request(url=url, data=payload, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             body = json.loads(resp.read().decode("utf-8"))
             return resp.status, body
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8") if exc.fp else ""
-        parsed: dict[str, Any]
+        parsed: Dict[str, Any]
         try:
             parsed = json.loads(raw) if raw else {"message": str(exc)}
         except json.JSONDecodeError:
@@ -63,7 +64,7 @@ def login(base_url: str, username: str, password: str) -> str:
 
 def create_backtest(
     base_url: str,
-    token: str | None,
+    token: Optional[str],
     config: dict,
 ) -> BacktestRun:
     status, body = _request_json(
@@ -85,7 +86,7 @@ def create_backtest(
 
 def wait_for_completion(
     base_url: str,
-    token: str | None,
+    token: Optional[str],
     run: BacktestRun,
     timeout_seconds: int,
     poll_seconds: int,
@@ -97,8 +98,7 @@ def wait_for_completion(
             token=token,
         )
         if status != 200:
-            raise RuntimeError(
-                f"Status check failed for {run.run_id} ({status}): {body}")
+            raise RuntimeError(f"Status check failed for {run.run_id} ({status}): {body}")
 
         data = body.get("data", {})
         state = str(data.get("status", "")).lower()
@@ -113,12 +113,10 @@ def wait_for_completion(
     raise TimeoutError(f"Timed out waiting for backtest {run.run_id}")
 
 
-def get_details(base_url: str, token: str | None, run_id: str) -> dict:
-    status, body = _request_json(
-        f"{base_url}/api/v1/backtests/{run_id}", token=token)
+def get_details(base_url: str, token: Optional[str], run_id: str) -> dict:
+    status, body = _request_json(f"{base_url}/api/v1/backtests/{run_id}", token=token)
     if status != 200:
-        raise RuntimeError(
-            f"Details fetch failed for {run_id} ({status}): {body}")
+        raise RuntimeError(f"Details fetch failed for {run_id} ({status}): {body}")
     return body.get("data", {})
 
 
@@ -159,10 +157,10 @@ def default_dates() -> Tuple[str, str]:
 
 def parse_args() -> argparse.Namespace:
     start, end = default_dates()
-    bypass_auth_default = os.getenv(
-        "API_BYPASS_AUTH", "false").lower() == "true"
+    bypass_auth_default = os.getenv("API_BYPASS_AUTH", "false").lower() == "true"
     parser = argparse.ArgumentParser(
-        description="Run production-profile simulation against bot backtest API")
+        description="Run production-profile simulation against bot backtest API"
+    )
     parser.add_argument("--base-url", default="http://localhost:8889")
     parser.add_argument("--username", default="admin")
     parser.add_argument("--password", default="admin123")
@@ -183,7 +181,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    token: str | None = None
+    token: Optional[str] = None
     if args.skip_auth:
         print("Skipping auth (API_BYPASS_AUTH mode)")
     else:
@@ -258,11 +256,11 @@ def main() -> int:
     )
 
     if str(baseline_status.get("status", "")).lower() != "completed":
-        raise RuntimeError(
-            f"Baseline run did not complete successfully: {baseline_status}")
+        raise RuntimeError(f"Baseline run did not complete successfully: {baseline_status}")
     if str(production_status.get("status", "")).lower() != "completed":
         raise RuntimeError(
-            f"Production profile run did not complete successfully: {production_status}")
+            f"Production profile run did not complete successfully: {production_status}"
+        )
 
     baseline_details = get_details(args.base_url, token, baseline.run_id)
     production_details = get_details(args.base_url, token, production.run_id)

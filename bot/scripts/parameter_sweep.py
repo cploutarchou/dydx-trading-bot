@@ -28,8 +28,8 @@ from typing import Any, Dict, List, Optional, Tuple
 def _request_json(
     url: str,
     method: str = "GET",
-    data: dict | None = None,
-    token: str | None = None,
+    data: Optional[dict] = None,
+    token: Optional[str] = None,
 ) -> Tuple[int, dict]:
     payload = None
     headers = {"Content-Type": "application/json"}
@@ -37,8 +37,7 @@ def _request_json(
         headers["Authorization"] = f"Bearer {token}"
     if data is not None:
         payload = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(
-        url=url, data=payload, method=method, headers=headers)
+    req = urllib.request.Request(url=url, data=payload, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -53,7 +52,8 @@ def _request_json(
 
 def login(base_url: str, username: str, password: str) -> str:
     status, body = _request_json(
-        f"{base_url}/auth/login", method="POST",
+        f"{base_url}/auth/login",
+        method="POST",
         data={"username": username, "password": password},
     )
     if status != 200:
@@ -67,6 +67,7 @@ def login(base_url: str, username: str, password: str) -> str:
 # ---------------------------------------------------------------------------
 # Backtest helpers
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SweepResult:
@@ -87,9 +88,10 @@ def _metric(payload: dict, key: str) -> Any:
     return (payload.get("metrics") or {}).get(key)
 
 
-def create_run(base_url: str, token: str | None, cfg: dict) -> str:
+def create_run(base_url: str, token: Optional[str], cfg: dict) -> str:
     status, body = _request_json(
-        f"{base_url}/api/v1/backtests", method="POST", data=cfg, token=token)
+        f"{base_url}/api/v1/backtests", method="POST", data=cfg, token=token
+    )
     if status != 200:
         raise RuntimeError(f"Create failed ({status}): {body}")
     data = body.get("data", {})
@@ -101,7 +103,7 @@ def create_run(base_url: str, token: str | None, cfg: dict) -> str:
 
 def poll_until_done(
     base_url: str,
-    token: str | None,
+    token: Optional[str],
     run_id: str,
     label: str,
     timeout: int = 600,
@@ -109,8 +111,7 @@ def poll_until_done(
 ) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        status, body = _request_json(
-            f"{base_url}/api/v1/backtests/{run_id}/status", token=token)
+        status, body = _request_json(f"{base_url}/api/v1/backtests/{run_id}/status", token=token)
         if status != 200:
             raise RuntimeError(f"Status check failed ({status}): {body}")
         data = body.get("data", {})
@@ -123,9 +124,8 @@ def poll_until_done(
     raise TimeoutError(f"Timeout waiting for {run_id}")
 
 
-def fetch_details(base_url: str, token: str | None, run_id: str) -> dict:
-    status, body = _request_json(
-        f"{base_url}/api/v1/backtests/{run_id}", token=token)
+def fetch_details(base_url: str, token: Optional[str], run_id: str) -> dict:
+    status, body = _request_json(f"{base_url}/api/v1/backtests/{run_id}", token=token)
     if status != 200:
         raise RuntimeError(f"Details fetch failed ({status}): {body}")
     return body.get("data", {})
@@ -137,16 +137,16 @@ def fetch_details(base_url: str, token: str | None, run_id: str) -> dict:
 
 PARAM_GRID = {
     "zscore_threshold": [1.0, 1.25, 1.5, 1.75, 2.0],
-    "stats_window":     [14, 21, 30],
-    "usd_per_trade":    [10.0, 25.0],
+    "stats_window": [14, 21, 30],
+    "usd_per_trade": [10.0, 25.0],
 }
 
 BASE_PARAMS = {
     "close_at_zscore_cross": True,
-    "transaction_fee":       0.0005,
-    "slippage":              0.001,
-    "risk_free_rate":        0.02,
-    "max_positions":         5,
+    "transaction_fee": 0.0005,
+    "slippage": 0.001,
+    "risk_free_rate": 0.02,
+    "max_positions": 5,
 }
 
 PAIR_UNIVERSE = ["BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "AVAX-USD"]
@@ -154,7 +154,7 @@ PAIR_UNIVERSE = ["BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "AVAX-USD"]
 
 def build_configs(start: str, end: str, max_pairs: int) -> List[Tuple[str, dict, dict]]:
     """Return list of (label, params, api_cfg) tuples."""
-    pairs = PAIR_UNIVERSE[:max(1, max_pairs)]
+    pairs = PAIR_UNIVERSE[: max(1, max_pairs)]
     configs = []
     for z, w, u in product(
         PARAM_GRID["zscore_threshold"],
@@ -162,8 +162,7 @@ def build_configs(start: str, end: str, max_pairs: int) -> List[Tuple[str, dict,
         PARAM_GRID["usd_per_trade"],
     ):
         label = f"Z={z} W={w} U=${u}"
-        params = {**BASE_PARAMS, "zscore_threshold": z,
-                  "stats_window": w, "usd_per_trade": u}
+        params = {**BASE_PARAMS, "zscore_threshold": z, "stats_window": w, "usd_per_trade": u}
         cfg = {
             "name": f"sweep_z{z}_w{w}_u{u}",
             "description": label,
@@ -180,6 +179,7 @@ def build_configs(start: str, end: str, max_pairs: int) -> List[Tuple[str, dict,
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
+
 
 def print_table(results: List[SweepResult]) -> None:
     ok = [r for r in results if r.error is None]
@@ -213,8 +213,10 @@ def print_table(results: List[SweepResult]) -> None:
         print(f"    zscore_threshold = {best.params['zscore_threshold']}")
         print(f"    stats_window     = {best.params['stats_window']}")
         print(f"    usd_per_trade    = {best.params['usd_per_trade']}")
-        print(f"    Sharpe={best.sharpe_ratio:.3f}  PnL={best.total_pnl:.1f}"
-              f"  Drawdown={best.max_drawdown_pct:.1f}%  Trades={best.total_trades}")
+        print(
+            f"    Sharpe={best.sharpe_ratio:.3f}  PnL={best.total_pnl:.1f}"
+            f"  Drawdown={best.max_drawdown_pct:.1f}%  Trades={best.total_trades}"
+        )
 
     failed = [r for r in results if r.error]
     if failed:
@@ -227,6 +229,7 @@ def print_table(results: List[SweepResult]) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def default_dates() -> Tuple[str, str]:
     end = date.today() - timedelta(days=7)
     start = end - timedelta(days=30)
@@ -236,8 +239,7 @@ def default_dates() -> Tuple[str, str]:
 def parse_args() -> argparse.Namespace:
     start, end = default_dates()
     bypass = os.getenv("API_BYPASS_AUTH", "false").lower() == "true"
-    p = argparse.ArgumentParser(
-        description="Parameter sweep for dYdX bot strategy")
+    p = argparse.ArgumentParser(description="Parameter sweep for dYdX bot strategy")
     p.add_argument("--base-url", default="http://localhost:8889")
     p.add_argument("--username", default="admin")
     p.add_argument("--password", default="admin123")
@@ -248,7 +250,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--poll-seconds", type=int, default=8)
     p.add_argument("--skip-auth", action="store_true", default=bypass)
     p.add_argument(
-        "--concurrency", type=int, default=5,
+        "--concurrency",
+        type=int,
+        default=5,
         help="How many backtests to submit before starting to poll",
     )
     return p.parse_args()
@@ -257,7 +261,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    token: str | None = None
+    token: Optional[str] = None
     if args.skip_auth:
         print("Auth skipped (API_BYPASS_AUTH mode)")
     else:
@@ -277,11 +281,10 @@ def main() -> int:
 
     # Submit in batches of --concurrency, then poll each batch
     batch_size = args.concurrency
-    batches = [configs[i:i + batch_size] for i in range(0, total, batch_size)]
+    batches = [configs[i : i + batch_size] for i in range(0, total, batch_size)]
 
     for batch_idx, batch in enumerate(batches):
-        print(
-            f"--- Batch {batch_idx + 1}/{len(batches)} ({len(batch)} runs) ---")
+        print(f"--- Batch {batch_idx + 1}/{len(batches)} ({len(batch)} runs) ---")
 
         # Submit
         submitted: List[SweepResult] = []
@@ -289,12 +292,10 @@ def main() -> int:
             try:
                 run_id = create_run(args.base_url, token, cfg)
                 print(f"  ↑ submitted [{label}] → {run_id}")
-                submitted.append(SweepResult(
-                    label=label, params=params, run_id=run_id))
+                submitted.append(SweepResult(label=label, params=params, run_id=run_id))
             except Exception as exc:
                 print(f"  ✗ submit failed [{label}]: {exc}")
-                submitted.append(SweepResult(
-                    label=label, params=params, run_id="", error=str(exc)))
+                submitted.append(SweepResult(label=label, params=params, run_id="", error=str(exc)))
 
         # Poll
         for sr in submitted:
@@ -303,8 +304,12 @@ def main() -> int:
                 continue
             try:
                 state = poll_until_done(
-                    args.base_url, token, sr.run_id, sr.label,
-                    timeout=args.timeout, poll=args.poll_seconds,
+                    args.base_url,
+                    token,
+                    sr.run_id,
+                    sr.label,
+                    timeout=args.timeout,
+                    poll=args.poll_seconds,
                 )
                 if str(state.get("status", "")).lower() != "completed":
                     sr.error = f"non-completed state: {state.get('status')}"
@@ -317,8 +322,7 @@ def main() -> int:
                 sr.max_drawdown_pct = _metric(details, "max_drawdown_pct")
                 sr.total_trades = _metric(details, "total_trades")
                 results.append(sr)
-                print(
-                    f"  ✓ [{sr.label}] Sharpe={sr.sharpe_ratio}  PnL={sr.total_pnl}")
+                print(f"  ✓ [{sr.label}] Sharpe={sr.sharpe_ratio}  PnL={sr.total_pnl}")
             except Exception as exc:
                 sr.error = str(exc)
                 results.append(sr)

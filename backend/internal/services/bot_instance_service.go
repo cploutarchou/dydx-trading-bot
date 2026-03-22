@@ -22,6 +22,23 @@ func NewBotInstanceService(repo *repository.BotInstanceRepository, apiClient *Bo
 	}
 }
 
+// WithAuthToken returns a request-scoped service copy that forwards
+// the provided token to the downstream bot API.
+func (s *BotInstanceService) WithAuthToken(token string) *BotInstanceService {
+	if s == nil {
+		return nil
+	}
+
+	if s.apiClient == nil {
+		return s
+	}
+
+	return &BotInstanceService{
+		repo:      s.repo,
+		apiClient: s.apiClient.WithToken(token),
+	}
+}
+
 // CreateBotInstance creates a new bot instance
 func (s *BotInstanceService) CreateBotInstance(instance *models.BotInstance) error {
 	return s.repo.CreateBotInstance(instance)

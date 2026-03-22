@@ -2,6 +2,14 @@
 
 This playbook is a practical checklist to harden the bot for production while validating behavior on testnet with production-like assumptions.
 
+Related runbooks and references:
+
+- `docs/OPERATIONS_RUNBOOK.md`
+- `docs/FAILURE_MODES.md`
+- `docs/MULTI_INSTANCE_ARCHITECTURE.md`
+- `docs/FEATURE_STATUS.md`
+- `docs/CONFIG_MATRIX.md`
+
 ## 1) Immediate gate (before every deployment)
 
 From `bot/` run:

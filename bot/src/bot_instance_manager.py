@@ -6,16 +6,20 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import psutil
-from src.infrastructure.domain.bot_api_models import (BotInstanceConfig,
-                                                      BotInstanceState,
-                                                      BotInstanceStatus,
-                                                      BotOperationResult,
-                                                      BotStatus)
+
+from src.infrastructure.domain.bot_api_models import (
+    BotInstanceConfig,
+    BotInstanceState,
+    BotInstanceStatus,
+    BotOperationResult,
+    BotStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,20 +51,14 @@ class BotInstanceManager:
                         instance_id = instance_data["instance_id"]
                         self.instances[instance_id] = BotInstanceState(
                             instance_id=instance_id,
-                            config=BotInstanceConfig.model_validate(
-                                instance_data["config"]
-                            ),
+                            config=BotInstanceConfig.model_validate(instance_data["config"]),
                             status=BotStatus.STOPPED,
                             process_info={},
-                            trading_stats=instance_data.get(
-                                "trading_stats", {}),
-                            created_at=datetime.fromisoformat(
-                                instance_data["created_at"]
-                            ),
+                            trading_stats=instance_data.get("trading_stats", {}),
+                            created_at=datetime.fromisoformat(instance_data["created_at"]),
                             last_update=datetime.now(),
                         )
-                logger.info(
-                    f"Loaded {len(self.instances)} existing bot instances")
+                logger.info(f"Loaded {len(self.instances)} existing bot instances")
             except Exception as e:
                 logger.error(f"Error loading instances: {e}")
 
@@ -90,15 +88,12 @@ class BotInstanceManager:
         """Get paths to instance-specific state files"""
         return {
             "bot_agents": self.state_dir / f"bot_agents_{instance_id}.json",
-            "cointegrated_pairs": self.state_dir
-            / f"cointegrated_pairs_{instance_id}.json",
+            "cointegrated_pairs": self.state_dir / f"cointegrated_pairs_{instance_id}.json",
             "config": self.state_dir / f"config_{instance_id}.yaml",
             "log": self.state_dir / f"bot_{instance_id}.log",
         }
 
-    def _create_instance_config_file(
-        self, instance_id: str, config: BotInstanceConfig
-    ) -> Path:
+    def _create_instance_config_file(self, instance_id: str, config: BotInstanceConfig) -> Path:
         """Create instance-specific configuration file"""
         files = self._get_instance_state_files(instance_id)
 
@@ -125,20 +120,20 @@ class BotInstanceManager:
                 "closeAtZscoreCross": config.trading_params.close_at_zscore_cross,
             },
             "dydx_testnet": {
-                "dydx_chain_address": config.credentials.address
-                if config.trading_params.is_testnet
-                else "",
-                "dydx_chain_secret": config.credentials.mnemonic
-                if config.trading_params.is_testnet
-                else "",
+                "dydx_chain_address": (
+                    config.credentials.address if config.trading_params.is_testnet else ""
+                ),
+                "dydx_chain_secret": (
+                    config.credentials.mnemonic if config.trading_params.is_testnet else ""
+                ),
             },
             "dydx_mainnet": {
-                "dydx_chain_address": config.credentials.address
-                if not config.trading_params.is_testnet
-                else "",
-                "dydx_chain_secret": config.credentials.mnemonic
-                if not config.trading_params.is_testnet
-                else "",
+                "dydx_chain_address": (
+                    config.credentials.address if not config.trading_params.is_testnet else ""
+                ),
+                "dydx_chain_secret": (
+                    config.credentials.mnemonic if not config.trading_params.is_testnet else ""
+                ),
             },
             "logging": {
                 "level": os.getenv("LOG_LEVEL", "INFO"),
@@ -193,8 +188,7 @@ class BotInstanceManager:
             )
 
             # Create instance-specific configuration file
-            config_file = self._create_instance_config_file(
-                config.instance_id, config)
+            config_file = self._create_instance_config_file(config.instance_id, config)
 
             # Initialize empty state files
             files = self._get_instance_state_files(config.instance_id)
@@ -265,8 +259,9 @@ class BotInstanceManager:
             )
 
             # Start bot process
+            bot_python = os.getenv("BOT_PYTHON_PATH") or sys.executable
             cmd = [
-                "python",
+                bot_python,
                 "main_instance.py",
                 "--instance-id",
                 instance_id,
@@ -297,8 +292,7 @@ class BotInstanceManager:
 
             self._save_instances_state()
 
-            logger.info(
-                f"Started bot instance {instance_id} with PID {process.pid}")
+            logger.info(f"Started bot instance {instance_id} with PID {process.pid}")
 
             return BotOperationResult(
                 success=True,
@@ -319,9 +313,7 @@ class BotInstanceManager:
                 status=BotStatus.ERROR,
             )
 
-    async def stop_instance(
-        self, instance_id: str, force: bool = False
-    ) -> BotOperationResult:
+    async def stop_instance(self, instance_id: str, force: bool = False) -> BotOperationResult:
         """Stop bot instance"""
         try:
             if instance_id not in self.instances:
@@ -356,18 +348,14 @@ class BotInstanceManager:
                         logger.info(f"Force killed bot instance {instance_id}")
                     else:
                         process.terminate()
-                        logger.info(
-                            f"Gracefully terminating bot instance {instance_id}"
-                        )
+                        logger.info(f"Gracefully terminating bot instance {instance_id}")
 
                         # Wait for graceful shutdown
                         try:
                             process.wait(timeout=30)
                         except subprocess.TimeoutExpired:
                             process.kill()
-                            logger.warning(
-                                f"Force killed bot instance {instance_id} after timeout"
-                            )
+                            logger.warning(f"Force killed bot instance {instance_id} after timeout")
 
                 # Remove process reference
                 del self.processes[instance_id]
@@ -440,9 +428,7 @@ class BotInstanceManager:
                 status=BotStatus.ERROR,
             )
 
-    async def get_instance_status(
-        self, instance_id: str
-    ) -> Optional[BotInstanceStatus]:
+    async def get_instance_status(self, instance_id: str) -> Optional[BotInstanceStatus]:
         """Get current status of bot instance"""
         if instance_id not in self.instances:
             return None
@@ -484,18 +470,13 @@ class BotInstanceManager:
             if files["bot_agents"].exists():
                 with open(files["bot_agents"], "r") as f:
                     agents = json.load(f)
-                    active_positions = len(
-                        [a for a in agents if a.get("pair_status") == "LIVE"]
-                    )
-                    self.instances[instance_id].trading_stats["active_positions"] = (
-                        active_positions
-                    )
+                    active_positions = len([a for a in agents if a.get("pair_status") == "LIVE"])
+                    self.instances[instance_id].trading_stats["active_positions"] = active_positions
 
             # Additional stats can be added here (total trades, P&L, etc.)
 
         except Exception as e:
-            logger.error(
-                f"Error updating trading stats for {instance_id}: {e}")
+            logger.error(f"Error updating trading stats for {instance_id}: {e}")
 
     async def list_instances(self) -> List[BotInstanceStatus]:
         """Get list of all bot instances"""
@@ -512,13 +493,10 @@ class BotInstanceManager:
         for instance_id in list(self.processes.keys()):
             process = self.processes[instance_id]
             if process.poll() is not None:  # Process is dead
-                logger.warning(
-                    f"Found dead process for instance {instance_id}")
+                logger.warning(f"Found dead process for instance {instance_id}")
                 if instance_id in self.instances:
                     self.instances[instance_id].status = BotStatus.ERROR
-                    self.instances[instance_id].process_info["stopped_at"] = (
-                        datetime.now()
-                    )
+                    self.instances[instance_id].process_info["stopped_at"] = datetime.now()
                 del self.processes[instance_id]
 
         self._save_instances_state()

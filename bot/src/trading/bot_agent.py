@@ -1,6 +1,7 @@
 """Bot agent for managing trade execution and monitoring."""
+
+import asyncio
 import logging
-import time
 from datetime import datetime
 
 from src.shared.notifications import TelegramMessenger
@@ -22,20 +23,20 @@ class BotAgent:
 
     # Initialize class
     def __init__(
-            self,
-            client,
-            market_1,
-            market_2,
-            base_side,
-            base_size,
-            base_price,
-            quote_side,
-            quote_size,
-            quote_price,
-            accept_failsafe_base_price,
-            z_score,
-            half_life,
-            hedge_ratio,
+        self,
+        client,
+        market_1,
+        market_2,
+        base_side,
+        base_size,
+        base_price,
+        quote_side,
+        quote_size,
+        quote_price,
+        accept_failsafe_base_price,
+        z_score,
+        half_life,
+        hedge_ratio,
     ):
         """Initialize bot agent with trade parameters."""
         # Initialize class variables
@@ -79,28 +80,25 @@ class BotAgent:
     async def check_order_status_by_id(self, order_id):
         """Check order status by order ID with retry logic."""
         # Allow time to process
-        time.sleep(2)
+        await asyncio.sleep(2)
 
         # Check order status
         order_status = await check_order_status(self.client, order_id)
 
         # Guard: If order cancelled move onto next Pair
         if order_status == "CANCELED":
-            logger.warning("%s vs %s - Order cancelled",
-                           self.market_1, self.market_2)
+            logger.warning("%s vs %s - Order cancelled", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "FAILED"
             return "failed"
 
         # Guard: If order not filled wait until order expiration
         if order_status != "FAILED":
-            time.sleep(15)
+            await asyncio.sleep(15)
             order_status = await check_order_status(self.client, order_id)
 
             # Guard: If order cancelled move onto next Pair
             if order_status == "CANCELED":
-                logger.warning(
-                    "%s vs %s - Order cancelled", self.market_1, self.market_2
-                )
+                logger.warning("%s vs %s - Order cancelled", self.market_1, self.market_2)
                 self.order_dict["pair_status"] = "FAILED"
                 return "failed"
 
@@ -156,12 +154,8 @@ class BotAgent:
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info(
-            "Checking first order status for %s", self.order_dict["order_id_m1"]
-        )
-        order_status_m1 = await self.check_order_status_by_id(
-            self.order_dict["order_id_m1"]
-        )
+        logger.info("Checking first order status for %s", self.order_dict["order_id_m1"])
+        order_status_m1 = await self.check_order_status_by_id(self.order_dict["order_id_m1"])
         logger.info("First order status: %s", order_status_m1)
 
         # Guard: Abort if order failed
@@ -193,22 +187,16 @@ class BotAgent:
             # Store the order id
             self.order_dict["order_id_m2"] = order_id
             self.order_dict["order_time_m2"] = datetime.now().isoformat()
-            logger.info("Second order for %s sent (id=%s)",
-                        self.market_2, order_id)
+            logger.info("Second order for %s sent (id=%s)", self.market_2, order_id)
         except Exception as e:
-            logger.exception(
-                "Error placing second order for %s", self.market_2)
+            logger.exception("Error placing second order for %s", self.market_2)
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"Market 2 {self.market_2}: , {e}"
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info(
-            "Checking second order status for %s", self.order_dict["order_id_m2"]
-        )
-        order_status_m2 = await self.check_order_status_by_id(
-            self.order_dict["order_id_m2"]
-        )
+        logger.info("Checking second order status for %s", self.order_dict["order_id_m2"])
+        order_status_m2 = await self.check_order_status_by_id(self.order_dict["order_id_m2"])
 
         # Guard: Abort if order failed
         if order_status_m2 != "live":
@@ -227,13 +215,10 @@ class BotAgent:
                 )
 
                 # Ensure order is live before proceeding
-                time.sleep(2)
-                order_status_close_order = await check_order_status(
-                    self.client, order_id
-                )
+                await asyncio.sleep(2)
+                order_status_close_order = await check_order_status(self.client, order_id)
                 if order_status_close_order != "FILLED":
-                    logger.critical(
-                        "ABORT PROGRAM - Failed to close hedged position")
+                    logger.critical("ABORT PROGRAM - Failed to close hedged position")
                     logger.critical(
                         "Unexpected error closing %s -> status %s",
                         self.market_1,
@@ -244,36 +229,35 @@ class BotAgent:
                     self.messenger.send_error_message(
                         "CRITICAL: Position Closure Failed",
                         f"Failed to close hedged position for {self.market_1}. Status: {order_status_close_order}. Emergency intervention required!",
-                        is_critical=True
+                        is_critical=True,
                     )
 
-                    # ABORT
-                    exit(1)
+                    raise RuntimeError(
+                        f"Failed emergency closure for {self.market_1}; status={order_status_close_order}"
+                    )
             except Exception as e:
                 self.order_dict["pair_status"] = "ERROR"
                 self.order_dict["comments"] = f"Close Market 1 {self.market_1}: , {e}"
                 status_snapshot = locals().get("order_status_close_order", "unknown")
-                logger.critical(
-                    "ABORT PROGRAM - Unexpected error closing %s", self.market_1
-                )
+                logger.critical("ABORT PROGRAM - Unexpected error closing %s", self.market_1)
                 logger.critical("order_status_close_order=%s", status_snapshot)
 
                 # Send Message
                 self.messenger.send_error_message(
                     "CRITICAL: Unexpected Closure Error",
                     f"Unexpected error closing {self.market_1}. Exception: {str(e)}. Status: {status_snapshot}. Emergency intervention required!",
-                    is_critical=True
+                    is_critical=True,
                 )
 
-                # ABORT
-                exit(1)
+                raise RuntimeError(
+                    f"Unexpected emergency closure error for {self.market_1}; status={status_snapshot}"
+                ) from e
 
             # Return failure state after emergency cleanup
             return self.order_dict
 
         # Return success result
         else:
-            logger.info("SUCCESS: LIVE PAIR %s / %s",
-                        self.market_1, self.market_2)
+            logger.info("SUCCESS: LIVE PAIR %s / %s", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "LIVE"
             return self.order_dict

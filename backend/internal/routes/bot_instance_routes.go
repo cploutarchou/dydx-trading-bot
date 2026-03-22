@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"os"
+
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/handlers"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
@@ -15,7 +17,12 @@ func RegisterBotInstanceRoutes(router *gin.Engine, database *db.Database) {
 	botPositionRepo := repository.NewBotPositionRepository(database.DB)
 
 	// Initialize bot API client
-	botAPIClient := services.NewBotAPIClient("http://localhost:8000", "")
+	botAPIURL := os.Getenv("BOT_API_URL")
+	if botAPIURL == "" {
+		botAPIURL = "http://localhost:8889"
+	}
+	botAPIToken := os.Getenv("BOT_API_TOKEN")
+	botAPIClient := services.NewBotAPIClient(botAPIURL, botAPIToken)
 
 	botInstanceService := services.NewBotInstanceService(botInstanceRepo, botAPIClient)
 	botInstanceHandler := handlers.NewBotInstanceHandler(botInstanceService, botInstanceRepo)

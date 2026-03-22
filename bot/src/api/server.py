@@ -51,8 +51,7 @@ from src.api.realtime_serializers import (
     serialize_realtime_position,
     serialize_stats_risk_fields,
 )
-from src.api.v1.auth.password_2fa import router as password_2fa_router
-from src.api.websocket_server import WebSocketServer
+from src.api.websocket_server import WebSocketServer, manager
 
 # Import database utilities
 from src.infrastructure.database import db
@@ -375,17 +374,7 @@ app.add_middleware(
 # Include authentication routes
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(
-    password_2fa_router,
-    prefix="/auth",
-    tags=["Authentication"],
-)
-app.include_router(
     auth_router,
-    prefix="/api/v1/auth",
-    tags=["Authentication"],
-)
-app.include_router(
-    password_2fa_router,
     prefix="/api/v1/auth",
     tags=["Authentication"],
 )
@@ -1450,6 +1439,12 @@ async def websocket_alerts(websocket: WebSocket, bot_instance_id: int):
     await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
 
 
+@app.websocket("/api/v1/backtests/{run_id}/live")
+async def websocket_backtest_progress(websocket: WebSocket, run_id: str):
+    """WebSocket endpoint for live backtest progress updates."""
+    await WebSocketServer.handle_connection(websocket, f"backtest-{run_id}")
+
+
 # ============================================================================
 # BACKTESTING ENDPOINTS
 # ============================================================================
@@ -1520,7 +1515,15 @@ async def create_backtest(
 
         # Create WebSocket progress callback (if needed)
         async def progress_callback(run_id: str, progress: float, current_pair: str, eta: int):
-            # TODO: Implement WebSocket broadcasting for progress updates
+            message = {
+                "type": "backtest_progress",
+                "timestamp": datetime.utcnow().isoformat(),
+                "run_id": run_id,
+                "progress_pct": progress,
+                "current_pair": current_pair,
+                "eta_seconds": eta,
+            }
+            await manager.broadcast_to_bot(f"backtest-{run_id}", message)
             logger.debug(
                 f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
             )

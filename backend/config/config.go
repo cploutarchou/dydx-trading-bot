@@ -130,7 +130,7 @@ func LoadConfig() {
 	}
 
 	dydx := DYDX{
-		IsTestnet: os.Getenv("IS_TESTNET") == "True",
+		IsTestnet: getEnvBool("IS_TESTNET", false),
 		DYDXTestnetSettings: DYDXTestnetSettings{
 			Address: os.Getenv("DYDX_TESTNET_ADDRESS"),
 			Secret:  os.Getenv("DYDX_TESTNET_SECRET"),
@@ -142,7 +142,7 @@ func LoadConfig() {
 	}
 
 	loki := LokiSettings{
-		Enabled:  os.Getenv("LOKI_ENABLED") == "True",
+		Enabled:  getEnvBool("LOKI_ENABLED", false),
 		URL:      os.Getenv("LOKI_PUSH_URL"),
 		Username: os.Getenv("LOKI_USERNAME"),
 		Password: os.Getenv("LOKI_PASSWORD"),

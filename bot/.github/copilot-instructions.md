@@ -2,182 +2,95 @@
 
 ## System Architecture Overview
 
-This is a **multi-instance API-controlled trading bot** with secure credential management and comprehensive analytics. The system uses a **microservice-like pattern** with distinct API layers, background bot processes, and shared database persistence.
+This repository is a **multi-instance API-controlled trading bot** with process-isolated workers, shared persistence, and operational safety controls.
 
-### Core Components
+### Core Components (current)
 
-- **API Server (`bot_api_server.py`)** - FastAPI REST API for controlling multiple bot instances
-- **Bot Instance Manager (`bot_instance_manager.py`)** - Manages multiple isolated bot processes
-- **Main Trading Logic (`main.py`)** - Core trading loop with cointegration detection
-- **Database Layer** - SQLAlchemy models for bots, trades, jobs, and events
-- **Configuration System (`config.py`)** - Environment-driven configuration with dataclasses
+- **API Server**: `src/api/server.py`
+- **Bot Instance Manager**: `src/bot_instance_manager.py`
+- **Instance Worker Runtime**: `src/main_instance.py`
+- **Trading Runtime**: `src/trading/*`
+- **Configuration Loader**: `config/config.py`
+- **Database Layer**: `src/infrastructure/database.py` + domain/persistence modules
 
-### Data Flow Pattern
+### Runtime Data Flow
 
-```
-API Request → Bot Manager → Bot Process → dYdX Client → Database
-```
+`API request -> BotInstanceManager -> worker subprocess -> trading runtime -> exchange + persistence`
 
-Bot instances run as **separate processes** managed by the API, not threads. Each bot has isolated configuration and state stored in `bot_states/instances.json`.
+Bot instances run as **separate processes** (not threads), with isolated state files in `bot_states/`.
 
 ## Critical Development Patterns
 
-### 1. Environment Configuration
+### 1) Environment-first imports
 
-**ALWAYS load environment first:**
+Entry points must load environment variables **before** importing config/constants.
+
 ```python
 from dotenv import load_dotenv
-load_dotenv()  # MUST be before other imports
+load_dotenv()
 ```
 
-Configuration uses **dataclass pattern** in `config.py`. All settings come from environment variables with defaults. Never hardcode credentials.
+### 2) Lifecycle ownership
 
-### 2. Database Models Structure
+Use `BotInstanceManager` for start/stop/delete/status lifecycle operations.
+Do not introduce direct unmanaged subprocess patterns in API/routes.
 
-Three distinct model sets:
-- **Core Models (`models.py`)** - Bot instances, jobs, trades, events
-- **Backtest Models (`models_backtest.py`)** - Historical analysis data  
-- **Realtime Models (`models_realtime.py`)** - Live trading positions and market data
+### 3) Async safety
 
-Use **Unit of Work pattern** for database operations:
-```python
-session = db.get_session()
-uow = UnitOfWork(session)
-bot = uow.bots.get_by_instance_id(instance_id)
-```
+Avoid blocking calls (e.g., `time.sleep`) inside async runtime paths.
+Prefer async-compatible delay patterns for event-loop responsiveness.
 
-### 3. Bot Lifecycle Management
+### 4) Error propagation
 
-Bots have **distinct states**: CREATED → STARTING → RUNNING → STOPPING → STOPPED. Use `BotInstanceManager` for all bot operations, never manage processes directly.
+Prefer raising explicit exceptions from service/runtime modules.
+Reserve `sys.exit(...)` for top-level process entrypoints.
 
-```python
-# Correct pattern
-result = await bot_manager.create_instance(config)
-await bot_manager.start_instance(instance_id)
+### 5) Interpreter consistency
 
-# Wrong - never do direct process management
-subprocess.Popen(["python", "main.py"])  # ❌
-```
+Use project `.venv` interpreter consistently across tasks, tests, scripts, and process launch paths.
 
-### 4. API Response Pattern
+## API and Auth Conventions
 
-All endpoints use **standardized response wrapper**:
-```python
-return api_response(
-    success=True,
-    data=result.model_dump(),
-    message="Operation successful"
-)
-```
+- Use standardized API response wrappers where established in current routes.
+- Keep auth behavior explicit and environment-aware (`API_BYPASS_AUTH` is dev-only).
+- If adding or changing auth flows, update route docs and test coverage in the same change.
 
-### 5. Authentication Architecture
+## Security and Secrets
 
-JWT-based auth with **2FA support**. Routes use dependency injection:
-```python
-async def endpoint(current_user: User = Depends(get_current_active_user)):
-```
+- Never commit real secrets in `.env` or examples.
+- Use `CREDENTIALS_ENCRYPTION_KEY` for encrypted credential handling.
+- Rotate leaked credentials immediately.
+- Keep testnet/mainnet credentials and keys separate.
 
-## Essential Development Commands
+## Bot Safety Expectations
 
-### Quick Start Development
-```bash
-# Setup environment (run once)
-make setup
-make init-env  # Edit docker/.env afterwards
+- Favor fail-safe behavior when exchange/local state diverges.
+- Preserve visibility via structured logs + Telegram alerts.
+- For changes affecting execution safety, include rollback and incident notes.
 
-# Development workflow
-make dev          # Start with hot reload
-make shell        # Access container shell
-make logs-api     # Monitor API logs
-make db-shell     # Database access
-```
+## Documentation Requirements
 
-### Testing Patterns
-```bash
-make test         # Run full test suite
-make test-auth    # Test authentication
-make health       # Check all services
-```
+When behavior, operations, or safety constraints change, update docs in the same PR:
 
-### Database Operations
-```bash
-# Migrations
-alembic upgrade head
-alembic revision --autogenerate -m "description"
+- `PRODUCTION_READINESS.md`
+- `docs/OPERATIONS_RUNBOOK.md`
+- `docs/FAILURE_MODES.md`
+- `docs/MULTI_INSTANCE_ARCHITECTURE.md`
+- `docs/FEATURE_STATUS.md`
+- `docs/CONFIG_MATRIX.md`
 
-# Backup/restore
-make db-backup
-make db-reset     # ⚠️ Destroys all data
-```
+## High-Signal Developer Commands
 
-## Integration Points
-
-### 1. dYdX Client Connection
-Always use `func_connections.py` → `connect_dydx()`. Handles testnet/mainnet switching and jurisdiction checks. Supports **backtesting mode** with `wallet=None`.
-
-### 2. Trading Strategy Integration
-Core trading flow in `main.py` follows **flag-based control**:
-- `ABORT_ALL_POSITIONS` - Close existing positions
-- `FIND_COINTEGRATED` - Run pair analysis
-- `MANAGE_EXITS` - Handle position exits  
-- `PLACE_TRADES` - Open new positions
-
-### 3. Telegram Integration
-Use `func_messaging.py` → `TelegramMessenger` for notifications. Handles startup, error, and shutdown messages automatically.
-
-### 4. Cointegration Analysis
-`func_cointegration.py` implements **statistical arbitrage** using:
-- Half-life mean reversion analysis
-- Z-score threshold detection
-- Confidence scoring for pair selection
-
-## Security Considerations
-
-### Credential Encryption
-- **All wallet credentials encrypted** using Fernet (AES 128)
-- Key stored in `CREDENTIALS_ENCRYPTION_KEY` environment variable
-- Use `service_dydx_credentials.py` for secure credential operations
-
-### Environment Security
-```bash
-# Generate encryption key
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Never commit .env files
-# Use different keys for testnet/mainnet
-```
+- `make setup`
+- `make dev` / `make dev-detached`
+- `make test`
+- `make preflight-testnet`
+- `make preflight-testnet-strict`
 
 ## Common Pitfalls to Avoid
 
-1. **Import Order** - Always load environment variables before other imports
-2. **Process Management** - Use BotInstanceManager, never direct subprocess calls  
-3. **Database Sessions** - Always close sessions in finally blocks or use context managers
-4. **Configuration** - Never hardcode settings, use environment variables
-5. **Error Handling** - Use structured logging and Telegram notifications for critical errors
-
-## File Structure Conventions
-
-```
-bot/
-├── main.py              # Primary bot trading logic
-├── bot_api_server.py    # REST API server
-├── config.py            # Configuration management
-├── constants.py         # Trading parameters from config
-├── func_*.py            # Trading function modules
-├── models*.py           # Database models (core/backtest/realtime)  
-├── service_*.py         # Business logic services
-├── routes_*.py          # API route handlers
-└── docs/                # Comprehensive documentation
-```
-
-## Debugging and Monitoring
-
-### Log Levels
-Uses **structured logging** with optional Loki integration. Set `LOG_LEVEL=DEBUG` for verbose output.
-
-### Real-time Monitoring
-- WebSocket endpoints for live position updates
-- Health checks at `/health` and `/api/v1/system/status`
-- Comprehensive metrics in database and API responses
-
-When modifying this system, always consider **multi-instance implications** and maintain **backwards compatibility** with existing bot processes.
+1. Importing constants/config before dotenv load in entrypoints
+2. Introducing blocking sleeps into async trading loops
+3. Adding unmanaged process control outside manager layer
+4. Hardcoding credentials or environment-specific values
+5. Shipping behavior changes without runbook/doc updates

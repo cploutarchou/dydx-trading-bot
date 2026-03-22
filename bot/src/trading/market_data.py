@@ -1,9 +1,11 @@
 """Market data retrieval and price construction for dYdX."""
+
+import asyncio
 import logging
-import time
 
 import numpy as np
 import pandas as pd
+
 from src.constants import RESOLUTION
 from src.shared.utils import get_ISO_times
 
@@ -19,7 +21,7 @@ async def get_candles_recent(client, market):
     close_prices = []
 
     # Protect API
-    time.sleep(0.2)
+    await asyncio.sleep(0.2)
 
     # Get Prices from DYDX V4
     response = await client.indexer.markets.get_perpetual_market_candles(
@@ -53,7 +55,7 @@ async def get_candles_historical(client, market):
         to_iso = tf_obj["to_iso"] + ".000Z"
 
         # Protect rate limits
-        time.sleep(0.2)
+        await asyncio.sleep(0.2)
 
         response = await client.indexer.markets.get_perpetual_market_candles(
             market=market,
@@ -67,9 +69,7 @@ async def get_candles_historical(client, market):
 
         # Structure data
         for candle in candles["candles"]:
-            close_prices.append(
-                {"datetime": candle["startedAt"], market: candle["close"]}
-            )
+            close_prices.append({"datetime": candle["startedAt"], market: candle["close"]})
 
     # Construct and return DataFrame
     close_prices.reverse()

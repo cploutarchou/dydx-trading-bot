@@ -103,6 +103,16 @@ init-auth: ## Initialize authentication database
 	@echo "$(CYAN)🔑 Initializing authentication database...$(RESET)"
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec bot-api python init_auth_db.py
 
+.PHONY: ensure-venv
+ensure-venv: ## Ensure local virtual environment exists
+	@if [ -x "$(VENV_PYTHON)" ]; then \
+		echo "$(GREEN)✅ Using interpreter: $(VENV_PYTHON)$(RESET)"; \
+	else \
+		echo "$(RED)❌ Virtual environment interpreter not found at $(VENV_PYTHON)$(RESET)"; \
+		echo "$(YELLOW)Run: python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt$(RESET)"; \
+		exit 1; \
+	fi
+
 # =============================================================================
 # BUILD COMMANDS
 # =============================================================================
@@ -137,15 +147,9 @@ dev: ## Start development environment (with hot reload)
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up --build
 
 .PHONY: dev-api
-dev-api: ## Start bot API server locally with Python (port 8000)
+dev-api: ensure-venv ## Start bot API server locally with Python (port 8000)
 	@echo "$(CYAN)🚀 Starting bot API server on http://0.0.0.0:8000$(RESET)"
-	@if [ -d .venv ]; then \
-		$(VENV_PYTHON) -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload; \
-	else \
-		echo "$(RED)❌ Virtual environment not found at .venv$(RESET)"; \
-		echo "$(YELLOW)Run: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt$(RESET)"; \
-		exit 1; \
-	fi
+	@$(VENV_PYTHON) -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background
@@ -334,22 +338,22 @@ update: ## Update all images to latest versions
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) pull
 
 .PHONY: preflight-testnet
-preflight-testnet: ## Run local testnet preflight with production-like simulation checks
+preflight-testnet: ensure-venv ## Run local testnet preflight with production-like simulation checks
 	@echo "$(CYAN)🧪 Running testnet preflight checks...$(RESET)"
 	@$(VENV_PYTHON) scripts/testnet_preflight.py --simulate-production
 
 .PHONY: preflight-testnet-strict
-preflight-testnet-strict: ## Run strict preflight (warnings fail)
+preflight-testnet-strict: ensure-venv ## Run strict preflight (warnings fail)
 	@echo "$(CYAN)🧪 Running strict testnet preflight checks...$(RESET)"
 	@$(VENV_PYTHON) scripts/testnet_preflight.py --simulate-production --strict
 
 .PHONY: test-execution-safety
-test-execution-safety: ## Run regression test for emergency cleanup on second-leg failure
+test-execution-safety: ensure-venv ## Run regression test for emergency cleanup on second-leg failure
 	@echo "$(CYAN)🧪 Running execution safety regression tests...$(RESET)"
 	@PYTHONPATH=$(PWD) $(VENV_PYTHON) -m pytest -q tests/test_bot_agent_emergency_cleanup.py
 
 .PHONY: simulate-production-profile
-simulate-production-profile: ## Run baseline vs production-profile simulation via backtest API
+simulate-production-profile: ensure-venv ## Run baseline vs production-profile simulation via backtest API
 	@echo "$(CYAN)📈 Running production-profile simulation...$(RESET)"
 	@$(VENV_PYTHON) scripts/simulate_production_profile.py --skip-auth
 

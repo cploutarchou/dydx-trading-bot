@@ -64,6 +64,11 @@ func RequireAuth() gin.HandlerFunc {
 		if err != nil {
 			// Log underlying verification error as well
 			log.Printf("RequireAuth: token verification failed: %v", err)
+			if strings.Contains(strings.ToLower(err.Error()), "token is expired") || strings.Contains(strings.ToLower(err.Error()), "token expired") {
+				c.JSON(401, gin.H{"error": "access token expired", "code": "token_expired"})
+				c.Abort()
+				return
+			}
 			c.JSON(401, gin.H{"error": fmt.Sprintf("invalid token: %v", err)})
 			c.Abort()
 			return

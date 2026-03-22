@@ -1,25 +1,20 @@
 // Custom React Query Hooks for API Endpoints
 // Provides optimized data fetching with loading states, error handling, and caching
 
-import {
-	useInfiniteQuery,
-	useMutation,
-	useQuery,
-	useQueryClient
-} from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
-	BacktestConfig,
-	BotInstance,
-	CreateBotRequest,
-	ListAlertsParams,
-	ListBacktestsParams,
-	ListBotsParams,
-	ListTradesParams,
-	StartBotRequest,
-	UpdateBotRequest,
-	User
+    BacktestConfig,
+    BotInstance,
+    CreateBotRequest,
+    ListAlertsParams,
+    ListBacktestsParams,
+    ListBotsParams,
+    ListTradesParams,
+    StartBotRequest,
+    UpdateBotRequest,
+    User,
 } from './types';
 
 // ==================== Authentication Hooks ====================
@@ -35,7 +30,7 @@ export function useCurrentUser() {
 
 export function useLogin() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: ({ username, password }: { username: string; password: string }) =>
       apiClient.login(username, password),
@@ -49,7 +44,7 @@ export function useLogin() {
 
 export function useLogout() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: () => {
       apiClient.logout();
@@ -64,14 +59,21 @@ export function useLogout() {
 
 export function useRegister() {
   return useMutation({
-    mutationFn: ({ username, email, password }: { username: string; email: string; password: string }) =>
-      apiClient.register(username, email, password),
+    mutationFn: ({
+      username,
+      email,
+      password,
+    }: {
+      username: string;
+      email: string;
+      password: string;
+    }) => apiClient.register(username, email, password),
   });
 }
 
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: (profile: Partial<User>) => apiClient.updateProfile(profile),
     onSuccess: () => {
@@ -117,10 +119,13 @@ export function useBotTrades(instanceId: string, params: ListTradesParams = {}) 
   });
 }
 
-export function useBotTradesInfinite(instanceId: string, params: Omit<ListTradesParams, 'offset'> = {}) {
+export function useBotTradesInfinite(
+  instanceId: string,
+  params: Omit<ListTradesParams, 'offset'> = {}
+) {
   return useInfiniteQuery({
     queryKey: queryKeys.botTrades(instanceId, params),
-    queryFn: ({ pageParam = 0 }) => 
+    queryFn: ({ pageParam = 0 }) =>
       apiClient.getBotTrades(instanceId, { ...params, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
@@ -133,8 +138,6 @@ export function useBotTradesInfinite(instanceId: string, params: Omit<ListTrades
 }
 
 export function useCreateBotInstance() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (config: CreateBotRequest) => apiClient.createBotInstance(config),
     onSuccess: () => {
@@ -144,8 +147,6 @@ export function useCreateBotInstance() {
 }
 
 export function useUpdateBotInstance(instanceId: string) {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (updates: UpdateBotRequest) => apiClient.updateBotInstance(instanceId, updates),
     onSuccess: () => {
@@ -155,8 +156,6 @@ export function useUpdateBotInstance(instanceId: string) {
 }
 
 export function useStartBotInstance() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: ({ instanceId, config }: { instanceId: string; config?: StartBotRequest }) =>
       apiClient.startBotInstance(instanceId, config),
@@ -167,8 +166,6 @@ export function useStartBotInstance() {
 }
 
 export function useStopBotInstance() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (instanceId: string) => apiClient.stopBotInstance(instanceId),
     onSuccess: (_, instanceId) => {
@@ -178,8 +175,6 @@ export function useStopBotInstance() {
 }
 
 export function useRestartBotInstance() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (instanceId: string) => apiClient.restartBotInstance(instanceId),
     onSuccess: (_, instanceId) => {
@@ -189,8 +184,6 @@ export function useRestartBotInstance() {
 }
 
 export function useDeleteBotInstance() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (instanceId: string) => apiClient.deleteBotInstance(instanceId),
     onSuccess: () => {
@@ -293,8 +286,6 @@ export function useBacktestMetrics(runId: string, enabled: boolean = true) {
 }
 
 export function useCreateBacktest() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (config: BacktestConfig) => apiClient.createBacktest(config),
     onSuccess: () => {
@@ -304,8 +295,6 @@ export function useCreateBacktest() {
 }
 
 export function useDeleteBacktest() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (runId: string) => apiClient.deleteBacktest(runId),
     onSuccess: () => {
@@ -315,8 +304,6 @@ export function useDeleteBacktest() {
 }
 
 export function useCancelBacktest() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: (runId: string) => apiClient.cancelBacktest(runId),
     onSuccess: (_, runId) => {
@@ -368,8 +355,13 @@ export function useBotOverview(instanceId: string) {
     stats: statsQuery,
     positions: positionsQuery,
     realtime: realtimeQuery,
-    isLoading: botQuery.isLoading || statsQuery.isLoading || positionsQuery.isLoading || realtimeQuery.isLoading,
-    isError: botQuery.isError || statsQuery.isError || positionsQuery.isError || realtimeQuery.isError,
+    isLoading:
+      botQuery.isLoading ||
+      statsQuery.isLoading ||
+      positionsQuery.isLoading ||
+      realtimeQuery.isLoading,
+    isError:
+      botQuery.isError || statsQuery.isError || positionsQuery.isError || realtimeQuery.isError,
     error: botQuery.error || statsQuery.error || positionsQuery.error || realtimeQuery.error,
     refetchAll: () => {
       botQuery.refetch();
@@ -412,9 +404,10 @@ export function useBacktestProgress(runId: string) {
   const query = useQuery({
     queryKey: queryKeys.backtestStatus(runId),
     queryFn: () => apiClient.getBacktestStatus(runId),
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
+      const status = (query.state.data as { status?: string } | undefined)?.status;
       // Stop polling if backtest is complete or failed
-      if (data?.status === 'COMPLETED' || data?.status === 'FAILED' || data?.status === 'CANCELLED') {
+      if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED') {
         return false;
       }
       return 2000; // Poll every 2 seconds
@@ -466,9 +459,8 @@ export function useOptimisticBotUpdate(instanceId: string) {
 
   return {
     updateBotOptimistically: (updates: Partial<BotInstance>) => {
-      queryClient.setQueryData(
-        queryKeys.bot(instanceId),
-        (old: BotInstance | undefined) => old ? { ...old, ...updates } : undefined
+      queryClient.setQueryData(queryKeys.bot(instanceId), (old: BotInstance | undefined) =>
+        old ? { ...old, ...updates } : undefined
       );
     },
     revertBotUpdate: () => {

@@ -1,26 +1,25 @@
-import React, { useEffect, useState } from "react";
-import { AxiosError } from "axios";
-import api from "../api";
+import { AxiosError } from 'axios';
+import React, { useEffect, useState } from 'react';
+import api from '../api';
 
 interface DYDXKey {
   id: number;
-  network: "testnet" | "mainnet";
+  network: 'testnet' | 'mainnet';
   chain_address: string;
-  is_active: boolean;
-  created_at: string;
+  is_active?: boolean;
+  created_at?: string;
   updated_at?: string;
 }
 
 interface CreateKeyPayload {
-  network: "testnet" | "mainnet";
+  network: 'testnet' | 'mainnet';
   chain_address: string;
   secret_phrase: string;
 }
 
-
 /**
  * DYDXKeyManager Component
- * 
+ *
  * Manages secure dYdX testnet and mainnet key storage.
  * Features:
  * - Create/read/delete keys via secure API
@@ -41,9 +40,9 @@ export const DYDXKeyManager: React.FC = () => {
 
   // Form state
   const [formData, setFormData] = useState<CreateKeyPayload>({
-    network: "testnet",
-    chain_address: "",
-    secret_phrase: "",
+    network: 'testnet',
+    chain_address: '',
+    secret_phrase: '',
   });
 
   // Form validation state
@@ -52,7 +51,7 @@ export const DYDXKeyManager: React.FC = () => {
   // Load keys on mount and set up polling
   useEffect(() => {
     loadKeys();
-    
+
     // Optional: Set up auto-refresh every 30 seconds
     const interval = setInterval(loadKeys, 30000);
     return () => clearInterval(interval);
@@ -83,17 +82,18 @@ export const DYDXKeyManager: React.FC = () => {
       const response = await api.getKeys();
 
       if (response && response.success && Array.isArray(response.data?.keys)) {
-        setKeys(response.data.keys || []);
+        setKeys(response.data.keys as DYDXKey[]);
       } else {
         setKeys([]);
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ detail?: string; message?: string }>;
-      const errorMessage = axiosError.response?.data?.detail ||
-                          axiosError.response?.data?.message ||
-                          "Failed to load keys";
+      const errorMessage =
+        axiosError.response?.data?.detail ||
+        axiosError.response?.data?.message ||
+        'Failed to load keys';
       setError(errorMessage);
-      console.error("Failed to load keys:", err);
+      console.error('Failed to load keys:', err);
       setKeys([]);
     } finally {
       setLoading(false);
@@ -107,17 +107,17 @@ export const DYDXKeyManager: React.FC = () => {
     const errors: Record<string, string> = {};
 
     if (!formData.network) {
-      errors.network = "Network is required";
+      errors.network = 'Network is required';
     }
 
     if (!formData.chain_address || formData.chain_address.trim().length === 0) {
-      errors.chain_address = "Chain address is required";
-    } else if (!formData.chain_address.startsWith("dydx1")) {
-      errors.chain_address = "Invalid dYdX address (must start with dydx1)";
+      errors.chain_address = 'Chain address is required';
+    } else if (!formData.chain_address.startsWith('dydx1')) {
+      errors.chain_address = 'Invalid dYdX address (must start with dydx1)';
     }
 
     if (!formData.secret_phrase || formData.secret_phrase.trim().length === 0) {
-      errors.secret_phrase = "Secret phrase is required";
+      errors.secret_phrase = 'Secret phrase is required';
     } else {
       const wordCount = formData.secret_phrase.trim().split(/\s+/).length;
       if (wordCount !== 12 && wordCount !== 24) {
@@ -134,7 +134,7 @@ export const DYDXKeyManager: React.FC = () => {
    */
   const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -144,24 +144,31 @@ export const DYDXKeyManager: React.FC = () => {
     setSuccessMessage(null);
 
     try {
-      const response = await api.createKey(formData);
+      const response = await api.createKey(
+        formData as unknown as Record<string, unknown> & {
+          network: string;
+          chain_address: string;
+          secret_phrase: string;
+        }
+      );
 
       if (response.success) {
         setSuccessMessage(
           `✅ ${formData.network.charAt(0).toUpperCase() + formData.network.slice(1)} key saved successfully!`
         );
-        setFormData({ network: "testnet", chain_address: "", secret_phrase: "" });
+        setFormData({ network: 'testnet', chain_address: '', secret_phrase: '' });
         setFormErrors({});
         setShowAddForm(false);
         await loadKeys();
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ detail?: string; message?: string }>;
-      const errorMessage = axiosError.response?.data?.detail ||
-                          axiosError.response?.data?.message ||
-                          "Failed to save key";
+      const errorMessage =
+        axiosError.response?.data?.detail ||
+        axiosError.response?.data?.message ||
+        'Failed to save key';
       setError(`❌ ${errorMessage}`);
-      console.error("Failed to add key:", err);
+      console.error('Failed to add key:', err);
     } finally {
       setFormSubmitting(false);
     }
@@ -171,7 +178,11 @@ export const DYDXKeyManager: React.FC = () => {
    * Handle deleting a key
    */
   const handleDeleteKey = async (network: string) => {
-    if (!confirm(`🗑️  Are you sure you want to delete the ${network} key?\n\nThis action cannot be undone.`)) {
+    if (
+      !confirm(
+        `🗑️  Are you sure you want to delete the ${network} key?\n\nThis action cannot be undone.`
+      )
+    ) {
       return;
     }
 
@@ -184,11 +195,12 @@ export const DYDXKeyManager: React.FC = () => {
       await loadKeys();
     } catch (err) {
       const axiosError = err as AxiosError<{ detail?: string; message?: string }>;
-      const errorMessage = axiosError.response?.data?.detail ||
-                          axiosError.response?.data?.message ||
-                          "Failed to delete key";
+      const errorMessage =
+        axiosError.response?.data?.detail ||
+        axiosError.response?.data?.message ||
+        'Failed to delete key';
       setError(`❌ ${errorMessage}`);
-      console.error("Failed to delete key:", err);
+      console.error('Failed to delete key:', err);
     } finally {
       setDeleting(null);
     }
@@ -212,21 +224,22 @@ export const DYDXKeyManager: React.FC = () => {
             onClick={() => setShowAddForm(!showAddForm)}
             className={`px-4 py-2 rounded-lg transition-colors font-medium ${
               showAddForm
-                ? "bg-slate-700 hover:bg-slate-600 text-white"
-                : "bg-blue-600 hover:bg-blue-700 text-white"
+                ? 'bg-slate-700 hover:bg-slate-600 text-white'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
             }`}
           >
-            {showAddForm ? "✕ Cancel" : "+ Add Key"}
+            {showAddForm ? '✕ Cancel' : '+ Add Key'}
           </button>
         </div>
 
         {/* Status Summary */}
         <div className="mt-4 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
           <p className="text-slate-300 text-sm">
-            <span className="font-medium">{Array.isArray(keys) ? keys.length : 0}</span> key(s) configured
+            <span className="font-medium">{Array.isArray(keys) ? keys.length : 0}</span> key(s)
+            configured
             {Array.isArray(keys) && keys.length > 0 && (
               <>
-                {" • "}
+                {' • '}
                 <span className="text-green-400">All active</span>
               </>
             )}
@@ -248,20 +261,23 @@ export const DYDXKeyManager: React.FC = () => {
 
       {/* Add Key Form */}
       {showAddForm && (
-        <form onSubmit={handleAddKey} className="bg-slate-900 rounded-lg border border-slate-700 p-6">
+        <form
+          onSubmit={handleAddKey}
+          className="bg-slate-900 rounded-lg border border-slate-700 p-6"
+        >
           <h3 className="text-lg font-bold text-white mb-4">Add New Key</h3>
 
           {/* Network Selection */}
           <div className="mb-6">
             <label className="block text-white font-medium mb-3">Select Network</label>
             <div className="grid grid-cols-2 gap-4">
-              {(["testnet", "mainnet"] as const).map((net) => (
+              {(['testnet', 'mainnet'] as const).map((net) => (
                 <label
                   key={net}
                   className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                     formData.network === net
-                      ? "border-blue-500 bg-blue-900/30"
-                      : "border-slate-600 bg-slate-800 hover:border-slate-500"
+                      ? 'border-blue-500 bg-blue-900/30'
+                      : 'border-slate-600 bg-slate-800 hover:border-slate-500'
                   }`}
                 >
                   <input
@@ -270,16 +286,19 @@ export const DYDXKeyManager: React.FC = () => {
                     value={net}
                     checked={formData.network === net}
                     onChange={(e) => {
-                      setFormData({ ...formData, network: e.target.value as CreateKeyPayload["network"] });
+                      setFormData({
+                        ...formData,
+                        network: e.target.value as CreateKeyPayload['network'],
+                      });
                       setFormErrors({});
                     }}
                     className="mr-2"
                   />
                   <span className="text-white font-medium capitalize">
-                    {net === "testnet" ? "🧪 Testnet" : "🚀 Mainnet"}
+                    {net === 'testnet' ? '🧪 Testnet' : '🚀 Mainnet'}
                   </span>
                   <p className="text-slate-400 text-xs mt-1">
-                    {net === "testnet" ? "For testing and development" : "For production trading"}
+                    {net === 'testnet' ? 'For testing and development' : 'For production trading'}
                   </p>
                 </label>
               ))}
@@ -306,14 +325,16 @@ export const DYDXKeyManager: React.FC = () => {
               }}
               className={`w-full px-4 py-2 bg-slate-800 border-2 rounded-lg text-white placeholder-slate-500 focus:outline-none transition-all ${
                 formErrors.chain_address
-                  ? "border-red-600 focus:ring-2 focus:ring-red-500/50"
-                  : "border-slate-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  ? 'border-red-600 focus:ring-2 focus:ring-red-500/50'
+                  : 'border-slate-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
               }`}
             />
             {formErrors.chain_address && (
               <p className="text-red-400 text-xs mt-1">{formErrors.chain_address}</p>
             )}
-            <p className="text-slate-400 text-xs mt-2">Your dYdX chain address (starts with dydx1)</p>
+            <p className="text-slate-400 text-xs mt-2">
+              Your dYdX chain address (starts with dydx1)
+            </p>
           </div>
 
           {/* Secret Phrase */}
@@ -335,8 +356,8 @@ export const DYDXKeyManager: React.FC = () => {
               }}
               className={`w-full h-32 px-4 py-2 bg-slate-800 border-2 rounded-lg text-white placeholder-slate-500 focus:outline-none font-mono text-sm transition-all resize-none ${
                 formErrors.secret_phrase
-                  ? "border-red-600 focus:ring-2 focus:ring-red-500/50"
-                  : "border-slate-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  ? 'border-red-600 focus:ring-2 focus:ring-red-500/50'
+                  : 'border-slate-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
               }`}
             />
             {formErrors.secret_phrase && (
@@ -344,7 +365,8 @@ export const DYDXKeyManager: React.FC = () => {
             )}
             <div className="mt-2 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
               <p className="text-yellow-200 text-xs">
-                ⚠️ <span className="font-medium">Important:</span> Your seed phrase is encrypted and never stored in plain text. Keep it safe and never share it.
+                ⚠️ <span className="font-medium">Important:</span> Your seed phrase is encrypted and
+                never stored in plain text. Keep it safe and never share it.
               </p>
             </div>
           </div>
@@ -355,8 +377,8 @@ export const DYDXKeyManager: React.FC = () => {
             disabled={formSubmitting || loading}
             className={`w-full px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2 ${
               formSubmitting || loading
-                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
-                : "bg-green-600 hover:bg-green-700 text-white"
+                ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700 text-white'
             }`}
           >
             {formSubmitting ? (
@@ -365,9 +387,7 @@ export const DYDXKeyManager: React.FC = () => {
                 Saving...
               </>
             ) : (
-              <>
-                ✓ Save Key
-              </>
+              <>✓ Save Key</>
             )}
           </button>
         </form>
@@ -376,7 +396,7 @@ export const DYDXKeyManager: React.FC = () => {
       {/* Keys List */}
       <div className="bg-slate-900 rounded-lg border border-slate-700 p-6">
         <h3 className="text-lg font-bold text-white mb-4">Your Keys</h3>
-        
+
         <div className="space-y-3">
           {loading && !keys.length ? (
             <div className="text-center py-12">
@@ -397,24 +417,27 @@ export const DYDXKeyManager: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4 flex-1">
                     {/* Network Badge */}
-                    <div className={`flex items-center justify-center w-12 h-12 rounded-lg font-bold text-lg ${
-                      key.network === "testnet"
-                        ? "bg-orange-900/30 text-orange-400 border border-orange-700"
-                        : "bg-purple-900/30 text-purple-400 border border-purple-700"
-                    }`}>
-                      {key.network === "testnet" ? "🧪" : "🚀"}
+                    <div
+                      className={`flex items-center justify-center w-12 h-12 rounded-lg font-bold text-lg ${
+                        key.network === 'testnet'
+                          ? 'bg-orange-900/30 text-orange-400 border border-orange-700'
+                          : 'bg-purple-900/30 text-purple-400 border border-purple-700'
+                      }`}
+                    >
+                      {key.network === 'testnet' ? '🧪' : '🚀'}
                     </div>
 
                     {/* Key Info */}
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-white font-medium capitalize">
-                        {key.network} Key
-                      </h4>
+                      <h4 className="text-white font-medium capitalize">{key.network} Key</h4>
                       <p className="text-slate-400 text-sm font-mono truncate">
                         {key.chain_address}
                       </p>
                       <p className="text-slate-500 text-xs mt-1">
-                        📅 Added: {new Date(key.created_at).toLocaleDateString()} at {new Date(key.created_at).toLocaleTimeString()}
+                        📅 Added:{' '}
+                        {key.created_at
+                          ? `${new Date(key.created_at).toLocaleDateString()} at ${new Date(key.created_at).toLocaleTimeString()}`
+                          : 'Unknown'}
                       </p>
                     </div>
                   </div>
@@ -434,11 +457,11 @@ export const DYDXKeyManager: React.FC = () => {
                       disabled={deleting === key.network}
                       className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
                         deleting === key.network
-                          ? "bg-slate-700 text-slate-400 cursor-not-allowed"
-                          : "bg-red-900/50 hover:bg-red-900 border border-red-700 text-red-300 hover:text-red-200"
+                          ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                          : 'bg-red-900/50 hover:bg-red-900 border border-red-700 text-red-300 hover:text-red-200'
                       }`}
                     >
-                      {deleting === key.network ? "Deleting..." : "🗑️ Delete"}
+                      {deleting === key.network ? 'Deleting...' : '🗑️ Delete'}
                     </button>
                   </div>
                 </div>
@@ -457,7 +480,11 @@ export const DYDXKeyManager: React.FC = () => {
         <ul className="space-y-2 text-slate-300 text-sm">
           <li className="flex gap-2">
             <span className="text-green-400 font-bold">✓</span>
-            <span>Keys are encrypted with <code className="bg-slate-800 px-2 py-1 rounded text-xs">Fernet</code> symmetric encryption</span>
+            <span>
+              Keys are encrypted with{' '}
+              <code className="bg-slate-800 px-2 py-1 rounded text-xs">Fernet</code> symmetric
+              encryption
+            </span>
           </li>
           <li className="flex gap-2">
             <span className="text-green-400 font-bold">✓</span>
@@ -483,19 +510,24 @@ export const DYDXKeyManager: React.FC = () => {
         <h3 className="text-white font-bold mb-3">Need Help?</h3>
         <div className="space-y-2 text-slate-400 text-sm">
           <p>
-            <span className="text-white font-medium">Q: Where do I get my dYdX address and seed phrase?</span>
+            <span className="text-white font-medium">
+              Q: Where do I get my dYdX address and seed phrase?
+            </span>
             <br className="mt-1" />
             A: You'll find these in your dYdX wallet or when you create a new account on dYdX.
           </p>
           <p className="pt-2">
-            <span className="text-white font-medium">Q: Can I use the same key for both testnet and mainnet?</span>
+            <span className="text-white font-medium">
+              Q: Can I use the same key for both testnet and mainnet?
+            </span>
             <br className="mt-1" />
             A: No, testnet and mainnet use different keys. You need to add both separately.
           </p>
           <p className="pt-2">
             <span className="text-white font-medium">Q: Is my seed phrase secure here?</span>
             <br className="mt-1" />
-            A: Yes! It's encrypted on the server and only decrypted when you specifically request it.
+            A: Yes! It's encrypted on the server and only decrypted when you specifically request
+            it.
           </p>
         </div>
       </div>

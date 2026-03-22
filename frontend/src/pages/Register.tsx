@@ -74,10 +74,8 @@ export const RegisterPage: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        console.log('📝 RegisterPage: handleSubmit called');
 
         if (!validateForm()) {
-            console.log('📝 RegisterPage: Form validation failed');
             return;
         }
 
@@ -87,12 +85,7 @@ export const RegisterPage: React.FC = () => {
         }
 
         try {
-            console.log('📝 RegisterPage: Calling register() with:', {
-                username: formData.username,
-                email: formData.email,
-            });
             await register(formData.username, formData.email, formData.password);
-            console.log('📝 RegisterPage: Registration successful, navigating to 2FA setup');
             navigate('/2fa-setup');
         } catch (err) {
             console.error('❌ RegisterPage: Registration failed:', err);

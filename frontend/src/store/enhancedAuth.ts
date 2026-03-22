@@ -8,6 +8,25 @@ import { enhancedApiClient } from '../api/enhancedClient';
 import { cacheUtils } from '../api/queryClient';
 import type { User } from '../api/types';
 
+const normalizeUser = (user: Partial<User> | null | undefined): User | null => {
+  if (!user || typeof user.id !== 'number' || !user.username || !user.email || !user.created_at) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    full_name: user.full_name,
+    avatar: user.avatar,
+    is_active: user.is_active ?? true,
+    is_admin: user.is_admin ?? false,
+    created_at: user.created_at,
+    updated_at: user.updated_at,
+    profile: user.profile,
+  };
+};
+
 // Auth state interface
 interface AuthState {
   // User data
@@ -127,11 +146,12 @@ export const useAuthStore = create<AuthStore>()(
           });
 
           try {
-            const authResponse = await enhancedApiClient.login(username, password);
+            await enhancedApiClient.login(username, password);
             const userResponse = await enhancedApiClient.getCurrentUser();
+            const currentUser = normalizeUser((userResponse.data || null) as Partial<User> | null);
 
             set((state) => {
-              state.user = userResponse.data || userResponse;
+              state.user = currentUser;
               state.isAuthenticated = true;
               state.sessionStarted = Date.now();
               state.lastActivity = Date.now();
@@ -313,9 +333,12 @@ export const useAuthStore = create<AuthStore>()(
             // Check if we have stored auth data
             if (enhancedApiClient.isAuthenticated()) {
               const userResponse = await enhancedApiClient.getCurrentUser();
+              const currentUser = normalizeUser(
+                (userResponse.data || null) as Partial<User> | null
+              );
 
               set((state) => {
-                state.user = userResponse.data || userResponse;
+                state.user = currentUser;
                 state.isAuthenticated = true;
                 state.lastActivity = Date.now();
                 state.isLoading = false;
@@ -368,9 +391,7 @@ useAuthStore.subscribe(
   (isAuthenticated, previousIsAuthenticated) => {
     // Handle authentication state changes
     if (isAuthenticated && !previousIsAuthenticated) {
-      console.log('User authenticated');
     } else if (!isAuthenticated && previousIsAuthenticated) {
-      console.log('User logged out');
       // Clear sensitive data
       cacheUtils.clearCache();
     }

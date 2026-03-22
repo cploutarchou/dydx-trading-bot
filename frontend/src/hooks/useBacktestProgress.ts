@@ -28,24 +28,20 @@ export const useBacktestProgress = (runId: string, token: string | null) => {
 
   const connect = useCallback(() => {
     if (!token) {
-      console.log('[useBacktestProgress] No token available, cannot connect');
       return;
     }
 
     try {
       // Use centralized api helper which builds WS url from VITE_API_URL
-      console.log('[useBacktestProgress] Connecting via api.connectBacktestSocket');
       const ws = api.connectBacktestSocket(runId, token);
 
       ws.onopen = () => {
-        console.log('[useBacktestProgress] WebSocket connected');
         setState((prev) => ({ ...prev, isConnected: true, error: null }));
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('[useBacktestProgress] Received message:', data);
 
           setState((prev) => ({
             ...prev,
@@ -69,7 +65,6 @@ export const useBacktestProgress = (runId: string, token: string | null) => {
       };
 
       ws.onclose = () => {
-        console.log('[useBacktestProgress] WebSocket disconnected');
         setState((prev) => ({ ...prev, isConnected: false }));
       };
 

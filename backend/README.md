@@ -276,6 +276,36 @@ GET /api/v1/bots/{instance_id}/alerts/live
 
 These proxy to the bot API websocket channels while preserving backend authentication checks.
 
+### Staging smoke commands (backend-only deploy)
+
+Use this pre-release check to validate delegated websocket paths when deploying only the backend.
+
+Service-token model settings:
+
+- Backend: `BOT_API_TOKEN`, `BOT_API_USE_SERVICE_TOKEN=true`
+- Bot: `BOT_API_TOKEN` (and optionally `BOT_API_TOKEN_PREVIOUS` during rotation overlap)
+
+Smoke flow:
+
+```bash
+# 1) Login to backend and capture access token
+TOKEN=$(curl -s -X POST http://localhost:8888/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"<user>","password":"<password>"}' \
+  | jq -r '.access_token // .data.access_token')
+
+# 2) Strategy websocket channel
+wscat -c "ws://localhost:8888/ws/strategies?access_token=${TOKEN}"
+
+# 3) Delegated backtest live websocket channel
+wscat -c "ws://localhost:8888/api/v1/backtests/<run_id>/live?access_token=${TOKEN}"
+```
+
+Expected results:
+
+- Strategy websocket connects without auth failures and supports ping/pong traffic.
+- Backtest live websocket connects and streams progress events for active runs.
+
 See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for full endpoint details.
 
 ## Development

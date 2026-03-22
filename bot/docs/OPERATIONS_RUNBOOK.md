@@ -95,6 +95,29 @@ Use overlap windows to rotate without breaking delegated backend traffic:
 
 Optional list-based rollout is supported with `BOT_API_TOKENS` (comma-separated), but prefer the explicit current/previous pair for operational clarity.
 
+## Staging smoke commands (pre-release)
+
+Run this sequence before release when using delegated websocket paths.
+
+1. Ensure service-token model settings are active:
+   - Backend: `BOT_API_TOKEN`, `BOT_API_USE_SERVICE_TOKEN=true`
+   - Bot: `BOT_API_TOKEN` (and optional `BOT_API_TOKEN_PREVIOUS` during overlap)
+2. Login to obtain a JWT access token from backend.
+3. Validate websocket channels from backend origin:
+   - Strategy channel: `/ws/strategies`
+   - Delegated backtest channel: `/api/v1/backtests/{run_id}/live`
+
+Example command flow (replace placeholders):
+
+- `TOKEN=$(curl -s -X POST http://localhost:8888/api/v1/auth/login -H 'Content-Type: application/json' -d '{"username":"<user>","password":"<password>"}' | jq -r '.access_token // .data.access_token')`
+- `wscat -c "ws://localhost:8888/ws/strategies?access_token=${TOKEN}"`
+- `wscat -c "ws://localhost:8888/api/v1/backtests/<run_id>/live?access_token=${TOKEN}"`
+
+Expected results:
+
+- Strategy WS connects and receives handshake/ping-pong traffic without auth failures.
+- Backtest live WS connects and streams progress events for active runs.
+
 ## Incident triage quick map
 
 - Jurisdiction/access failure: see `docs/FAILURE_MODES.md` (FM-001)

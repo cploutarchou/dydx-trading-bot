@@ -11,11 +11,8 @@ export const LoginPage: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        console.log('📝 LoginPage: handleSubmit called with username:', username);
         try {
-            console.log('📝 LoginPage: Calling login()');
             await login(username, password);
-            console.log('📝 LoginPage: login() succeeded, navigating to /dashboard');
             navigate('/dashboard');
         } catch (err) {
             console.error('❌ LoginPage: Error during login:', err);

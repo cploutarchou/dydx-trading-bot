@@ -1,15 +1,22 @@
 """Position entry and exit management for pairs trading."""
 
+import asyncio
 import json
 import logging
-import time
+import os
 from pathlib import Path
 
 import pandas as pd
-from src.constants import CLOSE_AT_ZSCORE_CROSS, USD_MIN_COLLATERAL, USD_PER_TRADE, ZSCORE_THRESH
-from src.trading.bot_agent import BotAgent
-from src.trading.analysis.cointegration import calculate_zscore
+
+from src.constants import (
+    CLOSE_AT_ZSCORE_CROSS,
+    USD_MIN_COLLATERAL,
+    USD_PER_TRADE,
+    ZSCORE_THRESH,
+)
+from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.shared.notifications import TelegramMessenger
+from src.shared.utils import format_number
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -17,13 +24,25 @@ from src.trading.account_manager import (
     is_open_positions,
     place_market_order,
 )
+from src.trading.analysis.cointegration import calculate_zscore
+from src.trading.bot_agent import BotAgent
 from src.trading.market_data import get_candles_recent, get_markets
-from src.shared.utils import format_number
-from src.infrastructure.domain.cointegration_storage import pair_storage
 
 logger = logging.getLogger(__name__)
 
-BOT_AGENTS_PATH = Path(__file__).resolve().parents[2] / "bot_agents.json"
+
+def _resolve_bot_agents_path() -> Path:
+    """Resolve per-instance bot agents path from environment."""
+    configured_path = os.getenv("BOT_AGENTS_FILE", "bot_agents.json")
+    instance_id = os.getenv("BOT_INSTANCE_ID", "default")
+    resolved = configured_path.replace("{instance_id}", instance_id)
+    path = Path(resolved)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    return path
+
+
+BOT_AGENTS_PATH = _resolve_bot_agents_path()
 
 IGNORE_ASSETS = [
     "BTC-USD_x",
@@ -274,7 +293,7 @@ async def manage_trade_exits(client):
     markets_live = list(exchange_pos.keys())
 
     # Protect API
-    time.sleep(0.5)
+    await asyncio.sleep(0.5)
 
     # Check all saved positions match order record
     # Exit trade according to any exit trade rules
@@ -294,7 +313,7 @@ async def manage_trade_exits(client):
         position_side_m2 = position["order_m2_side"]
 
         # Protect API
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
 
         # Get order info m1 per exchange
         order_m1 = await get_order(client, position["order_id_m1"])
@@ -303,7 +322,7 @@ async def manage_trade_exits(client):
         order_side_m1 = order_m1["side"]
 
         # Protect API Rate limits
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
 
         # Get order info m2 per exchange
         order_m2 = await get_order(client, position["order_id_m2"])
@@ -339,20 +358,21 @@ async def manage_trade_exits(client):
             logger.error(
                 "Program does not recognise some open positions. Manual intervention required."
             )
-            logger.error("Exiting program")
-            exit(1)
+            raise RuntimeError(
+                f"Exchange/local state mismatch for {position_market_m1}/{position_market_m2}"
+            )
 
         # Get prices
         series_1 = await get_candles_recent(client, position_market_m1)
-        time.sleep(0.2)
+        await asyncio.sleep(0.2)
         series_2 = await get_candles_recent(client, position_market_m2)
-        time.sleep(0.2)
+        await asyncio.sleep(0.2)
 
         # Get markets for reference of tick size
         markets = await get_markets(client)
 
         # Protect API
-        time.sleep(0.2)
+        await asyncio.sleep(0.2)
 
         # Trigger close based on Z-Score
         if CLOSE_AT_ZSCORE_CROSS:
@@ -419,7 +439,7 @@ async def manage_trade_exits(client):
                 logger.debug("Close order m1 id: %s", close_order_m1.get("id"))
 
                 # Protect API
-                time.sleep(1)
+                await asyncio.sleep(1)
 
                 # Close position for market 2
                 logger.info(
@@ -466,6 +486,6 @@ async def manage_trade_exits(client):
             save_output.append(position)
 
     # Save remaining items
-    logger.info("%d items remaining; persisting bot_agents.json", len(save_output))
+    logger.info("%d items remaining; persisting %s", len(save_output), BOT_AGENTS_PATH)
     with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
         json.dump(save_output, f)

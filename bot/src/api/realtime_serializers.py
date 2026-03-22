@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
-def _float_or_none(value: Any) -> float | None:
+def _float_or_none(value: Any) -> Optional[float]:
     return float(value) if value is not None else None
 
 
@@ -36,9 +36,7 @@ def serialize_realtime_position(position: Any, include_updated_at: bool = False)
     }
 
     if include_updated_at:
-        payload["updated_at"] = (
-            position.updated_at.isoformat() if position.updated_at else None
-        )
+        payload["updated_at"] = position.updated_at.isoformat() if position.updated_at else None
 
     return payload
 

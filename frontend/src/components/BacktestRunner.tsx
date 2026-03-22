@@ -1,5 +1,6 @@
 import { Play } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useStrategyStore } from '../store/strategies';
 
@@ -39,6 +40,7 @@ interface BacktestRunRequest {
 export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   onBacktestComplete,
 }) => {
+  const navigate = useNavigate();
   const { strategies, fetchStrategies } = useStrategyStore();
   const [useStrategy, setUseStrategy] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
@@ -207,19 +209,21 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         },
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
       };
-      console.log('📊 BacktestRunner: Starting backtest with:', cleanedData);
-      const response = await api.runBacktest(cleanedData);
-      console.log('📊 BacktestRunner: Backtest started:', response);
-      setSuccess(true);
-      setShowSaveDialog(true);
+      const result = await api.runBacktest(cleanedData);
+      const runId = (result as any)?.run_id || (result as any)?.data?.run_id;
 
       if (onBacktestComplete) {
-        setTimeout(() => onBacktestComplete(), 1000);
+        onBacktestComplete();
+      }
+
+      if (runId) {
+        navigate(`/backtest/${runId}`);
+      } else {
+        setSuccess(true);
+        setShowSaveDialog(true);
       }
     } catch (err: any) {
       console.error('❌ BacktestRunner: Error:', err);
-      console.log('📊 BacktestRunner: Payload:', formData);
-      console.log('📊 BacktestRunner: Response error:', err.response?.data);
       setError(err.response?.data?.message || err.message || 'Failed to start backtest');
     } finally {
       setLoading(false);
@@ -316,64 +320,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                 ))}
               </select>
 
-              {selectedStrategyId && strategies.find((s) => s.id === selectedStrategyId) && (
-                <div className="mt-3 p-3 bg-blue-900/30 border border-blue-700 rounded-lg">
-                  <h4 className="text-sm font-semibold text-blue-300 mb-2">Strategy Settings:</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs text-gray-300">
-                    {(() => {
-                      const s = strategies.find((st) => st.id === selectedStrategyId);
-                      if (!s) return null;
-                      return (
-                        <>
-                          <div>
-                            Z-Score:{' '}
-                            <span className="text-blue-300 font-semibold">
-                              {s.zscore_threshold}
-                            </span>
-                          </div>
-                          <div>
-                            Stats Window:{' '}
-                            <span className="text-blue-300 font-semibold">{s.stats_window}h</span>
-                          </div>
-                          <div>
-                            Half-Life:{' '}
-                            <span className="text-blue-300 font-semibold">{s.max_half_life}h</span>
-                          </div>
-                          <div>
-                            USD/Trade:{' '}
-                            <span className="text-blue-300 font-semibold">${s.usd_per_trade}</span>
-                          </div>
-                          <div>
-                            Max Positions:{' '}
-                            <span className="text-blue-300 font-semibold">{s.max_positions}</span>
-                          </div>
-                          <div>
-                            Max Drawdown:{' '}
-                            <span className="text-blue-300 font-semibold">
-                              {s.max_drawdown_pct}%
-                            </span>
-                          </div>
-                          <div>
-                            Stop Loss:{' '}
-                            <span className="text-blue-300 font-semibold">{s.stop_loss_pct}%</span>
-                          </div>
-                          <div>
-                            Take Profit:{' '}
-                            <span className="text-blue-300 font-semibold">
-                              {s.take_profit_pct}%
-                            </span>
-                          </div>
-                          <div>
-                            Trailing Stop:{' '}
-                            <span className="text-blue-300 font-semibold">
-                              {s.trailing_stop_pct}%
-                            </span>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
+              {selectedStrategyId && (
+                <p className="mt-2 text-xs text-blue-400">
+                  Strategy parameters loaded below — you can override them before running.
+                </p>
               )}
             </>
           )}
@@ -404,68 +354,60 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
 
-          {!useStrategy && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Number of Pairs
-                </label>
-                <input
-                  type="number"
-                  name="max_pairs"
-                  value={formData.max_pairs}
-                  onChange={handleChange}
-                  min="1"
-                  max="50"
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Z-Score Threshold
-                </label>
-                <input
-                  type="number"
-                  name="zscore_threshold"
-                  value={formData.trading_parameters.zscore_threshold}
-                  onChange={handleChange}
-                  step="0.1"
-                  min="0.5"
-                  max="3"
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Stats Window (days)
-                </label>
-                <input
-                  type="number"
-                  name="stats_window"
-                  value={formData.trading_parameters.stats_window}
-                  onChange={handleChange}
-                  min="5"
-                  max="60"
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  USD Per Trade
-                </label>
-                <input
-                  type="number"
-                  name="usd_per_trade"
-                  value={formData.trading_parameters.usd_per_trade}
-                  onChange={handleChange}
-                  step="1"
-                  min="1"
-                  max="1000"
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
-                />
-              </div>
-            </>
-          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Number of Pairs</label>
+            <input
+              type="number"
+              name="max_pairs"
+              value={formData.max_pairs}
+              onChange={handleChange}
+              min="1"
+              max="50"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Z-Score Threshold
+            </label>
+            <input
+              type="number"
+              name="zscore_threshold"
+              value={formData.trading_parameters.zscore_threshold}
+              onChange={handleChange}
+              step="0.1"
+              min="0.5"
+              max="3"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Stats Window (days)
+            </label>
+            <input
+              type="number"
+              name="stats_window"
+              value={formData.trading_parameters.stats_window}
+              onChange={handleChange}
+              min="5"
+              max="60"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">USD Per Trade</label>
+            <input
+              type="number"
+              name="usd_per_trade"
+              value={formData.trading_parameters.usd_per_trade}
+              onChange={handleChange}
+              step="1"
+              min="1"
+              max="1000"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
         </div>
 
         <button

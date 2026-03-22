@@ -14,7 +14,6 @@ export const TwoFactorAuthPage: React.FC = () => {
     const [copiedCodes, setCopiedCodes] = useState(false);
 
     const handleSetup = async () => {
-        console.log('🔐 TwoFactorAuth: handleSetup called');
         try {
             await setup2FA();
             setStep('verify');
@@ -24,7 +23,6 @@ export const TwoFactorAuthPage: React.FC = () => {
     };
 
     const handleVerify = async () => {
-        console.log('🔐 TwoFactorAuth: handleVerify called with token:', verifyToken);
         if (verifyToken.length !== 6) {
             alert('Please enter a 6-digit code');
             return;
@@ -51,7 +49,6 @@ export const TwoFactorAuthPage: React.FC = () => {
     };
 
     const handleComplete = () => {
-        console.log('🔐 TwoFactorAuth: handleComplete called, navigating to dashboard');
         navigate('/dashboard');
     };
 

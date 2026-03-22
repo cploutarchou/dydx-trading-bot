@@ -1,5 +1,11 @@
 """dYdX network client connection management."""
+
 import logging
+
+from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
+from dydx_v4_client.network import TESTNET
+from dydx_v4_client.node.client import NodeClient
+from dydx_v4_client.wallet import Wallet
 
 from src.constants import (
     DYDX_ADDRESS,
@@ -8,10 +14,6 @@ from src.constants import (
     MARKET_DATA_MODE,
     MNEMONIC,
 )
-from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
-from dydx_v4_client.network import TESTNET
-from dydx_v4_client.node.client import NodeClient
-from dydx_v4_client.wallet import Wallet
 from src.trading.market_data import get_candles_recent
 
 logger = logging.getLogger(__name__)
@@ -58,9 +60,7 @@ async def connect_dydx():
     logger.info("Initializing dYdX clients")
     # Determine market data endpoint
     market_data_endpoint = (
-        INDEXER_ENDPOINT_MAINNET
-        if MARKET_DATA_MODE != "TESTNET"
-        else INDEXER_ACCOUNT_ENDPOINT
+        INDEXER_ENDPOINT_MAINNET if MARKET_DATA_MODE != "TESTNET" else INDEXER_ACCOUNT_ENDPOINT
     )
     logger.debug(
         "Market data endpoint resolved to %s (mode=%s)",
@@ -71,21 +71,15 @@ async def connect_dydx():
     # Indexer = connection we will use to get live mainnet data if using INDEXER_ENDPOINT_MAINNET, else we will use testnet
     try:
         indexer = IndexerClient(host=market_data_endpoint, api_timeout=5)
-        logger.info("Initialized indexer client against %s",
-                    market_data_endpoint)
+        logger.info("Initialized indexer client against %s", market_data_endpoint)
     except Exception:
-        logger.exception(
-            "Failed to initialize indexer client for %s", market_data_endpoint
-        )
+        logger.exception("Failed to initialize indexer client for %s", market_data_endpoint)
         raise
 
     # Indexer Account = connection we will use to query our testnet trades
     try:
-        indexer_account = IndexerClient(
-            host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
-        logger.info(
-            "Initialized account indexer client against %s", INDEXER_ACCOUNT_ENDPOINT
-        )
+        indexer_account = IndexerClient(host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
+        logger.info("Initialized account indexer client against %s", INDEXER_ACCOUNT_ENDPOINT)
     except Exception:
         logger.exception(
             "Failed to initialize account indexer client for %s",
@@ -112,11 +106,11 @@ async def connect_dydx():
         except Exception:
             logger.warning(
                 "Failed to derive wallet for address %s. Continuing without wallet (backtesting mode).",
-                DYDX_ADDRESS)
+                DYDX_ADDRESS,
+            )
             # Don't raise - continue with None wallet for backtesting
     else:
-        logger.info(
-            "Wallet creation skipped (backtesting mode or missing config)")
+        logger.info("Wallet creation skipped (backtesting mode or missing config)")
 
     client = Client(indexer, indexer_account, node, wallet)
     await check_jurisdiction(client, "BTC-USD")
@@ -135,7 +129,7 @@ async def check_jurisdiction(client, market):
         market: Market symbol to test
 
     Raises:
-        SystemExit: If jurisdiction check fails (access prohibited)
+        RuntimeError: If jurisdiction check fails (access prohibited)
     """
     logger.info("Checking Jurisdiction for market %s", market)
     try:
@@ -149,5 +143,6 @@ async def check_jurisdiction(client, market):
             logger.error(
                 "Theoretically for learning purposes, a VPN could be used, but we cannot advise this"
             )
-        exit(1)
-
+        raise RuntimeError(
+            f"Jurisdiction check failed for {market}; access may be restricted"
+        ) from e

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -11,6 +12,22 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
+
+func extractAuthToken(c *gin.Context) string {
+	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+	if authHeader != "" {
+		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			return strings.TrimSpace(authHeader[7:])
+		}
+		return authHeader
+	}
+
+	if cookieToken, err := c.Cookie("access_token"); err == nil {
+		return strings.TrimSpace(cookieToken)
+	}
+
+	return ""
+}
 
 type BotInstanceHandler struct {
 	service *services.BotInstanceService
@@ -158,8 +175,9 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 // StartBotInstance starts a bot instance
 func (h *BotInstanceHandler) StartBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	service := h.service.WithAuthToken(extractAuthToken(c))
 
-	if err := h.service.StartBotInstance(instanceID); err != nil {
+	if err := service.StartBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
@@ -178,8 +196,9 @@ func (h *BotInstanceHandler) StartBotInstance(c *gin.Context) {
 // StopBotInstance stops a bot instance
 func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	service := h.service.WithAuthToken(extractAuthToken(c))
 
-	if err := h.service.StopBotInstance(instanceID); err != nil {
+	if err := service.StopBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
@@ -198,8 +217,9 @@ func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 // RestartBotInstance restarts a bot instance
 func (h *BotInstanceHandler) RestartBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	service := h.service.WithAuthToken(extractAuthToken(c))
 
-	if err := h.service.RestartBotInstance(instanceID); err != nil {
+	if err := service.RestartBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
@@ -238,8 +258,9 @@ func (h *BotInstanceHandler) DeleteBotInstance(c *gin.Context) {
 // GetBotInstanceStats retrieves statistics for a bot instance
 func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	service := h.service.WithAuthToken(extractAuthToken(c))
 
-	stats, err := h.service.GetBotInstanceStats(instanceID)
+	stats, err := service.GetBotInstanceStats(instanceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -259,6 +280,7 @@ func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 // GetBotInstanceTrades retrieves trades for a bot instance
 func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	service := h.service.WithAuthToken(extractAuthToken(c))
 
 	limit := 100
 	offset := 0
@@ -280,7 +302,7 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 		winningOnly = true
 	}
 
-	trades, err := h.service.GetBotInstanceTrades(instanceID, limit, offset, winningOnly)
+	trades, err := service.GetBotInstanceTrades(instanceID, limit, offset, winningOnly)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,

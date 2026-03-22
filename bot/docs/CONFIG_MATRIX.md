@@ -85,7 +85,21 @@ When running the Go backend in front of the bot API, choose and document one mod
 ### Model B: Service token (recommended for stricter separation)
 
 - Backend: `BOT_API_TOKEN` (service credential used for bot delegation)
+- Backend: `BOT_API_USE_SERVICE_TOKEN=true` (prevents user JWT passthrough to bot)
 - Backend and bot JWT secrets can be independent.
-- Bot should validate service credentials on delegated paths while user auth remains backend-owned.
+- Bot validates service credentials on delegated HTTP/WebSocket paths while user auth remains backend-owned.
+
+Bot-side token inputs for this model:
+
+- `BOT_API_TOKEN` (current active token)
+- `BOT_API_TOKEN_PREVIOUS` (optional overlap token during rotation)
+- `BOT_API_TOKENS` (optional comma-separated token pool)
+
+Rotation guidance:
+
+1. Set new token in `BOT_API_TOKEN`.
+2. Keep previous value in `BOT_API_TOKEN_PREVIOUS` temporarily.
+3. Update backend `BOT_API_TOKEN` to the new value.
+4. Remove previous token after smoke validation passes.
 
 Do not mix models without a coordinated rollout; update runbook + incident docs if the model changes.

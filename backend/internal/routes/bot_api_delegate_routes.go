@@ -1,13 +1,23 @@
 package routes
 
 import (
+	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
+
+var websocketUpgrader = websocket.Upgrader{
+	CheckOrigin: func(_ *http.Request) bool {
+		// CORS/auth middleware already guards access; keep origin check permissive here.
+		return true
+	},
+}
 
 func extractBotAuthToken(c *gin.Context) string {
 	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
@@ -20,6 +30,10 @@ func extractBotAuthToken(c *gin.Context) string {
 
 	if cookieToken, err := c.Cookie("access_token"); err == nil {
 		return strings.TrimSpace(cookieToken)
+	}
+
+	if queryToken := strings.TrimSpace(c.Query("access_token")); queryToken != "" {
+		return queryToken
 	}
 
 	return ""
@@ -36,8 +50,64 @@ func getRequestBotAPIClient(c *gin.Context, fallback *services.BotAPIClient) *se
 }
 
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
-// These routes proxy to the Python bot API (localhost:8000) and sync with the Go database
+// These routes proxy to the Python bot API (default localhost:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
+	proxyWebSocket := func(c *gin.Context, requestClient *services.BotAPIClient, upstreamEndpoint string) {
+		clientConn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			return
+		}
+		defer clientConn.Close()
+
+		upstreamWSURL, err := requestClient.WebSocketURL(upstreamEndpoint)
+		if err != nil {
+			_ = clientConn.WriteMessage(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()),
+			)
+			return
+		}
+
+		requestHeaders := http.Header{}
+		if token := strings.TrimSpace(requestClient.AuthToken()); token != "" {
+			requestHeaders.Set("Authorization", "Bearer "+token)
+		}
+
+		upstreamConn, _, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
+		if err != nil {
+			_ = clientConn.WriteMessage(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "failed to connect upstream websocket"),
+			)
+			return
+		}
+		defer upstreamConn.Close()
+
+		forward := func(src *websocket.Conn, dst *websocket.Conn, done chan<- struct{}) {
+			defer func() { done <- struct{}{} }()
+			for {
+				messageType, payload, readErr := src.ReadMessage()
+				if readErr != nil {
+					_ = dst.WriteMessage(
+						websocket.CloseMessage,
+						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+					)
+					return
+				}
+
+				if writeErr := dst.WriteMessage(messageType, payload); writeErr != nil {
+					return
+				}
+			}
+		}
+
+		done := make(chan struct{}, 2)
+		go forward(clientConn, upstreamConn, done)
+		go forward(upstreamConn, clientConn, done)
+
+		<-done
+	}
+
 	withRequestScopedBotClient := func(c *gin.Context) {
 		token := extractBotAuthToken(c)
 		if token != "" {
@@ -298,6 +368,14 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			c.JSON(200, result)
 		})
+
+		// WebSocket proxy for backtest live updates
+		backtestGroup.GET("/:run_id/live", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			upstreamEndpoint := fmt.Sprintf("/api/v1/backtests/%s/live", runID)
+			proxyWebSocket(c, requestClient, upstreamEndpoint)
+		})
 	}
 
 	// Bot real-time data endpoints
@@ -445,6 +523,28 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 				return
 			}
 			c.JSON(200, result)
+		})
+
+		// WebSocket proxies for bot live channels
+		botGroup.GET("/:instance_id/positions/live", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			instanceID := c.Param("instance_id")
+			upstreamEndpoint := fmt.Sprintf("/api/v1/bots/%s/positions/live", instanceID)
+			proxyWebSocket(c, requestClient, upstreamEndpoint)
+		})
+
+		botGroup.GET("/:instance_id/market/live", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			instanceID := c.Param("instance_id")
+			upstreamEndpoint := fmt.Sprintf("/api/v1/bots/%s/market/live", instanceID)
+			proxyWebSocket(c, requestClient, upstreamEndpoint)
+		})
+
+		botGroup.GET("/:instance_id/alerts/live", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			instanceID := c.Param("instance_id")
+			upstreamEndpoint := fmt.Sprintf("/api/v1/bots/%s/alerts/live", instanceID)
+			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
 	}
 

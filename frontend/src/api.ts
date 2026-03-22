@@ -5,7 +5,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
-const BOT_API_BASE_URL = import.meta.env.VITE_BOT_API_URL || 'http://localhost:8889';
 
 // Type-safe error message extractor
 const getErrorMessage = (error: unknown): string => {
@@ -1142,12 +1141,12 @@ class ApiClient {
       const backendHost = apiUrl.host; // e.g. localhost:8888
       // Ensure path starts with '/'
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-      const wsUrl = `${wsProtocol}//${backendHost}${normalizedPath}${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
+      const wsUrl = `${wsProtocol}//${backendHost}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
       return new WebSocket(wsUrl);
     } catch (e) {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-      const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
+      const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
       console.warn(
         '⚠️ api.ts: Failed to parse API_BASE_URL, falling back to window.location.host for WS',
         e
@@ -1158,21 +1157,7 @@ class ApiClient {
 
   // Backwards-compatible helper specifically for backtest progress
   connectBacktestSocket(runId: string, token?: string): WebSocket {
-    const useToken = token || this.getTokenFromStorage() || '';
-
-    try {
-      const botApiUrl = new URL(BOT_API_BASE_URL);
-      const wsProtocol = botApiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      const botHost = botApiUrl.host;
-      const wsUrl = `${wsProtocol}//${botHost}/api/v1/backtests/${encodeURIComponent(runId)}/live${useToken ? `?token=${encodeURIComponent(useToken)}` : ''}`;
-      return new WebSocket(wsUrl);
-    } catch (e) {
-      console.warn(
-        '⚠️ api.ts: Failed to parse VITE_BOT_API_URL for backtest WebSocket, falling back to generic socket path',
-        e
-      );
-      return this.connectSocket(`/api/v1/backtests/${encodeURIComponent(runId)}/live`, token);
-    }
+    return this.connectSocket(`/api/v1/backtests/${encodeURIComponent(runId)}/live`, token);
   }
 
   // Keys Management (centralized from DYDXKeyManager.tsx)

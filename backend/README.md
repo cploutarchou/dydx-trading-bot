@@ -257,13 +257,24 @@ DELETE /api/v1/keys/{network}      # Delete key
 
 ### Backtest Data
 
-```
+```text
 POST /api/v1/backtests                      # Create backtest run
 GET /api/v1/backtests                       # List backtest runs
 GET /api/v1/backtests/{run_id}              # Backtest details
 GET /api/v1/backtests/{run_id}/trades       # Individual trades
 GET /api/v1/backtests/{run_id}/analytics    # Analytics summary
 ```
+
+### Live WebSocket Proxies (backend origin)
+
+```text
+GET /api/v1/backtests/{run_id}/live
+GET /api/v1/bots/{instance_id}/positions/live
+GET /api/v1/bots/{instance_id}/market/live
+GET /api/v1/bots/{instance_id}/alerts/live
+```
+
+These proxy to the bot API websocket channels while preserving backend authentication checks.
 
 See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for full endpoint details.
 

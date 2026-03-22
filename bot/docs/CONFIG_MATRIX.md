@@ -70,3 +70,22 @@ Required:
 - Never commit real secrets in `.env`.
 - Rotate any leaked tokens/keys immediately.
 - Use different secrets/keys for test and production.
+
+## Backend ↔ Bot authentication alignment
+
+When running the Go backend in front of the bot API, choose and document one model per environment:
+
+### Model A: Shared JWT secret
+
+- Backend: `JWT_SECRET_KEY`
+- Bot: `SECRET_KEY`
+- Requirement: both values must be identical.
+- Backend forwards user bearer token to delegated bot routes and websocket proxies.
+
+### Model B: Service token (recommended for stricter separation)
+
+- Backend: `BOT_API_TOKEN` (service credential used for bot delegation)
+- Backend and bot JWT secrets can be independent.
+- Bot should validate service credentials on delegated paths while user auth remains backend-owned.
+
+Do not mix models without a coordinated rollout; update runbook + incident docs if the model changes.

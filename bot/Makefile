@@ -13,6 +13,18 @@ DOCKER_REPO := dydx-trading-bot
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "latest")
 VENV_PYTHON := .venv/bin/python
 
+# Reusable helper for local Python commands that must run via project venv.
+# Usage in recipes: $(call run-venv-python,<args>)
+define run-venv-python
+	@$(VENV_PYTHON) $(1)
+endef
+
+# Reusable helper for local Python commands that need inline env prefixes.
+# Usage in recipes: $(call run-venv-python-env,<ENV_VARS>,<args>)
+define run-venv-python-env
+	@$(1) $(VENV_PYTHON) $(2)
+endef
+
 # Colors for output
 RED := \033[0;31m
 GREEN := \033[0;32m
@@ -149,7 +161,7 @@ dev: ## Start development environment (with hot reload)
 .PHONY: dev-api
 dev-api: ensure-venv ## Start bot API server locally with Python (port 8000)
 	@echo "$(CYAN)🚀 Starting bot API server on http://0.0.0.0:8000$(RESET)"
-	@$(VENV_PYTHON) -m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload
+	$(call run-venv-python,-m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload)
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background
@@ -340,22 +352,22 @@ update: ## Update all images to latest versions
 .PHONY: preflight-testnet
 preflight-testnet: ensure-venv ## Run local testnet preflight with production-like simulation checks
 	@echo "$(CYAN)🧪 Running testnet preflight checks...$(RESET)"
-	@$(VENV_PYTHON) scripts/testnet_preflight.py --simulate-production
+	$(call run-venv-python,scripts/testnet_preflight.py --simulate-production)
 
 .PHONY: preflight-testnet-strict
 preflight-testnet-strict: ensure-venv ## Run strict preflight (warnings fail)
 	@echo "$(CYAN)🧪 Running strict testnet preflight checks...$(RESET)"
-	@$(VENV_PYTHON) scripts/testnet_preflight.py --simulate-production --strict
+	$(call run-venv-python,scripts/testnet_preflight.py --simulate-production --strict)
 
 .PHONY: test-execution-safety
 test-execution-safety: ensure-venv ## Run regression test for emergency cleanup on second-leg failure
 	@echo "$(CYAN)🧪 Running execution safety regression tests...$(RESET)"
-	@PYTHONPATH=$(PWD) $(VENV_PYTHON) -m pytest -q tests/test_bot_agent_emergency_cleanup.py
+	$(call run-venv-python-env,PYTHONPATH=$(PWD),-m pytest -q tests/test_bot_agent_emergency_cleanup.py)
 
 .PHONY: simulate-production-profile
 simulate-production-profile: ensure-venv ## Run baseline vs production-profile simulation via backtest API
 	@echo "$(CYAN)📈 Running production-profile simulation...$(RESET)"
-	@$(VENV_PYTHON) scripts/simulate_production_profile.py --skip-auth
+	$(call run-venv-python,scripts/simulate_production_profile.py --skip-auth)
 
 .PHONY: ps
 ps: ## Show running containers

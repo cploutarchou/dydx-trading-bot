@@ -35,9 +35,15 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     try {
       const response = await api.listBacktests(0, 50);
 
-      // Handle the response - backend returns data.backtests array
-      // The api.ts already extracts response.data, so we need to handle response.data.backtests
-      const backtestsArray = Array.isArray(response.data?.backtests) ? response.data.backtests : [];
+      // Handle both response formats:
+      // - Wrapped (ApiResponse): response.data.backtests
+      // - Direct (Python bot pass-through): response.backtests
+      const raw = response as any;
+      const backtestsArray: BacktestRun[] = Array.isArray(raw?.backtests)
+        ? raw.backtests
+        : Array.isArray(raw?.data?.backtests)
+          ? raw.data.backtests
+          : [];
 
       if (!Array.isArray(backtestsArray)) {
         console.error('❌ BacktestList: backtests is not an array!', backtestsArray);

@@ -31,6 +31,7 @@ interface AuthStore {
   verify2FA: (token: string) => Promise<void>;
   logout: () => void;
   getCurrentUser: () => Promise<void>;
+  initializeSession: () => Promise<void>;
   isAuthenticated: () => boolean;
   has2FAEnabled: () => boolean;
 }
@@ -116,6 +117,32 @@ export const useAuthStore = create<AuthStore>()(
         } catch (error) {
           console.error('❌ auth.ts: getCurrentUser failed:', error);
           set({ user: null });
+        }
+      },
+
+      initializeSession: async () => {
+        console.log('🔐 auth.ts: initializeSession() called');
+        set({ loading: true, error: null });
+
+        try {
+          const restored = await api.restoreSession();
+          if (!restored) {
+            console.log('🔐 auth.ts: no session to restore');
+            set({ user: null, loading: false });
+            return;
+          }
+
+          await get().getCurrentUser();
+          console.log('🔐 auth.ts: session restored successfully');
+        } catch (error: unknown) {
+          console.error('❌ auth.ts: initializeSession failed:', error);
+          api.logout();
+          set({
+            user: null,
+            error: error instanceof Error ? error.message : 'Session restore failed',
+          });
+        } finally {
+          set({ loading: false });
         }
       },
 

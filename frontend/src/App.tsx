@@ -34,16 +34,53 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 export const App: React.FC = () => {
   const [mounted, setMounted] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const logout = useAuthStore((state) => state.logout);
+  const initializeSession = useAuthStore((state) => state.initializeSession);
 
   useEffect(() => {
     console.log('🔧 App.tsx: Component mounted, setting mounted=true');
     setMounted(true);
   }, []);
 
-  if (!mounted) {
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrapAuth = async () => {
+      try {
+        await initializeSession();
+      } catch (error) {
+        console.warn('⚠️ App.tsx: auth bootstrap failed', error);
+      } finally {
+        if (!cancelled) {
+          setAuthReady(true);
+        }
+      }
+    };
+
+    void bootstrapAuth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initializeSession]);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.warn('🔒 Session expired event received, logging out');
+      logout();
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, [logout]);
+
+  if (!mounted || !authReady) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <p className="text-white">Loading...</p>
+        <p className="text-white">Restoring session...</p>
       </div>
     );
   }

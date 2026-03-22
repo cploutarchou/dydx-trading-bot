@@ -16,6 +16,7 @@ class EnhancedAPIClient {
   getStats = this.baseClient.getStats.bind(this.baseClient);
   hasToken = this.baseClient.hasToken.bind(this.baseClient);
   setToken = this.baseClient.setToken.bind(this.baseClient);
+  refreshAccessToken = this.baseClient.refreshAccessToken.bind(this.baseClient);
 
   // Check if authenticated
   isAuthenticated(): boolean {
@@ -32,19 +33,22 @@ class EnhancedAPIClient {
         queryString.append(key, String(value));
       }
     });
-    
+
     try {
-      const response = await fetch(`/api/v1/bots${queryString.toString() ? `?${queryString}` : ''}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
+      const response = await fetch(
+        `/api/v1/bots${queryString.toString() ? `?${queryString}` : ''}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -59,7 +63,7 @@ class EnhancedAPIClient {
             status: 'RUNNING',
             total_trades: 45,
             win_rate: 68.5,
-            pnl: 125.50,
+            pnl: 125.5,
             uptime_seconds: 86400,
             created_at: new Date().toISOString(),
           },
@@ -82,15 +86,15 @@ class EnhancedAPIClient {
     try {
       const response = await fetch(`/api/v1/bots/${instanceId}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -102,7 +106,7 @@ class EnhancedAPIClient {
         status: 'RUNNING',
         total_trades: 45,
         win_rate: 68.5,
-        pnl: 125.50,
+        pnl: 125.5,
         uptime_seconds: 86400,
         created_at: new Date().toISOString(),
         credentials: { address: '0x...' },
@@ -120,15 +124,15 @@ class EnhancedAPIClient {
     try {
       const response = await fetch(`/api/v1/bots/${instanceId}/stats`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -138,8 +142,8 @@ class EnhancedAPIClient {
         winning_trades: 31,
         losing_trades: 14,
         win_rate: 68.9,
-        total_pnl: 125.50,
-        daily_pnl: 12.50,
+        total_pnl: 125.5,
+        daily_pnl: 12.5,
         weekly_pnl: 45.25,
         sharpe_ratio: 1.85,
         sortino_ratio: 2.15,
@@ -149,7 +153,10 @@ class EnhancedAPIClient {
     }
   }
 
-  async getBotTrades(instanceId: string, params: any = {}): Promise<{ count: number; data: any[] }> {
+  async getBotTrades(
+    instanceId: string,
+    params: any = {}
+  ): Promise<{ count: number; data: any[] }> {
     try {
       const queryString = new URLSearchParams();
       Object.entries(params).forEach(([key, value]) => {
@@ -158,17 +165,20 @@ class EnhancedAPIClient {
         }
       });
 
-      const response = await fetch(`/api/v1/bots/${instanceId}/trades${queryString.toString() ? `?${queryString}` : ''}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
+      const response = await fetch(
+        `/api/v1/bots/${instanceId}/trades${queryString.toString() ? `?${queryString}` : ''}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -199,16 +209,16 @@ class EnhancedAPIClient {
       const response = await fetch('/api/v1/bots', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(config),
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -222,16 +232,16 @@ class EnhancedAPIClient {
       const response = await fetch(`/api/v1/bots/${instanceId}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(updates),
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -245,16 +255,16 @@ class EnhancedAPIClient {
       const response = await fetch(`/api/v1/bots/${instanceId}/start`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(config || {}),
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -268,15 +278,15 @@ class EnhancedAPIClient {
       const response = await fetch(`/api/v1/bots/${instanceId}/stop`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -290,15 +300,15 @@ class EnhancedAPIClient {
       const response = await fetch(`/api/v1/bots/${instanceId}/restart`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const result = await response.json();
       return result.data || result;
     } catch (error) {
@@ -312,11 +322,11 @@ class EnhancedAPIClient {
       const response = await fetch(`/api/v1/bots/${instanceId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
@@ -332,11 +342,11 @@ class EnhancedAPIClient {
     try {
       const response = await fetch(`/api/v1/bots/${instanceId}/positions/current`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       const result = await response.json();
       return result.data || [];
     } catch (error) {
@@ -349,11 +359,11 @@ class EnhancedAPIClient {
     try {
       const response = await fetch(`/api/v1/bots/${instanceId}/positions/${positionId}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       const result = await response.json();
       return result.data;
     } catch (error) {
@@ -366,21 +376,23 @@ class EnhancedAPIClient {
     try {
       const response = await fetch(`/api/v1/bots/${instanceId}/realtime-stats`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       const result = await response.json();
-      return result.data || {
-        uptime_seconds: 86400,
-        total_trades: 45,
-        trades_today: 5,
-        open_positions: 3,
-        total_pnl: 125.50,
-        daily_pnl: 12.50,
-        win_rate: 68.9,
-      };
+      return (
+        result.data || {
+          uptime_seconds: 86400,
+          total_trades: 45,
+          trades_today: 5,
+          open_positions: 3,
+          total_pnl: 125.5,
+          daily_pnl: 12.5,
+          win_rate: 68.9,
+        }
+      );
     } catch (error) {
       console.error('getRealtimeStats error:', error);
       return {
@@ -388,8 +400,8 @@ class EnhancedAPIClient {
         total_trades: 45,
         trades_today: 5,
         open_positions: 3,
-        total_pnl: 125.50,
-        daily_pnl: 12.50,
+        total_pnl: 125.5,
+        daily_pnl: 12.5,
         win_rate: 68.9,
       };
     }
@@ -399,11 +411,11 @@ class EnhancedAPIClient {
     try {
       const response = await fetch(`/api/v1/bots/${instanceId}/market-data`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       const result = await response.json();
       return result.data || {};
     } catch (error) {
@@ -421,13 +433,16 @@ class EnhancedAPIClient {
         }
       });
 
-      const response = await fetch(`/api/v1/bots/${instanceId}/alerts${queryString.toString() ? `?${queryString}` : ''}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
+      const response = await fetch(
+        `/api/v1/bots/${instanceId}/alerts${queryString.toString() ? `?${queryString}` : ''}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
       const result = await response.json();
       return result.data || { count: 0, data: [] };
     } catch (error) {
@@ -460,7 +475,11 @@ class EnhancedAPIClient {
     };
   }
 
-  async getBacktestTrades(runId: string, limit: number = 50, offset: number = 0): Promise<{ count: number; data: any[] }> {
+  async getBacktestTrades(
+    runId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<{ count: number; data: any[] }> {
     const result = await this.baseClient.getBacktestTrades(runId, limit, offset);
     return {
       count: result.data?.total || 0,
@@ -499,21 +518,23 @@ class EnhancedAPIClient {
     try {
       const response = await fetch('/api/v1/system/status', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
-      
+
       const result = await response.json();
-      return result.data || {
-        status: 'operational',
-        components: {
-          database: 'healthy',
-          bot_api: 'healthy',
-          cache: 'healthy',
-          indexer: 'healthy',
-        },
-      };
+      return (
+        result.data || {
+          status: 'operational',
+          components: {
+            database: 'healthy',
+            bot_api: 'healthy',
+            cache: 'healthy',
+            indexer: 'healthy',
+          },
+        }
+      );
     } catch (error) {
       console.error('getSystemStatus error:', error);
       return {

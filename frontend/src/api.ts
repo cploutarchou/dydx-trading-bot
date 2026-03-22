@@ -85,19 +85,22 @@ interface DYDXKey extends Record<string, unknown> {
   [key: string]: unknown;
 }
 
-// Type alias for refresh token subscribers - token parameter is used by calling code (line 141)
-type RefreshSubscriber = (token: string) => void;
+type PendingRequest = {
+  resolve: (_token: string) => void;
+  reject: (_error: unknown) => void;
+};
 
 class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
   private isRefreshing: boolean = false;
-  private refreshSubscribers: RefreshSubscriber[] = [];
+  private pendingRequests: PendingRequest[] = [];
 
   constructor() {
     console.log('🔌 api.ts: ApiClient constructor, API_BASE_URL:', API_BASE_URL);
     this.client = axios.create({
       baseURL: API_BASE_URL,
+      withCredentials: true,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -140,18 +143,29 @@ class ApiClient {
           !url.includes('/auth/login') &&
           !url.includes('/auth/refresh')
         ) {
+          const originalRequest = error.config as
+            | (typeof error.config & { _retry?: boolean })
+            | undefined;
+          if (originalRequest?._retry) {
+            return Promise.reject(error);
+          }
+
           console.warn('⏳ 401 Unauthorized detected, attempting silent refresh...');
 
           // If already refreshing, queue this request to retry after refresh completes
           if (this.isRefreshing) {
             console.log('🔄 api.ts: Refresh already in progress, queuing request retry');
-            return new Promise((resolve) => {
-              this.refreshSubscribers.push((newToken: string) => {
-                // Update auth header with new token
-                if (error.config && error.config.headers) {
-                  error.config.headers.Authorization = `Bearer ${newToken}`;
-                  resolve(this.client(error.config));
-                }
+            return new Promise((resolve, reject) => {
+              this.pendingRequests.push({
+                resolve: (newToken: string) => {
+                  if (error.config && error.config.headers) {
+                    error.config.headers.Authorization = `Bearer ${newToken}`;
+                    resolve(this.client(error.config));
+                    return;
+                  }
+                  reject(new Error('Failed to retry request after token refresh'));
+                },
+                reject,
               });
             });
           }
@@ -159,31 +173,19 @@ class ApiClient {
           // Mark as refreshing and attempt to get new token
           this.isRefreshing = true;
           try {
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (!refreshToken) {
-              throw new Error('No refresh token available');
+            if (originalRequest) {
+              originalRequest._retry = true;
             }
 
             console.log('🔐 api.ts: Calling refresh endpoint...');
-            // Attempt refresh using the refresh token (depends on backend implementation)
-            // This assumes backend has POST /api/v1/auth/refresh endpoint which returns wrapper
-            const refreshResponse = await axios.post<ApiResponse<Token>>(
-              `${API_BASE_URL}/api/v1/auth/refresh`,
-              { refresh_token: refreshToken }
-            );
-
-            const refreshPayload = (refreshResponse.data?.data || refreshResponse.data) as Token;
-            const newAccessToken = refreshPayload?.access_token;
+            const refreshPayload = await this.refreshAccessToken();
+            const newAccessToken = refreshPayload.access_token;
             if (!newAccessToken) {
               throw new Error('Refresh endpoint did not return new access_token');
             }
 
             console.log('✅ api.ts: Token refreshed successfully');
-            this.setToken(newAccessToken);
-
-            // Notify all queued requests of the new token
-            this.refreshSubscribers.forEach((callback) => callback(newAccessToken));
-            this.refreshSubscribers = [];
+            this.notifyRefreshSuccess(newAccessToken);
 
             // Retry original request with new token
             if (error.config && error.config.headers) {
@@ -196,13 +198,15 @@ class ApiClient {
             const errorMsg =
               refreshError instanceof Error ? refreshError.message : String(refreshError);
             console.error('❌ api.ts: Token refresh failed', errorMsg);
-            this.refreshSubscribers = [];
-
-            // IMPORTANT: avoid hard redirect/logout here.
-            // A 401 on a secondary request (or temporary backend auth mismatch)
-            // should not forcefully bounce the user to /login while other actions
-            // (like POST /backtests/run) already succeeded.
-            // Let calling UI/auth store decide whether to log out.
+            this.notifyRefreshFailure(refreshError);
+            this.logout();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('auth:session-expired', {
+                  detail: { reason: errorMsg },
+                })
+              );
+            }
             return Promise.reject(refreshError);
           } finally {
             this.isRefreshing = false;
@@ -216,6 +220,16 @@ class ApiClient {
         return Promise.reject(error);
       }
     );
+  }
+
+  private notifyRefreshSuccess(token: string): void {
+    this.pendingRequests.forEach((request) => request.resolve(token));
+    this.pendingRequests = [];
+  }
+
+  private notifyRefreshFailure(error: unknown): void {
+    this.pendingRequests.forEach((request) => request.reject(error));
+    this.pendingRequests = [];
   }
 
   private loadToken(): void {
@@ -277,6 +291,58 @@ class ApiClient {
     }
   }
 
+  async refreshAccessToken(): Promise<Token> {
+    const refreshToken = localStorage.getItem('refresh_token');
+    const requestBody = refreshToken ? { refresh_token: refreshToken } : {};
+
+    const refreshResponse = await axios.post<ApiResponse<Token> | Token>(
+      `${API_BASE_URL}/api/v1/auth/refresh`,
+      requestBody,
+      {
+        withCredentials: true,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const refreshPayload = (refreshResponse.data as ApiResponse<Token>)?.data
+      ? (refreshResponse.data as ApiResponse<Token>).data
+      : (refreshResponse.data as Token);
+
+    if (!refreshPayload?.access_token) {
+      throw new Error('Refresh endpoint did not return new access token');
+    }
+
+    this.setToken(refreshPayload.access_token);
+    if (refreshPayload.refresh_token) {
+      localStorage.setItem('refresh_token', refreshPayload.refresh_token);
+    }
+
+    return refreshPayload;
+  }
+
+  hasRefreshToken(): boolean {
+    return !!localStorage.getItem('refresh_token');
+  }
+
+  async restoreSession(): Promise<boolean> {
+    this.ensureTokenLoaded();
+
+    const hasAccessToken = this.hasToken();
+    const hasRefreshToken = this.hasRefreshToken();
+
+    if (!hasAccessToken && !hasRefreshToken) {
+      return false;
+    }
+
+    if (!hasAccessToken && hasRefreshToken) {
+      await this.refreshAccessToken();
+    }
+
+    return this.hasToken();
+  }
+
   // Helper: Check if token is present
   hasToken(): boolean {
     const hasToken = !!(this.accessToken || this.getTokenFromStorage());
@@ -303,6 +369,7 @@ class ApiClient {
     try {
       if (typeof document !== 'undefined') {
         document.cookie = 'access_token=; path=/; max-age=0';
+        document.cookie = 'refresh_token=; path=/; max-age=0';
         console.log('✅ access_token cookie removed');
       }
     } catch (e) {

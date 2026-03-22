@@ -5,18 +5,18 @@ Creates authentication tables and default admin user
 
 import logging
 from datetime import datetime
+from typing import Type, Union
 
-from sqlalchemy.orm import Session
-
-from internal.domain.models.auth_models import User
 from auth_utils import PasswordUtils
 from database import db, init_db
+from internal.domain.models.auth_models import User
+from sqlalchemy.orm import Session
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def create_admin_user(session: Session) -> type[User] | User:
+def create_admin_user(session: Session) -> Union[Type[User], User]:
     """
     Create default admin user if it doesn't exist
     Username: admin
@@ -74,9 +74,7 @@ def test_email_config():
             if api_key and domain:
                 logger.info("✅ Mailgun configuration found")
             else:
-                logger.warning(
-                    "⚠️  Mailgun configuration incomplete (API_KEY or DOMAIN missing)"
-                )
+                logger.warning("⚠️  Mailgun configuration incomplete (API_KEY or DOMAIN missing)")
 
         elif email_provider.lower() == "smtp":
             smtp_host = config("SMTP_HOST", default="")
@@ -87,9 +85,7 @@ def test_email_config():
             else:
                 logger.warning("⚠️  SMTP configuration incomplete")
         else:
-            logger.warning(
-                "⚠️  No email provider configured. Set EMAIL_PROVIDER in .env"
-            )
+            logger.warning("⚠️  No email provider configured. Set EMAIL_PROVIDER in .env")
 
     except Exception as e:
         logger.warning(f"⚠️  Email configuration test failed: {e}")
@@ -161,9 +157,7 @@ def create_test_users(session: Session):
 
     created_count = 0
     for user_data in test_users:
-        existing_user = (
-            session.query(User).filter(User.username == user_data["username"]).first()
-        )
+        existing_user = session.query(User).filter(User.username == user_data["username"]).first()
 
         if not existing_user:
             test_user = User(

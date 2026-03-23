@@ -99,6 +99,7 @@ export interface TradingParams {
   max_positions: number;
   slippage_tolerance: number;
   risk_multiplier: number;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
 }
 
 export interface BotStats {

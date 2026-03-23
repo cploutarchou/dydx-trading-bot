@@ -198,8 +198,13 @@ const backtest = await apiClient.createBacktest({
   name: 'Jan 2024 Backtest',
   start_date: '2024-01-01',
   end_date: '2024-01-31',
+  max_pairs: 12,
+  pair_selection_mode: 'cointegration', // liquidity | volatility | cointegration | input
   pairs: [...],
-  trading_params: {...}
+  trading_params: {
+    ...,
+    pair_selection_mode: 'cointegration'
+  }
 });
 
 // 2. Monitor progress via WebSocket

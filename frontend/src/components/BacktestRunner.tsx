@@ -23,6 +23,7 @@ interface TradingParameters {
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
   resolution?: string;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
 }
 
 interface BacktestRunRequest {
@@ -34,6 +35,7 @@ interface BacktestRunRequest {
   max_pairs?: number;
   pairs?: string[];
   strategy_id?: number;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   trading_parameters: TradingParameters;
 }
 
@@ -49,10 +51,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     end_date: '2024-03-31',
     name: 'ui-backtest',
     max_pairs: 10,
+    pair_selection_mode: 'liquidity',
     trading_parameters: {
       zscore_threshold: 1.5,
       stats_window: 21,
       usd_per_trade: 10,
+      pair_selection_mode: 'liquidity',
     },
   });
   const [loading, setLoading] = useState(false);
@@ -85,6 +89,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     'rebalance_interval_hours',
     'position_timeout_hours',
     'resolution',
+    'pair_selection_mode',
   ]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -150,6 +155,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             trailing_stop_pct: strategy.trailing_stop_pct,
             rebalance_interval_hours: strategy.rebalance_interval_hours,
             position_timeout_hours: strategy.position_timeout_hours,
+            pair_selection_mode: strategy.pair_selection_mode,
           },
         }));
       }
@@ -169,6 +175,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         end_date: formData.end_date,
         name: formData.name || 'ui-backtest',
         max_pairs: Number(formData.max_pairs),
+        pair_selection_mode: tp.pair_selection_mode || formData.pair_selection_mode || 'liquidity',
         trading_parameters: {
           ...(tp.zscore_threshold !== undefined && {
             zscore_threshold: Number(tp.zscore_threshold),
@@ -206,6 +213,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             position_timeout_hours: Number(tp.position_timeout_hours),
           }),
           ...(tp.resolution !== undefined && { resolution: tp.resolution }),
+          ...(tp.pair_selection_mode !== undefined && {
+            pair_selection_mode: tp.pair_selection_mode,
+          }),
         },
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
       };
@@ -262,6 +272,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           formData.trading_parameters.rebalance_interval_hours || 24
         ),
         position_timeout_hours: Number(formData.trading_parameters.position_timeout_hours || 72),
+        pair_selection_mode: formData.trading_parameters.pair_selection_mode || 'liquidity',
       });
       setShowSaveDialog(false);
       setStrategyName('');
@@ -365,6 +376,36 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="50"
               className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Pair Selection Mode
+            </label>
+            <select
+              name="pair_selection_mode"
+              value={formData.trading_parameters.pair_selection_mode || 'liquidity'}
+              onChange={(e) => {
+                const value = e.target.value as
+                  | 'liquidity'
+                  | 'volatility'
+                  | 'cointegration'
+                  | 'input';
+                setFormData((prev) => ({
+                  ...prev,
+                  pair_selection_mode: value,
+                  trading_parameters: {
+                    ...prev.trading_parameters,
+                    pair_selection_mode: value,
+                  },
+                }));
+              }}
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            >
+              <option value="liquidity">Liquidity (highest volume first)</option>
+              <option value="cointegration">Cointegration (strict statistical ranking)</option>
+              <option value="volatility">Volatility (highest movement first)</option>
+              <option value="input">Input order (no ranking)</option>
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">

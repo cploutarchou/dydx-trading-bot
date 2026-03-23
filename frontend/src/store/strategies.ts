@@ -31,6 +31,7 @@ export interface Strategy {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   created_at?: string;
   updated_at?: string;
 }
@@ -54,10 +55,29 @@ const toStrategy = (value: unknown): Strategy => value as Strategy;
 
 const buildStrategyPayload = (data: Partial<Strategy>) => ({
   name: data.name || 'Untitled Strategy',
+  category: data.category,
   description: data.description,
+  is_public: data.is_public,
+  user_id: data.user_id,
+  resolution: data.resolution,
   zscore_threshold: data.zscore_threshold,
+  stats_window: data.stats_window,
   max_half_life: data.max_half_life,
   usd_per_trade: data.usd_per_trade,
+  usd_min_collateral: data.usd_min_collateral,
+  close_at_zscore_cross: data.close_at_zscore_cross,
+  find_cointegrated_pairs: data.find_cointegrated_pairs,
+  manage_exits: data.manage_exits,
+  place_trades: data.place_trades,
+  abort_all_positions: data.abort_all_positions,
+  max_positions: data.max_positions,
+  max_drawdown_pct: data.max_drawdown_pct,
+  stop_loss_pct: data.stop_loss_pct,
+  take_profit_pct: data.take_profit_pct,
+  trailing_stop_pct: data.trailing_stop_pct,
+  rebalance_interval_hours: data.rebalance_interval_hours,
+  position_timeout_hours: data.position_timeout_hours,
+  pair_selection_mode: data.pair_selection_mode,
 });
 
 export const useStrategyStore = create<StrategyStore>()(

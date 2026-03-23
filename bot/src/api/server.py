@@ -17,7 +17,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # Load .env BEFORE importing project modules that initialize config/database.
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -82,6 +82,22 @@ DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 class StrategyRequest(BaseModel):
     """UI-compatible strategy payload."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Balanced Mean Reversion",
+                "category": "balanced",
+                "description": "Strategy with liquidity-ranked pair selection",
+                "resolution": "1H",
+                "zscore_threshold": 1.5,
+                "stats_window": 21,
+                "usd_per_trade": 10.0,
+                "max_positions": 5,
+                "pair_selection_mode": "liquidity",
+            }
+        }
+    )
+
     name: str
     category: str = "custom"
     description: str = ""
@@ -105,6 +121,7 @@ class StrategyRequest(BaseModel):
     trailing_stop_pct: float = 2.0
     rebalance_interval_hours: int = 24
     position_timeout_hours: int = 72
+    pair_selection_mode: str = "liquidity"
 
 
 class StrategyVersionRevertRequest(BaseModel):
@@ -114,6 +131,26 @@ class StrategyVersionRevertRequest(BaseModel):
 class BacktestRunRequestCompat(BaseModel):
     """Frontend-compatible backtest run request."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "start_date": "2024-01-01",
+                "end_date": "2024-03-31",
+                "strategy_id": 1,
+                "name": "Q1 ranked opportunities",
+                "max_pairs": 10,
+                "pair_selection_mode": "cointegration",
+                "pairs": ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"],
+                "trading_parameters": {
+                    "zscore_threshold": 1.5,
+                    "stats_window": 21,
+                    "usd_per_trade": 10.0,
+                    "pair_selection_mode": "cointegration",
+                },
+            }
+        }
+    )
+
     start_date: str
     end_date: str
     strategy_id: Optional[int] = None
@@ -121,6 +158,7 @@ class BacktestRunRequestCompat(BaseModel):
     description: Optional[str] = None
     initial_balance: float = 1000.0
     max_pairs: int = 3
+    pair_selection_mode: str = "liquidity"
     trading_parameters: Optional[Dict[str, Any]] = None
     pairs: Optional[List[str]] = None
 
@@ -285,6 +323,9 @@ def _strategy_to_backtest_request(
 ) -> BacktestConfigRequest:
     pairs = request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)]
     trading_parameters = dict(request.trading_parameters or {})
+    selected_mode = str(
+        request.pair_selection_mode or strategy.get("pair_selection_mode", "liquidity")
+    )
     if not trading_parameters:
         trading_parameters = {
             "zscore_threshold": strategy["zscore_threshold"],
@@ -304,7 +345,11 @@ def _strategy_to_backtest_request(
                 "resolution",
                 strategy.get("candle_resolution", "1HOUR"),
             ),
+            "pair_selection_mode": selected_mode,
         }
+    else:
+        trading_parameters.setdefault("pair_selection_mode", selected_mode)
+    trading_parameters.setdefault("max_pairs", max(1, int(request.max_pairs)))
 
     return BacktestConfigRequest(
         name=request.name or f"{strategy['name']} Backtest",
@@ -1562,12 +1607,18 @@ async def create_backtest(
                         start_date=request.start_date,
                         end_date=request.end_date,
                         initial_balance=request.initial_balance,
-                        trading_parameters=request.trading_parameters
-                        or {
-                            "zscore_threshold": 1.5,
-                            "stats_window": 21,
-                            "usd_per_trade": 10.0,
-                            "close_at_zscore_cross": True,
+                        trading_parameters={
+                            **(
+                                request.trading_parameters
+                                or {
+                                    "zscore_threshold": 1.5,
+                                    "stats_window": 21,
+                                    "usd_per_trade": 10.0,
+                                    "close_at_zscore_cross": True,
+                                }
+                            ),
+                            "pair_selection_mode": request.pair_selection_mode,
+                            "max_pairs": max(1, int(request.max_pairs)),
                         },
                         pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
                     )
@@ -1578,12 +1629,18 @@ async def create_backtest(
                     start_date=request.start_date,
                     end_date=request.end_date,
                     initial_balance=request.initial_balance,
-                    trading_parameters=request.trading_parameters
-                    or {
-                        "zscore_threshold": 1.5,
-                        "stats_window": 21,
-                        "usd_per_trade": 10.0,
-                        "close_at_zscore_cross": True,
+                    trading_parameters={
+                        **(
+                            request.trading_parameters
+                            or {
+                                "zscore_threshold": 1.5,
+                                "stats_window": 21,
+                                "usd_per_trade": 10.0,
+                                "close_at_zscore_cross": True,
+                            }
+                        ),
+                        "pair_selection_mode": request.pair_selection_mode,
+                        "max_pairs": max(1, int(request.max_pairs)),
                     },
                     pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
                 )
@@ -1643,12 +1700,18 @@ async def run_backtest_compat(
                     start_date=request.start_date,
                     end_date=request.end_date,
                     initial_balance=request.initial_balance,
-                    trading_parameters=request.trading_parameters
-                    or {
-                        "zscore_threshold": 1.5,
-                        "stats_window": 21,
-                        "usd_per_trade": 10.0,
-                        "close_at_zscore_cross": True,
+                    trading_parameters={
+                        **(
+                            request.trading_parameters
+                            or {
+                                "zscore_threshold": 1.5,
+                                "stats_window": 21,
+                                "usd_per_trade": 10.0,
+                                "close_at_zscore_cross": True,
+                            }
+                        ),
+                        "pair_selection_mode": request.pair_selection_mode,
+                        "max_pairs": max(1, int(request.max_pairs)),
                     },
                     pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
                 )
@@ -1659,12 +1722,18 @@ async def run_backtest_compat(
                 start_date=request.start_date,
                 end_date=request.end_date,
                 initial_balance=request.initial_balance,
-                trading_parameters=request.trading_parameters
-                or {
-                    "zscore_threshold": 1.5,
-                    "stats_window": 21,
-                    "usd_per_trade": 10.0,
-                    "close_at_zscore_cross": True,
+                trading_parameters={
+                    **(
+                        request.trading_parameters
+                        or {
+                            "zscore_threshold": 1.5,
+                            "stats_window": 21,
+                            "usd_per_trade": 10.0,
+                            "close_at_zscore_cross": True,
+                        }
+                    ),
+                    "pair_selection_mode": request.pair_selection_mode,
+                    "max_pairs": max(1, int(request.max_pairs)),
                 },
                 pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
             )
@@ -1674,7 +1743,7 @@ async def run_backtest_compat(
         return api_response(
             success=True,
             data=result.model_dump(),
-            message=f"Backtest '{result.name}' completed",
+            message=f"Backtest '{result.name}' started",
         )
     except Exception as e:
         logger.error(f"Error running compatibility backtest: {e}")
@@ -2097,6 +2166,8 @@ async def startup_event():
         os.getenv("DB_NAME", "trading_bot.db"),
     )
     db.create_all_tables()
+    db.ensure_schema_compatibility()
+    db.run_pending_migrations()
     InMemoryStrategyStore.ensure_seeded()
     if bot_manager is not None:
         await bot_manager.cleanup_dead_processes()

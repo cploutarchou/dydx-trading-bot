@@ -5,9 +5,12 @@ Supports SQLite (development) and PostgreSQL (production)
 
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, event, text
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool, StaticPool
@@ -147,6 +150,97 @@ class DatabaseManager:
         logger.info("Creating database tables...")
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
+
+    def ensure_schema_compatibility(self):
+        """Apply small backward-compatible schema fixes for existing databases."""
+        engine = self.get_engine()
+
+        with engine.begin() as connection:
+            inspector = inspect(connection)
+
+            if inspector.has_table("backtest_strategies"):
+                columns = {
+                    column["name"] for column in inspector.get_columns("backtest_strategies")
+                }
+                if "pair_selection_mode" not in columns:
+                    logger.info(
+                        "Applying compatibility fix: adding backtest_strategies.pair_selection_mode"
+                    )
+                    connection.execute(
+                        text(
+                            "ALTER TABLE backtest_strategies "
+                            "ADD COLUMN pair_selection_mode VARCHAR(32) "
+                            "NOT NULL DEFAULT 'liquidity'"
+                        )
+                    )
+                    logger.info(
+                        "Compatibility fix applied: backtest_strategies.pair_selection_mode"
+                    )
+
+    def _build_alembic_config(self) -> Optional[Config]:
+        config = DatabaseConfig()
+        alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"
+        if not alembic_path.exists():
+            logger.warning("Alembic config not found at %s; skipping migrations", alembic_path)
+            return None
+
+        alembic_config = Config(str(alembic_path))
+        alembic_config.set_main_option("sqlalchemy.url", config.get_connection_string())
+        return alembic_config
+
+    def ensure_alembic_baseline(self, baseline_revision: str = "8c1f34af2f10") -> str:
+        """Stamp legacy schemas that were created outside Alembic.
+
+        This keeps startup safe for long-lived deployments where tables were
+        created by SQLAlchemy metadata, not revision scripts.
+        """
+        alembic_config = self._build_alembic_config()
+        if alembic_config is None:
+            return "skipped-no-config"
+
+        with self.get_engine().begin() as connection:
+            inspector = inspect(connection)
+            if inspector.has_table("alembic_version"):
+                return "already-versioned"
+
+            has_core_schema = inspector.has_table("bot_instances") and inspector.has_table(
+                "backtest_strategies"
+            )
+            if not has_core_schema:
+                logger.info("Skipping Alembic baseline stamp: core legacy tables not detected")
+                return "skipped-core-schema-not-detected"
+
+        logger.warning(
+            "Legacy schema detected without alembic_version; stamping revision %s",
+            baseline_revision,
+        )
+        command.stamp(alembic_config, baseline_revision)
+        logger.info("Alembic baseline stamp completed at %s", baseline_revision)
+        return "stamped"
+
+    def run_pending_migrations(self):
+        """Apply Alembic migrations against the active database URL."""
+        alembic_config = self._build_alembic_config()
+        if alembic_config is None:
+            return
+
+        baseline_revision = "8c1f34af2f10"
+        baseline_status = self.ensure_alembic_baseline(baseline_revision=baseline_revision)
+        logger.info("Alembic baseline path: %s", baseline_status)
+        if baseline_status == "stamped":
+            logger.info("Alembic baseline stamped revision=%s", baseline_revision)
+
+        with self.get_engine().begin() as connection:
+            inspector = inspect(connection)
+            if not inspector.has_table("alembic_version"):
+                logger.warning(
+                    "Alembic version table not found; skipping automatic migrations for legacy schema"
+                )
+                return
+
+        logger.info("Running pending Alembic migrations...")
+        command.upgrade(alembic_config, "head")
+        logger.info("Alembic migrations applied successfully")
 
     def drop_all_tables(self):
         """Drop all database tables (DANGEROUS - use only in development)"""

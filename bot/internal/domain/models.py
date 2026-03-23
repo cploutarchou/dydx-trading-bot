@@ -160,6 +160,7 @@ class Strategy(Base):
     trailing_stop_pct = Column(Float, nullable=False, default=2.0)
     rebalance_interval_hours = Column(Integer, nullable=False, default=24)
     position_timeout_hours = Column(Integer, nullable=False, default=72)
+    pair_selection_mode = Column(String(32), nullable=False, default="liquidity")
     transaction_fee = Column(Float, nullable=False, default=0.0005)
     slippage = Column(Float, nullable=False, default=0.001)
     starting_balance = Column(Float, nullable=False, default=1000.0)

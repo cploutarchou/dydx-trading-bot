@@ -60,16 +60,39 @@ interface BacktestRequest extends Record<string, unknown> {
   description?: string;
   initial_balance?: number;
   max_pairs?: number;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   pairs?: string[];
   strategy_id?: number;
-  trading_parameters?: Record<string, unknown>;
+  trading_parameters?: Record<string, unknown> & {
+    pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
+  };
 }
 
 interface StrategyRequest extends Record<string, unknown> {
   name: string;
+  category?: string;
   description?: string;
+  is_public?: boolean;
+  user_id?: number;
+  resolution?: string;
   zscore_threshold?: number;
+  stats_window?: number;
   max_half_life?: number;
+  usd_per_trade?: number;
+  usd_min_collateral?: number;
+  close_at_zscore_cross?: boolean;
+  find_cointegrated_pairs?: boolean;
+  manage_exits?: boolean;
+  place_trades?: boolean;
+  abort_all_positions?: boolean;
+  max_positions?: number;
+  max_drawdown_pct?: number;
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+  trailing_stop_pct?: number;
+  rebalance_interval_hours?: number;
+  position_timeout_hours?: number;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
 }
 
 interface SettingsUpdate extends Record<string, unknown> {
@@ -199,6 +222,7 @@ interface StrategyResponse extends Record<string, unknown> {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   is_public?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -268,7 +292,16 @@ class ApiClient {
           config.headers.Authorization = `Bearer ${token}`;
         }
       } else {
-        console.warn('⚠️ NO TOKEN - Request to', config.url, 'will fail if auth is required');
+        const url = config.url || '';
+        const isPublicAuthRoute =
+          url.includes('/auth/login') ||
+          url.includes('/auth/register') ||
+          url.includes('/auth/refresh') ||
+          url.includes('/auth/token');
+
+        if (!isPublicAuthRoute) {
+          console.warn('⚠️ NO TOKEN - Request to', config.url, 'will fail if auth is required');
+        }
       }
       return config;
     });
@@ -387,8 +420,6 @@ class ApiClient {
       this.accessToken = cookieToken;
       return;
     }
-
-    console.warn('⚠️ No token in localStorage or cookie');
   }
 
   private getTokenFromCookie(): string | null {

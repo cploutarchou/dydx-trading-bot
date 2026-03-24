@@ -33,25 +33,59 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     setLoading(true);
     setError(null);
     try {
-      const response = await api.listBacktests(0, 50);
+      const pageSize = 200;
+      let skip = 0;
+      let total: number | null = null;
+      let pageGuard = 0;
+      const allRuns: BacktestRun[] = [];
 
-      // Handle both response formats:
-      // - Wrapped (ApiResponse): response.data.backtests
-      // - Direct (Python bot pass-through): response.backtests
-      const raw = response as any;
-      const backtestsArray: BacktestRun[] = Array.isArray(raw?.backtests)
-        ? raw.backtests
-        : Array.isArray(raw?.data?.backtests)
-          ? raw.data.backtests
-          : [];
+      while (pageGuard < 20) {
+        pageGuard += 1;
+        const response = await api.listBacktests(skip, pageSize);
+        const raw = response as any;
 
-      if (!Array.isArray(backtestsArray)) {
-        console.error('❌ BacktestList: backtests is not an array!', backtestsArray);
-        setError('Invalid response format from server');
-        setRuns([]);
-      } else {
-        setRuns(backtestsArray as BacktestRun[]);
+        const pageRuns: BacktestRun[] = Array.isArray(raw?.backtests)
+          ? raw.backtests
+          : Array.isArray(raw?.data?.backtests)
+            ? raw.data.backtests
+            : Array.isArray(raw?.data?.runs)
+              ? raw.data.runs
+              : Array.isArray(raw?.runs)
+                ? raw.runs
+                : [];
+
+        const pageTotal =
+          typeof raw?.total === 'number'
+            ? raw.total
+            : typeof raw?.data?.total === 'number'
+              ? raw.data.total
+              : null;
+
+        if (pageTotal !== null) {
+          total = pageTotal;
+        }
+
+        if (!Array.isArray(pageRuns)) {
+          console.error('❌ BacktestList: backtests is not an array!', pageRuns);
+          setError('Invalid response format from server');
+          setRuns([]);
+          return;
+        }
+
+        allRuns.push(...pageRuns);
+
+        if (pageRuns.length < pageSize) {
+          break;
+        }
+
+        skip += pageSize;
+
+        if (total !== null && allRuns.length >= total) {
+          break;
+        }
       }
+
+      setRuns(allRuns);
     } catch (err: any) {
       console.error('❌ BacktestList: Error loading backtests:', err);
       setError(err.message || 'Failed to load backtests');

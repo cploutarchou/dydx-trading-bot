@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,13 @@ import (
 )
 
 func extractAuthToken(c *gin.Context) string {
+	serviceTokenMode := strings.EqualFold(strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN")), "true")
+	serviceTokenConfigured := strings.TrimSpace(os.Getenv("BOT_API_TOKEN")) != ""
+
+	if serviceTokenMode && serviceTokenConfigured {
+		return ""
+	}
+
 	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
 	if authHeader != "" {
 		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {

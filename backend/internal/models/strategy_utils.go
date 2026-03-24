@@ -37,6 +37,7 @@ func (b *BacktestStrategy) ToDict() map[string]interface{} {
 		"transaction_fee":          b.TransactionFee,
 		"slippage":                 b.Slippage,
 		"starting_balance":         b.StartingBalance,
+		"resolution":               b.CandleResolution,
 		"candle_resolution":        b.CandleResolution,
 		"max_history_days":         b.MaxHistoryDays,
 		"benchmark_symbol":         b.BenchmarkSymbol,
@@ -81,6 +82,12 @@ func (b *BacktestStrategy) FromDict(data map[string]interface{}) {
 	}
 	if maxHalfLife, ok := data["max_half_life"].(float64); ok {
 		b.MaxHalfLife = maxHalfLife
+	}
+	if resolution, ok := data["resolution"].(string); ok {
+		b.CandleResolution = resolution
+	}
+	if candleResolution, ok := data["candle_resolution"].(string); ok {
+		b.CandleResolution = candleResolution
 	}
 	if usageCount, ok := data["usage_count"].(float64); ok {
 		b.UsageCount = int(usageCount)

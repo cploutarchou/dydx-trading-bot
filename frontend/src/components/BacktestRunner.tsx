@@ -50,7 +50,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     start_date: '2024-01-01',
     end_date: '2024-03-31',
     name: 'ui-backtest',
-    max_pairs: 10,
+    max_pairs: 0,
     pair_selection_mode: 'liquidity',
     trading_parameters: {
       zscore_threshold: 1.5,
@@ -366,16 +366,21 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Number of Pairs</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Number of Markets (0 = All)
+            </label>
             <input
               type="number"
               name="max_pairs"
               value={formData.max_pairs}
               onChange={handleChange}
-              min="1"
+              min="0"
               max="50"
               className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
             />
+            <p className="mt-1 text-xs text-gray-400">
+              Set to 0 to scan opportunities across all available markets.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">

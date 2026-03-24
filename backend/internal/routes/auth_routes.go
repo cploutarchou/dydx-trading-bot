@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -28,7 +29,7 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 	userRoutes := router.Group("/api/v1/users")
 	{
 		userRoutes.Use(middleware.RequireAuth())
-		userRoutes.GET("/me", getCurrentUserHandler)
+		userRoutes.GET("/me", getCurrentUserHandler(database))
 	}
 
 	// Profile routes (require authentication)
@@ -68,6 +69,20 @@ type UserResponse struct {
 	IsAdmin   bool   `json:"is_admin"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+func toUserResponse(user *models.User) UserResponse {
+	return UserResponse{
+		ID:        user.ID,
+		Username:  user.Username,
+		Email:     user.Email,
+		FullName:  user.FullName,
+		Avatar:    user.Avatar,
+		IsActive:  user.IsActive,
+		IsAdmin:   user.IsAdmin,
+		CreatedAt: user.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: user.UpdatedAt.UTC().Format(time.RFC3339),
+	}
 }
 
 // registerHandler handles user registration
@@ -345,23 +360,113 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 }
 
 // getCurrentUserHandler gets current user info
-func getCurrentUserHandler(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
-		return
-	}
+func getCurrentUserHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			return
+		}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":       userID,
-		"username": c.GetString("username"),
-		"is_admin": c.GetBool("is_admin"),
-	})
+		userID, ok := userIDValue.(int)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
+			return
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(userID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, toUserResponse(user))
+	}
 }
 
 // updateProfileHandler updates user profile
-func updateProfileHandler(_ *sql.DB) gin.HandlerFunc {
+func updateProfileHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"message": "Profile update not yet implemented"})
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Not authenticated",
+			})
+			return
+		}
+
+		userID, ok := userIDValue.(int)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Invalid user context",
+			})
+			return
+		}
+
+		var req struct {
+			Email    *string `json:"email"`
+			FullName *string `json:"full_name"`
+			Avatar   *string `json:"avatar"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid request payload",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(userID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"message": "User not found",
+			})
+			return
+		}
+
+		if req.Email != nil {
+			trimmedEmail := strings.TrimSpace(*req.Email)
+			if trimmedEmail == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"message": "Email cannot be empty",
+				})
+				return
+			}
+			user.Email = trimmedEmail
+		}
+
+		if req.FullName != nil {
+			user.FullName = strings.TrimSpace(*req.FullName)
+		}
+
+		if req.Avatar != nil {
+			user.Avatar = strings.TrimSpace(*req.Avatar)
+		}
+
+		if err := userRepo.Update(user); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Failed to update profile",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Profile updated successfully",
+			"data": gin.H{
+				"user": toUserResponse(user),
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
 	}
 }

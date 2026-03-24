@@ -156,18 +156,28 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 	query := `
 		UPDATE backtest_strategies
 		SET name = $1, description = $2, category = $3, is_public = $4,
-		    zscore_threshold = $5, max_drawdown_pct = $6, stop_loss_pct = $7,
-		    take_profit_pct = $8, trailing_stop_pct = $9, max_positions = $10,
-		    usage_count = $11, last_used_at = $12, updated_at = $13
-		WHERE id = $14
+		    zscore_threshold = $5, stats_window = $6, max_half_life = $7,
+		    usd_per_trade = $8, usd_min_collateral = $9, close_at_zscore_cross = $10,
+		    find_cointegrated_pairs = $11, manage_exits = $12, place_trades = $13,
+		    abort_all_positions = $14, max_positions = $15, max_drawdown_pct = $16,
+		    stop_loss_pct = $17, take_profit_pct = $18, trailing_stop_pct = $19,
+		    rebalance_interval_hours = $20, position_timeout_hours = $21,
+		    transaction_fee = $22, slippage = $23, candle_resolution = $24,
+		    initial_amount = $25, usage_count = $26, last_used_at = $27, updated_at = $28
+		WHERE id = $29
 	`
 
 	result, err := r.db.Exec(
 		query,
 		strategy.Name, strategy.Description, strategy.Category, strategy.IsPublic,
-		strategy.ZscoreThreshold, strategy.MaxDrawdownPct, strategy.StopLossPct,
-		strategy.TakeProfitPct, strategy.TrailingStopPct, strategy.MaxPositions,
-		strategy.UsageCount, strategy.LastUsedAt, time.Now(), strategy.ID,
+		strategy.ZscoreThreshold, strategy.StatsWindow, strategy.MaxHalfLife,
+		strategy.UsdPerTrade, strategy.UsdMinCollateral, strategy.CloseAtZscoreCross,
+		strategy.FindCointegratedPairs, strategy.ManageExits, strategy.PlaceTrades,
+		strategy.AbortAllPositions, strategy.MaxPositions, strategy.MaxDrawdownPct,
+		strategy.StopLossPct, strategy.TakeProfitPct, strategy.TrailingStopPct,
+		strategy.RebalanceIntervalHours, strategy.PositionTimeoutHours,
+		strategy.TransactionFee, strategy.Slippage, strategy.CandleResolution,
+		strategy.InitialAmount, strategy.UsageCount, strategy.LastUsedAt, time.Now(), strategy.ID,
 	)
 
 	if err != nil {

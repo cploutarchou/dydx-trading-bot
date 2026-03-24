@@ -19,6 +19,40 @@ interface BacktestResult {
   cache_age_days?: number; // Number of days since cached result was created
 }
 
+const toNumber = (value: unknown, fallback = 0): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const normalizeRun = (raw: any): BacktestResult => {
+  const totalPnl = toNumber(raw?.total_pnl, 0);
+  const initialBalance = 1000;
+
+  return {
+    run_id: String(raw?.run_id || ''),
+    total_return_pct:
+      raw?.total_return_pct !== undefined
+        ? toNumber(raw.total_return_pct, 0)
+        : (totalPnl / initialBalance) * 100,
+    total_pnl: totalPnl,
+    sharpe_ratio: toNumber(raw?.sharpe_ratio, 0),
+    win_rate: toNumber(raw?.win_rate, 0),
+    max_drawdown:
+      raw?.max_drawdown !== undefined
+        ? toNumber(raw.max_drawdown, 0)
+        : toNumber(raw?.max_drawdown_pct, 0),
+    num_trades:
+      raw?.num_trades !== undefined ? toNumber(raw.num_trades, 0) : toNumber(raw?.total_trades, 0),
+    avg_trade_duration: toNumber(raw?.avg_trade_duration, 0),
+    start_date: String(raw?.start_date || ''),
+    end_date: String(raw?.end_date || ''),
+    created_at: raw?.created_at,
+    status: raw?.status,
+    is_from_cache: Boolean(raw?.is_from_cache),
+    cache_age_days: raw?.cache_age_days !== undefined ? toNumber(raw.cache_age_days, 0) : undefined,
+  };
+};
+
 interface SelectedBacktest {
   run_id: string;
   data: BacktestResult;
@@ -38,14 +72,25 @@ export const BacktestComparator: React.FC = () => {
     const fetchBacktests = async () => {
       setLoading(true);
       try {
-        const response = await api.listBacktests(0, 100);
-        const data = Array.isArray(response.data?.backtests) ? response.data.backtests : [];
+        const response = await api.listBacktests(0, 500);
+        const raw = response as any;
+        const data = Array.isArray(raw?.backtests)
+          ? raw.backtests
+          : Array.isArray(raw?.data?.backtests)
+            ? raw.data.backtests
+            : Array.isArray(raw?.data?.runs)
+              ? raw.data.runs
+              : Array.isArray(raw?.runs)
+                ? raw.runs
+                : [];
+
+        const normalized = data.map((entry: any) => normalizeRun(entry));
         // Sort by most recent first
-        const sorted = [...data].sort((a, b) => {
+        const sorted = [...normalized].sort((a, b) => {
           if (!a.created_at || !b.created_at) return 0;
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         });
-        setBacktests(sorted as unknown as BacktestResult[]);
+        setBacktests(sorted);
       } catch (err: any) {
         setError('Failed to load backtests');
         console.error(err);

@@ -108,12 +108,16 @@ class BacktestService:
     @classmethod
     def _build_metrics(cls, request: Any) -> Dict[str, Any]:
         payload = cls._extract_request_payload(request)
-        params = payload.get("trading_parameters") or payload.get("strategy_params") or {}
+        params = (
+            payload.get("trading_parameters") or payload.get("strategy_params") or {}
+        )
 
         zscore_threshold = float(params.get("zscore_threshold", 1.5) or 1.5)
         stats_window = int(params.get("stats_window", 21) or 21)
         usd_per_trade = float(params.get("usd_per_trade", 10.0) or 10.0)
-        close_at_zscore_cross = cls._coerce_bool(params.get("close_at_zscore_cross"), default=True)
+        close_at_zscore_cross = cls._coerce_bool(
+            params.get("close_at_zscore_cross"), default=True
+        )
 
         transaction_fee = float(params.get("transaction_fee", 0.0) or 0.0)
         slippage = float(params.get("slippage", 0.0) or 0.0)
@@ -272,7 +276,9 @@ class BacktestService:
         return float(sharpe)
 
     @staticmethod
-    def _compute_max_drawdown_pct(daily_pnl: List[float], initial_balance: float) -> float:
+    def _compute_max_drawdown_pct(
+        daily_pnl: List[float], initial_balance: float
+    ) -> float:
         equity = initial_balance
         peak = equity
         max_dd = 0.0
@@ -361,7 +367,9 @@ class BacktestService:
             a, b = pair
             a_info = market_map.get(a, {})
             b_info = market_map.get(b, {})
-            return cls._extract_market_liquidity(a_info) + cls._extract_market_liquidity(b_info)
+            return cls._extract_market_liquidity(
+                a_info
+            ) + cls._extract_market_liquidity(b_info)
 
         # Python sort is stable, so equal scores preserve original pair order.
         return sorted(pair_markets, key=score, reverse=True)
@@ -456,7 +464,9 @@ class BacktestService:
                 coint_score = 1.0 - cls._clamp(float(coint_pvalue), 0.0, 1.0)
                 adf_score = 1.0 - cls._clamp(float(adf_pvalue), 0.0, 1.0)
                 half_life_score = (
-                    0.0 if not np.isfinite(half_life) else 1.0 / (1.0 + max(0.0, half_life))
+                    0.0
+                    if not np.isfinite(half_life)
+                    else 1.0 / (1.0 + max(0.0, half_life))
                 )
                 corr_score = abs(corr)
 
@@ -520,7 +530,9 @@ class BacktestService:
         if normalized_mode == "volatility":
             return cls._prioritize_pairs_by_volatility(pair_markets, history_by_market)
         if normalized_mode == "cointegration":
-            return cls._prioritize_pairs_by_cointegration(pair_markets, history_by_market)
+            return cls._prioritize_pairs_by_cointegration(
+                pair_markets, history_by_market
+            )
         return cls._prioritize_pairs_by_liquidity(pair_markets, market_map)
 
     def _simulate_pair(
@@ -537,7 +549,9 @@ class BacktestService:
         stats_window = max(5, int(params.get("stats_window", 21) or 21))
         entry_z = float(params.get("zscore_threshold", 1.5) or 1.5)
         usd_per_trade = float(params.get("usd_per_trade", 10.0) or 10.0)
-        close_on_cross = self._coerce_bool(params.get("close_at_zscore_cross"), default=True)
+        close_on_cross = self._coerce_bool(
+            params.get("close_at_zscore_cross"), default=True
+        )
         transaction_fee = float(params.get("transaction_fee", 0.0) or 0.0)
         slippage = float(params.get("slippage", 0.0) or 0.0)
 
@@ -613,7 +627,9 @@ class BacktestService:
 
             trade_id = f"t-{run_id}-{trade_index_offset + len(trades):03d}"
             exit_z = z
-            entry_dt = datetime.fromisoformat(open_pos["entry_ts"].replace("Z", "+00:00"))
+            entry_dt = datetime.fromisoformat(
+                open_pos["entry_ts"].replace("Z", "+00:00")
+            )
             exit_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
             duration_hours = max(0.0, (exit_dt - entry_dt).total_seconds() / 3600.0)
 
@@ -686,15 +702,20 @@ class BacktestService:
                 raise ValueError("Backtest requires at least two markets in 'pairs'")
 
             start_dt = self._parse_date(str(request_payload.get("start_date")))
-            end_dt = self._parse_date(str(request_payload.get("end_date")), end_of_day=True)
+            end_dt = self._parse_date(
+                str(request_payload.get("end_date")), end_of_day=True
+            )
             if end_dt <= start_dt:
                 raise ValueError("end_date must be after start_date")
 
             resolution = str(params.get("resolution", "1HOUR") or "1HOUR")
-            initial_balance = float(request_payload.get("initial_balance", 10000.0) or 10000.0)
+            initial_balance = float(
+                request_payload.get("initial_balance", 10000.0) or 10000.0
+            )
             pair_selection_mode = self._normalize_pair_selection_mode(
                 request_payload.get(
-                    "pair_selection_mode", params.get("pair_selection_mode", "liquidity")
+                    "pair_selection_mode",
+                    params.get("pair_selection_mode", "liquidity"),
                 )
             )
 
@@ -708,7 +729,9 @@ class BacktestService:
                 max_pairs_raw = params.get("max_pairs", None)
             if max_pairs_raw is not None:
                 try:
-                    max_pairs = max(1, int(max_pairs_raw))
+                    parsed_max_pairs = int(max_pairs_raw)
+                    # 0 or negative means "no cap" (use all available pairs).
+                    max_pairs = parsed_max_pairs if parsed_max_pairs > 0 else None
                 except (TypeError, ValueError):
                     # Ignore malformed max_pairs and continue with all pairs.
                     max_pairs = None
@@ -726,7 +749,9 @@ class BacktestService:
             try:
                 markets_payload = await client.indexer.markets.get_perpetual_markets()
                 market_map = (
-                    markets_payload.get("markets", {}) if isinstance(markets_payload, dict) else {}
+                    markets_payload.get("markets", {})
+                    if isinstance(markets_payload, dict)
+                    else {}
                 )
             except Exception:
                 market_map = {}
@@ -822,14 +847,18 @@ class BacktestService:
             win_rate = (winners / total_trades) if total_trades > 0 else 0.0
             profit_factor = (
                 sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] > 0)
-                / max(1e-9, abs(sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] < 0)))
+                / max(
+                    1e-9, abs(sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] < 0))
+                )
                 if total_trades > 0
                 else 0.0
             )
 
             ordered_daily = [daily_pnl_agg[d] for d in sorted(daily_pnl_agg.keys())]
             sharpe_ratio = self._compute_sharpe(ordered_daily, initial_balance)
-            max_drawdown_pct = self._compute_max_drawdown_pct(ordered_daily, initial_balance)
+            max_drawdown_pct = self._compute_max_drawdown_pct(
+                ordered_daily, initial_balance
+            )
 
             run_data.update(
                 {
@@ -901,9 +930,17 @@ class BacktestService:
         run_id = f"run-{uuid4().hex[:12]}"
         request_payload = self._extract_request_payload(request)
 
-        start_date = getattr(request, "start_date", None) or request_payload.get("start_date", "")
-        end_date = getattr(request, "end_date", None) or request_payload.get("end_date", "")
-        name = getattr(request, "name", None) or request_payload.get("name") or "unnamed-backtest"
+        start_date = getattr(request, "start_date", None) or request_payload.get(
+            "start_date", ""
+        )
+        end_date = getattr(request, "end_date", None) or request_payload.get(
+            "end_date", ""
+        )
+        name = (
+            getattr(request, "name", None)
+            or request_payload.get("name")
+            or "unnamed-backtest"
+        )
 
         run_data: Dict[str, Any] = {
             "run_id": run_id,
@@ -1013,10 +1050,16 @@ class BacktestService:
         except (ValueError, TypeError):
             sd = date.today() - timedelta(days=30)
             date_range = 30
-        markets = [("BTC-USD", "ETH-USD"), ("SOL-USD", "AVAX-USD"), ("LINK-USD", "DOT-USD")]
+        markets = [
+            ("BTC-USD", "ETH-USD"),
+            ("SOL-USD", "AVAX-USD"),
+            ("LINK-USD", "DOT-USD"),
+        ]
         rng = random.Random(run_id + "trades")
         winning_count = max(0, int(total_trades * win_rate))
-        per_win = (total_pnl / max(1, winning_count)) * 1.3 if winning_count > 0 else 5.0
+        per_win = (
+            (total_pnl / max(1, winning_count)) * 1.3 if winning_count > 0 else 5.0
+        )
         per_loss = -(abs(per_win) * 0.6)
         trades: List[_BacktestTrade] = []
         for i in range(total_trades):
@@ -1025,7 +1068,9 @@ class BacktestService:
             entry_day = sd + timedelta(days=rng.randint(0, date_range - 1))
             dur = rng.uniform(4.0, 48.0)
             pnl = (
-                (per_win * rng.uniform(0.7, 1.3)) if is_win else (per_loss * rng.uniform(0.7, 1.3))
+                (per_win * rng.uniform(0.7, 1.3))
+                if is_win
+                else (per_loss * rng.uniform(0.7, 1.3))
             )
             ep1 = rng.uniform(1000.0, 50000.0)
             ep2 = rng.uniform(100.0, 5000.0)
@@ -1035,7 +1080,8 @@ class BacktestService:
                     market_1=pair[0],
                     market_2=pair[1],
                     entry_timestamp=entry_day.isoformat() + "T00:00:00Z",
-                    exit_timestamp=(entry_day + timedelta(hours=dur)).isoformat() + "T06:00:00Z",
+                    exit_timestamp=(entry_day + timedelta(hours=dur)).isoformat()
+                    + "T06:00:00Z",
                     entry_zscore=round(rng.uniform(1.5, 2.5), 3),
                     exit_zscore=round(rng.uniform(-0.5, 0.5), 3),
                     entry_price_m1=round(ep1, 2),
@@ -1079,7 +1125,8 @@ class BacktestService:
             "total_runs": len(runs),
             "completed_runs": len(completed),
             "avg_sharpe": (
-                sum(float(r.get("sharpe_ratio", 0.0)) for r in completed) / max(1, len(completed))
+                sum(float(r.get("sharpe_ratio", 0.0)) for r in completed)
+                / max(1, len(completed))
             ),
         }
 
@@ -1122,6 +1169,89 @@ class BacktestService:
             "status": data.get("status"),
             "progress_pct": float(data.get("progress_pct", 0.0)),
             "current_pair": data.get("current_pair"),
+        }
+
+    def compare_backtests(
+        self,
+        run_ids: List[str],
+        metrics: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Compare selected backtest runs across requested metrics."""
+        metric_keys = metrics or [
+            "total_pnl",
+            "win_rate",
+            "sharpe_ratio",
+            "max_drawdown_pct",
+            "total_trades",
+            "profit_factor",
+        ]
+
+        selected_runs: List[Dict[str, Any]] = []
+        missing_runs: List[str] = []
+
+        for run_id in run_ids:
+            run = self._runs.get(run_id)
+            if run is None:
+                missing_runs.append(run_id)
+                continue
+            selected_runs.append(run)
+
+        if not selected_runs:
+            return {
+                "run_ids": run_ids,
+                "metrics": metric_keys,
+                "runs": [],
+                "summary": {},
+                "missing_runs": missing_runs,
+            }
+
+        runs_payload: List[Dict[str, Any]] = []
+        for run in selected_runs:
+            runs_payload.append(
+                {
+                    "run_id": run.get("run_id"),
+                    "name": run.get("name"),
+                    "status": run.get("status"),
+                    "created_at": run.get("created_at"),
+                    "start_date": run.get("start_date"),
+                    "end_date": run.get("end_date"),
+                    "metrics": {
+                        key: run.get(key)
+                        for key in metric_keys
+                    },
+                }
+            )
+
+        summary: Dict[str, Any] = {}
+        for key in metric_keys:
+            numeric_values = []
+            for run in selected_runs:
+                value = run.get(key)
+                try:
+                    if value is not None:
+                        numeric_values.append(float(value))
+                except (TypeError, ValueError):
+                    continue
+
+            if not numeric_values:
+                continue
+
+            best = min(numeric_values) if key == "max_drawdown_pct" else max(numeric_values)
+            worst = max(numeric_values) if key == "max_drawdown_pct" else min(numeric_values)
+            avg = sum(numeric_values) / len(numeric_values)
+
+            summary[key] = {
+                "best": best,
+                "worst": worst,
+                "average": avg,
+            }
+
+        return {
+            "run_ids": [r.get("run_id") for r in selected_runs],
+            "metrics": metric_keys,
+            "runs": runs_payload,
+            "summary": summary,
+            "missing_runs": missing_runs,
         }
 
     def get_comprehensive_analytics(self, run_id: str) -> Optional[Dict[str, Any]]:
@@ -1234,10 +1364,16 @@ class BacktestService:
         except (ValueError, TypeError):
             sd = date.today() - timedelta(days=30)
             date_range = 30
-        markets = [("BTC-USD", "ETH-USD"), ("SOL-USD", "AVAX-USD"), ("LINK-USD", "DOT-USD")]
+        markets = [
+            ("BTC-USD", "ETH-USD"),
+            ("SOL-USD", "AVAX-USD"),
+            ("LINK-USD", "DOT-USD"),
+        ]
         rng = random.Random(run_id + "positions")
         winning_count = max(0, int(total_trades * win_rate))
-        per_win = (total_pnl / max(1, winning_count)) * 1.3 if winning_count > 0 else 5.0
+        per_win = (
+            (total_pnl / max(1, winning_count)) * 1.3 if winning_count > 0 else 5.0
+        )
         per_loss = -(abs(per_win) * 0.6)
         snapshots: List[Dict[str, Any]] = []
         for i in range(total_trades):
@@ -1248,7 +1384,9 @@ class BacktestService:
             is_win = i < winning_count
             entry_day = sd + timedelta(days=rng.randint(0, date_range - 1))
             pnl = (
-                (per_win * rng.uniform(0.7, 1.3)) if is_win else (per_loss * rng.uniform(0.7, 1.3))
+                (per_win * rng.uniform(0.7, 1.3))
+                if is_win
+                else (per_loss * rng.uniform(0.7, 1.3))
             )
             snapshots.append(
                 {

@@ -5,7 +5,7 @@
 
 import { ChevronRight, Menu } from 'lucide-react';
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -21,12 +21,18 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
     if (paths.includes('settings')) {
       breadcrumbs.push({ label: 'Settings', path: '/settings' });
-    } else if (paths.includes('backtest')) {
-      // Don't add duplicate dashboard - just show the specific backtest
-      const runId = paths[paths.indexOf('backtest') + 1];
-      if (runId) {
-        breadcrumbs.push({ label: 'Backtests', path: '/backtest/' });
+    } else if (paths.includes('backtests') || paths.includes('backtest')) {
+      const backtestIndex = paths.findIndex(
+        (segment) => segment === 'backtests' || segment === 'backtest'
+      );
+      const runId = backtestIndex >= 0 ? paths[backtestIndex + 1] : undefined;
+
+      breadcrumbs.push({ label: 'Backtests', path: '/backtests' });
+
+      if (runId && runId !== 'compare') {
         breadcrumbs.push({ label: `Run ${runId}`, path: `/backtest/${runId}` });
+      } else if (runId === 'compare') {
+        breadcrumbs.push({ label: 'Compare Backtests', path: '/backtests/compare' });
       }
     } else if (paths.includes('strategies')) {
       breadcrumbs.push({ label: 'Strategies', path: '/strategies' });
@@ -34,7 +40,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         breadcrumbs.push({ label: 'New Strategy', path: '/strategies/new' });
       } else if (paths.includes('edit')) {
         const strategyId = paths[paths.indexOf('edit') - 1];
-        breadcrumbs.push({ label: `Edit Strategy ${strategyId}`, path: `/strategies/${strategyId}/edit` });
+        breadcrumbs.push({
+          label: `Edit Strategy ${strategyId}`,
+          path: `/strategies/${strategyId}/edit`,
+        });
       }
     }
 
@@ -61,15 +70,16 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
             {breadcrumbs.map((crumb, index) => (
               <React.Fragment key={`breadcrumb-${index}-${crumb.path}`}>
                 {index > 0 && <ChevronRight className="w-4 h-4 text-gray-500" />}
-                <span
-                  className={
-                    index === breadcrumbs.length - 1
-                      ? 'text-white font-medium'
-                      : 'text-gray-400 hover:text-gray-300 cursor-pointer'
-                  }
-                >
-                  {crumb.label}
-                </span>
+                {index === breadcrumbs.length - 1 ? (
+                  <span className="text-white font-medium">{crumb.label}</span>
+                ) : (
+                  <Link
+                    to={crumb.path}
+                    className="text-gray-400 hover:text-gray-300 transition-colors"
+                  >
+                    {crumb.label}
+                  </Link>
+                )}
               </React.Fragment>
             ))}
           </nav>

@@ -71,6 +71,7 @@ from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
+from src.trading.dydx_client import connect_dydx
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -165,7 +166,8 @@ class BacktestRunRequestCompat(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     initial_balance: float = 1000.0
-    max_pairs: int = 3
+    # 0 means "all available markets" (no cap)
+    max_pairs: int = 0
     pair_selection_mode: str = "liquidity"
     trading_parameters: Optional[Dict[str, Any]] = None
     pairs: Optional[List[str]] = None
@@ -325,11 +327,84 @@ def _bot_manager_unavailable_response() -> JSONResponse:
     )
 
 
+def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
+    """Normalize max_pairs semantics.
+
+    Returns:
+      - None: no cap (scan all resolved markets)
+      - int > 0: cap number of markets considered before pair-combination
+    """
+    try:
+        cap = int(raw_cap)
+    except (TypeError, ValueError):
+        return None
+    return cap if cap > 0 else None
+
+
+async def _resolve_backtest_markets(
+    explicit_pairs: Optional[List[str]],
+    max_pairs: Any,
+) -> List[str]:
+    """Resolve market universe for a backtest request.
+
+    Priority:
+      1) Explicit user-provided market list (normalized and de-duplicated)
+      2) dYdX available perpetual markets
+      3) Local safe fallback list
+    """
+    cap = _normalize_requested_pair_cap(max_pairs)
+
+    if explicit_pairs:
+        normalized: List[str] = []
+        seen: set[str] = set()
+        for market in explicit_pairs:
+            m = str(market).strip()
+            if not m or m in seen:
+                continue
+            seen.add(m)
+            normalized.append(m)
+
+        if cap is not None:
+            normalized = normalized[:cap]
+
+        if len(normalized) >= 2:
+            return normalized
+
+    markets: List[str] = []
+    client = None
+    try:
+        client = await connect_dydx()
+        payload = await client.indexer.markets.get_perpetual_markets()
+        raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
+        if isinstance(raw_map, dict):
+            # Preserve deterministic ordering for repeatable runs.
+            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
+    except Exception as err:
+        logger.warning("Falling back to default market list: %s", err)
+    finally:
+        if client is not None:
+            try:
+                await client.node.close()
+            except Exception:
+                pass
+
+    if cap is not None:
+        markets = markets[:cap]
+
+    if len(markets) < 2:
+        fallback = DEFAULT_PAIRS[:]
+        if cap is not None:
+            fallback = fallback[:cap]
+        return fallback
+
+    return markets
+
+
 def _strategy_to_backtest_request(
     strategy: Dict[str, Any],
     request: BacktestRunRequestCompat,
+    pairs: List[str],
 ) -> BacktestConfigRequest:
-    pairs = request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)]
     trading_parameters = dict(request.trading_parameters or {})
     selected_mode = str(
         request.pair_selection_mode or strategy.get("pair_selection_mode", "liquidity")
@@ -357,7 +432,7 @@ def _strategy_to_backtest_request(
         }
     else:
         trading_parameters.setdefault("pair_selection_mode", selected_mode)
-    trading_parameters.setdefault("max_pairs", max(1, int(request.max_pairs)))
+    trading_parameters.setdefault("max_pairs", int(request.max_pairs))
 
     return BacktestConfigRequest(
         name=request.name or f"{strategy['name']} Backtest",
@@ -1665,11 +1740,17 @@ async def create_backtest(
         service = get_backtest_service()
 
         if isinstance(request, BacktestRunRequestCompat):
+            resolved_pairs = await _resolve_backtest_markets(
+                request.pairs,
+                request.max_pairs,
+            )
             if request.strategy_id is not None:
                 strategy = InMemoryStrategyStore.get(request.strategy_id)
                 if strategy:
                     normalized_request = _strategy_to_backtest_request(
-                        strategy, request
+                        strategy,
+                        request,
+                        resolved_pairs,
                     )
                 else:
                     logger.warning(
@@ -1693,10 +1774,9 @@ async def create_backtest(
                                 }
                             ),
                             "pair_selection_mode": request.pair_selection_mode,
-                            "max_pairs": max(1, int(request.max_pairs)),
+                            "max_pairs": int(request.max_pairs),
                         },
-                        pairs=request.pairs
-                        or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                        pairs=resolved_pairs,
                     )
             else:
                 normalized_request = BacktestConfigRequest(
@@ -1716,9 +1796,9 @@ async def create_backtest(
                             }
                         ),
                         "pair_selection_mode": request.pair_selection_mode,
-                        "max_pairs": max(1, int(request.max_pairs)),
+                        "max_pairs": int(request.max_pairs),
                     },
-                    pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                    pairs=resolved_pairs,
                 )
         else:
             normalized_request = request
@@ -1767,10 +1847,19 @@ async def run_backtest_compat(
 ):
     """Frontend-compatible backtest execution route."""
     try:
+        resolved_pairs = await _resolve_backtest_markets(
+            request.pairs,
+            request.max_pairs,
+        )
+
         if request.strategy_id is not None:
             strategy = InMemoryStrategyStore.get(request.strategy_id)
             if strategy:
-                backtest_request = _strategy_to_backtest_request(strategy, request)
+                backtest_request = _strategy_to_backtest_request(
+                    strategy,
+                    request,
+                    resolved_pairs,
+                )
             else:
                 logger.warning(
                     "Strategy '%s' not found in /backtests/run; falling back to manual payload",
@@ -1793,9 +1882,9 @@ async def run_backtest_compat(
                             }
                         ),
                         "pair_selection_mode": request.pair_selection_mode,
-                        "max_pairs": max(1, int(request.max_pairs)),
+                        "max_pairs": int(request.max_pairs),
                     },
-                    pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                    pairs=resolved_pairs,
                 )
         else:
             backtest_request = BacktestConfigRequest(
@@ -1815,9 +1904,9 @@ async def run_backtest_compat(
                         }
                     ),
                     "pair_selection_mode": request.pair_selection_mode,
-                    "max_pairs": max(1, int(request.max_pairs)),
+                    "max_pairs": int(request.max_pairs),
                 },
-                pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                pairs=resolved_pairs,
             )
 
         service = get_backtest_service()

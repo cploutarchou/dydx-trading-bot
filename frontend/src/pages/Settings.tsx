@@ -167,28 +167,13 @@ export default function Settings() {
     settings.sections.forEach((section) => {
       formVals[section.section] = {};
       section.settings.forEach((setting) => {
-        formVals[section.section][setting.key] = setting.value || setting.default_value;
+        formVals[section.section][setting.key] =
+          setting.value !== undefined && setting.value !== null
+            ? setting.value
+            : setting.default_value;
       });
     });
     setFormValues(formVals);
-  };
-
-  const handleSaveProfile = async () => {
-    try {
-      setMessage(null);
-      // TODO: Implement API call to save profile
-      // const response = await apiClient.updateProfile(profileData);
-      // For now, just show success message
-      setMessage({
-        type: 'success',
-        text: 'Profile would be saved (API endpoint pending)',
-      });
-    } catch (error: any) {
-      setMessage({
-        type: 'error',
-        text: error.message || 'Failed to save profile',
-      });
-    }
   };
 
   if (loading) {
@@ -219,13 +204,13 @@ export default function Settings() {
     .find((s) => s.section === activeSection);
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 to-slate-800 min-h-screen">
+    <div className="bg-linear-to-br from-slate-900 to-slate-800 min-h-screen">
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white">Bot Settings</h1>
+          <h1 className="text-3xl font-bold text-white">Settings</h1>
           <p className="text-gray-400 mt-2">
-            Configure bot behavior, backtesting parameters, and connection settings
+            Manage your profile, keys, and system-wide configuration
           </p>
         </div>
 
@@ -302,7 +287,7 @@ export default function Settings() {
           {/* Settings Form */}
           <div className="lg:col-span-3">
             {/* Profile Settings Panel */}
-            {activeSection === 'profile' && <ProfileSettings onSave={handleSaveProfile} />}
+            {activeSection === 'profile' && <ProfileSettings />}
 
             {/* dYdX Key Management Panel */}
             {activeSection === 'dydx_keys' && <DYDXKeyManager />}
@@ -336,11 +321,14 @@ export default function Settings() {
                           {/* Text/Number Input */}
                           {(field.value_type === 'string' ||
                             field.value_type === 'float' ||
-                            field.value_type === 'int') &&
+                            field.value_type === 'int' ||
+                            field.value_type === 'integer') &&
                             !field.options && (
                               <input
                                 type={
-                                  field.value_type === 'float' || field.value_type === 'int'
+                                  field.value_type === 'float' ||
+                                  field.value_type === 'int' ||
+                                  field.value_type === 'integer'
                                     ? 'number'
                                     : 'text'
                                 }
@@ -351,7 +339,7 @@ export default function Settings() {
                                     field.key,
                                     field.value_type === 'float'
                                       ? parseFloat(e.target.value)
-                                      : field.value_type === 'int'
+                                      : field.value_type === 'int' || field.value_type === 'integer'
                                         ? parseInt(e.target.value)
                                         : e.target.value
                                   )
@@ -440,10 +428,10 @@ export default function Settings() {
         <div className="mt-8 p-4 bg-slate-800 border border-slate-700 rounded-lg">
           <h3 className="font-semibold text-blue-400 mb-2">⚠️ Important Notes</h3>
           <ul className="text-sm text-gray-300 space-y-1 ml-4 list-disc">
-            <li>Changes to bot settings take effect on the next trading cycle</li>
-            <li>Sensitive settings like mnemonic phrases are stored securely</li>
-            <li>Always test settings changes in testnet mode first</li>
-            <li>Backtest settings only affect simulations, not live trading</li>
+            <li>Profile and key changes are saved immediately after confirmation.</li>
+            <li>Sensitive credentials are never shown in plain text after storage.</li>
+            <li>For live trading, validate all settings in testnet first.</li>
+            <li>Runtime strategy controls are available under Strategy Runtime and Bot Manager.</li>
           </ul>
         </div>
       </div>

@@ -1,14 +1,25 @@
-import { AlertCircle, ChevronDown, ChevronUp, Pause, Play, Plus, RefreshCw, Trash2, Zap } from 'lucide-react';
+import {
+    AlertCircle,
+    ChevronDown,
+    ChevronUp,
+    Pause,
+    Play,
+    Plus,
+    RefreshCw,
+    Trash2,
+    Zap,
+} from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 
 interface BotInstance {
   instance_id: string;
-  status: 'CREATED' | 'RUNNING' | 'STOPPED' | 'FAILED' | 'ERROR';
+  status: 'CREATED' | 'RUNNING' | 'STOPPED' | 'FAILED' | 'ERROR' | 'STARTING' | 'STOPPING';
   process_id?: number;
   configuration?: Record<string, unknown>;
   created_at?: string;
   started_at?: string;
+  instance_name?: string;
 }
 
 interface BotStats {
@@ -23,11 +34,70 @@ interface BotStats {
   last_update?: string;
 }
 
+const normalizeStatus = (status: string | undefined): BotInstance['status'] => {
+  const normalized = String(status || '').toUpperCase();
+  if (
+    ['CREATED', 'RUNNING', 'STOPPED', 'FAILED', 'ERROR', 'STARTING', 'STOPPING'].includes(
+      normalized
+    )
+  ) {
+    return normalized as BotInstance['status'];
+  }
+  return 'CREATED';
+};
+
+const toNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+};
+
+const mapBotStats = (raw: Record<string, unknown>): BotStats => {
+  const botStatistics =
+    typeof raw.bot_statistics === 'object' && raw.bot_statistics
+      ? (raw.bot_statistics as Record<string, unknown>)
+      : {};
+
+  const tradeStatistics =
+    typeof raw.trade_statistics === 'object' && raw.trade_statistics
+      ? (raw.trade_statistics as Record<string, unknown>)
+      : {};
+
+  const totalTrades = toNumber(tradeStatistics.total_trades, toNumber(botStatistics.total_trades));
+  const winningTrades = toNumber(
+    tradeStatistics.winning_trades,
+    toNumber(botStatistics.successful_trades)
+  );
+  const losingTrades = toNumber(
+    tradeStatistics.losing_trades,
+    toNumber(botStatistics.failed_trades)
+  );
+
+  return {
+    total_positions: totalTrades,
+    open_positions: 0,
+    closed_positions: totalTrades,
+    total_pnl: toNumber(
+      tradeStatistics.net_profit,
+      toNumber(botStatistics.total_profit_loss, toNumber(raw.total_pnl))
+    ),
+    realized_pnl: toNumber(tradeStatistics.total_profit),
+    unrealized_pnl: toNumber(raw.unrealized_pnl),
+    total_trades: totalTrades,
+    win_rate: toNumber(tradeStatistics.win_rate, toNumber(botStatistics.win_rate)) / 100,
+    last_update: new Date().toISOString(),
+  };
+};
+
 const BotManager: React.FC = () => {
   const [bots, setBots] = useState<BotInstance[]>([]);
   const [selectedBot, setSelectedBot] = useState<BotInstance | null>(null);
   const [botStats, setBotStats] = useState<Record<string, BotStats>>({});
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [expandedBot, setExpandedBot] = useState<string | null>(null);
@@ -51,7 +121,14 @@ const BotManager: React.FC = () => {
       const response = await api.listBotInstances(0, 100);
       if (response.success && response.data) {
         const botList = response.data.bots || response.data;
-        setBots(Array.isArray(botList) ? botList : []);
+        const normalizedBots = Array.isArray(botList)
+          ? (botList as Record<string, unknown>[]).map((bot) => ({
+              ...(bot as unknown as BotInstance),
+              status: normalizeStatus(bot.status as string | undefined),
+            }))
+          : [];
+
+        setBots(normalizedBots);
         setError(null);
       }
     } catch (err) {
@@ -69,7 +146,7 @@ const BotManager: React.FC = () => {
       try {
         const response = await api.getBotStats(bot.instance_id);
         if (response.success && response.data && typeof response.data === 'object') {
-          statsMap[bot.instance_id] = response.data as unknown as BotStats;
+          statsMap[bot.instance_id] = mapBotStats(response.data as Record<string, unknown>);
         }
       } catch (err) {
         console.warn(`Failed to load stats for bot ${bot.instance_id}:`, err);
@@ -83,18 +160,21 @@ const BotManager: React.FC = () => {
     loadBots();
   }, [loadBots]);
 
-  // Auto-refresh bots and stats every 10 seconds
+  // Refresh stats when bot list changes
   useEffect(() => {
     loadAllStats();
+  }, [bots, loadAllStats]);
+
+  // Auto-refresh bots every 10 seconds
+  useEffect(() => {
     const interval = setInterval(() => {
       loadBots();
-      loadAllStats();
     }, 10000);
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [bots.length, loadBots, loadAllStats]);
+  }, [loadBots]);
 
   // Create new bot instance
   const handleCreateBot = async () => {
@@ -107,10 +187,13 @@ const BotManager: React.FC = () => {
       setLoading(true);
       const response = await api.createBotInstance({
         instance_id: createForm.instance_id,
+        instance_name: createForm.instance_id,
+        network: createForm.is_testnet ? 'testnet' : 'mainnet',
+        strategy: 'default',
         credentials: {
           chain_id: createForm.chain_id,
           address: createForm.address,
-          mnemonic: createForm.mnemonic,
+          secret_phrase: createForm.mnemonic,
         },
         trading_params: {
           is_testnet: createForm.is_testnet,
@@ -147,7 +230,7 @@ const BotManager: React.FC = () => {
   // Start bot instance
   const handleStartBot = async (instanceId: string) => {
     try {
-      setLoading(true);
+      setActionLoading(`start:${instanceId}`);
       const response = await api.startBotInstance(instanceId);
       if (response.success) {
         loadBots();
@@ -158,14 +241,14 @@ const BotManager: React.FC = () => {
       const message = err instanceof Error ? err.message : 'Failed to start bot';
       setError(message);
     } finally {
-      setLoading(false);
+      setActionLoading(null);
     }
   };
 
   // Stop bot instance
   const handleStopBot = async (instanceId: string) => {
     try {
-      setLoading(true);
+      setActionLoading(`stop:${instanceId}`);
       const response = await api.stopBotInstance(instanceId);
       if (response.success) {
         loadBots();
@@ -176,14 +259,14 @@ const BotManager: React.FC = () => {
       const message = err instanceof Error ? err.message : 'Failed to stop bot';
       setError(message);
     } finally {
-      setLoading(false);
+      setActionLoading(null);
     }
   };
 
   // Restart bot instance
   const handleRestartBot = async (instanceId: string) => {
     try {
-      setLoading(true);
+      setActionLoading(`restart:${instanceId}`);
       const response = await api.restartBotInstance(instanceId);
       if (response.success) {
         loadBots();
@@ -194,7 +277,7 @@ const BotManager: React.FC = () => {
       const message = err instanceof Error ? err.message : 'Failed to restart bot';
       setError(message);
     } finally {
-      setLoading(false);
+      setActionLoading(null);
     }
   };
 
@@ -205,7 +288,7 @@ const BotManager: React.FC = () => {
     }
 
     try {
-      setLoading(true);
+      setActionLoading(`delete:${instanceId}`);
       const response = await api.deleteBotInstance(instanceId);
       if (response.success) {
         loadBots();
@@ -219,7 +302,7 @@ const BotManager: React.FC = () => {
       const message = err instanceof Error ? err.message : 'Failed to delete bot';
       setError(message);
     } finally {
-      setLoading(false);
+      setActionLoading(null);
     }
   };
 
@@ -230,6 +313,9 @@ const BotManager: React.FC = () => {
         return 'bg-green-100 text-green-800';
       case 'STOPPED':
         return 'bg-yellow-100 text-yellow-800';
+      case 'STARTING':
+      case 'STOPPING':
+        return 'bg-blue-100 text-blue-800';
       case 'FAILED':
       case 'ERROR':
         return 'bg-red-100 text-red-800';
@@ -244,15 +330,25 @@ const BotManager: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Bot Manager</h1>
-          <p className="text-slate-400 mt-1">Create and manage trading bot instances</p>
+          <p className="text-slate-400 mt-1">Create, run, and monitor trading bot instances</p>
         </div>
-        <button
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-        >
-          <Plus size={20} />
-          New Bot
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadBots}
+            disabled={loading}
+            className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition disabled:opacity-60"
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          <button
+            onClick={() => setShowCreateForm(!showCreateForm)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
+          >
+            <Plus size={20} />
+            New Bot
+          </button>
+        </div>
       </div>
 
       {/* Error message */}
@@ -315,22 +411,30 @@ const BotManager: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Z-Score Threshold</label>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Z-Score Threshold
+              </label>
               <input
                 type="number"
                 step="0.1"
                 value={createForm.zscore_threshold}
-                onChange={(e) => setCreateForm({ ...createForm, zscore_threshold: parseFloat(e.target.value) })}
+                onChange={(e) =>
+                  setCreateForm({ ...createForm, zscore_threshold: parseFloat(e.target.value) })
+                }
                 className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Max Half-Life (hours)</label>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Max Half-Life (hours)
+              </label>
               <input
                 type="number"
                 value={createForm.max_half_life}
-                onChange={(e) => setCreateForm({ ...createForm, max_half_life: parseInt(e.target.value) })}
+                onChange={(e) =>
+                  setCreateForm({ ...createForm, max_half_life: parseInt(e.target.value) })
+                }
                 className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
               />
             </div>
@@ -341,7 +445,9 @@ const BotManager: React.FC = () => {
                 type="number"
                 step="0.01"
                 value={createForm.usd_per_trade}
-                onChange={(e) => setCreateForm({ ...createForm, usd_per_trade: parseFloat(e.target.value) })}
+                onChange={(e) =>
+                  setCreateForm({ ...createForm, usd_per_trade: parseFloat(e.target.value) })
+                }
                 className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
               />
             </div>
@@ -392,9 +498,13 @@ const BotManager: React.FC = () => {
             const isExpanded = expandedBot === bot.instance_id;
 
             return (
-              <div key={bot.instance_id} className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+              <div
+                key={bot.instance_id}
+                className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden"
+              >
                 {/* Bot Header */}
-                <div className="p-4 flex items-center justify-between hover:bg-slate-750 transition cursor-pointer"
+                <div
+                  className="p-4 flex items-center justify-between hover:bg-slate-750 transition cursor-pointer"
                   onClick={() => setExpandedBot(isExpanded ? null : bot.instance_id)}
                 >
                   <div className="flex items-center gap-4 flex-1">
@@ -409,20 +519,29 @@ const BotManager: React.FC = () => {
                     </button>
 
                     <div>
-                      <h3 className="font-semibold text-white">{bot.instance_id}</h3>
+                      <h3 className="font-semibold text-white">
+                        {bot.instance_name || bot.instance_id}
+                      </h3>
+                      <p className="text-xs text-slate-500">ID: {bot.instance_id}</p>
                       <p className="text-sm text-slate-400">
-                        Started: {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
+                        Started:{' '}
+                        {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
                       </p>
                     </div>
 
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(bot.status)}`}>
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(bot.status)}`}
+                    >
                       {bot.status}
                     </span>
 
                     {stats && (
                       <div className="ml-auto text-right">
                         <p className="text-sm font-semibold text-white">
-                          P&L: <span className={stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                          P&L:{' '}
+                          <span
+                            className={stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}
+                          >
                             ${stats.total_pnl.toFixed(2)}
                           </span>
                         </p>
@@ -439,6 +558,7 @@ const BotManager: React.FC = () => {
                       <>
                         <button
                           onClick={() => handleStopBot(bot.instance_id)}
+                          disabled={actionLoading === `stop:${bot.instance_id}`}
                           className="p-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded transition"
                           title="Stop bot"
                         >
@@ -446,6 +566,7 @@ const BotManager: React.FC = () => {
                         </button>
                         <button
                           onClick={() => handleRestartBot(bot.instance_id)}
+                          disabled={actionLoading === `restart:${bot.instance_id}`}
                           className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
                           title="Restart bot"
                         >
@@ -455,6 +576,7 @@ const BotManager: React.FC = () => {
                     ) : (
                       <button
                         onClick={() => handleStartBot(bot.instance_id)}
+                        disabled={actionLoading === `start:${bot.instance_id}`}
                         className="p-2 bg-green-600 hover:bg-green-700 text-white rounded transition"
                         title="Start bot"
                       >
@@ -463,6 +585,7 @@ const BotManager: React.FC = () => {
                     )}
                     <button
                       onClick={() => handleDeleteBot(bot.instance_id)}
+                      disabled={actionLoading === `delete:${bot.instance_id}`}
                       className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition"
                       title="Delete bot"
                     >
@@ -478,13 +601,17 @@ const BotManager: React.FC = () => {
                       <div className="grid grid-cols-3 gap-4">
                         <div className="bg-slate-800 p-3 rounded">
                           <p className="text-xs text-slate-400">Total P&L</p>
-                          <p className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          <p
+                            className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                          >
                             ${stats.total_pnl.toFixed(2)}
                           </p>
                         </div>
                         <div className="bg-slate-800 p-3 rounded">
                           <p className="text-xs text-slate-400">Win Rate</p>
-                          <p className="text-lg font-semibold text-white">{(stats.win_rate * 100).toFixed(1)}%</p>
+                          <p className="text-lg font-semibold text-white">
+                            {(stats.win_rate * 100).toFixed(1)}%
+                          </p>
                         </div>
                         <div className="bg-slate-800 p-3 rounded">
                           <p className="text-xs text-slate-400">Total Trades</p>

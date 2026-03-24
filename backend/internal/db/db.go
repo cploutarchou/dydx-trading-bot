@@ -429,40 +429,52 @@ func runMigrations(cfg Config) error {
 		}
 	}()
 
-	// Run migrations with handling for dirty database state
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		// If the DB is left dirty from a previous failed migration, migrate returns an error like:
-		// "dirty database version X. Fix and force version." In that case we try to recover by
-		// reading the current version and forcing it (which clears the dirty flag), then retrying once.
-		errStr := err.Error()
-		errLower := strings.ToLower(errStr)
-
-		// Handle both "dirty" and "no migration found" errors
-		if strings.Contains(errLower, "dirty") || strings.Contains(errLower, "no migration found") {
-			ver, dirty, vErr := m.Version()
-			if vErr != nil {
-				return fmt.Errorf("migration failed and could not read version: %w (original: %v)", vErr, err)
-			}
-			if dirty || strings.Contains(errLower, "no migration found") {
-				log.Printf("⚠️  Detected migration issue at version %d. Forcing version to recover...", ver)
-				// Force expects an int version. Use int(ver) to set the migration version and clear dirty state.
-				if fErr := m.Force(int(ver)); fErr != nil {
-					return fmt.Errorf("failed to force migration version %d: %w (original: %v)", ver, fErr, err)
-				}
-				// Retry Up once after forcing
-				if rErr := m.Up(); rErr != nil && !errors.Is(migrate.ErrNoChange, rErr) {
-					return fmt.Errorf("migration retry failed after forcing version %d: %w", ver, rErr)
-				}
-				log.Printf("✅ Migration recovered after forcing version %d", ver)
-				return nil
-			}
+	// Run migrations with recovery for common partial-state issues.
+	// This helps when historical migrations contain non-idempotent index creation
+	// and the schema already has those relations from prior runs.
+	const maxRecoveryAttempts = 10
+	for attempt := 1; attempt <= maxRecoveryAttempts; attempt++ {
+		err := m.Up()
+		if err == nil || errors.Is(err, migrate.ErrNoChange) {
+			log.Println("✅ Database migrations applied successfully")
+			return nil
 		}
 
-		return fmt.Errorf("migration execution failed: %w", err)
+		errLower := strings.ToLower(err.Error())
+		isRecoverable := strings.Contains(errLower, "dirty") ||
+			strings.Contains(errLower, "no migration found") ||
+			isAlreadyExistsMigrationError(errLower)
+
+		if !isRecoverable {
+			return fmt.Errorf("migration execution failed: %w", err)
+		}
+
+		ver, _, vErr := m.Version()
+		if vErr != nil {
+			return fmt.Errorf("migration failed and could not read version: %w (original: %v)", vErr, err)
+		}
+
+		log.Printf("⚠️  Recoverable migration issue at version %d (attempt %d/%d): %v", ver, attempt, maxRecoveryAttempts, err)
+		if fErr := m.Force(int(ver)); fErr != nil {
+			return fmt.Errorf("failed to force migration version %d: %w (original: %v)", ver, fErr, err)
+		}
+		log.Printf("⚠️  Forced migration version %d, retrying up...", ver)
 	}
 
-	log.Println("✅ Database migrations applied successfully")
-	return nil
+	return fmt.Errorf("migration recovery attempts exceeded (%d)", maxRecoveryAttempts)
+}
+
+// isAlreadyExistsMigrationError identifies duplicate object errors from non-idempotent migrations.
+func isAlreadyExistsMigrationError(errLower string) bool {
+	if !strings.Contains(errLower, "already exists") {
+		return false
+	}
+
+	return strings.Contains(errLower, "relation") ||
+		strings.Contains(errLower, "index") ||
+		strings.Contains(errLower, "constraint") ||
+		strings.Contains(errLower, "column") ||
+		strings.Contains(errLower, "table")
 }
 
 // BuildMigrateDatabaseURL converts cfg.Driver and cfg.DSN into a URL acceptable by golang-migrate

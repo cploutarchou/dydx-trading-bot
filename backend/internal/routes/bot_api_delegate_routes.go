@@ -110,7 +110,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 	}
 
 	withRequestScopedBotClient := func(c *gin.Context) {
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN")), "true") {
+		serviceTokenMode := strings.EqualFold(strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN")), "true")
+		serviceTokenConfigured := strings.TrimSpace(os.Getenv("BOT_API_TOKEN")) != ""
+
+		if serviceTokenMode && serviceTokenConfigured {
 			// Service-token model: keep configured BOT_API_TOKEN and do not
 			// override upstream auth with caller JWT.
 			c.Set("bot_api_client", apiClient)

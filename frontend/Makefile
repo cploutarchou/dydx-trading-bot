@@ -1,4 +1,4 @@
-.PHONY: help install dev build lint format test clean docker-build docker-run docker-stop docker-logs setup preview lint-fix format-check
+.PHONY: help install dev build lint format test clean docker-build docker-run docker-stop docker-logs setup preview lint-fix format-check dev-env
 
 # Default target
 DEFAULT_GOAL := help
@@ -14,6 +14,7 @@ NC := \033[0m # No Color
 PROJECT_NAME := dYdX Trading Bot Frontend
 PROJECT_VERSION := 1.0.0
 NODE_ENV ?= development
+MODE ?= development
 DOCKER_IMAGE_NAME ?= dydx-frontend
 DOCKER_IMAGE_TAG ?= latest
 DOCKER_DEV_IMAGE ?= $(DOCKER_IMAGE_NAME)-dev:$(DOCKER_DEV_TAG)
@@ -89,6 +90,24 @@ setup: install ## Complete project setup (install dependencies and configure env
 	@echo "$(BLUE)📋 Environment configuration:$(NC)"
 	@echo "  API_URL: $$(grep VITE_API_URL .env.local || echo '$(API_URL)')"
 	@echo "$(GREEN)✓ Project setup complete!$(NC)"
+
+dev-env: ## Create or overwrite .env.local for development|production (usage: make dev-env MODE=development)
+	@MODE_VALUE="$(MODE)"; \
+	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
+		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
+		exit 1; \
+	fi; \
+	if [ -f .env.local ]; then \
+		printf "$(YELLOW).env.local already exists. Overwrite for %s? [y/N] $(NC)" "$$MODE_VALUE"; \
+		read answer; \
+		case "$$answer" in \
+			y|Y|yes|YES) ;; \
+			*) echo "$(YELLOW)Cancelled$(NC)"; exit 1;; \
+		esac; \
+	fi; \
+	cp .env.local.example .env.local; \
+	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('.env.local'); lines=p.read_text().splitlines(); updates={'NODE_ENV':('development' if mode=='development' else 'production'),'VITE_API_URL':('http://localhost:8888' if mode=='development' else 'https://your-backend-domain.example')}; out=[]; seen=set(); [out.append(line if (not line or line.lstrip().startswith('#') or '=' not in line or line.split('=',1)[0] not in updates) else f\"{line.split('=',1)[0]}={updates[line.split('=',1)[0]]}\") or seen.add(line.split('=',1)[0]) for line in lines]; [out.append(f'{k}={v}') for k,v in updates.items() if all(not l.startswith(f'{k}=') for l in out)]; p.write_text('\\n'.join(out)+'\\n'); print(f'Created {p} for {mode}')";
+	@echo "$(GREEN)✓ .env.local generated for $(MODE)$(NC)"
 
 # ============================================================================
 # DEVELOPMENT
@@ -315,4 +334,4 @@ ci: format-check lint type-check build ## Run CI checks: format, lint, type-chec
 
 .PHONY: help install dev dev-debug build build-analyze preview lint lint-fix format format-check
 .PHONY: docker-build docker-build-dev docker-run docker-run-dev docker-stop docker-logs docker-clean
-.PHONY: clean clean-all reset info check-env deps test type-check type-check-strict all ci setup
+.PHONY: clean clean-all reset info check-env deps test type-check type-check-strict all ci setup dev-env

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -124,9 +126,10 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 
 	var req struct {
 		InstanceID    string                 `json:"instance_id" binding:"required"`
-		InstanceName  string                 `json:"instance_name" binding:"required"`
+		InstanceName  string                 `json:"instance_name"`
 		Network       string                 `json:"network"` // testnet or mainnet
 		Strategy      string                 `json:"strategy"`
+		Credentials   map[string]interface{} `json:"credentials"`
 		Config        map[string]interface{} `json:"config"`
 		TradingParams map[string]interface{} `json:"trading_params"`
 	}
@@ -140,12 +143,45 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 		return
 	}
 
+	if req.InstanceName == "" {
+		req.InstanceName = req.InstanceID
+	}
+
+	if req.Credentials == nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     "credentials are required",
+		})
+		return
+	}
+
+	if req.TradingParams == nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     "trading_params are required",
+		})
+		return
+	}
+
 	if req.Network == "" {
-		req.Network = "testnet"
+		if isTestnetRaw, ok := req.TradingParams["is_testnet"]; ok {
+			if isTestnet, ok := isTestnetRaw.(bool); ok && !isTestnet {
+				req.Network = "mainnet"
+			} else {
+				req.Network = "testnet"
+			}
+		} else {
+			req.Network = "testnet"
+		}
 	}
 	if req.Strategy == "" {
 		req.Strategy = "default"
 	}
+
+	configJSON, _ := json.Marshal(req.Config)
+	tradingParamsJSON, _ := json.Marshal(req.TradingParams)
 
 	instance := &models.BotInstance{
 		InstanceID:   req.InstanceID,
@@ -154,9 +190,27 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 		Status:       "stopped",
 		Network:      req.Network,
 		Strategy:     req.Strategy,
+		Config: sql.NullString{
+			String: string(configJSON),
+			Valid:  len(configJSON) > 0 && string(configJSON) != "null",
+		},
+		TradingParams: sql.NullString{
+			String: string(tradingParamsJSON),
+			Valid:  len(tradingParamsJSON) > 0 && string(tradingParamsJSON) != "null",
+		},
 	}
 
-	if err := h.service.CreateBotInstance(instance); err != nil {
+	createPayload := map[string]interface{}{
+		"instance_id":    req.InstanceID,
+		"instance_name":  req.InstanceName,
+		"credentials":    req.Credentials,
+		"trading_params": req.TradingParams,
+	}
+	if req.Config != nil {
+		createPayload["config"] = req.Config
+	}
+
+	if err := h.service.CreateBotInstanceWithConfig(instance, createPayload); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",

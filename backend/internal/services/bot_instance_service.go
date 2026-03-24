@@ -44,6 +44,25 @@ func (s *BotInstanceService) CreateBotInstance(instance *models.BotInstance) err
 	return s.repo.CreateBotInstance(instance)
 }
 
+// CreateBotInstanceWithConfig creates a new bot instance in the bot API and persists metadata in the DB.
+func (s *BotInstanceService) CreateBotInstanceWithConfig(instance *models.BotInstance, payload map[string]interface{}) error {
+	if s.apiClient == nil {
+		return fmt.Errorf("bot API client not configured")
+	}
+
+	if _, err := s.apiClient.CreateBotInstance(payload); err != nil {
+		return fmt.Errorf("failed to create bot instance in bot API: %w", err)
+	}
+
+	if err := s.repo.CreateBotInstance(instance); err != nil {
+		// Best-effort rollback in bot API to avoid orphan runtime instances.
+		_, _ = s.apiClient.DeleteBotInstance(instance.InstanceID)
+		return err
+	}
+
+	return nil
+}
+
 // GetBotInstanceByID retrieves a bot instance by ID
 func (s *BotInstanceService) GetBotInstanceByID(id int) (*models.BotInstance, error) {
 	return s.repo.GetBotInstanceByID(id)
@@ -71,6 +90,12 @@ func (s *BotInstanceService) UpdateBotInstanceMetrics(instanceID string, totalTr
 
 // DeleteBotInstance deletes a bot instance
 func (s *BotInstanceService) DeleteBotInstance(instanceID string) error {
+	if s.apiClient != nil {
+		if _, err := s.apiClient.DeleteBotInstance(instanceID); err != nil {
+			return fmt.Errorf("failed to delete bot instance in bot API: %w", err)
+		}
+	}
+
 	return s.repo.DeleteBotInstance(instanceID)
 }
 

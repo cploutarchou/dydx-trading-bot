@@ -8,10 +8,12 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-d
 import api from './api';
 import { QueryProvider } from './api/QueryProvider';
 import { BacktestComparator } from './components/BacktestComparator';
+import BotManager from './components/BotManager';
 import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
+import StrategyManager from './components/StrategyManager';
 import BacktestDetailsV2 from './pages/BacktestDetailsV2';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
@@ -140,10 +142,26 @@ export const App: React.FC = () => {
               }
             />
             <Route
+              path="/strategies/manage"
+              element={
+                <ProtectedRoute>
+                  <StrategyManager />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/strategies/:id/edit"
               element={
                 <ProtectedRoute>
                   <StrategyBuilder />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/bots"
+              element={
+                <ProtectedRoute>
+                  <BotManager />
                 </ProtectedRoute>
               }
             />

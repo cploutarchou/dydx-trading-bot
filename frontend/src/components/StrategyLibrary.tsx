@@ -215,12 +215,26 @@ export default function StrategyLibrary() {
             <h1 className="text-3xl font-bold text-white mb-2">Trading Strategies</h1>
             <p className="text-gray-400">Manage your custom trading strategies</p>
           </div>
-          <button
-            onClick={() => navigate('/strategies/new')}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition flex items-center gap-2"
-          >
-            ✨ New Strategy
-          </button>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button
+              onClick={() => navigate('/strategies/manage')}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition"
+            >
+              ⚙️ Runtime Manager
+            </button>
+            <button
+              onClick={() => navigate('/bots')}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition"
+            >
+              🤖 Bot Manager
+            </button>
+            <button
+              onClick={() => navigate('/strategies/new')}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition flex items-center gap-2"
+            >
+              ✨ New Strategy
+            </button>
+          </div>
         </div>
 
         {/* Error Alert */}

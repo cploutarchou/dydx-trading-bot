@@ -35,6 +35,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       icon: <Zap className="w-5 h-5" />,
     },
     {
+      label: 'Strategy Runtime',
+      path: '/strategies/manage',
+      icon: <Zap className="w-5 h-5" />,
+    },
+    {
+      label: 'Bot Manager',
+      path: '/bots',
+      icon: <Zap className="w-5 h-5" />,
+    },
+    {
       label: 'Compare Backtests',
       path: '/backtests/compare',
       icon: <BarChart3 className="w-5 h-5" />,
@@ -52,10 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     <>
       {/* Mobile Overlay */}
       {isOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 lg:hidden z-40"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 bg-black bg-opacity-50 lg:hidden z-40" onClick={onClose} />
       )}
 
       {/* Sidebar */}
@@ -66,10 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       >
         {/* Close button for mobile */}
         <div className="lg:hidden flex justify-end p-4">
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -103,9 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               >
                 {item.icon}
                 <span>{item.label}</span>
-                {isActive(item.path) && (
-                  <div className="ml-auto w-2 h-2 bg-white rounded-full" />
-                )}
+                {isActive(item.path) && <div className="ml-auto w-2 h-2 bg-white rounded-full" />}
               </button>
             ))}
           </div>

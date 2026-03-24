@@ -1171,6 +1171,89 @@ class BacktestService:
             "current_pair": data.get("current_pair"),
         }
 
+    def compare_backtests(
+        self,
+        run_ids: List[str],
+        metrics: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Compare selected backtest runs across requested metrics."""
+        metric_keys = metrics or [
+            "total_pnl",
+            "win_rate",
+            "sharpe_ratio",
+            "max_drawdown_pct",
+            "total_trades",
+            "profit_factor",
+        ]
+
+        selected_runs: List[Dict[str, Any]] = []
+        missing_runs: List[str] = []
+
+        for run_id in run_ids:
+            run = self._runs.get(run_id)
+            if run is None:
+                missing_runs.append(run_id)
+                continue
+            selected_runs.append(run)
+
+        if not selected_runs:
+            return {
+                "run_ids": run_ids,
+                "metrics": metric_keys,
+                "runs": [],
+                "summary": {},
+                "missing_runs": missing_runs,
+            }
+
+        runs_payload: List[Dict[str, Any]] = []
+        for run in selected_runs:
+            runs_payload.append(
+                {
+                    "run_id": run.get("run_id"),
+                    "name": run.get("name"),
+                    "status": run.get("status"),
+                    "created_at": run.get("created_at"),
+                    "start_date": run.get("start_date"),
+                    "end_date": run.get("end_date"),
+                    "metrics": {
+                        key: run.get(key)
+                        for key in metric_keys
+                    },
+                }
+            )
+
+        summary: Dict[str, Any] = {}
+        for key in metric_keys:
+            numeric_values = []
+            for run in selected_runs:
+                value = run.get(key)
+                try:
+                    if value is not None:
+                        numeric_values.append(float(value))
+                except (TypeError, ValueError):
+                    continue
+
+            if not numeric_values:
+                continue
+
+            best = min(numeric_values) if key == "max_drawdown_pct" else max(numeric_values)
+            worst = max(numeric_values) if key == "max_drawdown_pct" else min(numeric_values)
+            avg = sum(numeric_values) / len(numeric_values)
+
+            summary[key] = {
+                "best": best,
+                "worst": worst,
+                "average": avg,
+            }
+
+        return {
+            "run_ids": [r.get("run_id") for r in selected_runs],
+            "metrics": metric_keys,
+            "runs": runs_payload,
+            "summary": summary,
+            "missing_runs": missing_runs,
+        }
+
     def get_comprehensive_analytics(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Full analytics including daily_pnl series for equity curve rendering."""
         data = self._runs.get(run_id)

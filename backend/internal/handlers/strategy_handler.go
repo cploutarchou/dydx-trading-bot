@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +14,132 @@ import (
 // StrategyHandler handles strategy API endpoints
 type StrategyHandler struct {
 	service *services.StrategyService
+}
+
+type strategyPayload struct {
+	Name                   string  `json:"name" binding:"required"`
+	Description            string  `json:"description"`
+	Category               string  `json:"category"`
+	IsPublic               bool    `json:"is_public"`
+	IsDefault              bool    `json:"is_default"`
+	Resolution             string  `json:"resolution"`
+	CandleResolution       string  `json:"candle_resolution"`
+	ZscoreThreshold        float64 `json:"zscore_threshold"`
+	StatsWindow            int     `json:"stats_window"`
+	MaxHalfLife            float64 `json:"max_half_life"`
+	UsdPerTrade            float64 `json:"usd_per_trade"`
+	UsdMinCollateral       float64 `json:"usd_min_collateral"`
+	CloseAtZscoreCross     *bool   `json:"close_at_zscore_cross"`
+	FindCointegratedPairs  *bool   `json:"find_cointegrated_pairs"`
+	ManageExits            *bool   `json:"manage_exits"`
+	PlaceTrades            *bool   `json:"place_trades"`
+	AbortAllPositions      *bool   `json:"abort_all_positions"`
+	MaxDrawdownPct         float64 `json:"max_drawdown_pct"`
+	StopLossPct            float64 `json:"stop_loss_pct"`
+	TakeProfitPct          float64 `json:"take_profit_pct"`
+	TrailingStopPct        float64 `json:"trailing_stop_pct"`
+	MaxPositions           int     `json:"max_positions"`
+	RebalanceIntervalHours int     `json:"rebalance_interval_hours"`
+	PositionTimeoutHours   int     `json:"position_timeout_hours"`
+	InitialAmount          float64 `json:"initial_amount"`
+	TransactionFee         float64 `json:"transaction_fee"`
+	Slippage               float64 `json:"slippage"`
+	MaxHistoryDays         int     `json:"max_history_days"`
+	BenchmarkSymbol        string  `json:"benchmark_symbol"`
+	RiskFreeRate           float64 `json:"risk_free_rate"`
+}
+
+func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload) {
+	if req.Name != "" {
+		strategy.Name = req.Name
+	}
+	if req.Description != "" {
+		strategy.Description = req.Description
+	}
+	if req.Category != "" {
+		strategy.Category = req.Category
+	}
+	strategy.IsPublic = req.IsPublic
+	strategy.IsDefault = req.IsDefault
+
+	if req.CandleResolution != "" {
+		strategy.CandleResolution = req.CandleResolution
+	} else if req.Resolution != "" {
+		strategy.CandleResolution = req.Resolution
+	}
+	if req.ZscoreThreshold > 0 {
+		strategy.ZscoreThreshold = req.ZscoreThreshold
+	}
+	if req.StatsWindow > 0 {
+		strategy.StatsWindow = req.StatsWindow
+	}
+	if req.MaxHalfLife > 0 {
+		strategy.MaxHalfLife = req.MaxHalfLife
+	}
+	if req.UsdPerTrade > 0 {
+		strategy.UsdPerTrade = req.UsdPerTrade
+	}
+	if req.UsdMinCollateral > 0 {
+		strategy.UsdMinCollateral = req.UsdMinCollateral
+	}
+	if req.CloseAtZscoreCross != nil {
+		strategy.CloseAtZscoreCross = *req.CloseAtZscoreCross
+	}
+	if req.FindCointegratedPairs != nil {
+		strategy.FindCointegratedPairs = *req.FindCointegratedPairs
+	}
+	if req.ManageExits != nil {
+		strategy.ManageExits = *req.ManageExits
+	}
+	if req.PlaceTrades != nil {
+		strategy.PlaceTrades = *req.PlaceTrades
+	}
+	if req.AbortAllPositions != nil {
+		strategy.AbortAllPositions = *req.AbortAllPositions
+	}
+	if req.MaxDrawdownPct > 0 {
+		strategy.MaxDrawdownPct = req.MaxDrawdownPct
+	}
+	if req.StopLossPct > 0 {
+		strategy.StopLossPct = req.StopLossPct
+	}
+	if req.TakeProfitPct > 0 {
+		strategy.TakeProfitPct = req.TakeProfitPct
+	}
+	if req.TrailingStopPct > 0 {
+		strategy.TrailingStopPct = req.TrailingStopPct
+	}
+	if req.MaxPositions > 0 {
+		strategy.MaxPositions = req.MaxPositions
+	}
+	if req.RebalanceIntervalHours > 0 {
+		strategy.RebalanceIntervalHours = req.RebalanceIntervalHours
+	}
+	if req.PositionTimeoutHours > 0 {
+		strategy.PositionTimeoutHours = req.PositionTimeoutHours
+	}
+	if req.InitialAmount > 0 {
+		strategy.InitialAmount = req.InitialAmount
+		// Keep create/edit UI budget aligned with runtime collateral defaults.
+		if strategy.UsdMinCollateral <= 0 {
+			strategy.UsdMinCollateral = req.InitialAmount
+		}
+	}
+	if req.TransactionFee > 0 {
+		strategy.TransactionFee = req.TransactionFee
+	}
+	if req.Slippage > 0 {
+		strategy.Slippage = req.Slippage
+	}
+	if req.MaxHistoryDays > 0 {
+		strategy.MaxHistoryDays = req.MaxHistoryDays
+	}
+	if req.BenchmarkSymbol != "" {
+		strategy.BenchmarkSymbol = req.BenchmarkSymbol
+	}
+	if req.RiskFreeRate > 0 {
+		strategy.RiskFreeRate = req.RiskFreeRate
+	}
 }
 
 // NewStrategyHandler creates a new strategy handler
@@ -24,13 +151,7 @@ func NewStrategyHandler(service *services.StrategyService) *StrategyHandler {
 
 // CreateStrategy creates a new strategy
 func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
-	var req struct {
-		Name        string `json:"name" binding:"required"`
-		Description string `json:"description"`
-		Category    string `json:"category"`
-		IsPublic    bool   `json:"is_public"`
-		IsDefault   bool   `json:"is_default"`
-	}
+	var req strategyPayload
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
@@ -59,6 +180,10 @@ func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
 		req.IsPublic,
 		req.IsDefault,
 	)
+	if err == nil {
+		applyStrategyPayload(strategy, req)
+		err = h.service.UpdateStrategy(strategy)
+	}
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
@@ -146,6 +271,7 @@ func (h *StrategyHandler) ListStrategies(c *gin.Context) {
 		Success: true,
 		Data: map[string]interface{}{
 			"strategies": result,
+			"total":      len(result),
 			"count":      len(result),
 		},
 		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
@@ -165,34 +291,7 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Name                   string  `json:"name"`
-		Description            string  `json:"description"`
-		Category               string  `json:"category"`
-		IsPublic               bool    `json:"is_public"`
-		Resolution             string  `json:"resolution"`
-		CandleResolution       string  `json:"candle_resolution"`
-		ZscoreThreshold        float64 `json:"zscore_threshold"`
-		StatsWindow            int     `json:"stats_window"`
-		MaxHalfLife            float64 `json:"max_half_life"`
-		UsdPerTrade            float64 `json:"usd_per_trade"`
-		UsdMinCollateral       float64 `json:"usd_min_collateral"`
-		CloseAtZscoreCross     *bool   `json:"close_at_zscore_cross"`
-		FindCointegratedPairs  *bool   `json:"find_cointegrated_pairs"`
-		ManageExits            *bool   `json:"manage_exits"`
-		PlaceTrades            *bool   `json:"place_trades"`
-		AbortAllPositions      *bool   `json:"abort_all_positions"`
-		MaxDrawdownPct         float64 `json:"max_drawdown_pct"`
-		StopLossPct            float64 `json:"stop_loss_pct"`
-		TakeProfitPct          float64 `json:"take_profit_pct"`
-		TrailingStopPct        float64 `json:"trailing_stop_pct"`
-		MaxPositions           int     `json:"max_positions"`
-		RebalanceIntervalHours int     `json:"rebalance_interval_hours"`
-		PositionTimeoutHours   int     `json:"position_timeout_hours"`
-		InitialAmount          float64 `json:"initial_amount"`
-		TransactionFee         float64 `json:"transaction_fee"`
-		Slippage               float64 `json:"slippage"`
-	}
+	var req strategyPayload
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
@@ -222,82 +321,7 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 		return
 	}
 
-	// Update fields
-	if req.Name != "" {
-		strategy.Name = req.Name
-	}
-	if req.Description != "" {
-		strategy.Description = req.Description
-	}
-	if req.Category != "" {
-		strategy.Category = req.Category
-	}
-	strategy.IsPublic = req.IsPublic
-	if req.CandleResolution != "" {
-		strategy.CandleResolution = req.CandleResolution
-	} else if req.Resolution != "" {
-		strategy.CandleResolution = req.Resolution
-	}
-	if req.ZscoreThreshold > 0 {
-		strategy.ZscoreThreshold = req.ZscoreThreshold
-	}
-	if req.StatsWindow > 0 {
-		strategy.StatsWindow = req.StatsWindow
-	}
-	if req.MaxHalfLife > 0 {
-		strategy.MaxHalfLife = req.MaxHalfLife
-	}
-	if req.UsdPerTrade > 0 {
-		strategy.UsdPerTrade = req.UsdPerTrade
-	}
-	if req.UsdMinCollateral > 0 {
-		strategy.UsdMinCollateral = req.UsdMinCollateral
-	}
-	if req.CloseAtZscoreCross != nil {
-		strategy.CloseAtZscoreCross = *req.CloseAtZscoreCross
-	}
-	if req.FindCointegratedPairs != nil {
-		strategy.FindCointegratedPairs = *req.FindCointegratedPairs
-	}
-	if req.ManageExits != nil {
-		strategy.ManageExits = *req.ManageExits
-	}
-	if req.PlaceTrades != nil {
-		strategy.PlaceTrades = *req.PlaceTrades
-	}
-	if req.AbortAllPositions != nil {
-		strategy.AbortAllPositions = *req.AbortAllPositions
-	}
-	if req.MaxDrawdownPct > 0 {
-		strategy.MaxDrawdownPct = req.MaxDrawdownPct
-	}
-	if req.StopLossPct > 0 {
-		strategy.StopLossPct = req.StopLossPct
-	}
-	if req.TakeProfitPct > 0 {
-		strategy.TakeProfitPct = req.TakeProfitPct
-	}
-	if req.TrailingStopPct > 0 {
-		strategy.TrailingStopPct = req.TrailingStopPct
-	}
-	if req.MaxPositions > 0 {
-		strategy.MaxPositions = req.MaxPositions
-	}
-	if req.RebalanceIntervalHours > 0 {
-		strategy.RebalanceIntervalHours = req.RebalanceIntervalHours
-	}
-	if req.PositionTimeoutHours > 0 {
-		strategy.PositionTimeoutHours = req.PositionTimeoutHours
-	}
-	if req.InitialAmount > 0 {
-		strategy.InitialAmount = req.InitialAmount
-	}
-	if req.TransactionFee > 0 {
-		strategy.TransactionFee = req.TransactionFee
-	}
-	if req.Slippage > 0 {
-		strategy.Slippage = req.Slippage
-	}
+	applyStrategyPayload(strategy, req)
 
 	if err := h.service.UpdateStrategy(strategy); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{

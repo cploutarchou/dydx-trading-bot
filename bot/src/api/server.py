@@ -86,9 +86,9 @@ class StrategyRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "name": "Balanced Mean Reversion",
-                "category": "balanced",
+                "category": "pairs_trading",
                 "description": "Strategy with liquidity-ranked pair selection",
-                "resolution": "1H",
+                "resolution": "1HOUR",
                 "zscore_threshold": 1.5,
                 "stats_window": 21,
                 "usd_per_trade": 10.0,
@@ -99,14 +99,15 @@ class StrategyRequest(BaseModel):
     )
 
     name: str
-    category: str = "custom"
+    category: str = "pairs_trading"
     description: str = ""
     is_public: bool = False
     user_id: int = 1
-    resolution: str = "1H"
+    resolution: str = "1HOUR"
+    candle_resolution: Optional[str] = None
     zscore_threshold: float = 1.5
     stats_window: int = 21
-    max_half_life: int = 24
+    max_half_life: float = 24.0
     usd_per_trade: float = 10.0
     usd_min_collateral: float = 100.0
     close_at_zscore_cross: bool = True
@@ -121,6 +122,13 @@ class StrategyRequest(BaseModel):
     trailing_stop_pct: float = 2.0
     rebalance_interval_hours: int = 24
     position_timeout_hours: int = 72
+    initial_amount: float = 1000.0
+    starting_balance: float = 1000.0
+    transaction_fee: float = 0.0005
+    slippage: float = 0.001
+    max_history_days: int = 90
+    benchmark_symbol: str = "BTC-USD"
+    risk_free_rate: float = 0.02
     pair_selection_mode: str = "liquidity"
 
 
@@ -393,7 +401,9 @@ def custom_openapi():
                     skip_path in path
                     for skip_path in ["/auth/", "/docs", "/redoc", "/openapi.json"]
                 ):
-                    openapi_schema["paths"][path][method]["security"] = [{"BearerAuth": []}]
+                    openapi_schema["paths"][path][method]["security"] = [
+                        {"BearerAuth": []}
+                    ]
 
     app.openapi_schema = openapi_schema
     return app.openapi_schema
@@ -477,15 +487,21 @@ async def create_bot_instance(
                         else "mainnet"
                     ),
                     strategy=(
-                        config.trading_params.strategy if config.trading_params else "default"
+                        config.trading_params.strategy
+                        if config.trading_params
+                        else "default"
                     ),
                     config={
                         "instance_name": config.instance_name,
                         "credentials": (
-                            config.credentials.model_dump() if config.credentials else {}
+                            config.credentials.model_dump()
+                            if config.credentials
+                            else {}
                         ),
                         "trading_params": (
-                            config.trading_params.model_dump() if config.trading_params else {}
+                            config.trading_params.model_dump()
+                            if config.trading_params
+                            else {}
                         ),
                     },
                 )
@@ -500,7 +516,9 @@ async def create_bot_instance(
                 )
 
                 session.close()
-                logger.info(f"Bot instance '{config.instance_id}' persisted to database")
+                logger.info(
+                    f"Bot instance '{config.instance_id}' persisted to database"
+                )
             except Exception as db_error:
                 logger.warning(f"Failed to persist bot to database: {db_error}")
                 # Continue anyway - bot was created in manager
@@ -549,7 +567,9 @@ async def list_bot_instances(current_user: User = Depends(get_current_active_use
 
 
 @app.get("/api/v1/bots/{instance_id}", response_model=BotInstanceStatus)
-async def get_bot_instance(instance_id: str, current_user: User = Depends(get_current_active_user)):
+async def get_bot_instance(
+    instance_id: str, current_user: User = Depends(get_current_active_user)
+):
     """Get specific bot instance status"""
     try:
         if not _bot_manager_ready():
@@ -632,7 +652,9 @@ async def start_bot_instance(
                     uow.bots.update_status(
                         instance_id,
                         BotStatusEnum.RUNNING,
-                        process_id=(result.data.get("process_id") if result.data else None),
+                        process_id=(
+                            result.data.get("process_id") if result.data else None
+                        ),
                     )
                     uow.events.log_event(
                         bot.id,
@@ -859,8 +881,12 @@ async def get_bot_jobs(
                         "execution_time_ms": j.execution_time_ms,
                         "retry_count": f"{j.retry_count}/{j.max_retries}",
                         "created_at": j.created_at.isoformat(),
-                        "started_at": (j.started_at.isoformat() if j.started_at else None),
-                        "completed_at": (j.completed_at.isoformat() if j.completed_at else None),
+                        "started_at": (
+                            j.started_at.isoformat() if j.started_at else None
+                        ),
+                        "completed_at": (
+                            j.completed_at.isoformat() if j.completed_at else None
+                        ),
                         "error_message": j.error_message,
                     }
                     for j in jobs
@@ -917,15 +943,23 @@ async def get_bot_trades(
                         "pair1": t.pair1,
                         "pair2": t.pair2,
                         "status": t.status,
-                        "entry_price1": (float(t.entry_price1) if t.entry_price1 else None),
-                        "entry_price2": (float(t.entry_price2) if t.entry_price2 else None),
+                        "entry_price1": (
+                            float(t.entry_price1) if t.entry_price1 else None
+                        ),
+                        "entry_price2": (
+                            float(t.entry_price2) if t.entry_price2 else None
+                        ),
                         "exit_price1": float(t.exit_price1) if t.exit_price1 else None,
                         "exit_price2": float(t.exit_price2) if t.exit_price2 else None,
                         "entry_cost": float(t.entry_cost) if t.entry_cost else None,
-                        "exit_proceeds": (float(t.exit_proceeds) if t.exit_proceeds else None),
+                        "exit_proceeds": (
+                            float(t.exit_proceeds) if t.exit_proceeds else None
+                        ),
                         "profit_loss": float(t.profit_loss) if t.profit_loss else None,
                         "profit_loss_percentage": (
-                            float(t.profit_loss_percentage) if t.profit_loss_percentage else None
+                            float(t.profit_loss_percentage)
+                            if t.profit_loss_percentage
+                            else None
                         ),
                         "opened_at": t.opened_at.isoformat() if t.opened_at else None,
                         "closed_at": t.closed_at.isoformat() if t.closed_at else None,
@@ -947,7 +981,9 @@ async def get_bot_trades(
 
 
 @app.get("/api/v1/bots/{instance_id}/stats")
-async def get_bot_stats(instance_id: str, current_user: User = Depends(get_current_active_user)):
+async def get_bot_stats(
+    instance_id: str, current_user: User = Depends(get_current_active_user)
+):
     """Get bot statistics"""
     try:
         session = db.get_session()
@@ -991,7 +1027,9 @@ async def get_bot_stats(instance_id: str, current_user: User = Depends(get_curre
                     "net_profit": float(trade_stats.get("net_profit", 0)),
                     "average_profit": float(trade_stats.get("average_profit", 0)),
                     "win_rate": float(trade_stats.get("win_rate", 0)),
-                    "average_duration_seconds": trade_stats.get("average_duration_seconds", 0),
+                    "average_duration_seconds": trade_stats.get(
+                        "average_duration_seconds", 0
+                    ),
                 },
             },
             message=f"Retrieved statistics for bot '{instance_id}'",
@@ -1040,7 +1078,9 @@ async def quick_deploy_bot(
         # Create instance
         create_result = await bot_manager.create_instance(config)
         if not create_result.success:
-            return api_response(success=False, message=create_result.message, status_code=400)
+            return api_response(
+                success=False, message=create_result.message, status_code=400
+            )
 
         # Auto-start if requested
         if auto_start:
@@ -1127,7 +1167,9 @@ async def get_current_user_profile(
                     getattr(current_user, "is_superuser", False),
                 )
             ),
-            "created_at": (getattr(current_user, "created_at", datetime.now())).isoformat(),
+            "created_at": (
+                getattr(current_user, "created_at", datetime.now())
+            ).isoformat(),
         },
         message="Current user profile retrieved",
     )
@@ -1215,7 +1257,8 @@ async def get_current_positions(
             data={
                 "bot_instance_id": bot_instance_id,
                 "positions": [
-                    serialize_realtime_position(p, include_updated_at=True) for p in positions
+                    serialize_realtime_position(p, include_updated_at=True)
+                    for p in positions
                 ],
                 "count": len(positions),
             },
@@ -1238,7 +1281,9 @@ async def get_position(bot_instance_id: int, position_id: str):
         position = uow.positions.get_position_by_id(position_id)
 
         if not position or position.bot_instance_id != bot_instance_id:
-            return api_response(success=False, message="Position not found", status_code=404)
+            return api_response(
+                success=False, message="Position not found", status_code=404
+            )
 
         return api_response(
             success=True,
@@ -1259,19 +1304,31 @@ async def get_position(bot_instance_id: int, position_id: str):
                 "current_value": float(position.current_value),
                 "unrealized_pnl": float(position.unrealized_pnl),
                 "unrealized_pnl_pct": float(position.unrealized_pnl_pct),
-                "realized_pnl": (float(position.realized_pnl) if position.realized_pnl else 0),
+                "realized_pnl": (
+                    float(position.realized_pnl) if position.realized_pnl else 0
+                ),
                 "z_score_entry": (
                     float(position.z_score_entry) if position.z_score_entry else None
                 ),
                 "z_score_current": (
-                    float(position.z_score_current) if position.z_score_current else None
+                    float(position.z_score_current)
+                    if position.z_score_current
+                    else None
                 ),
-                "hedge_ratio": (float(position.hedge_ratio) if position.hedge_ratio else None),
-                "correlation": (float(position.correlation) if position.correlation else None),
+                "hedge_ratio": (
+                    float(position.hedge_ratio) if position.hedge_ratio else None
+                ),
+                "correlation": (
+                    float(position.correlation) if position.correlation else None
+                ),
                 "half_life": float(position.half_life) if position.half_life else None,
                 "entered_at": position.entry_time.isoformat(),
-                "updated_at": (position.updated_at.isoformat() if position.updated_at else None),
-                "closed_at": (position.closed_at.isoformat() if position.closed_at else None),
+                "updated_at": (
+                    position.updated_at.isoformat() if position.updated_at else None
+                ),
+                "closed_at": (
+                    position.closed_at.isoformat() if position.closed_at else None
+                ),
             },
         )
 
@@ -1300,9 +1357,15 @@ async def get_market_data(bot_instance_id: int):
                         **serialize_market_core(m, include_volatility=True),
                         "rsi": float(m.rsi) if m.rsi else None,
                         "macd": float(m.macd) if m.macd else None,
-                        "moving_avg_20": (float(m.moving_avg_20) if m.moving_avg_20 else None),
-                        "moving_avg_50": (float(m.moving_avg_50) if m.moving_avg_50 else None),
-                        "funding_rate": (float(m.funding_rate) if m.funding_rate else None),
+                        "moving_avg_20": (
+                            float(m.moving_avg_20) if m.moving_avg_20 else None
+                        ),
+                        "moving_avg_50": (
+                            float(m.moving_avg_50) if m.moving_avg_50 else None
+                        ),
+                        "funding_rate": (
+                            float(m.funding_rate) if m.funding_rate else None
+                        ),
                         "updated_at": m.timestamp.isoformat() if m.timestamp else None,
                     }
                     for m in market_data
@@ -1361,8 +1424,12 @@ async def get_realtime_stats(bot_instance_id: int):
                     "daily_pnl_pct": float(stats.daily_pnl_pct),
                     "daily_trades_opened": stats.daily_trades_opened,
                     "daily_trades_closed": stats.daily_trades_closed,
-                    "daily_wins": (stats.daily_wins if hasattr(stats, "daily_wins") else 0),
-                    "daily_losses": (stats.daily_losses if hasattr(stats, "daily_losses") else 0),
+                    "daily_wins": (
+                        stats.daily_wins if hasattr(stats, "daily_wins") else 0
+                    ),
+                    "daily_losses": (
+                        stats.daily_losses if hasattr(stats, "daily_losses") else 0
+                    ),
                     **serialize_stats_risk_fields(stats),
                     "var_95": float(stats.var_95) if stats.var_95 else None,
                     "avg_trade_duration": (
@@ -1370,7 +1437,9 @@ async def get_realtime_stats(bot_instance_id: int):
                         if hasattr(stats, "avg_trade_duration_seconds")
                         else None
                     ),
-                    "is_healthy": (stats.is_healthy if hasattr(stats, "is_healthy") else True),
+                    "is_healthy": (
+                        stats.is_healthy if hasattr(stats, "is_healthy") else True
+                    ),
                     "updated_at": (
                         stats.updated_at.isoformat()
                         if hasattr(stats, "updated_at") and stats.updated_at
@@ -1447,8 +1516,12 @@ async def get_position_history(bot_instance_id: int, position_id: str, hours: in
                         "pair2": s.pair2,
                         "unrealized_pnl": float(s.unrealized_pnl),
                         "unrealized_pnl_pct": float(s.unrealized_pnl_pct),
-                        "current_price1": (float(s.current_price1) if s.current_price1 else None),
-                        "current_price2": (float(s.current_price2) if s.current_price2 else None),
+                        "current_price1": (
+                            float(s.current_price1) if s.current_price1 else None
+                        ),
+                        "current_price2": (
+                            float(s.current_price2) if s.current_price2 else None
+                        ),
                         "z_score": float(s.z_score) if s.z_score else None,
                         "timestamp": s.timestamp.isoformat() if s.timestamp else None,
                     }
@@ -1595,7 +1668,9 @@ async def create_backtest(
             if request.strategy_id is not None:
                 strategy = InMemoryStrategyStore.get(request.strategy_id)
                 if strategy:
-                    normalized_request = _strategy_to_backtest_request(strategy, request)
+                    normalized_request = _strategy_to_backtest_request(
+                        strategy, request
+                    )
                 else:
                     logger.warning(
                         "Strategy '%s' not found; falling back to manual backtest payload",
@@ -1620,7 +1695,8 @@ async def create_backtest(
                             "pair_selection_mode": request.pair_selection_mode,
                             "max_pairs": max(1, int(request.max_pairs)),
                         },
-                        pairs=request.pairs or DEFAULT_PAIRS[: max(1, request.max_pairs)],
+                        pairs=request.pairs
+                        or DEFAULT_PAIRS[: max(1, request.max_pairs)],
                     )
             else:
                 normalized_request = BacktestConfigRequest(
@@ -1648,7 +1724,9 @@ async def create_backtest(
             normalized_request = request
 
         # Create WebSocket progress callback (if needed)
-        async def progress_callback(run_id: str, progress: float, current_pair: str, eta: int):
+        async def progress_callback(
+            run_id: str, progress: float, current_pair: str, eta: int
+        ):
             message = {
                 "type": "backtest_progress",
                 "timestamp": datetime.utcnow().isoformat(),
@@ -1662,7 +1740,9 @@ async def create_backtest(
                 f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
             )
 
-        result = await service.create_and_run_backtest(normalized_request, progress_callback)
+        result = await service.create_and_run_backtest(
+            normalized_request, progress_callback
+        )
 
         return api_response(
             success=True,
@@ -1671,7 +1751,9 @@ async def create_backtest(
         )
 
     except ValueError as e:
-        return api_response(success=False, message=f"Validation error: {str(e)}", status_code=400)
+        return api_response(
+            success=False, message=f"Validation error: {str(e)}", status_code=400
+        )
     except Exception as e:
         logger.error(f"Error creating backtest: {e}")
         return api_response(
@@ -1916,7 +1998,9 @@ async def cancel_backtest(
                 status_code=404,
             )
 
-        return api_response(success=True, message=f"Backtest '{run_id}' cancelled successfully")
+        return api_response(
+            success=True, message=f"Backtest '{run_id}' cancelled successfully"
+        )
 
     except Exception as e:
         logger.error(f"Error cancelling backtest: {e}")
@@ -1939,7 +2023,9 @@ async def delete_backtest(
                 success=False, message=f"Backtest '{run_id}' not found", status_code=404
             )
 
-        return api_response(success=True, message=f"Backtest '{run_id}' deleted successfully")
+        return api_response(
+            success=True, message=f"Backtest '{run_id}' deleted successfully"
+        )
 
     except Exception as e:
         logger.error(f"Error deleting backtest: {e}")
@@ -2037,7 +2123,9 @@ async def compare_backtests(
         service = get_backtest_service()
 
         run_ids = request.get("run_ids", [])
-        metrics = request.get("metrics", ["total_return_pct", "sharpe_ratio", "win_rate"])
+        metrics = request.get(
+            "metrics", ["total_return_pct", "sharpe_ratio", "win_rate"]
+        )
 
         if len(run_ids) < 2:
             return api_response(
@@ -2172,7 +2260,9 @@ async def startup_event():
     if bot_manager is not None:
         await bot_manager.cleanup_dead_processes()
     else:
-        logger.warning("Bot manager unavailable; bot-instance endpoints may be degraded")
+        logger.warning(
+            "Bot manager unavailable; bot-instance endpoints may be degraded"
+        )
     logger.info("Bot API Server ready")
 
 

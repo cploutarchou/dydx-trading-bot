@@ -75,6 +75,7 @@ interface StrategyRequest extends Record<string, unknown> {
   is_public?: boolean;
   user_id?: number;
   resolution?: string;
+  candle_resolution?: string;
   zscore_threshold?: number;
   stats_window?: number;
   max_half_life?: number;
@@ -205,6 +206,8 @@ interface StrategyResponse extends Record<string, unknown> {
   name: string;
   category?: string;
   description?: string;
+  resolution?: string;
+  candle_resolution?: string;
   zscore_threshold?: number;
   stats_window?: number;
   max_half_life?: number;
@@ -232,6 +235,42 @@ interface StrategyListResponse extends Record<string, unknown> {
   strategies: StrategyResponse[];
   total: number;
 }
+
+const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
+  const normalized: StrategyRequest = { ...data };
+
+  const resolvedResolution =
+    typeof normalized.resolution === 'string' && normalized.resolution.length > 0
+      ? normalized.resolution
+      : typeof normalized.candle_resolution === 'string' && normalized.candle_resolution.length > 0
+        ? normalized.candle_resolution
+        : undefined;
+
+  if (resolvedResolution) {
+    normalized.resolution = resolvedResolution;
+    normalized.candle_resolution = resolvedResolution;
+  }
+
+  return normalized;
+};
+
+const normalizeStrategyResponse = <T extends StrategyResponse | undefined>(strategy: T): T => {
+  if (!strategy) {
+    return strategy;
+  }
+
+  const resolution =
+    typeof strategy.resolution === 'string' && strategy.resolution.length > 0
+      ? strategy.resolution
+      : typeof strategy.candle_resolution === 'string'
+        ? strategy.candle_resolution
+        : undefined;
+
+  return {
+    ...strategy,
+    ...(resolution ? { resolution, candle_resolution: resolution } : {}),
+  } as T;
+};
 
 interface StrategyVersionResponse extends Record<string, unknown> {
   id: number;
@@ -751,9 +790,12 @@ class ApiClient {
     try {
       const response = await this.client.post<ApiResponse<StrategyResponse>>(
         '/api/v1/strategies',
-        data
+        normalizeStrategyPayload(data)
       );
-      return response.data;
+      return {
+        ...response.data,
+        data: normalizeStrategyResponse(response.data.data),
+      };
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
@@ -766,14 +808,29 @@ class ApiClient {
     const response = await this.client.get<ApiResponse<StrategyListResponse>>(
       `/api/v1/strategies?skip=${skip}&limit=${limit}`
     );
-    return response.data;
+    return {
+      ...response.data,
+      data: response.data.data
+        ? {
+            ...response.data.data,
+            strategies: Array.isArray(response.data.data.strategies)
+              ? response.data.data.strategies.map((strategy) =>
+                  normalizeStrategyResponse(strategy as StrategyResponse)
+                )
+              : [],
+          }
+        : response.data.data,
+    };
   }
 
   async getStrategy(strategyId: number): Promise<ApiResponse<StrategyResponse>> {
     const response = await this.client.get<ApiResponse<StrategyResponse>>(
       `/api/v1/strategies/${strategyId}`
     );
-    return response.data;
+    return {
+      ...response.data,
+      data: normalizeStrategyResponse(response.data.data),
+    };
   }
 
   async updateStrategy(
@@ -783,9 +840,12 @@ class ApiClient {
     try {
       const response = await this.client.put<ApiResponse<StrategyResponse>>(
         `/api/v1/strategies/${strategyId}`,
-        data
+        normalizeStrategyPayload(data)
       );
-      return response.data;
+      return {
+        ...response.data,
+        data: normalizeStrategyResponse(response.data.data),
+      };
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
@@ -802,7 +862,22 @@ class ApiClient {
 
   async getPublicStrategies(): Promise<ApiResponse> {
     const response = await this.client.get<ApiResponse>('/api/v1/strategies/public');
-    return response.data;
+    const strategyData = response.data.data as StrategyListResponse | undefined;
+    if (!strategyData) {
+      return response.data;
+    }
+
+    return {
+      ...response.data,
+      data: {
+        ...strategyData,
+        strategies: Array.isArray(strategyData.strategies)
+          ? strategyData.strategies.map((strategy) =>
+              normalizeStrategyResponse(strategy as StrategyResponse)
+            )
+          : [],
+      },
+    };
   }
 
   // Strategy version control

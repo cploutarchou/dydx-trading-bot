@@ -64,7 +64,7 @@ export default function StrategyBuilder() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(isEditMode);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  
+
   // Get pre-loaded config from backtest or sessionStorage
   const getPreloadedConfig = () => {
     try {
@@ -152,7 +152,13 @@ export default function StrategyBuilder() {
       setLoadingExisting(true);
       const response = await api.getStrategy(id);
       if (response.data) {
-        reset(response.data);
+        const { candle_resolution: _candleResolution, ...strategyData } = response.data;
+        const resolution = response.data.resolution || response.data.candle_resolution || '1HOUR';
+
+        reset({
+          ...strategyData,
+          resolution,
+        });
       }
     } catch (err: any) {
       setError(`Failed to load strategy: ${err.message}`);
@@ -171,7 +177,9 @@ export default function StrategyBuilder() {
       max_half_life: preset.max_half_life,
       description: preset.description,
     });
-    setSuccessMessage(`${presetName.charAt(0).toUpperCase() + presetName.slice(1)} preset applied!`);
+    setSuccessMessage(
+      `${presetName.charAt(0).toUpperCase() + presetName.slice(1)} preset applied!`
+    );
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
@@ -353,16 +361,15 @@ export default function StrategyBuilder() {
             </p>
             {formValues.resolution === '1MIN' || formValues.resolution === '5MINS' ? (
               <p className="mt-2 text-xs text-yellow-400 bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
-                ⚠️ High-frequency resolutions significantly increase backtest time. Consider using 1HOUR or higher for faster results.
+                ⚠️ High-frequency resolutions significantly increase backtest time. Consider using
+                1HOUR or higher for faster results.
               </p>
             ) : null}
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Description
-            </label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Description</label>
             <Controller
               name="description"
               control={control}
@@ -445,7 +452,9 @@ export default function StrategyBuilder() {
                   />
                 )}
               />
-              <p className="mt-2 text-xs text-gray-500">Range: 0.5 - 5.0 (lower = more frequent trades)</p>
+              <p className="mt-2 text-xs text-gray-500">
+                Range: 0.5 - 5.0 (lower = more frequent trades)
+              </p>
               {errors.zscore_threshold && (
                 <p className="mt-1 text-red-400 text-sm">{errors.zscore_threshold.message}</p>
               )}
@@ -478,7 +487,9 @@ export default function StrategyBuilder() {
                   />
                 )}
               />
-              <p className="mt-2 text-xs text-gray-500">Range: 8 - 120 hours (rolling window for cointegration)</p>
+              <p className="mt-2 text-xs text-gray-500">
+                Range: 8 - 120 hours (rolling window for cointegration)
+              </p>
               {errors.stats_window && (
                 <p className="mt-1 text-red-400 text-sm">{errors.stats_window.message}</p>
               )}
@@ -511,7 +522,9 @@ export default function StrategyBuilder() {
                   />
                 )}
               />
-              <p className="mt-2 text-xs text-gray-500">Range: 1 - 72 hours (maximum mean reversion time)</p>
+              <p className="mt-2 text-xs text-gray-500">
+                Range: 1 - 72 hours (maximum mean reversion time)
+              </p>
               {errors.max_half_life && (
                 <p className="mt-1 text-red-400 text-sm">{errors.max_half_life.message}</p>
               )}
@@ -595,7 +608,9 @@ export default function StrategyBuilder() {
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-sm font-medium text-gray-300">Max Drawdown %</label>
-                        <span className="text-blue-400 text-sm">{formValues.max_drawdown_pct}%</span>
+                        <span className="text-blue-400 text-sm">
+                          {formValues.max_drawdown_pct}%
+                        </span>
                       </div>
                       <Controller
                         name="max_drawdown_pct"
@@ -661,7 +676,9 @@ export default function StrategyBuilder() {
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-sm font-medium text-gray-300">Trailing Stop %</label>
-                        <span className="text-blue-400 text-sm">{formValues.trailing_stop_pct}%</span>
+                        <span className="text-blue-400 text-sm">
+                          {formValues.trailing_stop_pct}%
+                        </span>
                       </div>
                       <Controller
                         name="trailing_stop_pct"
@@ -688,7 +705,9 @@ export default function StrategyBuilder() {
                     {/* Amount Per Trade */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Amount Per Trade ($)</label>
+                        <label className="text-sm font-medium text-gray-300">
+                          Amount Per Trade ($)
+                        </label>
                         <span className="text-blue-400 text-sm">${formValues.usd_per_trade}</span>
                       </div>
                       <Controller
@@ -705,14 +724,20 @@ export default function StrategyBuilder() {
                           />
                         )}
                       />
-                      <p className="mt-1 text-xs text-gray-500">Capital per individual trade position</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Capital per individual trade position
+                      </p>
                     </div>
 
                     {/* Rebalance Interval */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Rebalance (hours)</label>
-                        <span className="text-blue-400 text-sm">{formValues.rebalance_interval_hours}h</span>
+                        <label className="text-sm font-medium text-gray-300">
+                          Rebalance (hours)
+                        </label>
+                        <span className="text-blue-400 text-sm">
+                          {formValues.rebalance_interval_hours}h
+                        </span>
                       </div>
                       <Controller
                         name="rebalance_interval_hours"
@@ -733,8 +758,12 @@ export default function StrategyBuilder() {
                     {/* Position Timeout */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Position Timeout (hours)</label>
-                        <span className="text-blue-400 text-sm">{formValues.position_timeout_hours}h</span>
+                        <label className="text-sm font-medium text-gray-300">
+                          Position Timeout (hours)
+                        </label>
+                        <span className="text-blue-400 text-sm">
+                          {formValues.position_timeout_hours}h
+                        </span>
                       </div>
                       <Controller
                         name="position_timeout_hours"
@@ -756,7 +785,9 @@ export default function StrategyBuilder() {
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-sm font-medium text-gray-300">Transaction Fee</label>
-                        <span className="text-blue-400 text-sm">{(formValues.transaction_fee || 0.0005).toFixed(4)}</span>
+                        <span className="text-blue-400 text-sm">
+                          {(formValues.transaction_fee || 0.0005).toFixed(4)}
+                        </span>
                       </div>
                       <Controller
                         name="transaction_fee"
@@ -773,14 +804,18 @@ export default function StrategyBuilder() {
                           />
                         )}
                       />
-                      <p className="mt-1 text-xs text-gray-500">dYdX maker fee (typically 0.0005 = 0.05%)</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        dYdX maker fee (typically 0.0005 = 0.05%)
+                      </p>
                     </div>
 
                     {/* Slippage */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-sm font-medium text-gray-300">Slippage</label>
-                        <span className="text-blue-400 text-sm">{(formValues.slippage || 0.001).toFixed(4)}</span>
+                        <span className="text-blue-400 text-sm">
+                          {(formValues.slippage || 0.001).toFixed(4)}
+                        </span>
                       </div>
                       <Controller
                         name="slippage"
@@ -797,7 +832,9 @@ export default function StrategyBuilder() {
                           />
                         )}
                       />
-                      <p className="mt-1 text-xs text-gray-500">Estimated price slippage (typically 0.001 = 0.1%)</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Estimated price slippage (typically 0.001 = 0.1%)
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -883,7 +920,9 @@ export default function StrategyBuilder() {
                           />
                         )}
                       />
-                      <label className="text-sm text-gray-300">Abort All Positions on Startup</label>
+                      <label className="text-sm text-gray-300">
+                        Abort All Positions on Startup
+                      </label>
                     </div>
                   </div>
                 </div>
@@ -926,9 +965,7 @@ export default function StrategyBuilder() {
                   {isEditMode ? 'Updating...' : 'Creating...'}
                 </>
               ) : (
-                <>
-                  {isEditMode ? '✏️ Update Strategy' : '✨ Create Strategy'}
-                </>
+                <>{isEditMode ? '✏️ Update Strategy' : '✨ Create Strategy'}</>
               )}
             </button>
             <button
@@ -947,13 +984,16 @@ export default function StrategyBuilder() {
           <h3 className="text-sm font-semibold text-gray-300 mb-2">📚 Parameter Guide</h3>
           <ul className="text-xs text-gray-400 space-y-1">
             <li>
-              <strong>Z-Score Threshold:</strong> Entry trigger. Lower = more trades, higher = more selective
+              <strong>Z-Score Threshold:</strong> Entry trigger. Lower = more trades, higher = more
+              selective
             </li>
             <li>
-              <strong>Stats Window:</strong> Historical period for cointegration analysis (rolling 21 hours = ~24 candles at 1h)
+              <strong>Stats Window:</strong> Historical period for cointegration analysis (rolling
+              21 hours = ~24 candles at 1h)
             </li>
             <li>
-              <strong>Max Half-Life:</strong> Maximum time for pair to mean-revert. Filters out slow-moving pairs
+              <strong>Max Half-Life:</strong> Maximum time for pair to mean-revert. Filters out
+              slow-moving pairs
             </li>
           </ul>
         </div>

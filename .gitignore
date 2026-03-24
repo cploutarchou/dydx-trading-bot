@@ -208,4 +208,3 @@ build/
 
 .github/copilot-instructions-fullstack.md.backup
 .github/copilot-instructions.md.backup
-.env.stack

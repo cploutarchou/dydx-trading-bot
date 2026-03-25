@@ -84,6 +84,9 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
 		token = strings.TrimSpace(token[7:])
 	}
+	if token == "" {
+		token = strings.TrimSpace(c.token)
+	}
 
 	return &BotAPIClient{
 		baseURL:    c.baseURL,

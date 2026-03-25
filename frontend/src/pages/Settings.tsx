@@ -56,6 +56,14 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
   const [activeSection, setActiveSection] = useState<string>('profile');
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionResult, setConnectionResult] = useState<{
+    connected: boolean;
+    message: string;
+    host?: string;
+    port?: number;
+    latency_ms?: number;
+  } | null>(null);
 
   useEffect(() => {
     fetchSettingsData();
@@ -161,16 +169,53 @@ export default function Settings() {
     }
   };
 
+  const handleTestConnection = async () => {
+    try {
+      setTestingConnection(true);
+      setConnectionResult(null);
+      const response = await apiClient.testRedisConnection();
+      if (response.success && response.data) {
+        const data = response.data as {
+          connected: boolean;
+          message: string;
+          host?: string;
+          port?: number;
+          latency_ms?: number;
+        };
+        setConnectionResult(data);
+      } else {
+        setConnectionResult({ connected: false, message: response.message || 'Test failed' });
+      }
+    } catch (error: any) {
+      setConnectionResult({
+        connected: false,
+        message: error.response?.data?.message || error.message,
+      });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
   const handleReset = () => {
     if (!settings) return;
     const formVals: Record<string, Record<string, any>> = {};
     settings.sections.forEach((section) => {
       formVals[section.section] = {};
       section.settings.forEach((setting) => {
-        formVals[section.section][setting.key] =
+        let value =
           setting.value !== undefined && setting.value !== null
             ? setting.value
             : setting.default_value;
+
+        if (typeof value === 'string') {
+          try {
+            value = JSON.parse(value);
+          } catch {
+            // keep string value as-is
+          }
+        }
+
+        formVals[section.section][setting.key] = value;
       });
     });
     setFormValues(formVals);
@@ -403,21 +448,58 @@ export default function Settings() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="mt-8 flex gap-3 pt-6 border-t border-slate-700">
-                  <button
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
-                  <button
-                    onClick={handleReset}
-                    disabled={saving}
-                    className="px-6 py-2 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Reset
-                  </button>
+                <div className="mt-8 flex flex-col gap-4 pt-6 border-t border-slate-700">
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                    <button
+                      onClick={handleReset}
+                      disabled={saving}
+                      className="px-6 py-2 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Reset
+                    </button>
+                    {activeSection === 'redis' && (
+                      <button
+                        onClick={handleTestConnection}
+                        disabled={testingConnection || saving}
+                        className="px-6 py-2 bg-teal-700 text-white font-semibold rounded-lg hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {testingConnection ? 'Testing…' : '⚡ Test Connection'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Connection test result — only shown in the Redis section */}
+                  {activeSection === 'redis' && connectionResult && (
+                    <div
+                      className={`flex items-start gap-3 px-4 py-3 rounded-lg border text-sm ${
+                        connectionResult.connected
+                          ? 'bg-green-900/30 border-green-700 text-green-200'
+                          : 'bg-red-900/30 border-red-700 text-red-200'
+                      }`}
+                    >
+                      <span className="text-lg">{connectionResult.connected ? '✅' : '❌'}</span>
+                      <div>
+                        <p className="font-semibold">
+                          {connectionResult.connected ? 'Connected' : 'Connection failed'}
+                        </p>
+                        <p className="opacity-80">{connectionResult.message}</p>
+                        {connectionResult.connected &&
+                          connectionResult.latency_ms !== undefined && (
+                            <p className="opacity-60 text-xs mt-1">
+                              {connectionResult.host}:{connectionResult.port} —{' '}
+                              {connectionResult.latency_ms} ms
+                            </p>
+                          )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

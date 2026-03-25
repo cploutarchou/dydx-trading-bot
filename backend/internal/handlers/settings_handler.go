@@ -1,22 +1,96 @@
 package handlers
 
 import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 // SettingsHandler handles settings API endpoints
 type SettingsHandler struct {
-	service *services.SettingsService
+	service services.SettingsServiceIface
+}
+
+func inferValueType(value interface{}) string {
+	switch value.(type) {
+	case bool:
+		return "boolean"
+	case float64, float32:
+		return "float"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "integer"
+	default:
+		return "string"
+	}
+}
+
+func normalizeSettingValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case bool, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%v", v)
+	default:
+		payload, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(payload)
+	}
+}
+
+func toInt(value interface{}, fallback int) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case int32:
+		return int(v)
+	case string:
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return fallback
+		}
+		return parsed
+	default:
+		return fallback
+	}
+}
+
+func toBool(value interface{}, fallback bool) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		lower := strings.ToLower(strings.TrimSpace(v))
+		if lower == "true" || lower == "1" || lower == "yes" || lower == "on" {
+			return true
+		}
+		if lower == "false" || lower == "0" || lower == "no" || lower == "off" {
+			return false
+		}
+		return fallback
+	default:
+		return fallback
+	}
 }
 
 // NewSettingsHandler creates a new settings handler
-func NewSettingsHandler(service *services.SettingsService) *SettingsHandler {
+func NewSettingsHandler(service services.SettingsServiceIface) *SettingsHandler {
 	return &SettingsHandler{
 		service: service,
 	}
@@ -511,11 +585,19 @@ func (h *SettingsHandler) GetSchema(c *gin.Context) {
 				"description": "Redis connection settings",
 				"fields": []map[string]interface{}{
 					{
+						"key":           "enabled",
+						"label":         "Enabled",
+						"value_type":    "boolean",
+						"description":   "Enable or disable Redis",
+						"default_value": false,
+						"required":      false,
+					},
+					{
 						"key":           "host",
 						"label":         "Host",
 						"value_type":    "string",
 						"description":   "Redis server host",
-						"default_value": "localhost",
+						"default_value": "redis",
 						"required":      false,
 					},
 					{
@@ -523,7 +605,7 @@ func (h *SettingsHandler) GetSchema(c *gin.Context) {
 						"label":         "Port",
 						"value_type":    "integer",
 						"description":   "Redis server port",
-						"default_value": "6379",
+						"default_value": 6379,
 						"required":      false,
 					},
 					{
@@ -539,7 +621,15 @@ func (h *SettingsHandler) GetSchema(c *gin.Context) {
 						"label":         "Database",
 						"value_type":    "integer",
 						"description":   "Redis database number",
-						"default_value": "0",
+						"default_value": 0,
+						"required":      false,
+					},
+					{
+						"key":           "ssl",
+						"label":         "Use SSL",
+						"value_type":    "boolean",
+						"description":   "Enable TLS/SSL when connecting to Redis",
+						"default_value": false,
 						"required":      false,
 					},
 				},
@@ -708,6 +798,86 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 		})
 	}
 
+	redisSetting, err := h.service.GetRedisSetting()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     fmt.Sprintf("Failed to retrieve redis settings: %v", err),
+		})
+		return
+	}
+
+	if redisSetting != nil {
+		redisSettings := []map[string]interface{}{
+			{
+				"id":            0,
+				"section":       "redis",
+				"key":           "enabled",
+				"value":         redisSetting.Enabled,
+				"value_type":    "boolean",
+				"description":   "Enable or disable Redis",
+				"default_value": false,
+				"is_active":     true,
+			},
+			{
+				"id":            0,
+				"section":       "redis",
+				"key":           "host",
+				"value":         redisSetting.Host,
+				"value_type":    "string",
+				"description":   "Redis server host",
+				"default_value": "redis",
+				"is_active":     true,
+			},
+			{
+				"id":            0,
+				"section":       "redis",
+				"key":           "port",
+				"value":         redisSetting.Port,
+				"value_type":    "integer",
+				"description":   "Redis server port",
+				"default_value": 6379,
+				"is_active":     true,
+			},
+			{
+				"id":            0,
+				"section":       "redis",
+				"key":           "db",
+				"value":         redisSetting.Db,
+				"value_type":    "integer",
+				"description":   "Redis database number",
+				"default_value": 0,
+				"is_active":     true,
+			},
+			{
+				"id":            0,
+				"section":       "redis",
+				"key":           "password",
+				"value":         redisSetting.Password,
+				"value_type":    "string",
+				"description":   "Redis server password (optional)",
+				"default_value": "",
+				"is_active":     true,
+			},
+			{
+				"id":            0,
+				"section":       "redis",
+				"key":           "ssl",
+				"value":         redisSetting.SSL,
+				"value_type":    "boolean",
+				"description":   "Enable TLS/SSL when connecting to Redis",
+				"default_value": false,
+				"is_active":     true,
+			},
+		}
+
+		sections = append(sections, map[string]interface{}{
+			"section":  "redis",
+			"settings": redisSettings,
+		})
+	}
+
 	response := map[string]interface{}{
 		"sections": sections,
 	}
@@ -715,6 +885,215 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      response,
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// TestRedisConnection tests the connectivity to the configured Redis server.
+func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
+	redisSetting, err := h.service.GetRedisSetting()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     fmt.Sprintf("Failed to load Redis settings: %v", err),
+		})
+		return
+	}
+
+	if redisSetting == nil {
+		c.JSON(http.StatusOK, APIResponse{
+			Success: true,
+			Data: map[string]interface{}{
+				"connected": false,
+				"message":   "Redis is not configured",
+			},
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		})
+		return
+	}
+
+	opts := &redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", redisSetting.Host, redisSetting.Port),
+		Password: redisSetting.Password,
+		DB:       redisSetting.Db,
+	}
+	if redisSetting.SSL {
+		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+
+	client := redis.NewClient(opts)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, pingErr := client.Ping(ctx).Result()
+	latencyMs := time.Since(start).Milliseconds()
+
+	if pingErr != nil {
+		c.JSON(http.StatusOK, APIResponse{
+			Success: true,
+			Data: map[string]interface{}{
+				"connected":  false,
+				"message":    pingErr.Error(),
+				"host":       redisSetting.Host,
+				"port":       redisSetting.Port,
+				"latency_ms": latencyMs,
+			},
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"connected":  true,
+			"message":    "Connection successful",
+			"host":       redisSetting.Host,
+			"port":       redisSetting.Port,
+			"latency_ms": latencyMs,
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+	})
+}
+
+// UpdateSettings applies updates for both bot and redis settings.
+// Input is expected as a map where keys use the format "section.key".
+func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Error:     fmt.Sprintf("Invalid request: %v", err),
+		})
+		return
+	}
+
+	redisUpdates := map[string]interface{}{}
+	updated := 0
+
+	for compoundKey, rawValue := range updates {
+		parts := strings.SplitN(compoundKey, ".", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		section := strings.TrimSpace(parts[0])
+		key := strings.TrimSpace(parts[1])
+		if section == "" || key == "" {
+			continue
+		}
+
+		if strings.EqualFold(section, "redis") {
+			redisUpdates[key] = rawValue
+			continue
+		}
+
+		existing, err := h.service.GetBotSetting(section, key)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Error:     fmt.Sprintf("Failed to load existing setting %s: %v", compoundKey, err),
+			})
+			return
+		}
+
+		normalizedValue := normalizeSettingValue(rawValue)
+		if existing == nil {
+			_, err = h.service.CreateBotSetting(
+				section,
+				key,
+				normalizedValue,
+				inferValueType(rawValue),
+				compoundKey,
+				normalizedValue,
+				true,
+			)
+		} else {
+			_, err = h.service.UpdateBotSetting(existing.ID, normalizedValue, existing.Description, existing.IsActive)
+		}
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Error:     fmt.Sprintf("Failed to persist setting %s: %v", compoundKey, err),
+			})
+			return
+		}
+
+		updated++
+	}
+
+	if len(redisUpdates) > 0 {
+		existingRedis, err := h.service.GetRedisSetting()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Error:     fmt.Sprintf("Failed to load redis settings: %v", err),
+			})
+			return
+		}
+
+		enabled := false
+		host := "redis"
+		port := 6379
+		db := 0
+		password := ""
+		ssl := false
+
+		if existingRedis != nil {
+			enabled = existingRedis.Enabled
+			host = existingRedis.Host
+			port = existingRedis.Port
+			db = existingRedis.Db
+			password = existingRedis.Password
+			ssl = existingRedis.SSL
+		}
+
+		if value, ok := redisUpdates["enabled"]; ok {
+			enabled = toBool(value, enabled)
+		}
+		if value, ok := redisUpdates["host"]; ok {
+			host = normalizeSettingValue(value)
+		}
+		if value, ok := redisUpdates["port"]; ok {
+			port = toInt(value, port)
+		}
+		if value, ok := redisUpdates["db"]; ok {
+			db = toInt(value, db)
+		}
+		if value, ok := redisUpdates["password"]; ok {
+			password = normalizeSettingValue(value)
+		}
+		if value, ok := redisUpdates["ssl"]; ok {
+			ssl = toBool(value, ssl)
+		}
+
+		_, err = h.service.UpdateRedisSetting(enabled, host, port, db, password, ssl)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Error:     fmt.Sprintf("Failed to persist redis settings: %v", err),
+			})
+			return
+		}
+
+		updated += len(redisUpdates)
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"updated": updated,
+		},
 		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
 	})
 }

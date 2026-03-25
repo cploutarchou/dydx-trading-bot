@@ -2,6 +2,14 @@
 
 Use this file for cross-repo defaults. Keep edits concise, actionable, and current.
 
+## Task startup checklist
+
+For each new task, first consult:
+
+1. `.github/copilot-instructions.md`
+2. `.github/CUSTOMIZATION_INDEX.md`
+3. Any relevant skill/agent/prompt listed in the index
+
 ## Architecture
 
 This is a monorepo with 3 practical areas:

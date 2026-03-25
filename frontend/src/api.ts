@@ -716,65 +716,12 @@ class ApiClient {
   async updateSettings(updates: SettingsUpdate): Promise<ApiResponse> {
     this.ensureTokenLoaded();
 
-    const inferValueType = (value: unknown): string => {
-      if (typeof value === 'boolean') return 'boolean';
-      if (typeof value === 'number') {
-        return Number.isInteger(value) ? 'integer' : 'float';
-      }
-      return 'string';
-    };
-
-    const entries = Object.entries(updates || {});
-
-    for (const [compoundKey, rawValue] of entries) {
-      const [section, ...keyParts] = compoundKey.split('.');
-      const key = keyParts.join('.');
-
-      if (!section || !key) {
-        continue;
-      }
-
-      const serializedValue =
-        typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue ?? '');
-
-      const settingUrl = `/api/v1/settings/bot?section=${encodeURIComponent(section)}&key=${encodeURIComponent(key)}`;
-
-      try {
-        const existingResponse = await this.client.get<ApiResponse>(settingUrl);
-        const existingSetting = existingResponse.data?.data as Record<string, unknown> | undefined;
-        const settingId = existingSetting?.id;
-
-        if (settingId !== undefined && settingId !== null) {
-          await this.client.put<ApiResponse>(`/api/v1/settings/bot/${settingId}`, {
-            value: serializedValue,
-            description: String(existingSetting?.description ?? ''),
-            is_active: Boolean(existingSetting?.is_active ?? true),
-          });
-          continue;
-        }
-      } catch (error: unknown) {
-        if (!(error instanceof AxiosError) || error.response?.status !== 404) {
-          throw new Error(getErrorMessage(error));
-        }
-      }
-
-      await this.client.post<ApiResponse>('/api/v1/settings/bot', {
-        section,
-        key,
-        value: serializedValue,
-        value_type: inferValueType(rawValue),
-        description: `${section}.${key}`,
-        default_value: serializedValue,
-        is_active: true,
-      });
+    try {
+      const response = await this.client.put<ApiResponse>('/api/v1/settings', updates || {});
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
     }
-
-    return {
-      success: true,
-      message: 'Settings updated successfully',
-      data: { updated: entries.length },
-      timestamp: new Date().toISOString(),
-    };
   }
 
   async initializeSettings(): Promise<ApiResponse> {
@@ -1359,7 +1306,7 @@ class ApiClient {
   async testRedisConnection(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
-      '/api/v1/redis/test-connection',
+      '/api/v1/settings/test-connection',
       {}
     );
     return response.data;

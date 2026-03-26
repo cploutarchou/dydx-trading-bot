@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 
@@ -7,9 +7,12 @@ type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 interface BacktestRun {
   id?: string;
   run_id: string;
+  name?: string;
   start_date?: string;
   end_date?: string;
   status: string;
+  progress_pct?: number;
+  current_pair?: string;
   total_trades: number;
   profitable_trades?: number;
   losing_trades?: number;
@@ -20,6 +23,7 @@ interface BacktestRun {
   max_drawdown?: number;
   max_drawdown_pct?: number;
   created_at: string;
+  updated_at?: string;
 }
 
 const normalizeStatus = (status?: string): RunStatus => {
@@ -49,80 +53,125 @@ const statusBadgeClass = (status: RunStatus): string => {
   }
 };
 
+/** Format a millisecond duration as "Xh Ym Zs" (omits leading zeros). */
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '< 1s';
+  const totalSecs = Math.round(ms / 1000);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0) parts.push(`${m}m`);
+  if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+  return parts.join(' ');
+}
+
+/** Estimate remaining time given start timestamp and current progress (0-100). */
+function calcEta(createdAt: string, progressPct: number): string | null {
+  if (progressPct < 0.3) return null; // not enough data yet
+  const elapsedMs = Date.now() - new Date(createdAt).getTime();
+  if (elapsedMs <= 0) return null;
+  const remainingMs = (elapsedMs / progressPct) * (100 - progressPct);
+  return formatDuration(remainingMs);
+}
+
+const POLL_INTERVAL_MS = 4000;
+
 export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger = 0 }) => {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<BacktestRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    loadBacktests();
+    // First load blocks with spinner; subsequent refreshes stay non-blocking
+    void loadBacktests(!hasLoadedOnce);
   }, [refreshTrigger]);
 
-  const loadBacktests = async () => {
-    setLoading(true);
+  // Auto-poll while any run is active
+  useEffect(() => {
+    const hasActive = runs.some((r) => {
+      const s = normalizeStatus(r.status);
+      return s === 'RUNNING' || s === 'PENDING';
+    });
+
+    if (hasActive) {
+      if (!pollRef.current) {
+        pollRef.current = setInterval(() => {
+          loadBacktestsSilent();
+        }, POLL_INTERVAL_MS);
+      }
+    } else {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [runs]);
+
+  const fetchAllRuns = async (): Promise<BacktestRun[]> => {
+    // Keep this fast for dashboard rendering: fetch the newest page only.
+    // If needed later, we can add cursor-based pagination without blocking initial paint.
+    const response = await api.listBacktests(0, 200);
+    const raw = response as any;
+
+    const pageRuns: BacktestRun[] = Array.isArray(raw?.backtests)
+      ? raw.backtests
+      : Array.isArray(raw?.data?.backtests)
+        ? raw.data.backtests
+        : Array.isArray(raw?.data?.runs)
+          ? raw.data.runs
+          : Array.isArray(raw?.runs)
+            ? raw.runs
+            : [];
+
+    return pageRuns;
+  };
+
+  const loadBacktests = async (showBlockingLoader: boolean = true) => {
+    if (showBlockingLoader) {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const pageSize = 200;
-      let skip = 0;
-      let total: number | null = null;
-      let pageGuard = 0;
-      const allRuns: BacktestRun[] = [];
+      const runsPromise = fetchAllRuns();
+      const timeoutPromise = new Promise<BacktestRun[]>((_, reject) => {
+        setTimeout(() => reject(new Error('Timed out while loading backtest runs')), 15000);
+      });
 
-      while (pageGuard < 20) {
-        pageGuard += 1;
-        const response = await api.listBacktests(skip, pageSize);
-        const raw = response as any;
-
-        const pageRuns: BacktestRun[] = Array.isArray(raw?.backtests)
-          ? raw.backtests
-          : Array.isArray(raw?.data?.backtests)
-            ? raw.data.backtests
-            : Array.isArray(raw?.data?.runs)
-              ? raw.data.runs
-              : Array.isArray(raw?.runs)
-                ? raw.runs
-                : [];
-
-        const pageTotal =
-          typeof raw?.total === 'number'
-            ? raw.total
-            : typeof raw?.data?.total === 'number'
-              ? raw.data.total
-              : null;
-
-        if (pageTotal !== null) {
-          total = pageTotal;
-        }
-
-        if (!Array.isArray(pageRuns)) {
-          console.error('❌ BacktestList: backtests is not an array!', pageRuns);
-          setError('Invalid response format from server');
-          setRuns([]);
-          return;
-        }
-
-        allRuns.push(...pageRuns);
-
-        if (pageRuns.length < pageSize) {
-          break;
-        }
-
-        skip += pageSize;
-
-        if (total !== null && allRuns.length >= total) {
-          break;
-        }
-      }
-
-      setRuns(allRuns);
+      const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
+      setRuns(nextRuns);
+      setHasLoadedOnce(true);
     } catch (err: any) {
       console.error('❌ BacktestList: Error loading backtests:', err);
       setError(err.message || 'Failed to load backtests');
-      setRuns([]);
+      if (!hasLoadedOnce) {
+        setRuns([]);
+      }
     } finally {
-      setLoading(false);
+      if (showBlockingLoader) {
+        setLoading(false);
+      }
+    }
+  };
+
+  /** Silent refresh — keeps existing data visible while updating in background. */
+  const loadBacktestsSilent = async () => {
+    try {
+      setRuns(await fetchAllRuns());
+    } catch {
+      // ignore transient errors during polling
     }
   };
 
@@ -217,14 +266,25 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
               </tr>
             </thead>
             <tbody>
-              {Array.isArray(filteredRuns) &&
-                filteredRuns.map((run) => {
-                  const normalizedStatus = normalizeStatus(run.status);
+              {filteredRuns.map((run) => {
+                const normalizedStatus = normalizeStatus(run.status);
+                const isActive = normalizedStatus === 'RUNNING' || normalizedStatus === 'PENDING';
+                const progressPct = run.progress_pct ?? 0;
+                const eta = isActive ? calcEta(run.created_at, progressPct) : null;
 
-                  return (
-                    <tr key={run.run_id} className="border-b border-slate-700 hover:bg-slate-700">
+                return (
+                  <React.Fragment key={run.run_id}>
+                    {/* ── Main data row ─────────────────────────────────── */}
+                    <tr
+                      className={`border-b ${isActive ? 'border-slate-700/50' : 'border-slate-700'} hover:bg-slate-700`}
+                    >
                       <td className="px-4 py-2 font-mono text-xs text-blue-400">
-                        {run.run_id.substring(0, 8)}...
+                        <span title={run.run_id}>{run.run_id.substring(0, 8)}…</span>
+                        {run.name && (
+                          <div className="text-slate-400 font-sans truncate max-w-28">
+                            {run.name}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-sm">
                         {new Date(run.created_at).toLocaleString()}
@@ -232,11 +292,11 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                       <td className="px-4 py-2">
                         {run.start_date && run.end_date ? (
                           <>
-                            {new Date(run.start_date).toLocaleDateString()} -{' '}
+                            {new Date(run.start_date).toLocaleDateString()} –{' '}
                             {new Date(run.end_date).toLocaleDateString()}
                           </>
                         ) : (
-                          '-'
+                          '–'
                         )}
                       </td>
                       <td className="px-4 py-2 text-center">{run.total_trades}</td>
@@ -252,9 +312,15 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                       <td className="px-4 py-2 text-right">{formatPct(maxDdValue(run))}</td>
                       <td className="px-4 py-2 text-center">
                         <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${statusBadgeClass(normalizedStatus)}`}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${statusBadgeClass(normalizedStatus)}`}
                         >
+                          {normalizedStatus === 'RUNNING' && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                          )}
                           {normalizedStatus}
+                          {isActive && progressPct > 0 && (
+                            <span className="ml-1 opacity-80">{progressPct.toFixed(1)}%</span>
+                          )}
                         </span>
                       </td>
                       <td className="px-4 py-2 text-center">
@@ -266,8 +332,48 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                         </button>
                       </td>
                     </tr>
-                  );
-                })}
+
+                    {/* ── Progress sub-row (RUNNING / PENDING only) ─────── */}
+                    {isActive && (
+                      <tr className="border-b border-slate-700 bg-slate-900/40">
+                        <td colSpan={10} className="px-4 pb-3 pt-1">
+                          {/* Progress bar */}
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <div className="flex-1 bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="h-1.5 rounded-full bg-blue-500 transition-all duration-700"
+                                style={{ width: `${Math.min(progressPct, 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-blue-400 w-10 text-right shrink-0">
+                              {progressPct > 0 ? `${progressPct.toFixed(1)}%` : '…'}
+                            </span>
+                          </div>
+
+                          {/* Current pair + ETA */}
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-slate-400">
+                            {run.current_pair ? (
+                              <span>
+                                Scanning:{' '}
+                                <span className="font-mono text-slate-200">{run.current_pair}</span>
+                              </span>
+                            ) : (
+                              <span className="italic">Initialising…</span>
+                            )}
+                            {eta ? (
+                              <span className="text-slate-500">
+                                ETA: <span className="text-slate-300 font-medium">{eta}</span>
+                              </span>
+                            ) : progressPct > 0 ? (
+                              <span className="text-slate-600 italic">Calculating ETA…</span>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

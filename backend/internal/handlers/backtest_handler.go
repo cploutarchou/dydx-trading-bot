@@ -67,9 +67,15 @@ func (h *BacktestHandler) ListBacktests(c *gin.Context) {
 		runs = []models.BacktestRun{}
 	}
 
+	// Wrap backtests in the expected response format for frontend compatibility
+	responseData := map[string]interface{}{
+		"backtests": runs,
+		"total":     len(runs), // Note: this should ideally come from repo if pagination is implemented
+	}
+
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
-		Data:      runs,
+		Data:      responseData,
 		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
 	})
 }

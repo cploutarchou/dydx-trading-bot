@@ -126,10 +126,10 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     const response = await api.listBacktests(0, 200);
     const raw = response as any;
 
-    const pageRuns: BacktestRun[] = Array.isArray(raw?.backtests)
-      ? raw.backtests
-      : Array.isArray(raw?.data?.backtests)
-        ? raw.data.backtests
+    const pageRuns: BacktestRun[] = Array.isArray(raw?.data?.backtests)
+      ? raw.data.backtests
+      : Array.isArray(raw?.backtests)
+        ? raw.backtests
         : Array.isArray(raw?.data?.runs)
           ? raw.data.runs
           : Array.isArray(raw?.runs)

@@ -2,7 +2,13 @@
 
 ## Overview
 
-The Go backend now provides a complete REST API for managing bot instances, backtest operations, and real-time trading data. All endpoints communicate with the Python bot engine running on localhost:8000 and persist data to the PostgreSQL/SQLite database.
+The Go backend provides a REST API for bot instance management, backtest operations, and delegated real-time bot data.
+
+- Backend API default port: `8888`
+- Python Bot API default URL: `http://localhost:8889`
+- Database: PostgreSQL or SQLite (based on environment config)
+
+Most `/api/v1/backtests/*` routes and several real-time `/api/v1/bots/*` routes are proxied to the Python Bot API, while core bot-instance CRUD and metadata are handled directly by the Go backend and persisted in the database.
 
 ## Architecture
 
@@ -12,16 +18,23 @@ Frontend (React)
 Backend Go API (Port 8888)
     ├── Bot Instance Management (/api/v1/bots/*)
     ├── Backtest Management (/api/v1/backtests/*)
-    └── Bot API Communication (HTTP Client to localhost:8000)
+  └── Bot API Communication (HTTP Client to localhost:8889 by default)
          ↓
-Python Bot API (Port 8000)
+Python Bot API (Port 8889 default)
     ├── FastAPI Server
     └── Direct Trading with dYdX v4
 ```
 
+## Runtime Defaults & Environment Overrides
+
+- `API_PORT` (default: `8888`) — Go backend bind port.
+- `BOT_API_URL` (default: `http://localhost:8889`) — upstream Python Bot API base URL.
+- `BOT_API_TOKEN` (optional) — service token for Python API requests.
+- `BOT_API_USE_SERVICE_TOKEN=true` (optional) — forces delegated requests to use `BOT_API_TOKEN` instead of forwarding caller JWT.
+
 ## Authentication
 
-All endpoints (except `/health` and `/auth/*`) require JWT authentication via the `Authorization` header:
+All endpoints (except `/health` and `/api/v1/auth/*`) require JWT authentication via the `Authorization` header:
 
 ```bash
 Authorization: Bearer <JWT_TOKEN>
@@ -30,7 +43,7 @@ Authorization: Bearer <JWT_TOKEN>
 ### Get JWT Token
 
 ```bash
-curl -X POST http://localhost:8888/auth/login \
+curl -X POST http://localhost:8888/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "admin123"}'
 ```
@@ -39,14 +52,32 @@ Response:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "access_token": "eyJhbGciOiJIUzI1NiIs...",
-    "token_type": "bearer",
-    "user": { "id": 1, "username": "admin", ... }
-  }
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer",
+  "expires_in": 1800
 }
 ```
+
+> Note: The backend also sets `access_token` and `refresh_token` as HttpOnly cookies on successful login.
+
+## Response Envelope Conventions
+
+There are two response styles in the backend:
+
+1. **Go-native handlers** (for example, core bot instance CRUD) generally return:
+
+```json
+{
+  "success": true,
+  "data": {},
+  "timestamp": "2026-03-30T12:00:00Z"
+}
+```
+
+2. **Delegated proxy handlers** (many `/api/v1/backtests/*` and real-time bot endpoints) return the upstream Python Bot API payload mostly unchanged.
+
+When integrating clients, prefer tolerant parsing for delegated endpoints.
 
 ## API Endpoints
 
@@ -84,7 +115,8 @@ Authorization: Bearer <TOKEN>
       "created_at": "2025-11-03T10:00:00Z",
       "updated_at": "2025-11-03T14:30:00Z"
     }
-  ]
+  ],
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -104,9 +136,12 @@ Content-Type: application/json
   "instance_name": "BTC-ETH Arbitrage Bot",
   "network": "testnet",
   "strategy": "default",
-  "config": {
+  "credentials": {
     "address": "dydx1...",
     "mnemonic": "seed phrase..."
+  },
+  "config": {
+    "subaccount": 0
   },
   "trading_params": {
     "zscore_threshold": 1.5,
@@ -125,7 +160,8 @@ Content-Type: application/json
     "id": 1,
     "instance_id": "btc-eth-bot-01",
     ...
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -146,7 +182,8 @@ Authorization: Bearer <TOKEN>
     "instance_id": "btc-eth-bot-01",
     "status": "running",
     ...
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -164,7 +201,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "started"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -182,7 +220,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "stopped"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -200,7 +239,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "restarted"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -218,7 +258,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "deleted"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -243,7 +284,8 @@ Authorization: Bearer <TOKEN>
     "avg_loss": -8.50,
     "total_pnl": 125.50,
     "sharpe_ratio": 1.45
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -261,6 +303,8 @@ Authorization: Bearer <TOKEN>
 - `winning_only`: Only return winning trades (default: false)
 
 **Response:**
+
+`/api/v1/bots/:instance_id/trades` is proxied to the Python Bot API. The payload below is representative but may include additional keys.
 
 ```json
 {
@@ -307,6 +351,8 @@ Authorization: Bearer <TOKEN>
 
 **Response:**
 
+This endpoint is served by the Go backend repository layer (not delegated to Python) and returns:
+
 ```json
 {
   "success": true,
@@ -332,12 +378,20 @@ Authorization: Bearer <TOKEN>
 
 ### Backtest Management
 
+All backtest endpoints in this section are delegated to the Python Bot API. Response keys shown below are examples and may evolve with upstream changes.
+
 #### 1. Create Backtest
 
 ```
 POST /api/v1/backtests
 Authorization: Bearer <TOKEN>
 Content-Type: application/json
+```
+
+Alias for frontend compatibility:
+
+```
+POST /api/v1/backtests/run
 ```
 
 **Request Body:**
@@ -558,7 +612,7 @@ Authorization: Bearer <TOKEN>
 
 ## Error Handling
 
-All endpoints return consistent error responses:
+Most Go-native handlers return structured errors with `success=false` and `timestamp`. Delegated endpoints may return upstream error payloads.
 
 ### 400 Bad Request
 
@@ -611,7 +665,7 @@ All endpoints return consistent error responses:
 - `status`: running, stopped, error, paused
 - `network`: testnet or mainnet
 - `strategy`: Strategy name
-- `config`: JSON configuration and credentials
+- `config`: JSON runtime configuration
 - `trading_params`: JSON trading parameters
 - `total_trades`: Counter of total trades
 - `total_pnl`: Total profit/loss
@@ -658,7 +712,16 @@ curl -X POST http://localhost:8888/api/v1/bots \
   -d '{
     "instance_id": "btc-eth-001",
     "instance_name": "BTC-ETH Pair Trading",
-    "network": "testnet"
+    "network": "testnet",
+    "credentials": {
+      "address": "dydx1...",
+      "mnemonic": "seed phrase..."
+    },
+    "trading_params": {
+      "zscore_threshold": 1.5,
+      "usd_per_trade": 50.0,
+      "close_at_zscore_cross": true
+    }
   }'
 
 # 2. Start the bot
@@ -712,16 +775,37 @@ curl http://localhost:8888/api/v1/backtests/bt_20251103_101530_abc123/trades?lim
   -H "Authorization: Bearer $TOKEN"
 ```
 
+## Additional Delegated Real-Time Endpoints
+
+Besides the core bot-instance endpoints shown above, the backend proxies additional bot endpoints to the Python Bot API:
+
+- `GET /api/v1/bots/:instance_id/positions/current`
+- `GET /api/v1/bots/:instance_id/positions/:position_id`
+- `GET /api/v1/bots/:instance_id/position-history/:position_id?hours=24`
+- `GET /api/v1/bots/:instance_id/market-data`
+- `GET /api/v1/bots/:instance_id/realtime-stats`
+- `GET /api/v1/bots/:instance_id/alerts?limit=50`
+- `GET /api/v1/bots/:instance_id/history?days=7`
+- `GET /api/v1/bots/:instance_id/jobs?days=7`
+- `POST /api/v1/bots/quick-deploy?instance_name=<name>&auto_start=true`
+- `GET /api/v1/system/status`
+
+WebSocket proxies available via backend origin:
+
+- `GET /api/v1/backtests/:run_id/live`
+- `GET /api/v1/bots/:instance_id/positions/live`
+- `GET /api/v1/bots/:instance_id/market/live`
+- `GET /api/v1/bots/:instance_id/alerts/live`
+- `GET /ws/strategies`
+
 ## Rate Limiting
 
 - General endpoints: 100 requests/second per IP
 - Burst: 200 requests
 
-## WebSocket Support (Coming Soon)
+## WebSocket Support
 
-- Real-time position updates
-- Live trade notifications
-- Performance metric streaming
+WebSocket proxy routes are already available via backend origin (see **Additional Delegated Real-Time Endpoints**).
 
 ## Performance Notes
 

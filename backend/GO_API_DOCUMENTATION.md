@@ -61,6 +61,24 @@ Response:
 
 > Note: The backend also sets `access_token` and `refresh_token` as HttpOnly cookies on successful login.
 
+## Response Envelope Conventions
+
+There are two response styles in the backend:
+
+1. **Go-native handlers** (for example, core bot instance CRUD) generally return:
+
+```json
+{
+  "success": true,
+  "data": {},
+  "timestamp": "2026-03-30T12:00:00Z"
+}
+```
+
+2. **Delegated proxy handlers** (many `/api/v1/backtests/*` and real-time bot endpoints) return the upstream Python Bot API payload mostly unchanged.
+
+When integrating clients, prefer tolerant parsing for delegated endpoints.
+
 ## API Endpoints
 
 ### Bot Instance Management
@@ -97,7 +115,8 @@ Authorization: Bearer <TOKEN>
       "created_at": "2025-11-03T10:00:00Z",
       "updated_at": "2025-11-03T14:30:00Z"
     }
-  ]
+  ],
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -117,9 +136,12 @@ Content-Type: application/json
   "instance_name": "BTC-ETH Arbitrage Bot",
   "network": "testnet",
   "strategy": "default",
-  "config": {
+  "credentials": {
     "address": "dydx1...",
     "mnemonic": "seed phrase..."
+  },
+  "config": {
+    "subaccount": 0
   },
   "trading_params": {
     "zscore_threshold": 1.5,
@@ -138,7 +160,8 @@ Content-Type: application/json
     "id": 1,
     "instance_id": "btc-eth-bot-01",
     ...
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -159,7 +182,8 @@ Authorization: Bearer <TOKEN>
     "instance_id": "btc-eth-bot-01",
     "status": "running",
     ...
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -177,7 +201,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "started"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -195,7 +220,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "stopped"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -213,7 +239,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "restarted"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -231,7 +258,8 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "status": "deleted"
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -256,7 +284,8 @@ Authorization: Bearer <TOKEN>
     "avg_loss": -8.50,
     "total_pnl": 125.50,
     "sharpe_ratio": 1.45
-  }
+  },
+  "timestamp": "2026-03-30T12:00:00Z"
 }
 ```
 
@@ -274,6 +303,8 @@ Authorization: Bearer <TOKEN>
 - `winning_only`: Only return winning trades (default: false)
 
 **Response:**
+
+`/api/v1/bots/:instance_id/trades` is proxied to the Python Bot API. The payload below is representative but may include additional keys.
 
 ```json
 {
@@ -320,6 +351,8 @@ Authorization: Bearer <TOKEN>
 
 **Response:**
 
+This endpoint is served by the Go backend repository layer (not delegated to Python) and returns:
+
 ```json
 {
   "success": true,
@@ -344,6 +377,8 @@ Authorization: Bearer <TOKEN>
 ```
 
 ### Backtest Management
+
+All backtest endpoints in this section are delegated to the Python Bot API. Response keys shown below are examples and may evolve with upstream changes.
 
 #### 1. Create Backtest
 
@@ -577,7 +612,7 @@ Authorization: Bearer <TOKEN>
 
 ## Error Handling
 
-All endpoints return consistent error responses:
+Most Go-native handlers return structured errors with `success=false` and `timestamp`. Delegated endpoints may return upstream error payloads.
 
 ### 400 Bad Request
 
@@ -630,7 +665,7 @@ All endpoints return consistent error responses:
 - `status`: running, stopped, error, paused
 - `network`: testnet or mainnet
 - `strategy`: Strategy name
-- `config`: JSON configuration and credentials
+- `config`: JSON runtime configuration
 - `trading_params`: JSON trading parameters
 - `total_trades`: Counter of total trades
 - `total_pnl`: Total profit/loss
@@ -677,7 +712,16 @@ curl -X POST http://localhost:8888/api/v1/bots \
   -d '{
     "instance_id": "btc-eth-001",
     "instance_name": "BTC-ETH Pair Trading",
-    "network": "testnet"
+    "network": "testnet",
+    "credentials": {
+      "address": "dydx1...",
+      "mnemonic": "seed phrase..."
+    },
+    "trading_params": {
+      "zscore_threshold": 1.5,
+      "usd_per_trade": 50.0,
+      "close_at_zscore_cross": true
+    }
   }'
 
 # 2. Start the bot
@@ -759,11 +803,9 @@ WebSocket proxies available via backend origin:
 - General endpoints: 100 requests/second per IP
 - Burst: 200 requests
 
-## WebSocket Support (Coming Soon)
+## WebSocket Support
 
-- Real-time position updates
-- Live trade notifications
-- Performance metric streaming
+WebSocket proxy routes are already available via backend origin (see **Additional Delegated Real-Time Endpoints**).
 
 ## Performance Notes
 

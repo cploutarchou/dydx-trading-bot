@@ -2,7 +2,13 @@
 
 ## Overview
 
-The Go backend now provides a complete REST API for managing bot instances, backtest operations, and real-time trading data. All endpoints communicate with the Python bot engine running on localhost:8000 and persist data to the PostgreSQL/SQLite database.
+The Go backend provides a REST API for bot instance management, backtest operations, and delegated real-time bot data.
+
+- Backend API default port: `8888`
+- Python Bot API default URL: `http://localhost:8889`
+- Database: PostgreSQL or SQLite (based on environment config)
+
+Most `/api/v1/backtests/*` routes and several real-time `/api/v1/bots/*` routes are proxied to the Python Bot API, while core bot-instance CRUD and metadata are handled directly by the Go backend and persisted in the database.
 
 ## Architecture
 
@@ -12,16 +18,23 @@ Frontend (React)
 Backend Go API (Port 8888)
     ├── Bot Instance Management (/api/v1/bots/*)
     ├── Backtest Management (/api/v1/backtests/*)
-    └── Bot API Communication (HTTP Client to localhost:8000)
+  └── Bot API Communication (HTTP Client to localhost:8889 by default)
          ↓
-Python Bot API (Port 8000)
+Python Bot API (Port 8889 default)
     ├── FastAPI Server
     └── Direct Trading with dYdX v4
 ```
 
+## Runtime Defaults & Environment Overrides
+
+- `API_PORT` (default: `8888`) — Go backend bind port.
+- `BOT_API_URL` (default: `http://localhost:8889`) — upstream Python Bot API base URL.
+- `BOT_API_TOKEN` (optional) — service token for Python API requests.
+- `BOT_API_USE_SERVICE_TOKEN=true` (optional) — forces delegated requests to use `BOT_API_TOKEN` instead of forwarding caller JWT.
+
 ## Authentication
 
-All endpoints (except `/health` and `/auth/*`) require JWT authentication via the `Authorization` header:
+All endpoints (except `/health` and `/api/v1/auth/*`) require JWT authentication via the `Authorization` header:
 
 ```bash
 Authorization: Bearer <JWT_TOKEN>
@@ -30,7 +43,7 @@ Authorization: Bearer <JWT_TOKEN>
 ### Get JWT Token
 
 ```bash
-curl -X POST http://localhost:8888/auth/login \
+curl -X POST http://localhost:8888/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "admin123"}'
 ```
@@ -39,14 +52,14 @@ Response:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "access_token": "eyJhbGciOiJIUzI1NiIs...",
-    "token_type": "bearer",
-    "user": { "id": 1, "username": "admin", ... }
-  }
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer",
+  "expires_in": 1800
 }
 ```
+
+> Note: The backend also sets `access_token` and `refresh_token` as HttpOnly cookies on successful login.
 
 ## API Endpoints
 
@@ -338,6 +351,12 @@ Authorization: Bearer <TOKEN>
 POST /api/v1/backtests
 Authorization: Bearer <TOKEN>
 Content-Type: application/json
+```
+
+Alias for frontend compatibility:
+
+```
+POST /api/v1/backtests/run
 ```
 
 **Request Body:**
@@ -711,6 +730,29 @@ curl http://localhost:8888/api/v1/backtests/bt_20251103_101530_abc123 \
 curl http://localhost:8888/api/v1/backtests/bt_20251103_101530_abc123/trades?limit=100 \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+## Additional Delegated Real-Time Endpoints
+
+Besides the core bot-instance endpoints shown above, the backend proxies additional bot endpoints to the Python Bot API:
+
+- `GET /api/v1/bots/:instance_id/positions/current`
+- `GET /api/v1/bots/:instance_id/positions/:position_id`
+- `GET /api/v1/bots/:instance_id/position-history/:position_id?hours=24`
+- `GET /api/v1/bots/:instance_id/market-data`
+- `GET /api/v1/bots/:instance_id/realtime-stats`
+- `GET /api/v1/bots/:instance_id/alerts?limit=50`
+- `GET /api/v1/bots/:instance_id/history?days=7`
+- `GET /api/v1/bots/:instance_id/jobs?days=7`
+- `POST /api/v1/bots/quick-deploy?instance_name=<name>&auto_start=true`
+- `GET /api/v1/system/status`
+
+WebSocket proxies available via backend origin:
+
+- `GET /api/v1/backtests/:run_id/live`
+- `GET /api/v1/bots/:instance_id/positions/live`
+- `GET /api/v1/bots/:instance_id/market/live`
+- `GET /api/v1/bots/:instance_id/alerts/live`
+- `GET /ws/strategies`
 
 ## Rate Limiting
 

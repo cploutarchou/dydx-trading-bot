@@ -7,20 +7,19 @@ import json
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import uvicorn
-from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from src.shared.env_loader import load_repo_env
 
 # Load .env BEFORE importing project modules that initialize config/database.
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_repo_env(__file__)
 
 # Import authentication modules
 from src.api.v1.auth import router as auth_router

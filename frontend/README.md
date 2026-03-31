@@ -80,13 +80,13 @@ docs/               # All documentation
 
 ## 🌍 Environment Variables
 
-Create `.env.local` for local development:
+Use the repo-root `.env` for local development:
 
 ```bash
 VITE_API_URL=http://localhost:8888
 ```
 
-See [.env.local.example](.env.local.example) for all available variables.
+The frontend Vite config reads env vars from `../.env`, so you do not need a separate `frontend/.env.local`.
 
 ## 🔐 SSH & Git Setup
 

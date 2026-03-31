@@ -96,47 +96,42 @@ setup_python_env() {
 setup_env_files() {
     echo "${BLUE}[3/6] Setting up environment files...${NC}"
     
-    # Backend .env
+    # Shared repo-root .env
     if [ ! -f "$PROJECT_ROOT/.env" ]; then
-        echo "  Creating backend .env..."
+        echo "  Creating repo-root .env..."
         cat > "$PROJECT_ROOT/.env" << 'EOF'
-# Database Configuration
-DB_TYPE=postgresql
-DB_NAME=dydx_backtest
-DB_USER=postgres
-DB_PASSWORD=password
-DB_HOST=localhost
-DB_PORT=5432
-
-# JWT Configuration
-JWT_SECRET_KEY=your-secret-key-change-in-production-use-strong-key-32-chars-minimum
+# Shared monorepo environment
+ENVIRONMENT=development
+POSTGRES_PORT=5432
+REDIS_PORT=6379
+API_PORT=8888
+POSTGRES_USER=dydx_bot
+POSTGRES_PASSWORD=change-me-db-password
+POSTGRES_DB=dydx_bot
+SECRET_KEY=change-me-jwt-secret-min-32-chars
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# Server Configuration
-ENVIRONMENT=development
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:8000
-
-# API Configuration
-SQL_ECHO=false
+DB_TYPE=postgres
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=dydx_bot
+DB_USER=dydx_bot
+DB_PASSWORD=change-me-db-password
+REDIS_ENABLED=true
+REDIS_HOST=localhost
+REDIS_DB=0
+BOT_API_URL=http://localhost:8889
+BOT_API_HOST=0.0.0.0
+BOT_API_PORT=8889
+VITE_API_URL=http://localhost:8888
 EOF
-        echo "  ✓ Backend .env created"
+        echo "  ✓ Repo-root .env created"
     else
-        echo "  ✓ Backend .env already exists"
+        echo "  ✓ Repo-root .env already exists"
     fi
-    
-    # Frontend .env
-    if [ ! -f "$PROJECT_ROOT/frontend/.env.local" ]; then
-        echo "  Creating frontend .env.local..."
-        cat > "$PROJECT_ROOT/frontend/.env.local" << 'EOF'
-VITE_API_URL=http://localhost:8000/api/v1
-VITE_WS_URL=ws://localhost:8000
-EOF
-        echo "  ✓ Frontend .env.local created"
-    else
-        echo "  ✓ Frontend .env.local already exists"
-    fi
+
+    echo "  ✓ Backend, bot, and frontend now source values from $PROJECT_ROOT/.env"
     
     echo ""
 }

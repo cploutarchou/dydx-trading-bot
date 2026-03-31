@@ -64,6 +64,23 @@ make run
 
 That's it! The server will start on <http://localhost:8888>
 
+### Windows first-run (PowerShell)
+
+Use the built-in PowerShell task runner for fresh clones:
+
+```powershell
+cd backend
+.\make.ps1 first-run -Mode development
+```
+
+This will:
+
+- ensure `.env` exists with local-safe defaults (including `BOT_API_URL=http://127.0.0.1:8889`)
+- run a local toolchain check (`doctor`)
+- download Go modules when `go` is available
+
+If you see `Missing required tools: go`, install Go 1.23+ and reopen VS Code/terminal.
+
 ## 📋 Prerequisites
 
 - **Go 1.23.0 or higher**
@@ -106,7 +123,7 @@ JWT_SECRET_KEY=your-secret-key-change-in-production
 ENCRYPTION_KEY=your-encryption-key-change-in-production
 
 # Bot API delegation target
-BOT_API_URL=http://localhost:8889
+BOT_API_URL=http://127.0.0.1:8889
 
 # dYdX Configuration
 DYDX_TESTNET_ADDRESS=dydx1...

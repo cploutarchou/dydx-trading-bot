@@ -8,6 +8,12 @@ import { enhancedApiClient } from '../api/enhancedClient';
 import { cacheUtils } from '../api/queryClient';
 import type { User } from '../api/types';
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 const normalizeUser = (user: Partial<User> | null | undefined): User | null => {
   if (!user || typeof user.id !== 'number' || !user.username || !user.email || !user.created_at) {
     return null;
@@ -159,9 +165,9 @@ export const useAuthStore = create<AuthStore>()(
               state.isLoggingIn = false;
               state.error = null;
             });
-          } catch (error: any) {
+          } catch (error: unknown) {
             set((state) => {
-              state.error = error.message || 'Login failed';
+              state.error = getErrorMessage(error, 'Login failed');
               state.isLoggingIn = false;
               state.isAuthenticated = false;
               state.user = null;
@@ -190,7 +196,7 @@ export const useAuthStore = create<AuthStore>()(
               state.error = null;
               // Keep preferences
             });
-          } catch (error: any) {
+          } catch (error: unknown) {
             console.error('Logout error:', error);
             // Force logout even on error
             set((state) => {
@@ -213,9 +219,9 @@ export const useAuthStore = create<AuthStore>()(
 
             // Auto-login after registration
             await get().login(username, password);
-          } catch (error: any) {
+          } catch (error: unknown) {
             set((state) => {
-              state.error = error.message || 'Registration failed';
+              state.error = getErrorMessage(error, 'Registration failed');
               state.isLoading = false;
             });
             throw error;
@@ -348,7 +354,7 @@ export const useAuthStore = create<AuthStore>()(
                 state.isLoading = false;
               });
             }
-          } catch (error: any) {
+          } catch (error: unknown) {
             console.error('Auth initialization failed:', error);
             set((state) => {
               state.isLoading = false;
@@ -370,15 +376,17 @@ export const useAuthStore = create<AuthStore>()(
           preferences: state.preferences,
         }),
         version: 2, // Increment when changing store structure
-        migrate: (persistedState: any, version: number) => {
+        migrate: (persistedState: unknown, version: number) => {
           // Handle store migrations
+          const state = isRecord(persistedState) ? persistedState : {};
           if (version < 2) {
+            const statePreferences = isRecord(state.preferences) ? state.preferences : {};
             return {
-              ...persistedState,
-              preferences: { ...defaultPreferences, ...persistedState.preferences },
+              ...state,
+              preferences: { ...defaultPreferences, ...statePreferences },
             };
           }
-          return persistedState;
+          return state;
         },
       }
     )
@@ -390,8 +398,7 @@ useAuthStore.subscribe(
   (state) => state.isAuthenticated,
   (isAuthenticated, previousIsAuthenticated) => {
     // Handle authentication state changes
-    if (isAuthenticated && !previousIsAuthenticated) {
-    } else if (!isAuthenticated && previousIsAuthenticated) {
+    if (!isAuthenticated && previousIsAuthenticated) {
       // Clear sensitive data
       cacheUtils.clearCache();
     }

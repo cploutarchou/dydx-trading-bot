@@ -146,6 +146,18 @@ const RedisSettings: React.FC = () => {
 
   const handleSaveSettings = async () => {
     try {
+      const updates: Record<string, unknown> = {};
+      Object.entries(editedSettings).forEach(([key, value]) => {
+        updates[`redis.${key}`] = value;
+      });
+
+      const updateResponse = await api.updateSettings(updates);
+
+      if (!updateResponse.success) {
+        setError(updateResponse.message || 'Failed to save settings');
+        return;
+      }
+
       const response = await api.getRedisSettings();
 
       if (response.success && response.data) {

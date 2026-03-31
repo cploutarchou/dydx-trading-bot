@@ -29,6 +29,9 @@ interface PerformanceMetricsProps {
   runId: string;
 }
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId }) => {
   const [metrics, setMetrics] = useState<PerformanceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,8 +51,8 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
       } else {
         setError(response.message || 'Failed to load performance metrics');
       }
-    } catch (err: any) {
-      setError(err.message || 'Error loading performance metrics');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Error loading performance metrics'));
     } finally {
       setLoading(false);
     }

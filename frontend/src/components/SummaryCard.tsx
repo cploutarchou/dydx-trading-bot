@@ -32,6 +32,9 @@ interface SummaryCardProps {
   runId: string;
 }
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 export const SummaryCard: React.FC<SummaryCardProps> = ({ runId }) => {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,8 +54,8 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({ runId }) => {
       } else {
         setError(response.message || 'Failed to load summary');
       }
-    } catch (err: any) {
-      setError(err.message || 'Error loading summary');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Error loading summary'));
     } finally {
       setLoading(false);
     }

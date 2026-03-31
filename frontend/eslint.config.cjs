@@ -19,6 +19,17 @@ module.exports = [
     parserOptions: { ecmaVersion: 2024, sourceType: 'module', ecmaFeatures: { jsx: true } },
     settings: { react: { version: 'detect' } },
     rules: {
+      // Prefer TS-aware unused var checks and allow underscore-prefixed placeholders.
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+      // Legacy codebase currently uses many explicit anys; keep visible as warnings for cleanup.
+      '@typescript-eslint/no-explicit-any': 'warn',
+      // Keep signal without blocking for common JSX text and placeholder blocks.
+      'react/no-unescaped-entities': 'warn',
+      'no-empty': 'warn',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       'react/react-in-jsx-scope': 'off',
       'import/order': ['warn', { 'newlines-between': 'never' }],

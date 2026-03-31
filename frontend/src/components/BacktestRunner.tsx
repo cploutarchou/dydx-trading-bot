@@ -39,6 +39,27 @@ interface BacktestRunRequest {
   trading_parameters: TradingParameters;
 }
 
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  const errRecord = toRecord(error);
+  const response = toRecord(errRecord.response);
+  const data = toRecord(response.data);
+  const messageFromApi = data.message;
+  if (typeof messageFromApi === 'string' && messageFromApi.length > 0) {
+    return messageFromApi;
+  }
+  return error instanceof Error ? error.message : fallback;
+};
+
+const extractRunId = (result: unknown): string | null => {
+  const record = toRecord(result);
+  if (typeof record.run_id === 'string') return record.run_id;
+  const nested = toRecord(record.data);
+  return typeof nested.run_id === 'string' ? nested.run_id : null;
+};
+
 export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   onBacktestComplete,
 }) => {
@@ -220,7 +241,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
       };
       const result = await api.runBacktest(cleanedData);
-      const runId = (result as any)?.run_id || (result as any)?.data?.run_id;
+      const runId = extractRunId(result);
 
       if (onBacktestComplete) {
         onBacktestComplete();
@@ -232,9 +253,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         setSuccess(true);
         setShowSaveDialog(true);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('❌ BacktestRunner: Error:', err);
-      setError(err.response?.data?.message || err.message || 'Failed to start backtest');
+      setError(getErrorMessage(err, 'Failed to start backtest'));
     } finally {
       setLoading(false);
     }
@@ -277,7 +298,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       setShowSaveDialog(false);
       setStrategyName('');
       await fetchStrategies();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError('Failed to save strategy');
       console.error(err);
     }

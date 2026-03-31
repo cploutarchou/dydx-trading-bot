@@ -4,13 +4,12 @@ API Server Startup Script
 """
 
 import os
-from pathlib import Path
 
-from dotenv import load_dotenv
 import uvicorn
+from src.shared.env_loader import load_repo_env
 
 # Entry-point safety: load env before importing server/config modules.
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_repo_env(__file__)
 
 
 def main() -> None:

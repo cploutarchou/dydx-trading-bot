@@ -2,6 +2,16 @@
 
 This repository contains a full-stack trading system with **3 application services** plus infrastructure.
 
+## Single environment file
+
+Use the repo-root `.env` as the **only** shared environment file for `frontend/`, `backend/`, and `bot/`.
+
+- `frontend` reads Vite variables like `VITE_API_URL` from the repo root
+- `backend` loads the repo-root `.env` when started from either repo root or `backend/`
+- `bot` entrypoints and config load the repo-root `.env`
+
+You should not need separate `backend/.env`, `bot/.env`, or `frontend/.env.local` files for normal development.
+
 ## New developer onboarding (5 minutes)
 
 Use this checklist to get productive quickly:
@@ -220,11 +230,9 @@ npm install
 # Install dependencies (first time only)
 cd bot
 pip install -r requirements.txt
-
-# Copy and configure env (first time only)
-cp example.env .env
-# Edit .env — set DB, Redis, and any API credentials
 ```
+
+Edit the repo-root `.env` once for DB, Redis, auth, bot, backend, and frontend values.
 
 | Method                  | Command                                                                               |
 | ----------------------- | ------------------------------------------------------------------------------------- |
@@ -240,6 +248,8 @@ Health check: `curl http://localhost:8889/health`
 ### Bot Worker (`bot/src/main_instance.py`)
 
 The worker is a long-running process — one per trading instance. It shares the same Python env and `.env` as the Bot API.
+
+That `.env` is the shared repo-root file.
 
 | Method             | Command                                                      |
 | ------------------ | ------------------------------------------------------------ |

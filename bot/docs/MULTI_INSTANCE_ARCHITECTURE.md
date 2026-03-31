@@ -15,6 +15,12 @@ Flow:
 - Worker runtime: `src/main_instance.py`
 - Trading logic: `src/trading/*`
 
+## API entrypoint ownership
+
+- Canonical FastAPI application object lives in `src/api/server.py`.
+- `src/api/start_api.py` is the canonical startup script for local/process launches.
+- Root-level `app.py` and `start_api.py` are compatibility shims that forward to `src/api/server.py`.
+
 ## Isolation model
 
 Each instance has isolated state files under `bot_states/`:

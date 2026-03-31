@@ -172,10 +172,10 @@ make check
 
 ```bash
 # Start API server
-make api
+python start_api.py
 
 # Start trading bot
-make bot
+python main.py
 ```
 
 ### Database Management
@@ -212,7 +212,6 @@ Once everything is running:
 |-----------|-----|-------|
 | API Docs | <http://localhost:8889/docs> | - |
 | Bot API | <http://localhost:8889> | - |
-| FastAPI | <http://localhost:8000> | - |
 | pgAdmin | <http://localhost:5050> | <admin@dydx.local>:admin |
 | Redis Commander | <http://localhost:8081> | - |
 | Jupyter Lab | <http://localhost:8888> | (token in logs) |
@@ -260,7 +259,7 @@ Once everything is running:
 7. **Start API**
 
    ```bash
-   make api
+   python start_api.py
    ```
 
 8. **In another terminal, start bot**

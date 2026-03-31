@@ -147,13 +147,13 @@ make test-cov
 
 ```bash
 # Terminal 1: Start API
-make api
+python start_api.py
 
 # Terminal 2: Check API status
 curl http://localhost:8889/docs
 
 # Terminal 3: Run bot
-make bot
+python main.py
 ```
 
 ### Database Management
@@ -194,7 +194,8 @@ exit
 ├── logs/                   # Application logs
 ├── data/                   # Data files
 ├── reports/                # Backtest reports
-├── bot_api_server.py       # FastAPI server
+├── start_api.py            # API launcher (compatibility shim)
+├── src/api/server.py       # Canonical FastAPI app
 ├── main.py                 # Bot entry point
 ├── config.yaml             # Trading configuration
 ├── .env                    # Environment variables
@@ -209,7 +210,6 @@ These services are available on your host machine:
 |------|---------|-----|-------|
 | 8889 | Bot API | `http://localhost:8889` | - |
 | 8889/docs | API Docs | `http://localhost:8889/docs` | - |
-| 8000 | FastAPI | `http://localhost:8000` | - |
 | 5432 | PostgreSQL | `postgresql://postgres:postgres@localhost:5432/dydx_bot` | - |
 | 5050 | pgAdmin | `http://localhost:5050` | `admin@dydx.local:admin` |
 | 6379 | Redis | `redis://localhost:6379` | - |

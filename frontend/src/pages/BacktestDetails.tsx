@@ -17,6 +17,14 @@ import {
 import api from '../api';
 import BacktestProgress from '../components/BacktestProgress';
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
+const formatCurrencyTooltip = (value: unknown): string => {
+  const amount = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
+};
+
 interface Trade {
   trade_number: number;
   entry_timestamp: string;
@@ -69,7 +77,7 @@ interface BacktestData {
   profit_factor: number;
   starting_balance: number;
   ending_balance?: number;
-  strategy_snapshot?: any;
+  strategy_snapshot?: Record<string, unknown>;
   strategy_id?: number;
   results: BacktestResult[];
   all_trades: Trade[];
@@ -102,8 +110,8 @@ export const BacktestDetailsPage: React.FC = () => {
             }
           }
         }
-      } catch (err: any) {
-        setError(err.message || 'Failed to fetch backtest');
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Failed to fetch backtest'));
       } finally {
         setLoading(false);
       }
@@ -121,7 +129,7 @@ export const BacktestDetailsPage: React.FC = () => {
         if (response.success && response.data?.logs) {
           setLogs(response.data.logs);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to fetch backtest logs:', err);
       }
     };
@@ -322,7 +330,7 @@ export const BacktestDetailsPage: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="timestamp" />
                 <YAxis />
-                <Tooltip formatter={(value: any) => `$${(value as number).toFixed(2)}`} />
+                <Tooltip formatter={(value) => formatCurrencyTooltip(value)} />
                 <Line
                   type="monotone"
                   dataKey="balance"
@@ -342,7 +350,7 @@ export const BacktestDetailsPage: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="pair" />
                 <YAxis />
-                <Tooltip formatter={(value: any) => `$${(value as number).toFixed(2)}`} />
+                <Tooltip formatter={(value) => formatCurrencyTooltip(value)} />
                 <Bar dataKey="pnl" fill="#10b981" />
               </BarChart>
             </ResponsiveContainer>
@@ -432,7 +440,7 @@ export const BacktestDetailsPage: React.FC = () => {
                     <YAxis dataKey="pnl" name="P&L ($)" />
                     <Tooltip
                       cursor={{ strokeDasharray: '3 3' }}
-                      formatter={(value: any) => `$${(value as number).toFixed(2)}`}
+                      formatter={(value) => formatCurrencyTooltip(value)}
                     />
                     <Scatter name="Trades" data={tradeScatterData} fill="#8b5cf6" />
                   </ScatterChart>

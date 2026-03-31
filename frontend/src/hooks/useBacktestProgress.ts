@@ -9,7 +9,7 @@ interface BacktestProgressState {
   progress: number;
   status: string;
   message: string;
-  details: Record<string, any>;
+  details: Record<string, unknown>;
   error: string | null;
   isConnected: boolean;
 }

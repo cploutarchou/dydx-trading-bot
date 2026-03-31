@@ -78,6 +78,12 @@ function calcEta(createdAt: string, progressPct: number): string | null {
 
 const POLL_INTERVAL_MS = 4000;
 
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger = 0 }) => {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<BacktestRun[]>([]);
@@ -124,16 +130,17 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     // Keep this fast for dashboard rendering: fetch the newest page only.
     // If needed later, we can add cursor-based pagination without blocking initial paint.
     const response = await api.listBacktests(0, 200);
-    const raw = response as any;
+    const raw = toRecord(response);
+    const rawData = toRecord(raw.data);
 
-    const pageRuns: BacktestRun[] = Array.isArray(raw?.data?.backtests)
-      ? raw.data.backtests
+    const pageRuns: BacktestRun[] = Array.isArray(rawData.backtests)
+      ? (rawData.backtests as BacktestRun[])
       : Array.isArray(raw?.backtests)
-        ? raw.backtests
-        : Array.isArray(raw?.data?.runs)
-          ? raw.data.runs
+        ? (raw.backtests as BacktestRun[])
+        : Array.isArray(rawData.runs)
+          ? (rawData.runs as BacktestRun[])
           : Array.isArray(raw?.runs)
-            ? raw.runs
+            ? (raw.runs as BacktestRun[])
             : [];
 
     return pageRuns;
@@ -153,9 +160,9 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
       setRuns(nextRuns);
       setHasLoadedOnce(true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('❌ BacktestList: Error loading backtests:', err);
-      setError(err.message || 'Failed to load backtests');
+      setError(getErrorMessage(err, 'Failed to load backtests'));
       if (!hasLoadedOnce) {
         setRuns([]);
       }

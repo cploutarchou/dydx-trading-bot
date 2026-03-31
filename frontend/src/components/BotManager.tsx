@@ -67,14 +67,6 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
       : {};
 
   const totalTrades = toNumber(tradeStatistics.total_trades, toNumber(botStatistics.total_trades));
-  const winningTrades = toNumber(
-    tradeStatistics.winning_trades,
-    toNumber(botStatistics.successful_trades)
-  );
-  const losingTrades = toNumber(
-    tradeStatistics.losing_trades,
-    toNumber(botStatistics.failed_trades)
-  );
 
   return {
     total_positions: totalTrades,
@@ -94,7 +86,6 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
 
 const BotManager: React.FC = () => {
   const [bots, setBots] = useState<BotInstance[]>([]);
-  const [selectedBot, setSelectedBot] = useState<BotInstance | null>(null);
   const [botStats, setBotStats] = useState<Record<string, BotStats>>({});
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -292,9 +283,6 @@ const BotManager: React.FC = () => {
       const response = await api.deleteBotInstance(instanceId);
       if (response.success) {
         loadBots();
-        if (selectedBot?.instance_id === instanceId) {
-          setSelectedBot(null);
-        }
         setError(null);
       }
     } catch (err) {

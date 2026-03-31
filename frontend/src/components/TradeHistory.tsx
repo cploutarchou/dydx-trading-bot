@@ -36,6 +36,9 @@ interface TradeHistoryProps {
   onTradeSelect?: (trade: Trade) => void;
 }
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect }) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,8 +63,8 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
       } else {
         setError(response.message || 'Failed to load trades');
       }
-    } catch (err: any) {
-      setError(err.message || 'Error loading trades');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Error loading trades'));
     } finally {
       setLoading(false);
     }

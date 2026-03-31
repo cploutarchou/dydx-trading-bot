@@ -4,9 +4,74 @@
 import apiClient from '../api';
 import type { User } from './types';
 
+type Entity = Record<string, unknown>;
+type QueryParams = object;
+type ListResponse = { count: number; data: Entity[] };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const withDataFallback = <T>(result: unknown, fallback: T): T => {
+  if (isRecord(result) && 'data' in result && result.data !== undefined) {
+    return result.data as T;
+  }
+
+  if (result !== undefined && result !== null) {
+    return result as T;
+  }
+
+  return fallback;
+};
+
 // Enhanced API client with additional methods
 class EnhancedAPIClient {
   private baseClient = apiClient;
+
+  private getAccessToken(): string | null {
+    const token = localStorage.getItem('access_token');
+    if (!token || token === 'null' || token === 'undefined') {
+      return null;
+    }
+    return token;
+  }
+
+  private buildAuthHeaders(existingHeaders?: unknown): Headers {
+    const headers = new Headers((existingHeaders ?? {}) as Record<string, string>);
+    headers.set('Content-Type', 'application/json');
+
+    const token = this.getAccessToken();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    } else {
+      headers.delete('Authorization');
+    }
+
+    return headers;
+  }
+
+  private async fetchWithAuth(
+    input: string,
+    init: Record<string, unknown> = {},
+    retryOnUnauthorized: boolean = true
+  ): Promise<Response> {
+    const headers = this.buildAuthHeaders((init as { headers?: unknown }).headers);
+    const response = await fetch(input, {
+      ...(init as object),
+      credentials: 'include',
+      headers,
+    });
+
+    if (response.status === 401 && retryOnUnauthorized) {
+      try {
+        await this.baseClient.refreshAccessToken();
+        return this.fetchWithAuth(input, init, false);
+      } catch (error) {
+        console.warn('🔐 enhancedClient.ts: token refresh failed for fetch request', error);
+      }
+    }
+
+    return response;
+  }
 
   // Delegate existing methods
   logout = this.baseClient.logout.bind(this.baseClient);
@@ -35,7 +100,7 @@ class EnhancedAPIClient {
 
   // ==================== Bot Instance Management (New Methods) ====================
 
-  async listBotInstances(params: any = {}): Promise<{ count: number; data: any[] }> {
+  async listBotInstances(params: QueryParams = {}): Promise<ListResponse> {
     // Map to existing backend endpoints through proxy
     const queryString = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -45,7 +110,7 @@ class EnhancedAPIClient {
     });
 
     try {
-      const response = await fetch(
+      const response = await this.fetchWithAuth(
         `/api/v1/bots${queryString.toString() ? `?${queryString}` : ''}`,
         {
           headers: {
@@ -60,7 +125,7 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<ListResponse>(result, { count: 0, data: [] });
     } catch (error) {
       console.error('listBotInstances error:', error);
       // Fallback to mock data for development
@@ -92,9 +157,9 @@ class EnhancedAPIClient {
     }
   }
 
-  async getBotInstance(instanceId: string): Promise<any> {
+  async getBotInstance(instanceId: string): Promise<Entity> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
@@ -106,7 +171,7 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getBotInstance error:', error);
       // Fallback mock data
@@ -130,9 +195,9 @@ class EnhancedAPIClient {
     }
   }
 
-  async getBotStats(instanceId: string): Promise<any> {
+  async getBotStats(instanceId: string): Promise<Entity> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/stats`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/stats`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
@@ -144,7 +209,7 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getBotStats error:', error);
       return {
@@ -163,10 +228,7 @@ class EnhancedAPIClient {
     }
   }
 
-  async getBotTrades(
-    instanceId: string,
-    params: any = {}
-  ): Promise<{ count: number; data: any[] }> {
+  async getBotTrades(instanceId: string, params: QueryParams = {}): Promise<ListResponse> {
     try {
       const queryString = new URLSearchParams();
       Object.entries(params).forEach(([key, value]) => {
@@ -175,7 +237,7 @@ class EnhancedAPIClient {
         }
       });
 
-      const response = await fetch(
+      const response = await this.fetchWithAuth(
         `/api/v1/bots/${instanceId}/trades${queryString.toString() ? `?${queryString}` : ''}`,
         {
           headers: {
@@ -190,7 +252,7 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<ListResponse>(result, { count: 0, data: [] });
     } catch (error) {
       console.error('getBotTrades error:', error);
       return {
@@ -214,9 +276,9 @@ class EnhancedAPIClient {
     }
   }
 
-  async createBotInstance(config: any): Promise<any> {
+  async createBotInstance(config: object): Promise<Entity> {
     try {
-      const response = await fetch('/api/v1/bots', {
+      const response = await this.fetchWithAuth('/api/v1/bots', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
@@ -230,16 +292,16 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('createBotInstance error:', error);
       throw error;
     }
   }
 
-  async updateBotInstance(instanceId: string, updates: any): Promise<any> {
+  async updateBotInstance(instanceId: string, updates: object): Promise<Entity> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
@@ -253,16 +315,16 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('updateBotInstance error:', error);
       throw error;
     }
   }
 
-  async startBotInstance(instanceId: string, config?: any): Promise<{ message: string }> {
+  async startBotInstance(instanceId: string, config?: object): Promise<{ message: string }> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/start`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/start`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
@@ -276,7 +338,7 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<{ message: string }>(result, { message: 'Started' });
     } catch (error) {
       console.error('startBotInstance error:', error);
       throw error;
@@ -285,7 +347,7 @@ class EnhancedAPIClient {
 
   async stopBotInstance(instanceId: string): Promise<{ message: string }> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/stop`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/stop`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
@@ -298,7 +360,7 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<{ message: string }>(result, { message: 'Stopped' });
     } catch (error) {
       console.error('stopBotInstance error:', error);
       throw error;
@@ -307,7 +369,7 @@ class EnhancedAPIClient {
 
   async restartBotInstance(instanceId: string): Promise<{ message: string }> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/restart`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/restart`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
@@ -320,7 +382,7 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return result.data || result;
+      return withDataFallback<{ message: string }>(result, { message: 'Restarted' });
     } catch (error) {
       console.error('restartBotInstance error:', error);
       throw error;
@@ -329,7 +391,7 @@ class EnhancedAPIClient {
 
   async deleteBotInstance(instanceId: string): Promise<void> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
@@ -348,9 +410,9 @@ class EnhancedAPIClient {
 
   // ==================== Real-Time Data Methods ====================
 
-  async getCurrentPositions(instanceId: string): Promise<any[]> {
+  async getCurrentPositions(instanceId: string): Promise<Entity[]> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/positions/current`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/positions/current`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
@@ -358,16 +420,16 @@ class EnhancedAPIClient {
       });
 
       const result = await response.json();
-      return result.data || [];
+      return withDataFallback<Entity[]>(result, []);
     } catch (error) {
       console.error('getCurrentPositions error:', error);
       return [];
     }
   }
 
-  async getPosition(instanceId: string, positionId: string): Promise<any> {
+  async getPosition(instanceId: string, positionId: string): Promise<Entity | null> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/positions/${positionId}`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/positions/${positionId}`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
@@ -375,16 +437,16 @@ class EnhancedAPIClient {
       });
 
       const result = await response.json();
-      return result.data;
+      return withDataFallback<Entity | null>(result, null);
     } catch (error) {
       console.error('getPosition error:', error);
       return null;
     }
   }
 
-  async getRealtimeStats(instanceId: string): Promise<any> {
+  async getRealtimeStats(instanceId: string): Promise<Entity> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/realtime-stats`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/realtime-stats`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
@@ -417,9 +479,9 @@ class EnhancedAPIClient {
     }
   }
 
-  async getMarketData(instanceId: string): Promise<Record<string, any>> {
+  async getMarketData(instanceId: string): Promise<Record<string, unknown>> {
     try {
-      const response = await fetch(`/api/v1/bots/${instanceId}/market-data`, {
+      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/market-data`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
@@ -434,7 +496,7 @@ class EnhancedAPIClient {
     }
   }
 
-  async getAlerts(instanceId: string, params: any = {}): Promise<{ count: number; data: any[] }> {
+  async getAlerts(instanceId: string, params: QueryParams = {}): Promise<ListResponse> {
     try {
       const queryString = new URLSearchParams();
       Object.entries(params).forEach(([key, value]) => {
@@ -443,7 +505,7 @@ class EnhancedAPIClient {
         }
       });
 
-      const response = await fetch(
+      const response = await this.fetchWithAuth(
         `/api/v1/bots/${instanceId}/alerts${queryString.toString() ? `?${queryString}` : ''}`,
         {
           headers: {
@@ -454,7 +516,7 @@ class EnhancedAPIClient {
       );
 
       const result = await response.json();
-      return result.data || { count: 0, data: [] };
+      return withDataFallback<ListResponse>(result, { count: 0, data: [] });
     } catch (error) {
       console.error('getAlerts error:', error);
       return { count: 0, data: [] };
@@ -463,21 +525,23 @@ class EnhancedAPIClient {
 
   // ==================== Backtest Methods (delegate to existing) ====================
 
-  async listBacktests(params: any = {}): Promise<{ count: number; data: any[] }> {
+  async listBacktests(params: { offset?: number; limit?: number } = {}): Promise<ListResponse> {
     const result = await this.baseClient.listBacktests(params.offset || 0, params.limit || 50);
-    const data = (result.data ?? {}) as { total?: number; backtests?: any[] };
+    const data = (result.data ?? {}) as { total?: number; backtests?: Entity[] };
     return {
       count: data.total || 0,
       data: Array.isArray(data.backtests) ? data.backtests : [],
     };
   }
 
-  async getBacktest(runId: string): Promise<any> {
+  async getBacktest(runId: string): Promise<Entity> {
     const result = await this.baseClient.getBacktest(runId);
-    return result.data;
+    return (result.data as Entity | undefined) ?? {};
   }
 
-  async getBacktestStatus(runId: string): Promise<any> {
+  async getBacktestStatus(
+    runId: string
+  ): Promise<{ run_id: string; status: string; progress_percent: number }> {
     const result = await this.baseClient.getBacktest(runId);
     return {
       run_id: runId,
@@ -490,23 +554,25 @@ class EnhancedAPIClient {
     runId: string,
     limit: number = 50,
     offset: number = 0
-  ): Promise<{ count: number; data: any[] }> {
+  ): Promise<ListResponse> {
     const result = await this.baseClient.getBacktestTrades(runId, limit, offset);
-    const data = (result.data ?? {}) as { total?: number; trades?: any[] };
+    const data = (result.data ?? {}) as { total?: number; trades?: Entity[] };
     return {
       count: data.total || 0,
       data: Array.isArray(data.trades) ? data.trades : [],
     };
   }
 
-  async getBacktestMetrics(runId: string): Promise<any> {
+  async getBacktestMetrics(runId: string): Promise<Entity> {
     const result = await this.baseClient.getBacktestPerformance(runId);
-    return result.data;
+    return (result.data as Entity | undefined) ?? {};
   }
 
-  async createBacktest(config: any): Promise<any> {
-    const result = await this.baseClient.runBacktest(config);
-    return result.data;
+  async createBacktest(config: { start_date: string; end_date: string }): Promise<Entity> {
+    const result = await this.baseClient.runBacktest(
+      config as { start_date: string; end_date: string } & Record<string, unknown>
+    );
+    return (result.data as Entity | undefined) ?? {};
   }
 
   async deleteBacktest(_runId: string): Promise<void> {
@@ -518,16 +584,16 @@ class EnhancedAPIClient {
     return { message: `Backtest ${runId} cancelled` };
   }
 
-  async compareBacktests(runIds: string[], metrics: string[]): Promise<any> {
+  async compareBacktests(runIds: string[], metrics: string[]): Promise<Entity> {
     // Implementation for comparison
     return { comparison: 'Mock comparison data', runIds, metrics };
   }
 
   // ==================== System Methods ====================
 
-  async getSystemStatus(): Promise<any> {
+  async getSystemStatus(): Promise<Entity> {
     try {
-      const response = await fetch('/api/v1/system/status', {
+      const response = await this.fetchWithAuth('/api/v1/system/status', {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
@@ -560,7 +626,7 @@ class EnhancedAPIClient {
     }
   }
 
-  async getHealth(): Promise<any> {
+  async getHealth(): Promise<Entity> {
     try {
       const response = await fetch('/health');
       const result = await response.json();

@@ -20,8 +20,8 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
   const progressQuery = useBacktestProgress(runId);
 
   const status = progressQuery.data?.status || 'PENDING';
-  const message = progressQuery.data?.message || '';
-  const details = progressQuery.data || {};
+  const details = (progressQuery.data ?? {}) as Record<string, unknown>;
+  const message = typeof details.message === 'string' ? details.message : '';
   const progressPercent = progressQuery.progressPercent || 0;
   const errorMessage =
     (progressQuery.error as Error | null)?.message ||

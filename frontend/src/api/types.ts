@@ -3,7 +3,7 @@
 
 // ==================== Core API Response Types ====================
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -14,7 +14,7 @@ export interface ApiResponse<T = any> {
 export interface ApiError {
   code: string;
   message: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   timestamp: string;
 }
 
@@ -184,7 +184,7 @@ export interface BotAlert {
   severity: AlertSeverity;
   type: AlertType;
   message: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   timestamp: string;
   acknowledged: boolean;
   acknowledged_by?: string;
@@ -481,7 +481,7 @@ export interface ApiSettings {
 
 export interface WebSocketMessage {
   type: string;
-  payload: any;
+  payload: unknown;
   timestamp: string;
 }
 

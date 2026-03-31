@@ -24,32 +24,43 @@ const toNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(num) ? num : fallback;
 };
 
-const normalizeRun = (raw: any): BacktestResult => {
-  const totalPnl = toNumber(raw?.total_pnl, 0);
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
+const normalizeRun = (raw: unknown): BacktestResult => {
+  const normalized = toRecord(raw);
+  const totalPnl = toNumber(normalized.total_pnl, 0);
   const initialBalance = 1000;
 
   return {
-    run_id: String(raw?.run_id || ''),
+    run_id: String(normalized.run_id || ''),
     total_return_pct:
-      raw?.total_return_pct !== undefined
-        ? toNumber(raw.total_return_pct, 0)
+      normalized.total_return_pct !== undefined
+        ? toNumber(normalized.total_return_pct, 0)
         : (totalPnl / initialBalance) * 100,
     total_pnl: totalPnl,
-    sharpe_ratio: toNumber(raw?.sharpe_ratio, 0),
-    win_rate: toNumber(raw?.win_rate, 0),
+    sharpe_ratio: toNumber(normalized.sharpe_ratio, 0),
+    win_rate: toNumber(normalized.win_rate, 0),
     max_drawdown:
-      raw?.max_drawdown !== undefined
-        ? toNumber(raw.max_drawdown, 0)
-        : toNumber(raw?.max_drawdown_pct, 0),
+      normalized.max_drawdown !== undefined
+        ? toNumber(normalized.max_drawdown, 0)
+        : toNumber(normalized.max_drawdown_pct, 0),
     num_trades:
-      raw?.num_trades !== undefined ? toNumber(raw.num_trades, 0) : toNumber(raw?.total_trades, 0),
-    avg_trade_duration: toNumber(raw?.avg_trade_duration, 0),
-    start_date: String(raw?.start_date || ''),
-    end_date: String(raw?.end_date || ''),
-    created_at: raw?.created_at,
-    status: raw?.status,
-    is_from_cache: Boolean(raw?.is_from_cache),
-    cache_age_days: raw?.cache_age_days !== undefined ? toNumber(raw.cache_age_days, 0) : undefined,
+      normalized.num_trades !== undefined
+        ? toNumber(normalized.num_trades, 0)
+        : toNumber(normalized.total_trades, 0),
+    avg_trade_duration: toNumber(normalized.avg_trade_duration, 0),
+    start_date: String(normalized.start_date || ''),
+    end_date: String(normalized.end_date || ''),
+    created_at:
+      typeof normalized.created_at === 'string' ? normalized.created_at : undefined,
+    status: typeof normalized.status === 'string' ? normalized.status : undefined,
+    is_from_cache: Boolean(normalized.is_from_cache),
+    cache_age_days:
+      normalized.cache_age_days !== undefined ? toNumber(normalized.cache_age_days, 0) : undefined,
   };
 };
 
@@ -73,27 +84,28 @@ export const BacktestComparator: React.FC = () => {
       setLoading(true);
       try {
         const response = await api.listBacktests(0, 500);
-        const raw = response as any;
+        const raw = toRecord(response);
+        const rawData = toRecord(raw.data);
         const data = Array.isArray(raw?.backtests)
           ? raw.backtests
-          : Array.isArray(raw?.data?.backtests)
-            ? raw.data.backtests
-            : Array.isArray(raw?.data?.runs)
-              ? raw.data.runs
+          : Array.isArray(rawData.backtests)
+            ? rawData.backtests
+            : Array.isArray(rawData.runs)
+              ? rawData.runs
               : Array.isArray(raw?.runs)
                 ? raw.runs
                 : [];
 
-        const normalized = data.map((entry: any) => normalizeRun(entry));
+        const normalized = data.map((entry) => normalizeRun(entry));
         // Sort by most recent first
         const sorted = [...normalized].sort((a, b) => {
           if (!a.created_at || !b.created_at) return 0;
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         });
         setBacktests(sorted);
-      } catch (err: any) {
-        setError('Failed to load backtests');
-        console.error(err);
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Failed to load backtests'));
+        console.error('❌ BacktestComparator: Failed to load backtests:', err);
       } finally {
         setLoading(false);
       }

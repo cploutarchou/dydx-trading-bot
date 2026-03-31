@@ -51,7 +51,7 @@ func getRequestBotAPIClient(c *gin.Context, fallback *services.BotAPIClient) *se
 }
 
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
-// These routes proxy to the Python bot API (default localhost:8889) and sync with the Go database
+// These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
 	proxyWebSocket := func(c *gin.Context, requestClient *services.BotAPIClient, upstreamEndpoint string) {
 		clientConn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)

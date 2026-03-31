@@ -5,7 +5,6 @@
 
 import React, { useEffect, useState } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
-import api from './api';
 import { QueryProvider } from './api/QueryProvider';
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
@@ -25,9 +24,8 @@ import { useAuthStore } from './store/auth';
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const user = useAuthStore((state) => state.user);
-  const hasToken = api.hasToken();
 
-  if (!isAuthenticated && !user && !hasToken) {
+  if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
   }
 

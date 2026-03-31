@@ -65,12 +65,15 @@ export const useAuthStore = create<AuthStore>()(
                 console.warn('❌ auth.ts: Failed to persist refresh_token', e);
               }
             }
+          } else {
+            throw new Error('Login did not return an access token');
           }
 
           await get().getCurrentUser();
         } catch (error: unknown) {
           console.error('❌ auth.ts: Login error:', error);
-          set({ error: getErrorMessage(error, 'Login failed') });
+          set({ error: getErrorMessage(error, 'Login failed'), user: null });
+          throw error;
         } finally {
           set({ loading: false });
         }

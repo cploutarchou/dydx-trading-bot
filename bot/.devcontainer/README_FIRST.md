@@ -45,7 +45,7 @@ make down            # Stop all services
 make shell           # Open shell
 make test            # Run tests
 make format          # Format code
-make api             # Start API server
+python start_api.py  # Start API server
 make help            # List all commands
 ```
 

@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
 
@@ -19,9 +22,9 @@ import (
 
 func main() {
 	// Load environment variables
-	err := godotenv.Load()
+	err := godotenv.Load(".env", "backend/.env", "../.env")
 	if err != nil {
-		log.Fatalf("Failed to load .env file: %v", err)
+		log.Printf("Warning: no .env file loaded from default paths; using process environment variables")
 	}
 
 	config.LoadConfig()
@@ -83,7 +86,7 @@ func main() {
 	// Add rate limiting middleware (100 requests/second per IP, burst of 200)
 	router.Use(middleware.RateLimitMiddleware(100, 200))
 
-	// Health check endpoint (includes database stats)
+	// Health check endpoint (includes database stats and bot API upstream probe)
 	router.GET("/health", func(c *gin.Context) {
 		if err := database.Health(); err != nil {
 			c.JSON(503, gin.H{
@@ -93,10 +96,39 @@ func main() {
 			return
 		}
 
+		botAPIURL := strings.TrimRight(os.Getenv("BOT_API_URL"), "/")
+		if botAPIURL == "" {
+			botAPIURL = "http://127.0.0.1:8889"
+		}
+
+		botHealthURL := botAPIURL + "/health"
+		botReachable := false
+		botStatusCode := 0
+		botError := ""
+
+		httpClient := &http.Client{Timeout: 3 * time.Second}
+		if resp, err := httpClient.Get(botHealthURL); err != nil {
+			botError = err.Error()
+		} else {
+			botStatusCode = resp.StatusCode
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				botReachable = true
+			}
+		}
+
 		// Get database stats
 		stats := database.GetStats()
 		c.JSON(200, gin.H{
 			"status": "healthy",
+			"bot_api": gin.H{
+				"base_url":      botAPIURL,
+				"health_url":    botHealthURL,
+				"reachable":     botReachable,
+				"status_code":   botStatusCode,
+				"error":         botError,
+				"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
+			},
 			"database": gin.H{
 				"open_connections":    stats.OpenConnections,
 				"in_use":              stats.InUse,
@@ -115,7 +147,7 @@ func main() {
 	// Initialize bot API client for delegating calls to Python bot API
 	botAPIURL := os.Getenv("BOT_API_URL")
 	if botAPIURL == "" {
-		botAPIURL = "http://localhost:8889" // Default to local bot API
+		botAPIURL = "http://127.0.0.1:8889" // Default to local bot API (IPv4 loopback)
 	}
 	botAPIToken := os.Getenv("BOT_API_TOKEN")
 	// Token will typically be obtained via login in the frontend

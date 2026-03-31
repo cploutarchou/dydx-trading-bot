@@ -185,7 +185,6 @@ Parent documentation files:
 |---------|------|-----|
 | Bot API | 8889 | http://localhost:8889 |
 | API Docs | 8889/docs | http://localhost:8889/docs |
-| FastAPI | 8000 | http://localhost:8000 |
 | PostgreSQL | 5432 | postgresql://localhost:5432 |
 | pgAdmin | 5050 | http://localhost:5050 |
 | Redis | 6379 | redis://localhost:6379 |
@@ -211,7 +210,7 @@ make format
 make check
 
 # Start API
-make api
+python start_api.py
 
 # Database
 make db-shell

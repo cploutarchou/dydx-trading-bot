@@ -179,9 +179,19 @@ dev: ## Start development environment (with hot reload)
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up --build
 
 .PHONY: dev-api
-dev-api: ensure-venv ## Start bot API server locally with Python (port 8000)
-	@echo "$(CYAN)🚀 Starting bot API server on http://0.0.0.0:8000$(RESET)"
-	$(call run-venv-python,-m uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload)
+dev-api: ensure-venv ## Start bot API server locally with Python (port 8889)
+	@echo "$(CYAN)🚀 Starting bot API server on http://0.0.0.0:8889$(RESET)"
+	$(call run-venv-python,-m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload)
+
+.PHONY: local-api
+local-api: ensure-venv ## Start canonical local API server (port 8889)
+	@echo "$(CYAN)🚀 Starting local API server on http://0.0.0.0:8889$(RESET)"
+	$(call run-venv-python,start_api.py)
+
+.PHONY: local-bot
+local-bot: ensure-venv ## Start trading bot runtime locally
+	@echo "$(CYAN)🚀 Starting local trading bot runtime$(RESET)"
+	$(call run-venv-python,main.py)
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background

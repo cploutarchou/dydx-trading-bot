@@ -18,6 +18,18 @@ export interface ProfileUpdateData {
   avatar?: string; // Base64 encoded image
 }
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null) {
+    const err = error as {
+      response?: { data?: { detail?: string } };
+      message?: string;
+    };
+    return err.response?.data?.detail || err.message || fallback;
+  }
+  return fallback;
+};
+
 export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
   const { user } = useAuthStore();
   const [fullName, setFullName] = useState(user?.full_name || '');
@@ -104,9 +116,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           text: response.message || 'Failed to save profile',
         });
       }
-    } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.detail || error.message || 'Failed to save profile';
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error, 'Failed to save profile');
       setMessage({
         type: 'error',
         text: errorMessage,

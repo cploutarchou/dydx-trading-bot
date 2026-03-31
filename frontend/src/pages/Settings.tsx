@@ -16,14 +16,34 @@ import apiClient from '../api';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { ProfileSettings } from '../components/ProfileSettings';
 
+type SettingValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const getApiErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (isRecord(error) && isRecord(error.response) && isRecord(error.response.data)) {
+    const apiMessage = error.response.data.message;
+    if (typeof apiMessage === 'string' && apiMessage.trim().length > 0) {
+      return apiMessage;
+    }
+  }
+
+  return fallback;
+};
+
 interface SettingField {
   key: string;
   label: string;
   description: string;
   value_type: string;
-  default_value: any;
+  default_value: SettingValue;
   required: boolean;
-  value?: any;
+  value?: SettingValue;
   min_value?: number;
   max_value?: number;
   options?: string[];
@@ -51,7 +71,7 @@ interface SavedSettings {
 export default function Settings() {
   const [schema, setSchema] = useState<SettingsSchema | null>(null);
   const [settings, setSettings] = useState<SavedSettings | null>(null);
-  const [formValues, setFormValues] = useState<Record<string, Record<string, any>>>({});
+  const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
@@ -76,7 +96,7 @@ export default function Settings() {
       // First, try to initialize settings (idempotent - no-op if already initialized)
       try {
         await apiClient.initializeSettings();
-      } catch (e) {
+      } catch {
         // Initialization might fail if settings already exist, which is fine
       }
 
@@ -92,7 +112,7 @@ export default function Settings() {
       setSettings(settingsData);
 
       // Build formValues from saved settings
-      const formVals: Record<string, Record<string, any>> = {};
+      const formVals: Record<string, Record<string, SettingValue>> = {};
       settingsData.sections.forEach((section) => {
         formVals[section.section] = {};
         section.settings.forEach((setting) => {
@@ -111,17 +131,17 @@ export default function Settings() {
       });
 
       setFormValues(formVals);
-    } catch (error: any) {
+      } catch (error: unknown) {
       setMessage({
         type: 'error',
-        text: `Failed to load settings: ${error.message}`,
+        text: `Failed to load settings: ${getApiErrorMessage(error, 'Unknown error')}`,
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleFieldChange = (section: string, key: string, value: any) => {
+  const handleFieldChange = (section: string, key: string, value: SettingValue) => {
     setFormValues((prev) => ({
       ...prev,
       [section]: {
@@ -137,7 +157,7 @@ export default function Settings() {
       setMessage(null);
 
       // Flatten formValues for API
-      const updates: Record<string, any> = {};
+      const updates: Record<string, SettingValue> = {};
       Object.entries(formValues).forEach(([section, fields]) => {
         Object.entries(fields).forEach(([key, value]) => {
           updates[`${section}.${key}`] = value;
@@ -159,10 +179,10 @@ export default function Settings() {
           text: response.message || 'Failed to save settings',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         type: 'error',
-        text: `Error saving settings: ${error.response?.data?.message || error.message}`,
+        text: `Error saving settings: ${getApiErrorMessage(error, 'Unknown error')}`,
       });
     } finally {
       setSaving(false);
@@ -186,10 +206,10 @@ export default function Settings() {
       } else {
         setConnectionResult({ connected: false, message: response.message || 'Test failed' });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setConnectionResult({
         connected: false,
-        message: error.response?.data?.message || error.message,
+        message: getApiErrorMessage(error, 'Connection test failed'),
       });
     } finally {
       setTestingConnection(false);
@@ -198,7 +218,7 @@ export default function Settings() {
 
   const handleReset = () => {
     if (!settings) return;
-    const formVals: Record<string, Record<string, any>> = {};
+    const formVals: Record<string, Record<string, SettingValue>> = {};
     settings.sections.forEach((section) => {
       formVals[section.section] = {};
       section.settings.forEach((setting) => {
@@ -350,6 +370,9 @@ export default function Settings() {
                 <div className="space-y-6">
                   {currentSection.fields.map((field) => {
                     const value = formValues[activeSection]?.[field.key] ?? field.default_value;
+                    const inputValue = typeof value === 'string' || typeof value === 'number' ? value : '';
+                    const selectValue =
+                      typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 
                     return (
                       <div
@@ -377,7 +400,7 @@ export default function Settings() {
                                     ? 'number'
                                     : 'text'
                                 }
-                                value={value}
+                                value={inputValue}
                                 onChange={(e) =>
                                   handleFieldChange(
                                     activeSection,
@@ -400,7 +423,7 @@ export default function Settings() {
                           {/* Select Dropdown */}
                           {field.options && (
                             <select
-                              value={value}
+                              value={selectValue}
                               onChange={(e) =>
                                 handleFieldChange(activeSection, field.key, e.target.value)
                               }
@@ -419,7 +442,7 @@ export default function Settings() {
                             <label className="flex items-center gap-3 cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={value || false}
+                                checked={Boolean(value)}
                                 onChange={(e) =>
                                   handleFieldChange(activeSection, field.key, e.target.checked)
                                 }

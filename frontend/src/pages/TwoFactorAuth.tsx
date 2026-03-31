@@ -137,7 +137,7 @@ export const TwoFactorAuthPage: React.FC = () => {
 
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                                 <p className="text-sm text-amber-800">
-                                    <strong>Can't scan?</strong> Manual entry may be available in your authenticator app. Contact support if needed.
+                                    <strong>Can&apos;t scan?</strong> Manual entry may be available in your authenticator app. Contact support if needed.
                                 </p>
                             </div>
 
@@ -235,7 +235,7 @@ export const TwoFactorAuthPage: React.FC = () => {
                                 onClick={() => setStep('complete')}
                                 className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 font-medium"
                             >
-                                I've Saved My Backup Codes
+                                I&apos;ve Saved My Backup Codes
                             </button>
                         </div>
                     )}
@@ -260,7 +260,7 @@ export const TwoFactorAuthPage: React.FC = () => {
 
                             <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-left">
                                 <p className="text-sm text-green-800">
-                                    <strong>What's next?</strong> You'll be asked to enter a code from your authenticator app each time you log in.
+                                    <strong>What&apos;s next?</strong> You&apos;ll be asked to enter a code from your authenticator app each time you log in.
                                 </p>
                             </div>
 

@@ -6,6 +6,9 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../api';
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 interface User {
   id: number;
   username: string;
@@ -65,9 +68,9 @@ export const useAuthStore = create<AuthStore>()(
           }
 
           await get().getCurrentUser();
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('❌ auth.ts: Login error:', error);
-          set({ error: error.message || 'Login failed' });
+          set({ error: getErrorMessage(error, 'Login failed') });
         } finally {
           set({ loading: false });
         }

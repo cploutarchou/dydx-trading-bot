@@ -218,7 +218,7 @@ def main():
         print("  Login: POST /auth/login")
         print("  2FA Email Verification: POST /auth/2fa/request-email-verification")
         print("  Email Test (Admin): POST /auth/test-email")
-        print("  Swagger UI: http://localhost:8000/docs")
+        print("  Swagger UI: http://localhost:8889/docs")
         print()
         print("📧 Email Configuration:")
         print("  1. Copy .env.example to .env")

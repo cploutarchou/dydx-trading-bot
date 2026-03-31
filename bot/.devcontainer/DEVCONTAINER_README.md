@@ -118,7 +118,9 @@ python main.py
 ### Running the API Server
 
 ```bash
-python bot_api_server.py
+python start_api.py
+# or explicitly:
+python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload
 ```
 
 ### Running Tests
@@ -239,7 +241,7 @@ chmod +x .devcontainer/*.sh
 2. Update `config.yaml` with trading parameters
 3. Run migrations: `alembic upgrade head`
 4. Test bot: `pytest`
-5. Start development: `python bot_api_server.py`
+5. Start development: `python start_api.py`
 
 ## Additional Resources
 

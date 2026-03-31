@@ -63,7 +63,6 @@ else:
 MNEMONIC = SECRET_PHRASE
 TELEGRAM_TOKEN = _CONFIG.telegram.token if _CONFIG.telegram else ""
 TELEGRAM_CHAT_ID = _CONFIG.telegram.chat_id if _CONFIG.telegram else ""
-
 # Environment setting
 ENVIRONMENT = _CONFIG.environment.lower()
 

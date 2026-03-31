@@ -619,8 +619,21 @@ class ApiClient {
   }
 
   async getCurrentUser(): Promise<ApiResponse<UserProfile>> {
-    const response = await this.client.get<ApiResponse<UserProfile>>('/api/v1/users/me');
-    return response.data;
+    const response = await this.client.get<ApiResponse<UserProfile> | UserProfile>(
+      '/api/v1/users/me'
+    );
+    const payload = response.data as ApiResponse<UserProfile> | UserProfile;
+
+    if (payload && typeof payload === 'object' && 'success' in payload && 'message' in payload) {
+      return payload as ApiResponse<UserProfile>;
+    }
+
+    return {
+      success: true,
+      message: 'Current user fetched successfully',
+      data: payload as UserProfile,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   async updateProfile(data: Partial<UserProfile>): Promise<ApiResponse<UpdateProfileResponse>> {

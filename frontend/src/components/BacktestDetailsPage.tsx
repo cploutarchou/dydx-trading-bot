@@ -13,7 +13,16 @@ interface StrategyConfig {
   max_drawdown_pct: number;
   stop_loss_pct: number;
   take_profit_pct: number;
-  [key: string]: any;
+  [key: string]: unknown;
+}
+
+interface PairResult {
+  market_1: string;
+  market_2: string;
+  total_trades: number;
+  pnl: number;
+  win_rate: number;
+  sharpe_ratio?: number;
 }
 
 interface BacktestData {
@@ -31,8 +40,8 @@ interface BacktestData {
   ending_balance: number;
   strategy_snapshot?: StrategyConfig;
   strategy_id?: number;
-  results: any[];
-  all_trades: any[];
+  results: PairResult[];
+  all_trades: unknown[];
 }
 
 interface StrategyVersion {
@@ -48,6 +57,9 @@ interface StrategyVersion {
 }
 
 export const BacktestDetailsPage: React.FC = () => {
+      const getErrorMessage = (err: unknown, fallback: string): string =>
+        err instanceof Error ? err.message : fallback;
+
   const { run_id } = useParams<{ run_id: string }>();
   const navigate = useNavigate();
 
@@ -79,7 +91,7 @@ export const BacktestDetailsPage: React.FC = () => {
       const backtestData = response.data;
 
       if (backtestData) {
-        setBacktest(backtestData as BacktestData);
+        setBacktest(backtestData as unknown as BacktestData);
 
         // If backtest has strategy_id, load version history
         if (backtestData.strategy_id) {
@@ -88,9 +100,9 @@ export const BacktestDetailsPage: React.FC = () => {
       } else {
         setError('Failed to load backtest details');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error loading backtest:', err);
-      setError(err.message || 'Failed to load backtest');
+      setError(getErrorMessage(err, 'Failed to load backtest'));
     } finally {
       setLoading(false);
     }
@@ -132,8 +144,8 @@ export const BacktestDetailsPage: React.FC = () => {
       } else {
         alert('Failed to create strategy');
       }
-    } catch (err: any) {
-      alert(`Error creating strategy: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Error creating strategy: ${getErrorMessage(err, 'Unknown error')}`);
     } finally {
       setCreating(false);
     }

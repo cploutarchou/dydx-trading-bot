@@ -406,7 +406,7 @@ export const DYDXKeyManager: React.FC = () => {
           ) : Array.isArray(keys) && keys.length === 0 ? (
             <div className="text-center py-12 bg-slate-800/50 rounded-lg border border-dashed border-slate-600">
               <p className="text-slate-400 mb-2">🔑 No keys configured yet</p>
-              <p className="text-slate-500 text-sm">Click "Add Key" to get started</p>
+              <p className="text-slate-500 text-sm">Click &quot;Add Key&quot; to get started</p>
             </div>
           ) : (
             keys.map((key) => (
@@ -514,7 +514,7 @@ export const DYDXKeyManager: React.FC = () => {
               Q: Where do I get my dYdX address and seed phrase?
             </span>
             <br className="mt-1" />
-            A: You'll find these in your dYdX wallet or when you create a new account on dYdX.
+            A: You&apos;ll find these in your dYdX wallet or when you create a new account on dYdX.
           </p>
           <p className="pt-2">
             <span className="text-white font-medium">
@@ -526,7 +526,7 @@ export const DYDXKeyManager: React.FC = () => {
           <p className="pt-2">
             <span className="text-white font-medium">Q: Is my seed phrase secure here?</span>
             <br className="mt-1" />
-            A: Yes! It's encrypted on the server and only decrypted when you specifically request
+            A: Yes! It&apos;s encrypted on the server and only decrypted when you specifically request
             it.
           </p>
         </div>

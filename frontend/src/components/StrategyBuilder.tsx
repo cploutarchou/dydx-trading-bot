@@ -53,6 +53,18 @@ const PRESETS = {
   },
 };
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null) {
+    const err = error as {
+      response?: { data?: { message?: string } };
+      message?: string;
+    };
+    return err.response?.data?.message || err.message || fallback;
+  }
+  return fallback;
+};
+
 export default function StrategyBuilder() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -160,8 +172,8 @@ export default function StrategyBuilder() {
           resolution,
         });
       }
-    } catch (err: any) {
-      setError(`Failed to load strategy: ${err.message}`);
+    } catch (err: unknown) {
+      setError(`Failed to load strategy: ${getErrorMessage(err, 'Unknown error')}`);
       console.error('Failed to load strategy:', err);
     } finally {
       setLoadingExisting(false);
@@ -235,9 +247,9 @@ export default function StrategyBuilder() {
           setError(response.message || 'Failed to create strategy');
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Submit error:', err);
-      setError(err.response?.data?.message || err.message || 'An error occurred');
+      setError(getErrorMessage(err, 'An error occurred'));
     } finally {
       setLoading(false);
     }

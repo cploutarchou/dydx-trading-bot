@@ -619,8 +619,21 @@ class ApiClient {
   }
 
   async getCurrentUser(): Promise<ApiResponse<UserProfile>> {
-    const response = await this.client.get<ApiResponse<UserProfile>>('/api/v1/users/me');
-    return response.data;
+    const response = await this.client.get<ApiResponse<UserProfile> | UserProfile>(
+      '/api/v1/users/me'
+    );
+    const payload = response.data as ApiResponse<UserProfile> | UserProfile;
+
+    if (payload && typeof payload === 'object' && 'success' in payload && 'message' in payload) {
+      return payload as ApiResponse<UserProfile>;
+    }
+
+    return {
+      success: true,
+      message: 'Current user fetched successfully',
+      data: payload as UserProfile,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   async updateProfile(data: Partial<UserProfile>): Promise<ApiResponse<UpdateProfileResponse>> {
@@ -1298,9 +1311,19 @@ class ApiClient {
   // Redis Settings (centralized from RedisSettings.tsx)
   async getRedisStatus(): Promise<ApiResponse<RedisStatusResponse>> {
     this.ensureTokenLoaded();
-    const response =
-      await this.client.get<ApiResponse<RedisStatusResponse>>('/api/v1/redis/status');
-    return response.data;
+    try {
+      const response = await this.client.post<ApiResponse<RedisStatusResponse>>(
+        '/api/v1/settings/test-connection',
+        {}
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        const fallback = await this.client.get<ApiResponse<RedisStatusResponse>>('/api/v1/redis/status');
+        return fallback.data;
+      }
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   async testRedisConnection(): Promise<ApiResponse<Record<string, unknown>>> {
@@ -1314,23 +1337,41 @@ class ApiClient {
 
   async toggleRedis(enabled: boolean): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
-      '/api/v1/redis/toggle',
-      { enabled }
-    );
-    return response.data;
+    try {
+      const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/settings', {
+        'redis.enabled': enabled,
+      });
+      return response.data;
+    } catch (error: unknown) {
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        const legacyResponse = await this.client.post<ApiResponse<Record<string, unknown>>>(
+          '/api/v1/redis/toggle',
+          { enabled }
+        );
+        return legacyResponse.data;
+      }
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   async flushRedis(): Promise<ApiResponse> {
     this.ensureTokenLoaded();
-    const response = await this.client.post<ApiResponse>('/api/v1/redis/flush', {});
-    return response.data;
+    try {
+      const response = await this.client.post<ApiResponse>('/api/v1/settings/redis/flush', {});
+      return response.data;
+    } catch (error: unknown) {
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        const legacyResponse = await this.client.post<ApiResponse>('/api/v1/redis/flush', {});
+        return legacyResponse.data;
+      }
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   async getRedisSettings(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response =
-      await this.client.get<ApiResponse<Record<string, unknown>>>('/api/v1/redis/settings');
+      await this.client.get<ApiResponse<Record<string, unknown>>>('/api/v1/settings/redis');
     return response.data;
   }
 }

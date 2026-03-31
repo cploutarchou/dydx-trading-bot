@@ -33,6 +33,18 @@ interface StrategyStatus {
   updatedAt: string;
 }
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null) {
+    const err = error as {
+      response?: { data?: { detail?: string } };
+      message?: string;
+    };
+    return err.response?.data?.detail || err.message || fallback;
+  }
+  return fallback;
+};
+
 export default function StrategyManager() {
   const { strategies, fetchStrategies, loading } = useStrategyStore();
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
@@ -130,8 +142,8 @@ export default function StrategyManager() {
       });
 
       setTimeout(() => setMessage(null), 4000);
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || error.message || 'Operation failed';
+    } catch (error: unknown) {
+      const errorMsg = getErrorMessage(error, 'Operation failed');
       setMessage({
         type: 'error',
         text: `❌ ${errorMsg}`,
@@ -194,10 +206,10 @@ export default function StrategyManager() {
       fetchStrategies();
 
       setTimeout(() => setMessage(null), 4000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         type: 'error',
-        text: `❌ Failed to save configuration: ${error.response?.data?.detail || error.message}`,
+        text: `❌ Failed to save configuration: ${getErrorMessage(error, 'Unknown error')}`,
       });
       setTimeout(() => setMessage(null), 6000);
     }
@@ -234,10 +246,10 @@ export default function StrategyManager() {
         });
         setTimeout(() => setMessage(null), 4000);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         type: 'error',
-        text: `❌ Failed to start backtest: ${error.response?.data?.detail || error.message}`,
+        text: `❌ Failed to start backtest: ${getErrorMessage(error, 'Unknown error')}`,
       });
       setTimeout(() => setMessage(null), 6000);
     }

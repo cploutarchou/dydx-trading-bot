@@ -2,6 +2,16 @@
 // Provides advanced caching, background updates, and data synchronization
 
 import { QueryClient } from '@tanstack/react-query';
+import type { QueryKey } from '@tanstack/react-query';
+
+type QueryParams = object;
+
+const hasResponseStatus = (error: unknown, status: number): boolean => {
+  if (typeof error !== 'object' || error === null) return false;
+  const response = (error as { response?: unknown }).response;
+  if (typeof response !== 'object' || response === null) return false;
+  return (response as { status?: unknown }).status === status;
+};
 
 // Query keys for consistent caching
 export const queryKeys = {
@@ -9,21 +19,24 @@ export const queryKeys = {
   currentUser: ['auth', 'currentUser'] as const,
   
   // Bots
-  bots: (params?: any) => ['bots', params] as const,
+  bots: (params?: QueryParams) => ['bots', params] as const,
   bot: (instanceId: string) => ['bots', instanceId] as const,
   botStats: (instanceId: string) => ['bots', instanceId, 'stats'] as const,
-  botTrades: (instanceId: string, params?: any) => ['bots', instanceId, 'trades', params] as const,
+  botTrades: (instanceId: string, params?: QueryParams) =>
+    ['bots', instanceId, 'trades', params] as const,
   botPositions: (instanceId: string) => ['bots', instanceId, 'positions'] as const,
   botPosition: (instanceId: string, positionId: string) => ['bots', instanceId, 'positions', positionId] as const,
-  botAlerts: (instanceId: string, params?: any) => ['bots', instanceId, 'alerts', params] as const,
+  botAlerts: (instanceId: string, params?: QueryParams) =>
+    ['bots', instanceId, 'alerts', params] as const,
   botRealtimeStats: (instanceId: string) => ['bots', instanceId, 'realtime'] as const,
   botMarketData: (instanceId: string) => ['bots', instanceId, 'market-data'] as const,
   
   // Backtests
-  backtests: (params?: any) => ['backtests', params] as const,
+  backtests: (params?: QueryParams) => ['backtests', params] as const,
   backtest: (runId: string) => ['backtests', runId] as const,
   backtestStatus: (runId: string) => ['backtests', runId, 'status'] as const,
-  backtestTrades: (runId: string, params?: any) => ['backtests', runId, 'trades', params] as const,
+  backtestTrades: (runId: string, params?: QueryParams) =>
+    ['backtests', runId, 'trades', params] as const,
   backtestMetrics: (runId: string) => ['backtests', runId, 'metrics'] as const,
   backtestAnalytics: (runId: string) => ['backtests', runId, 'analytics'] as const,
   
@@ -41,8 +54,8 @@ export const queryClient = new QueryClient({
       // Keep cached data for 10 minutes
       gcTime: 10 * 60 * 1000,
       // Retry failed requests 3 times with exponential backoff
-      retry: (failureCount, error: any) => {
-        if (error?.response?.status === 401 || error?.response?.status === 403) {
+      retry: (failureCount, error) => {
+        if (hasResponseStatus(error, 401) || hasResponseStatus(error, 403)) {
           return false; // Don't retry auth errors
         }
         return failureCount < 3;
@@ -68,27 +81,31 @@ export const queryClient = new QueryClient({
 // Utility functions for cache management
 export const cacheUtils = {
   // Invalidate all queries matching a pattern
-  invalidateQueries: (queryKey: any[]) => {
+  invalidateQueries: (queryKey: QueryKey) => {
     return queryClient.invalidateQueries({ queryKey });
   },
 
   // Remove queries from cache
-  removeQueries: (queryKey: any[]) => {
+  removeQueries: (queryKey: QueryKey) => {
     return queryClient.removeQueries({ queryKey });
   },
 
   // Get cached data
-  getQueryData: <T>(queryKey: any[]): T | undefined => {
+  getQueryData: <T>(queryKey: QueryKey): T | undefined => {
     return queryClient.getQueryData<T>(queryKey);
   },
 
   // Set cached data
-  setQueryData: <T>(queryKey: any[], data: T) => {
+  setQueryData: <T>(queryKey: QueryKey, data: T) => {
     return queryClient.setQueryData<T>(queryKey, data);
   },
 
   // Prefetch data
-  prefetchQuery: (options: any) => {
+  prefetchQuery: (options: {
+    queryKey: QueryKey;
+    queryFn: () => Promise<unknown>;
+    staleTime?: number;
+  }) => {
     return queryClient.prefetchQuery(options);
   },
 

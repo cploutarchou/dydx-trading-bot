@@ -2,6 +2,35 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (isRecord(error) && isRecord(error.response) && isRecord(error.response.data)) {
+    const data = error.response.data as Record<string, unknown>;
+    if (typeof data.message === 'string' && data.message.length > 0) return data.message;
+    if (typeof data.detail === 'string' && data.detail.length > 0) return data.detail;
+  }
+
+  if (error instanceof Error) return error.message;
+  return fallback;
+};
+
+const getErrorStatus = (error: unknown): number | null => {
+  if (!isRecord(error) || !isRecord(error.response)) return null;
+  const status = error.response.status;
+  return typeof status === 'number' ? status : null;
+};
+
+const extractRunId = (response: unknown): string | null => {
+  if (!isRecord(response)) return null;
+  if (typeof response.run_id === 'string') return response.run_id;
+
+  const nested = response.data;
+  if (isRecord(nested) && typeof nested.run_id === 'string') return nested.run_id;
+  return null;
+};
+
 interface Strategy {
   id: number;
   name: string;
@@ -61,7 +90,7 @@ export default function StrategyLibrary() {
         setStrategies((response.data.strategies || []) as Strategy[]);
         setTotalStrategies(response.data.total || 0);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load strategies:', err);
       setError('Failed to load strategies');
     } finally {
@@ -74,7 +103,7 @@ export default function StrategyLibrary() {
       await api.deleteStrategy(strategyId);
       setStrategies(strategies.filter((s) => s.id !== strategyId));
       setDeleteConfirmId(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to delete strategy:', err);
       setError('Failed to delete strategy');
     }
@@ -82,7 +111,8 @@ export default function StrategyLibrary() {
 
   const handleDuplicate = async (strategy: Strategy) => {
     try {
-      const { id, created_at, updated_at, ...newStrategy } = strategy;
+      const { id: _id, created_at: _created_at, updated_at: _updated_at, ...newStrategy } =
+        strategy;
       const duplicatedStrategy = {
         ...newStrategy,
         name: `${strategy.name} (Copy)`,
@@ -92,7 +122,7 @@ export default function StrategyLibrary() {
       if (response.data) {
         setStrategies([...strategies, response.data as Strategy]);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to duplicate strategy:', err);
       setError('Failed to duplicate strategy');
     }
@@ -151,7 +181,7 @@ export default function StrategyLibrary() {
       const response = await api.runBacktest(runPayload);
 
       // Handle both wrapped (ApiResponse.data.run_id) and direct (response.run_id) formats
-      const runId = (response as any)?.run_id || (response as any)?.data?.run_id;
+      const runId = extractRunId(response);
       if (runId) {
         navigate(`/backtest/${runId}`);
         setRunModalOpen(false);
@@ -159,28 +189,24 @@ export default function StrategyLibrary() {
       } else {
         setRunError('Backtest started but no run ID returned');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('❌ Failed to run backtest:', {
-        status: err.response?.status,
-        statusText: err.response?.statusText,
-        message: err.message,
-        data: err.response?.data,
+        status: isRecord(err) && isRecord(err.response) ? err.response.status : undefined,
+        statusText: isRecord(err) && isRecord(err.response) ? err.response.statusText : undefined,
+        message: getErrorMessage(err, 'Failed to run backtest'),
+        data: isRecord(err) && isRecord(err.response) ? err.response.data : undefined,
       });
 
       // Handle specific error cases
-      if (err.response?.status === 401) {
+      const status = getErrorStatus(err);
+      if (status === 401) {
         setRunError('Your session has expired. Please login again.');
-      } else if (err.response?.status === 403) {
+      } else if (status === 403) {
         setRunError('You do not have permission to run this backtest.');
-      } else if (err.response?.status === 404) {
+      } else if (status === 404) {
         setRunError('Strategy not found. It may have been deleted.');
       } else {
-        const errorMsg =
-          err.response?.data?.message ||
-          err.response?.data?.detail ||
-          err.message ||
-          'Failed to run backtest';
-        setRunError(errorMsg);
+        setRunError(getErrorMessage(err, 'Failed to run backtest'));
       }
     } finally {
       setRunLoading(false);

@@ -26,7 +26,7 @@ export enum MessageType {
 // WebSocket message interface
 export interface WebSocketMessage {
   type: MessageType;
-  payload: any;
+  payload: unknown;
   timestamp: string;
   id?: string;
 }
@@ -70,7 +70,7 @@ export class WebSocketManager {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private heartbeatTimer?: ReturnType<typeof setTimeout>;
   private lastHeartbeat = 0;
-  private listeners = new Map<string, Set<(event: any) => void>>();
+  private listeners = new Map<string, Set<(event: unknown) => void>>();
 
   constructor(config: Partial<WebSocketConfig> = {}) {
     this.config = {
@@ -95,14 +95,13 @@ export class WebSocketManager {
     return `${protocol}//${host}/ws`;
   }
 
-  private log(message: string, ...args: any[]): void {
+  private log(message: string, ...args: unknown[]): void {
     if (this.config.debug) {
-      // eslint-disable-next-line no-console
       console.log(`[WebSocket] ${message}`, ...args);
     }
   }
 
-  private error(message: string, ...args: any[]): void {
+  private error(message: string, ...args: unknown[]): void {
     console.error(`[WebSocket] ${message}`, ...args);
   }
 
@@ -262,8 +261,15 @@ export class WebSocketManager {
   }
 
   private matchesSubscription(message: WebSocketMessage, subscription: Subscription): boolean {
+    const channel =
+      typeof message.payload === 'object' &&
+      message.payload !== null &&
+      typeof (message.payload as { channel?: unknown }).channel === 'string'
+        ? (message.payload as { channel: string }).channel
+        : undefined;
+
     // Check channel match (if specified)
-    if (subscription.channel && !message.payload?.channel?.includes(subscription.channel)) {
+    if (subscription.channel && !channel?.includes(subscription.channel)) {
       return false;
     }
 
@@ -401,18 +407,18 @@ export class WebSocketManager {
 
   // ==================== Event Emitter ====================
 
-  on(event: string, callback: (data: any) => void): void {
+  on(event: string, callback: (data: unknown) => void): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event)!.add(callback);
   }
 
-  off(event: string, callback: (data: any) => void): void {
+  off(event: string, callback: (data: unknown) => void): void {
     this.listeners.get(event)?.delete(callback);
   }
 
-  private emit(event: string, data: any): void {
+  private emit(event: string, data: unknown): void {
     this.listeners.get(event)?.forEach((callback) => {
       try {
         callback(data);
@@ -424,7 +430,7 @@ export class WebSocketManager {
 
   // ==================== Convenience Methods ====================
 
-  subscribeToBotUpdates(instanceId: string, callback: (data: any) => void): string {
+  subscribeToBotUpdates(instanceId: string, callback: (data: unknown) => void): string {
     return this.subscribe(
       `bot.${instanceId}`,
       callback,
@@ -432,7 +438,7 @@ export class WebSocketManager {
     );
   }
 
-  subscribeToTradeUpdates(instanceId: string, callback: (data: any) => void): string {
+  subscribeToTradeUpdates(instanceId: string, callback: (data: unknown) => void): string {
     return this.subscribe(
       `bot.${instanceId}.trades`,
       callback,
@@ -440,7 +446,7 @@ export class WebSocketManager {
     );
   }
 
-  subscribeToPositionUpdates(instanceId: string, callback: (data: any) => void): string {
+  subscribeToPositionUpdates(instanceId: string, callback: (data: unknown) => void): string {
     return this.subscribe(
       `bot.${instanceId}.positions`,
       callback,
@@ -448,7 +454,7 @@ export class WebSocketManager {
     );
   }
 
-  subscribeToAlerts(instanceId: string, callback: (data: any) => void): string {
+  subscribeToAlerts(instanceId: string, callback: (data: unknown) => void): string {
     return this.subscribe(
       `bot.${instanceId}.alerts`,
       callback,
@@ -456,7 +462,7 @@ export class WebSocketManager {
     );
   }
 
-  subscribeToBacktestProgress(runId: string, callback: (data: any) => void): string {
+  subscribeToBacktestProgress(runId: string, callback: (data: unknown) => void): string {
     return this.subscribe(
       `backtest.${runId}`,
       callback,
@@ -464,7 +470,7 @@ export class WebSocketManager {
     );
   }
 
-  subscribeToSystemStatus(callback: (data: any) => void): string {
+  subscribeToSystemStatus(callback: (data: unknown) => void): string {
     return this.subscribe(
       'system.status',
       callback,

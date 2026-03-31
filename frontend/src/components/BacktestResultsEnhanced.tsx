@@ -61,6 +61,27 @@ interface TradeRow {
   duration_hours?: number;
 }
 
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
+const getSortMetric = (result: BacktestResult, field: BacktestFilters['sortBy']): number => {
+  switch (field) {
+    case 'pnl':
+      return result.pnl_usd;
+    case 'win_rate':
+      return result.win_rate;
+    case 'sharpe_ratio':
+      return result.sharpe_ratio ?? 0;
+    case 'total_trades':
+      return result.total_trades;
+    default:
+      return 0;
+  }
+};
+
 // Formatting utilities
 const formatCurrency = (value: number | null): string => {
   if (value === null || isNaN(value)) return '—';
@@ -235,8 +256,9 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
           0,
           1000
         );
-        const root = (apiResponse?.data || apiResponse) as any;
-        const trades = (root?.trades || []) as TradeRow[];
+        const responseRoot = toRecord(apiResponse);
+        const root = toRecord(responseRoot.data ?? responseRoot);
+        const trades = Array.isArray(root.trades) ? (root.trades as TradeRow[]) : [];
 
         let aggregated = buildResultsFromTrades(trades);
 
@@ -251,8 +273,8 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
         }
 
         aggregated.sort((a, b) => {
-          const aVal = Number((a as any)[filters.sortBy] ?? 0);
-          const bVal = Number((b as any)[filters.sortBy] ?? 0);
+          const aVal = getSortMetric(a, filters.sortBy);
+          const bVal = getSortMetric(b, filters.sortBy);
           return filters.sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
         });
 
@@ -276,8 +298,8 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
           score: 100,
           warnings: [],
         });
-      } catch (err: any) {
-        setError(err.message || 'Failed to load results');
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Failed to load results'));
         setResults([]);
       } finally {
         setLoading(false);
@@ -292,7 +314,10 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
   }, [filters]);
 
   // Handle filter changes
-  const updateFilter = (filterName: keyof BacktestFilters, value: any) => {
+  const updateFilter = <K extends keyof BacktestFilters>(
+    filterName: K,
+    value: BacktestFilters[K]
+  ) => {
     setFilters((prev) => ({
       ...prev,
       [filterName]: value,
@@ -393,7 +418,7 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
               <label className="block text-sm text-slate-400 mb-1">Sort By</label>
               <select
                 value={filters.sortBy}
-                onChange={(e) => updateFilter('sortBy', e.target.value)}
+                onChange={(e) => updateFilter('sortBy', e.target.value as BacktestFilters['sortBy'])}
                 className="w-full bg-slate-700 text-white px-2 py-1 rounded text-sm"
               >
                 <option value="pnl">P&L</option>

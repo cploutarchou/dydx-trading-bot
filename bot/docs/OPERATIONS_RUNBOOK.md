@@ -26,6 +26,18 @@ This runbook covers day-2 operations for the API-controlled multi-instance tradi
 5. Start instance and monitor logs/events.
 6. Enable trading flags gradually (`manageExits` first, then `placeTrades`).
 
+### API startup command (canonical)
+
+- Canonical ASGI app: `src.api.server:app`
+- Canonical launcher: `src/api/start_api.py`
+- Backward-compatible launcher: `start_api.py` (root shim)
+
+Example local starts (project `.venv`):
+
+- Windows PowerShell: `.\\run_api.ps1`
+- Unix shell: `./run_api.sh`
+- Direct uvicorn: `.venv\\Scripts\\python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload`
+
 ## Standard shutdown sequence
 
 1. Disable new entries (`placeTrades=false`) if supported by active config path.

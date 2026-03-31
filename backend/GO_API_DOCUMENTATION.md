@@ -5,7 +5,7 @@
 The Go backend provides a REST API for bot instance management, backtest operations, and delegated real-time bot data.
 
 - Backend API default port: `8888`
-- Python Bot API default URL: `http://localhost:8889`
+- Python Bot API default URL: `http://127.0.0.1:8889`
 - Database: PostgreSQL or SQLite (based on environment config)
 
 Most `/api/v1/backtests/*` routes and several real-time `/api/v1/bots/*` routes are proxied to the Python Bot API, while core bot-instance CRUD and metadata are handled directly by the Go backend and persisted in the database.
@@ -18,7 +18,7 @@ Frontend (React)
 Backend Go API (Port 8888)
     ├── Bot Instance Management (/api/v1/bots/*)
     ├── Backtest Management (/api/v1/backtests/*)
-  └── Bot API Communication (HTTP Client to localhost:8889 by default)
+  └── Bot API Communication (HTTP Client to 127.0.0.1:8889 by default)
          ↓
 Python Bot API (Port 8889 default)
     ├── FastAPI Server
@@ -28,7 +28,7 @@ Python Bot API (Port 8889 default)
 ## Runtime Defaults & Environment Overrides
 
 - `API_PORT` (default: `8888`) — Go backend bind port.
-- `BOT_API_URL` (default: `http://localhost:8889`) — upstream Python Bot API base URL.
+- `BOT_API_URL` (default: `http://127.0.0.1:8889`) — upstream Python Bot API base URL.
 - `BOT_API_TOKEN` (optional) — service token for Python API requests.
 - `BOT_API_USE_SERVICE_TOKEN=true` (optional) — forces delegated requests to use `BOT_API_TOKEN` instead of forwarding caller JWT.
 

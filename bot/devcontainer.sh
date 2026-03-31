@@ -141,7 +141,7 @@ check() {
 # Start API
 start_api() {
     log_info "Starting API server..."
-    $DOCKER_COMPOSE exec dev python bot_api_server.py
+    $DOCKER_COMPOSE exec dev python start_api.py
 }
 
 # Start bot

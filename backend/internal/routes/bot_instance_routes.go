@@ -19,7 +19,7 @@ func RegisterBotInstanceRoutes(router *gin.Engine, database *db.Database) {
 	// Initialize bot API client
 	botAPIURL := os.Getenv("BOT_API_URL")
 	if botAPIURL == "" {
-		botAPIURL = "http://localhost:8889"
+		botAPIURL = "http://127.0.0.1:8889"
 	}
 	botAPIToken := os.Getenv("BOT_API_TOKEN")
 	botAPIClient := services.NewBotAPIClient(botAPIURL, botAPIToken)

@@ -53,6 +53,9 @@ interface StrategyStore {
 
 const toStrategy = (value: unknown): Strategy => value as Strategy;
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 const buildStrategyPayload = (data: Partial<Strategy>) => ({
   name: data.name || 'Untitled Strategy',
   category: data.category,
@@ -96,8 +99,8 @@ export const useStrategyStore = create<StrategyStore>()(
             ? response.data.strategies.map(toStrategy)
             : [];
           set({ strategies });
-        } catch (error: any) {
-          set({ error: error.message || 'Failed to fetch strategies' });
+        } catch (error: unknown) {
+          set({ error: getErrorMessage(error, 'Failed to fetch strategies') });
         } finally {
           set({ loading: false });
         }
@@ -120,8 +123,8 @@ export const useStrategyStore = create<StrategyStore>()(
             strategies: [...state.strategies, newStrategy],
           }));
           return newStrategy;
-        } catch (error: any) {
-          set({ error: error.message || 'Failed to create strategy' });
+        } catch (error: unknown) {
+          set({ error: getErrorMessage(error, 'Failed to create strategy') });
           throw error;
         } finally {
           set({ loading: false });
@@ -139,8 +142,8 @@ export const useStrategyStore = create<StrategyStore>()(
               state.selectedStrategy?.id === id ? updatedStrategy : state.selectedStrategy,
           }));
           return updatedStrategy;
-        } catch (error: any) {
-          set({ error: error.message || 'Failed to update strategy' });
+        } catch (error: unknown) {
+          set({ error: getErrorMessage(error, 'Failed to update strategy') });
           throw error;
         } finally {
           set({ loading: false });
@@ -155,8 +158,8 @@ export const useStrategyStore = create<StrategyStore>()(
             strategies: state.strategies.filter((s) => s.id !== id),
             selectedStrategy: state.selectedStrategy?.id === id ? null : state.selectedStrategy,
           }));
-        } catch (error: any) {
-          set({ error: error.message || 'Failed to delete strategy' });
+        } catch (error: unknown) {
+          set({ error: getErrorMessage(error, 'Failed to delete strategy') });
           throw error;
         } finally {
           set({ loading: false });
@@ -177,8 +180,8 @@ export const useStrategyStore = create<StrategyStore>()(
             strategies: [...state.strategies, newStrategy],
           }));
           return newStrategy;
-        } catch (error: any) {
-          set({ error: error.message || 'Failed to duplicate strategy' });
+        } catch (error: unknown) {
+          set({ error: getErrorMessage(error, 'Failed to duplicate strategy') });
           throw error;
         } finally {
           set({ loading: false });
@@ -192,7 +195,7 @@ export const useStrategyStore = create<StrategyStore>()(
             ? response.data.strategies.map(toStrategy)
             : [];
           return strategies;
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('Failed to fetch public strategies:', error);
           return [];
         }

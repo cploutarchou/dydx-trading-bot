@@ -6,6 +6,9 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../api';
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 interface User {
   id: number;
   username: string;
@@ -62,12 +65,15 @@ export const useAuthStore = create<AuthStore>()(
                 console.warn('❌ auth.ts: Failed to persist refresh_token', e);
               }
             }
+          } else {
+            throw new Error('Login did not return an access token');
           }
 
           await get().getCurrentUser();
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('❌ auth.ts: Login error:', error);
-          set({ error: error.message || 'Login failed' });
+          set({ error: getErrorMessage(error, 'Login failed'), user: null });
+          throw error;
         } finally {
           set({ loading: false });
         }

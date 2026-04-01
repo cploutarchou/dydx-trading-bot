@@ -42,8 +42,8 @@ jobs:
                   python -m pip install -r bot/requirements.txt
                   python -m pip install pytest flake8 pylint
 
-            - name: Prepare stack env for validation
-              run: cp .env.stack.example .env.stack
+            - name: Prepare shared env for validation
+              run: cp .env.example .env
 
             - name: Validate stack environment template
               run: python scripts/validate_stack_env.py

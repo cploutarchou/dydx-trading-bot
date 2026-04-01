@@ -383,8 +383,8 @@ const apiUrl = import.meta.env.VITE_API_URL
 // Wrong:
 const apiUrl = process.env.VITE_API_URL
 
-# Create .env.local
-cp .env.local.example .env.local
+# Create repo-root .env
+cp ../.env.example ../.env
 
 # Add variables
 VITE_API_URL=http://localhost:8888

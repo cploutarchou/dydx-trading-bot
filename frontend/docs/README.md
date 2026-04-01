@@ -17,7 +17,7 @@ All project documentation organized in one place.
 
 ## Directory Structure
 
-```
+```text
 docs/
 ├── SETUP.md                 # Setup guide for dev & prod
 ├── README.md               # This file
@@ -177,7 +177,7 @@ docker-compose down         # Stop services
 
 ### Environment Variables
 
-Create `.env.local`:
+Use the repo-root `.env`:
 
 ```bash
 VITE_API_URL=http://localhost:8888

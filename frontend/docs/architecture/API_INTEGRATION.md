@@ -27,7 +27,7 @@ How to communicate with the dYdX Trading Bot backend API.
 
 **Request:**
 
-```
+```http
 POST /api/v1/auth/login
 Content-Type: application/json
 
@@ -87,7 +87,7 @@ await login('user@example.com', 'password123');
 
 **Request:**
 
-```
+```http
 GET /api/v1/backtests
 Authorization: Bearer {token}
 ```
@@ -179,7 +179,7 @@ const BacktestList = () => {
 
 **Request:**
 
-```
+```http
 GET /api/v1/backtests/{run_id}
 Authorization: Bearer {token}
 ```
@@ -227,7 +227,7 @@ const BacktestDetails = ({ runId }: { runId: string }) => {
 
 **Request:**
 
-```
+```http
 POST /api/v1/backtests/run
 Authorization: Bearer {token}
 Content-Type: application/json
@@ -284,7 +284,7 @@ const BacktestRunner = () => {
 
 **Request:**
 
-```
+```http
 DELETE /api/v1/backtests/{run_id}
 Authorization: Bearer {token}
 ```
@@ -324,7 +324,7 @@ const handleDelete = async (runId: string) => {
 
 **Full URL:**
 
-```
+```text
 ws://localhost:8888/ws/backtest/backtest-002?token=eyJhbGci...
 ```
 
@@ -575,19 +575,19 @@ export const api = {
 
 ## Environment Variables
 
-### Development (.env.local)
+### Development (repo-root `.env`)
 
 ```bash
 VITE_API_URL=http://localhost:8888
 ```
 
-### Production (.env.production)
+### Production (build-time environment)
 
 ```bash
 VITE_API_URL=https://api.your-domain.com
 ```
 
-### Usage in Code
+### Environment Variable Usage
 
 ```typescript
 const baseUrl = import.meta.env.VITE_API_URL;

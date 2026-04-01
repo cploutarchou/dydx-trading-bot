@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate .env.stack contains required variables for dev/prod stack startup."""
+"""Validate the shared repo-root .env file for dev/prod stack startup."""
 
 from __future__ import annotations
 
@@ -110,9 +110,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    env_path = Path(".env.stack")
+    env_path = Path(".env")
     if not env_path.exists():
-        print("❌ Missing .env.stack. Run: make stack-env", file=sys.stderr)
+        print("❌ Missing .env. Run: make stack-env", file=sys.stderr)
         return 1
 
     env = parse_env(env_path)
@@ -121,17 +121,17 @@ def main() -> int:
     empty = [k for k in REQUIRED_KEYS if k in env and env[k] == ""]
 
     if missing or empty:
-        print("❌ .env.stack validation failed", file=sys.stderr)
+        print("❌ .env validation failed", file=sys.stderr)
         if missing:
             print(f"   Missing keys: {', '.join(missing)}", file=sys.stderr)
         if empty:
             print(f"   Empty keys: {', '.join(empty)}", file=sys.stderr)
-        print("   Tip: copy defaults from .env.stack.example", file=sys.stderr)
+        print("   Tip: copy defaults from .env.example", file=sys.stderr)
         return 1
 
     optional_empty = [k for k in OPTIONAL_KEYS if env.get(k, "") == ""]
 
-    print("✅ .env.stack contains all required keys")
+    print("✅ .env contains all required keys")
     if optional_empty:
         print(
             "ℹ️ Optional keys not set (expected in non-live mode): "

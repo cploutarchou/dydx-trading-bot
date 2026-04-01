@@ -104,7 +104,7 @@ make stack-env
 make infra-up
 ```
 
-This creates `.env.stack` from `.env.stack.example` (if missing).
+This creates `.env` from `.env.example` (if missing).
 
 ### 3) Run your service locally or with service-local Run/Debug
 
@@ -125,7 +125,7 @@ make infra-down
 
 Use this when validating end-to-end behavior across frontend + API + worker + infra.
 
-### 1) Create stack env file
+### 1) Create shared env file
 
 ```bash
 make stack-env
@@ -179,7 +179,7 @@ make stack-up-prod
 
 ## Useful commands
 
-- `make stack-env` – create `.env.stack` template
+- `make stack-env` – create `.env` from `.env.example` if missing
 - `make infra-up` – start shared infra only (postgres + redis)
 - `make infra-down` – stop shared infra only
 - `make infra-ps` – infra status
@@ -350,9 +350,9 @@ Monorepo integration tasks live in root `.vscode/tasks.json`:
 - Make sure Docker daemon is running: `docker info`
 - Ensure no port conflicts: `lsof -i :5173,8888,8889,5432,6379`
 
-### Missing `.env.stack` error
+### Missing `.env` error
 
-- Run `make stack-env` to generate it from the example template, then edit any required secrets.
+- Run `make stack-env` to generate it from `.env.example`, then edit any required secrets.
 
 ### Service stays unhealthy
 

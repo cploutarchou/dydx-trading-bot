@@ -43,8 +43,8 @@ For more details: [docs/devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md)
 # Install dependencies
 npm install
 
-# Create environment file
-cp .env.local.example .env.local
+# Create shared repo-root environment file
+cp ../.env.example ../.env
 
 # Start development server
 npm run dev
@@ -93,7 +93,7 @@ Visit <http://localhost:3000>
 
 ### Environment Variables for Production
 
-Create `.env.production` or set environment variables:
+Set build-time environment variables from your deployment environment, or use the repo-root `.env` for local preview builds:
 
 ```bash
 VITE_API_URL=https://api.example.com
@@ -126,21 +126,21 @@ docker-compose ps           # List running services
 
 ## 📦 Environment Variables
 
-### Development (.env.local)
+### Development (repo-root `.env`)
 
 ```bash
 VITE_API_URL=http://localhost:8888
 NODE_ENV=development
 ```
 
-### Production (.env.production)
+### Production (build-time environment)
 
 ```bash
 VITE_API_URL=https://api.example.com
 NODE_ENV=production
 ```
 
-See [../.env.local.example](.env.local.example) for all available options.
+Use `../.env.example` as the template and keep shared values in the repo-root `../.env`.
 
 ---
 

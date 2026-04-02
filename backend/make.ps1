@@ -88,7 +88,7 @@ function Show-Help {
 		"  run             go run ./cmd/server/main.go",
 		"  dev             run with air (hot reload)",
 		"  dev-env         create/update .env (use -Mode development|production)",
-		"  test            go test -v -race -coverprofile=coverage.out ./...",
+		"  test            go test -v [-race] -coverprofile=coverage.out ./...  (race enabled when CGO available)",
 		"  test-coverage   test + coverage HTML report",
 		"  bench           go test -bench=. -benchmem ./...",
 		"  lint            golangci-lint run --config .golangci.yml ./...",
@@ -258,14 +258,30 @@ try {
 		"test" {
 			Require-Command "go" "Install Go and ensure it is in PATH."
 			Write-Info "Running tests..."
-			& go test -v -race -coverprofile=coverage.out ./...
+			$cgoEnabled = $env:CGO_ENABLED
+			$hasCCompiler = Test-CommandAvailable "gcc"
+			$useRace = ($cgoEnabled -eq "1") -or ($hasCCompiler -and ($cgoEnabled -ne "0"))
+			if ($useRace) {
+				& go test -v -race -coverprofile=coverage.out ./...
+			} else {
+				Write-WarnMsg "CGO not available (no gcc found or CGO_ENABLED=0); running tests without -race. Install GCC/MinGW and set CGO_ENABLED=1 to enable the race detector."
+				& go test -v -coverprofile=coverage.out ./...
+			}
 			Write-Success "Tests complete"
 		}
 
 		"test-coverage" {
 			Require-Command "go" "Install Go and ensure it is in PATH."
 			Write-Info "Running tests with coverage..."
-			& go test -v -race -coverprofile=coverage.out ./...
+			$cgoEnabled = $env:CGO_ENABLED
+			$hasCCompiler = Test-CommandAvailable "gcc"
+			$useRace = ($cgoEnabled -eq "1") -or ($hasCCompiler -and ($cgoEnabled -ne "0"))
+			if ($useRace) {
+				& go test -v -race -coverprofile=coverage.out ./...
+			} else {
+				Write-WarnMsg "CGO not available (no gcc found or CGO_ENABLED=0); running tests without -race. Install GCC/MinGW and set CGO_ENABLED=1 to enable the race detector."
+				& go test -v -coverprofile=coverage.out ./...
+			}
 			& go tool cover -html=coverage.out -o coverage.html
 			Write-Success "Coverage report generated: coverage.html"
 		}

@@ -77,6 +77,9 @@ func (s *KeyManagementService) decryptSecret(encryptedText string) (string, erro
 	}
 
 	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", fmt.Errorf("failed to decrypt: ciphertext too short")
+	}
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)

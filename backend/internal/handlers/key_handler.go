@@ -64,7 +64,7 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
 			Success:   false,
 			Error:     "Invalid request: " + err.Error(),
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -74,7 +74,7 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -84,7 +84,7 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
 			Success:   false,
 			Error:     "Failed to create key: " + err.Error(),
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -101,7 +101,7 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 	c.JSON(http.StatusCreated, SuccessResponse{
 		Success:   true,
 		Data:      response,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -111,7 +111,7 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -121,7 +121,7 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
 			Error:     "Failed to list keys: " + err.Error(),
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -146,7 +146,7 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 	c.JSON(http.StatusOK, SuccessResponse{
 		Success:   true,
 		Data:      response,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -156,7 +156,7 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -167,7 +167,7 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
 			Error:     "Failed to retrieve key: " + err.Error(),
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -176,7 +176,7 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 		c.JSON(http.StatusNotFound, ErrorResponse{
 			Success:   false,
 			Error:     "No key found for network: " + network,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -193,7 +193,7 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, SuccessResponse{
 		Success:   true,
 		Data:      response,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -203,7 +203,7 @@ func (h *KeyHandler) DeleteKey(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -215,7 +215,7 @@ func (h *KeyHandler) DeleteKey(c *gin.Context) {
 			c.JSON(http.StatusNotFound, ErrorResponse{
 				Success:   false,
 				Error:     "No key found for network: " + network,
-				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
 			})
 			return
 		}
@@ -223,7 +223,7 @@ func (h *KeyHandler) DeleteKey(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
 			Error:     "Failed to delete key: " + err.Error(),
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -237,7 +237,7 @@ func (h *KeyHandler) GetKeyWithSecret(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -248,7 +248,7 @@ func (h *KeyHandler) GetKeyWithSecret(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
 			Error:     "Failed to retrieve key: " + err.Error(),
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -257,7 +257,7 @@ func (h *KeyHandler) GetKeyWithSecret(c *gin.Context) {
 		c.JSON(http.StatusNotFound, ErrorResponse{
 			Success:   false,
 			Error:     "No key found for network: " + network,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -274,6 +274,6 @@ func (h *KeyHandler) GetKeyWithSecret(c *gin.Context) {
 	c.JSON(http.StatusOK, SuccessResponse{
 		Success:   true,
 		Data:      response,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

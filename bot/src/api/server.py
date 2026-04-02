@@ -1325,7 +1325,14 @@ async def get_current_positions(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        positions = uow.positions.get_open_positions(int(bot_instance_id))
+        # Convert string instance ID to int for database query if needed
+        try:
+            bot_id_int = int(bot_instance_id)
+        except (ValueError, TypeError):
+            # If not a pure int, try to use it as-is (some DB schemas use string IDs)
+            bot_id_int = bot_instance_id
+
+        positions = uow.positions.get_open_positions(bot_id_int)
 
         return api_response(
             success=True,
@@ -1347,7 +1354,11 @@ async def get_current_positions(
 
 
 @app.get("/api/v1/bots/{bot_instance_id}/positions/{position_id}")
-async def get_position(bot_instance_id: int, position_id: str):
+async def get_position(
+    bot_instance_id: int,
+    position_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
     """Get specific position details"""
     try:
         session = db.get_session()
@@ -1415,13 +1426,22 @@ async def get_position(bot_instance_id: int, position_id: str):
 
 
 @app.get("/api/v1/bots/{bot_instance_id}/market-data")
-async def get_market_data(bot_instance_id: int):
+async def get_market_data(
+    bot_instance_id: int,
+    current_user: User = Depends(get_current_active_user)
+):
     """Get latest market data for all symbols tracked by bot"""
     try:
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        market_data = uow.market_data.get_all_market_data(bot_instance_id)
+        # Convert to int for database query if needed
+        try:
+            bot_id_int = int(bot_instance_id)
+        except (ValueError, TypeError):
+            bot_id_int = bot_instance_id
+
+        market_data = uow.market_data.get_all_market_data(bot_id_int)
 
         return api_response(
             success=True,
@@ -1457,13 +1477,22 @@ async def get_market_data(bot_instance_id: int):
 
 
 @app.get("/api/v1/bots/{bot_instance_id}/realtime-stats")
-async def get_realtime_stats(bot_instance_id: int):
+async def get_realtime_stats(
+    bot_instance_id: int,
+    current_user: User = Depends(get_current_active_user)
+):
     """Get real-time bot statistics"""
     try:
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        stats = uow.stats.get_stats(bot_instance_id)
+        # Convert to int for database query if needed
+        try:
+            bot_id_int = int(bot_instance_id)
+        except (ValueError, TypeError):
+            bot_id_int = bot_instance_id
+
+        stats = uow.stats.get_stats(bot_id_int)
 
         if not stats:
             return api_response(
@@ -1532,13 +1561,23 @@ async def get_realtime_stats(bot_instance_id: int):
 
 
 @app.get("/api/v1/bots/{bot_instance_id}/alerts")
-async def get_alerts(bot_instance_id: int, limit: int = 50):
+async def get_alerts(
+    bot_instance_id: int,
+    limit: int = 50,
+    current_user: User = Depends(get_current_active_user)
+):
     """Get recent alerts for a bot"""
     try:
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        alerts = uow.alerts.get_unnotified_alerts(bot_instance_id)
+        # Convert to int for database query if needed
+        try:
+            bot_id_int = int(bot_instance_id)
+        except (ValueError, TypeError):
+            bot_id_int = bot_instance_id
+
+        alerts = uow.alerts.get_unnotified_alerts(bot_id_int)
         # Limit to most recent
         alerts = alerts[:limit]
 
@@ -1571,11 +1610,22 @@ async def get_alerts(bot_instance_id: int, limit: int = 50):
 
 
 @app.get("/api/v1/bots/{bot_instance_id}/position-history/{position_id}")
-async def get_position_history(bot_instance_id: int, position_id: str, hours: int = 24):
+async def get_position_history(
+    bot_instance_id: int,
+    position_id: str,
+    hours: int = 24,
+    current_user: User = Depends(get_current_active_user)
+):
     """Get historical P&L snapshots for a position"""
     try:
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
+
+        # Convert to int for database query if needed
+        try:
+            bot_id_int = int(bot_instance_id)
+        except (ValueError, TypeError):
+            bot_id_int = bot_instance_id
 
         snapshots = uow.snapshots.get_position_history(position_id, hours=hours)
 

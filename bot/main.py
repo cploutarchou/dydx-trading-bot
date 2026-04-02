@@ -1,8 +1,8 @@
 # ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
 # This ensures DB_* and REDIS_* environment variables are available to config loader
-from dotenv import load_dotenv
+from src.shared.env_loader import load_repo_env
 
-load_dotenv()
+load_repo_env(__file__)
 
 import asyncio
 import logging

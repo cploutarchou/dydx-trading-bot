@@ -25,7 +25,7 @@ This is a **layered Go REST API** for managing dYdX trading credentials and back
 
 - **JWT middleware chain**: `RequireAuth()` → extracts `user_id`, `username`, `email`, `is_admin` into context
 - **Key encryption**: AES-256-GCM in `services/key_service.go` using `ENCRYPTION_KEY` env var
-- **Environment secrets**: Use `.env` file (never committed), loaded via `godotenv.Load()`
+- **Environment secrets**: Use the repo-root `.env` file (never committed), loaded via `godotenv.Load()`
 
 ### Request Flow
 
@@ -54,7 +54,7 @@ make migrate-create NAME=your_migration_name
 
 ### Environment Setup
 
-- Copy `.env.example` → `.env` and configure database settings
+- Copy the repo-root `.env.example` → `.env` and configure shared database settings
 - **SQLite**: Set `DB_TYPE=sqlite3` for local development
 - **PostgreSQL**: Use Docker Compose with `docker-compose up -d postgres redis`
 

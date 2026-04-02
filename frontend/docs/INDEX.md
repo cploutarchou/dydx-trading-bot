@@ -14,7 +14,7 @@ All dYdX Trading Bot Frontend documentation has been successfully reorganized in
 
 ## 📁 Structure
 
-```
+```text
 docs/
 ├── README.md                      ← START HERE (index of all docs)
 ├── SETUP.md                       ← Development & production setup
@@ -38,15 +38,15 @@ docs/
 
 ## 📊 By The Numbers
 
-| Metric | Value |
-|--------|-------|
-| **Documentation Files** | 10 files |
-| **Total Lines** | 3,460 lines |
-| **Code Examples** | 50+ examples |
-| **Diagrams** | 15+ ASCII diagrams |
-| **Sections** | 25+ major sections |
-| **API Endpoints** | 5 documented |
-| **Troubleshooting Items** | 20+ solutions |
+| Metric                    | Value              |
+| ------------------------- | ------------------ |
+| **Documentation Files**   | 10 files           |
+| **Total Lines**           | 3,460 lines        |
+| **Code Examples**         | 50+ examples       |
+| **Diagrams**              | 15+ ASCII diagrams |
+| **Sections**              | 25+ major sections |
+| **API Endpoints**         | 5 documented       |
+| **Troubleshooting Items** | 20+ solutions      |
 
 ---
 
@@ -54,7 +54,7 @@ docs/
 
 ### Getting Started
 
-```
+```text
 README.md (main)
     ↓
 docs/README.md (index)
@@ -66,7 +66,7 @@ Choose your path:
 
 ### Learning the Codebase
 
-```
+```text
 docs/architecture/README.md (overview)
     ↓
 ├─ DATA_FLOW.md (how data moves)
@@ -76,7 +76,7 @@ docs/architecture/README.md (overview)
 
 ### Solving Problems
 
-```
+```text
 docs/guides/TROUBLESHOOTING.md
     ↓
 Search for your issue
@@ -114,7 +114,7 @@ Follow provided solution
 
 ### Path 1: Just Get Running (5 minutes)
 
-```
+```text
 1. README.md
 2. docs/devcontainer/QUICKSTART.md
 3. npm run dev
@@ -122,7 +122,7 @@ Follow provided solution
 
 ### Path 2: Manual Setup (15 minutes)
 
-```
+```text
 1. README.md
 2. docs/SETUP.md
 3. Follow local dev instructions
@@ -130,7 +130,7 @@ Follow provided solution
 
 ### Path 3: Understand Architecture (1 hour)
 
-```
+```text
 1. docs/architecture/README.md
 2. docs/architecture/DATA_FLOW.md
 3. docs/architecture/PATTERNS.md
@@ -139,7 +139,7 @@ Follow provided solution
 
 ### Path 4: Fix a Problem (varies)
 
-```
+```text
 1. docs/guides/TROUBLESHOOTING.md
 2. Search for your issue
 3. Follow solution
@@ -274,7 +274,7 @@ Follow provided solution
 
 ## 🔗 Cross-Reference Map
 
-```
+```text
 README.md (main)
 ├─ Links to docs/README.md (index)
 │
@@ -289,7 +289,7 @@ docs/README.md (index)
 └─ Links to docs/guides/TROUBLESHOOTING.md (troubleshooting)
 
 docs/SETUP.md
-├─ Links to .env.local (config)
+├─ Links to repo-root .env (config)
 ├─ Links to docker-compose.yml (services)
 └─ Links to docs/guides/TROUBLESHOOTING.md (help)
 

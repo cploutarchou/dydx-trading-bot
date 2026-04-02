@@ -20,12 +20,29 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func main() {
-	// Load environment variables
-	err := godotenv.Load(".env", "backend/.env", "../.env")
-	if err != nil {
-		log.Printf("Warning: no .env file loaded from default paths; using process environment variables")
+func loadRootEnv() {
+	candidates := []string{"../.env", ".env", "../../.env"}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err != nil {
+			continue
+		}
+
+		if err := godotenv.Load(candidate); err != nil {
+			log.Printf("Warning: failed to load env file %s: %v", candidate, err)
+			return
+		}
+
+		log.Printf("Loaded environment from %s", candidate)
+		return
 	}
+
+	log.Printf("Warning: repo-root .env not found in expected locations; using process environment variables")
+}
+
+func main() {
+	// Load environment variables from the repo root only.
+	loadRootEnv()
 
 	config.LoadConfig()
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
@@ -122,11 +139,11 @@ func main() {
 		c.JSON(200, gin.H{
 			"status": "healthy",
 			"bot_api": gin.H{
-				"base_url":      botAPIURL,
-				"health_url":    botHealthURL,
-				"reachable":     botReachable,
-				"status_code":   botStatusCode,
-				"error":         botError,
+				"base_url":       botAPIURL,
+				"health_url":     botHealthURL,
+				"reachable":      botReachable,
+				"status_code":    botStatusCode,
+				"error":          botError,
 				"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
 			},
 			"database": gin.H{

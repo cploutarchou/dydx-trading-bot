@@ -1,8 +1,8 @@
 ---
-mode: agent
+agent: agent
 name: defi-risk-review
-description: 'Perform a focused risk review for Python DeFi trading changes (execution safety, exposure, slippage, liquidity, funding, and failure handling). Use this for pre-merge or pre-deploy safety checks.'
-argument-hint: 'What change, PR, file, or behavior should be risk-reviewed?'
+description: "Perform a focused risk review for Python DeFi trading changes (execution safety, exposure, slippage, liquidity, funding, and failure handling). Use this for pre-merge or pre-deploy safety checks."
+argument-hint: "What change, PR, file, or behavior should be risk-reviewed?"
 ---
 
 Related skill: `defi-python-algo-trading`
@@ -10,6 +10,7 @@ Related skill: `defi-python-algo-trading`
 Run a focused risk review only (not full implementation) for the provided scope.
 
 ## Inputs to Collect
+
 - Scope target (file, function, PR, or feature)
 - Strategy family (mean reversion / momentum / market making / hybrid)
 - Deployment context (testnet/mainnet, expected cadence, capital constraints)
@@ -17,6 +18,7 @@ Run a focused risk review only (not full implementation) for the provided scope.
 If an input is missing, infer from code/comments first. Ask only minimal clarification questions if still ambiguous.
 
 ## Risk Review Procedure
+
 1. Identify the critical path affected by the change (signal generation, sizing, execution, close, persistence, recovery).
 2. Check **atomic pair safety**:
    - Any path where one leg can remain open unintentionally?
@@ -41,7 +43,9 @@ If an input is missing, infer from code/comments first. Ask only minimal clarifi
    - Is there a clear emergency-close runbook path?
 
 ## Output Format
+
 Return:
+
 1. **Risk Verdict**: `LOW`, `MEDIUM`, or `HIGH`
 2. **Top Findings**: short bullet list of concrete risks
 3. **Required Fixes Before Merge/Deploy**
@@ -49,6 +53,7 @@ Return:
 5. **Verification Plan**: exact tests/checks to run next
 
 ## Guardrails
+
 - Prefer concrete evidence from code paths over speculation.
 - Call out unknowns explicitly.
 - If a HIGH risk is found in execution safety, propose a minimal immediate mitigation path first.

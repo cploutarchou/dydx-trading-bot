@@ -40,45 +40,41 @@ check_prerequisites() {
 setup_env_files() {
     echo "${BLUE}Setting up environment files...${NC}"
     
-    # Backend .env
+    # Shared repo-root .env
     if [ ! -f .env ]; then
         cat > .env << EOF
-# Database Configuration
-DB_TYPE=postgresql
-DB_NAME=dydx_backtest
-DB_USER=postgres
-DB_PASSWORD=password
-DB_HOST=postgres
-DB_PORT=5432
-
-# JWT Configuration
-JWT_SECRET_KEY=your-secret-key-change-in-production-use-strong-key-32-chars
+# Shared monorepo environment
+ENVIRONMENT=development
+POSTGRES_PORT=5432
+REDIS_PORT=6379
+API_PORT=8888
+POSTGRES_USER=dydx_bot
+POSTGRES_PASSWORD=change-me-db-password
+POSTGRES_DB=dydx_bot
+SECRET_KEY=change-me-jwt-secret-min-32-chars
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# Server Configuration
-ENVIRONMENT=development
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-
-# API Configuration
-SQL_ECHO=false
+DB_TYPE=postgres
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=dydx_bot
+DB_USER=dydx_bot
+DB_PASSWORD=change-me-db-password
+REDIS_ENABLED=true
+REDIS_HOST=localhost
+REDIS_DB=0
+BOT_API_URL=http://localhost:8889
+BOT_API_HOST=0.0.0.0
+BOT_API_PORT=8889
+VITE_API_URL=http://localhost:8888
 EOF
         echo "✓ Created .env"
     else
         echo "✓ .env already exists"
     fi
-    
-    # Frontend .env
-    if [ ! -f frontend/.env.local ]; then
-        cat > frontend/.env.local << EOF
-REACT_APP_API_URL=http://localhost:8000/api/v1
-VITE_API_URL=http://localhost:8000/api/v1
-EOF
-        echo "✓ Created frontend/.env.local"
-    else
-        echo "✓ frontend/.env.local already exists"
-    fi
+
+    echo "✓ Backend, bot, and frontend all use the repo-root .env"
     
     echo ""
 }

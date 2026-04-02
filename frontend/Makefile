@@ -81,33 +81,24 @@ install: ## Install project dependencies using npm
 
 setup: install ## Complete project setup (install dependencies and configure environment)
 	@echo "$(BLUE)🔧 Setting up project environment...$(NC)"
-	@if [ ! -f .env.local ]; then \
-		cp .env.local.example .env.local; \
-		echo "$(GREEN)✓ Created .env.local from .env.local.example$(NC)"; \
+	@if [ ! -f ../.env ]; then \
+		echo "$(YELLOW)⚠ Repo-root .env not found - create ../.env before starting the frontend$(NC)"; \
 	else \
-		echo "$(YELLOW)⚠ .env.local already exists, skipping...$(NC)"; \
+		echo "$(GREEN)✓ Using repo-root .env as the frontend environment source$(NC)"; \
 	fi
 	@echo "$(BLUE)📋 Environment configuration:$(NC)"
-	@echo "  API_URL: $$(grep VITE_API_URL .env.local || echo '$(API_URL)')"
+	@echo "  API_URL: $$(grep '^VITE_API_URL=' ../.env 2>/dev/null || echo 'VITE_API_URL=$(API_URL)')"
 	@echo "$(GREEN)✓ Project setup complete!$(NC)"
 
-dev-env: ## Create or overwrite .env.local for development|production (usage: make dev-env MODE=development)
+dev-env: ## Update repo-root .env frontend settings for development|production (usage: make dev-env MODE=development)
 	@MODE_VALUE="$(MODE)"; \
 	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
 		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
 		exit 1; \
 	fi; \
-	if [ -f .env.local ]; then \
-		printf "$(YELLOW).env.local already exists. Overwrite for %s? [y/N] $(NC)" "$$MODE_VALUE"; \
-		read answer; \
-		case "$$answer" in \
-			y|Y|yes|YES) ;; \
-			*) echo "$(YELLOW)Cancelled$(NC)"; exit 1;; \
-		esac; \
-	fi; \
-	cp .env.local.example .env.local; \
-	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('.env.local'); lines=p.read_text().splitlines(); updates={'NODE_ENV':('development' if mode=='development' else 'production'),'VITE_API_URL':('http://localhost:8888' if mode=='development' else 'https://your-backend-domain.example')}; out=[]; seen=set(); [out.append(line if (not line or line.lstrip().startswith('#') or '=' not in line or line.split('=',1)[0] not in updates) else f\"{line.split('=',1)[0]}={updates[line.split('=',1)[0]]}\") or seen.add(line.split('=',1)[0]) for line in lines]; [out.append(f'{k}={v}') for k,v in updates.items() if all(not l.startswith(f'{k}=') for l in out)]; p.write_text('\\n'.join(out)+'\\n'); print(f'Created {p} for {mode}')";
-	@echo "$(GREEN)✓ .env.local generated for $(MODE)$(NC)"
+	@if [ ! -f ../.env ]; then touch ../.env; fi; \
+	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('../.env'); lines=p.read_text().splitlines() if p.exists() else []; updates={'VITE_API_URL':('http://localhost:8888' if mode=='development' else 'https://your-backend-domain.example')}; out=[]; keys_done=set();\nfor line in lines:\n    if not line or line.lstrip().startswith('#') or '=' not in line:\n        out.append(line);\n        continue\n    key=line.split('=',1)[0]\n    if key in updates:\n        out.append(f'{key}={updates[key]}'); keys_done.add(key)\n    else:\n        out.append(line)\nfor key, value in updates.items():\n    if key not in keys_done and not any(existing.startswith(f'{key}=') for existing in out):\n        out.append(f'{key}={value}')\np.write_text('\\n'.join(out).rstrip() + '\\n'); print(f'Updated {p} for {mode}')";
+	@echo "$(GREEN)✓ Repo-root .env updated for $(MODE)$(NC)"
 
 # ============================================================================
 # DEVELOPMENT
@@ -244,8 +235,7 @@ clean: ## Remove all generated files and caches
 
 clean-all: clean docker-clean ## Deep clean: remove all generated files, caches, and Docker resources
 	@echo "$(BLUE)🧹 Performing deep clean...$(NC)"
-	@echo "  Removing: .env.local (keep .env.local.example)"
-	rm -f .env.local
+	@echo "  Keeping repo-root .env untouched (single source of truth)"
 	@echo "$(GREEN)✓ Deep cleanup complete$(NC)"
 
 reset: clean install ## Reset project to clean state (remove and reinstall dependencies)
@@ -276,12 +266,12 @@ check-env: ## Verify environment configuration and dependencies
 	@echo "  Node: $$(node --version)"
 	@echo "  npm: $$(npm --version)"
 	@echo ""
-	@echo "$(BLUE)Checking .env.local configuration:$(NC)"
-	@if [ -f .env.local ]; then \
-		echo "  $(GREEN)✓ .env.local exists$(NC)"; \
-		grep -E '^VITE_' .env.local || echo "  $(YELLOW)⚠ No VITE_ variables found$(NC)"; \
+	@echo "$(BLUE)Checking repo-root .env configuration:$(NC)"
+	@if [ -f ../.env ]; then \
+		echo "  $(GREEN)✓ ../.env exists$(NC)"; \
+		grep -E '^VITE_' ../.env || echo "  $(YELLOW)⚠ No VITE_ variables found$(NC)"; \
 	else \
-		echo "  $(YELLOW)⚠ .env.local not found - run 'make setup'$(NC)"; \
+		echo "  $(YELLOW)⚠ ../.env not found - create the repo-root .env first$(NC)"; \
 	fi
 	@echo ""
 	@echo "$(BLUE)Checking important files:$(NC)"

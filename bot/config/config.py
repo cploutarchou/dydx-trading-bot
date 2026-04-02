@@ -1,11 +1,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Dict, Optional
+
+from src.shared.env_loader import load_repo_env
 
 testnet_url = "https://indexer.v4testnet.dydx.exchange"
 mainnet_url = "https://indexer.dydx.trade"
+
+
+def _get_env(*names: str, default: str = "") -> str:
+    import os
+
+    for name in names:
+        value = os.getenv(name)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def _get_env_int(*names: str, default: int) -> int:
+    for name in names:
+        value = _get_env(name)
+        if value == "":
+            continue
+        try:
+            return int(value)
+        except ValueError:
+            continue
+    return default
 
 
 @dataclass
@@ -201,12 +224,8 @@ class ConfigurationManager:
         """Load configuration from environment variables with optional YAML fallback."""
         import os
 
-        from dotenv import load_dotenv
-
-        # Load environment variables from .env file
-        env_path = Path(__file__).parent / ".env"
-        if env_path.exists():
-            load_dotenv(env_path)
+        # Load environment variables from the repo-root .env file.
+        load_repo_env(__file__)
 
         try:
             # Load configuration primarily from environment variables
@@ -289,29 +308,31 @@ class ConfigurationManager:
 
     def _build_database_settings_from_env(self) -> DatabaseSettings:
         """Build database settings from environment variables."""
-        import os
-
         return DatabaseSettings(
-            type=os.getenv("DB_TYPE", "sqlite"),
-            name=os.getenv("DB_NAME", "trading_bot.db"),
-            user=os.getenv("DB_USER", "postgres"),
-            password=os.getenv("DB_PASSWORD", ""),
-            host=os.getenv("DB_HOST", "localhost"),
-            port=os.getenv("DB_PORT", "5432"),
+            type=_get_env("DB_TYPE", default="sqlite"),
+            name=_get_env("DB_NAME", "POSTGRES_DB", default="trading_bot.db"),
+            user=_get_env("DB_USER", "POSTGRES_USER", default="postgres"),
+            password=_get_env("DB_PASSWORD", "POSTGRES_PASSWORD", default=""),
+            host=_get_env("DB_HOST", default="localhost"),
+            port=_get_env("DB_PORT", "POSTGRES_PORT", default="5432"),
         )
 
     def _build_redis_settings_from_env(self) -> RedisSettings:
         """Build Redis settings from environment variables."""
-        import os
-
         return RedisSettings(
-            enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true",
-            host=os.getenv("REDIS_HOST", "localhost"),
-            port=int(os.getenv("REDIS_PORT", "6379")),
-            db=int(os.getenv("REDIS_DB", "0")),
-            password=os.getenv("REDIS_PASSWORD", ""),
-            ssl=os.getenv("REDIS_SSL", "false").lower() == "true",
-            timeout=int(os.getenv("REDIS_TIMEOUT", "5")),
+            enabled=_get_env("REDIS_ENABLED", default="false").lower() == "true",
+            host=_get_env("REDIS_HOST", default="localhost"),
+            port=_get_env_int("REDIS_PORT", default=6379),
+            db=_get_env_int("REDIS_DB", default=0),
+            password=_get_env("REDIS_PASSWORD", default=""),
+            ssl=_get_env("REDIS_SSL", default="false").lower() == "true",
+            timeout=_get_env_int("REDIS_TIMEOUT", default=5),
+            cache_ttl_seconds=_get_env_int(
+                "REDIS_CACHE_TTL_SECONDS",
+                "REDIS_CACHE_TTL",
+                default=86400,
+            ),
+            max_connections=_get_env_int("REDIS_MAX_CONNECTIONS", default=10),
         )
 
     def _build_logging_settings(self, data: dict) -> LoggingSettings:

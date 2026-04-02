@@ -7,7 +7,7 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Daily service-first quick start:"
-	@echo "  1. make stack-env       # Create .env.stack from template"
+	@echo "  1. make stack-env       # Create .env from template if missing"
 	@echo "  2. make infra-up        # Start shared postgres + redis only"
 	@echo "  3. Start your service from its own workspace/devcontainer"
 	@echo ""
@@ -343,7 +343,7 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 
 infra-up: ## Start shared infra only (postgres + redis) for local service development
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.infra.yml up -d --remove-orphans; \
 		echo "✅ Infra started (postgres:5432, redis:6379)"; \
 	else \
@@ -353,7 +353,7 @@ infra-up: ## Start shared infra only (postgres + redis) for local service develo
 
 infra-down: ## Stop shared infra only (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.infra.yml down --remove-orphans; \
 		echo "✅ Infra stopped"; \
 	else \
@@ -363,7 +363,7 @@ infra-down: ## Stop shared infra only (postgres + redis)
 
 infra-logs: ## Follow logs for shared infra services (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.infra.yml logs -f --tail=100; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra logs"; \
@@ -372,7 +372,7 @@ infra-logs: ## Follow logs for shared infra services (postgres + redis)
 
 infra-ps: ## Show status for shared infra services (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.infra.yml ps; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra status"; \
@@ -383,7 +383,7 @@ stack-up-dev: ## Start full integration stack (api + worker + frontend dev + pos
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
 		python3 scripts/validate_stack_env.py; \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev up -d --remove-orphans; \
 		echo "✅ Dev stack started (frontend:5173, api:8889, worker enabled)"; \
 	else \
@@ -395,7 +395,7 @@ stack-up-prod: ## Start split app stack (api + worker + frontend preview + postg
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
 		python3 scripts/validate_stack_env.py --strict-prod; \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile prod up -d --remove-orphans; \
 		echo "✅ Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
 	else \
@@ -407,7 +407,7 @@ stack-up-integration: stack-up-dev ## Alias for full integration stack in dev pr
 
 stack-down: ## Stop split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev --profile prod down --remove-orphans; \
 		echo "✅ Stack stopped"; \
 	else \
@@ -417,7 +417,7 @@ stack-down: ## Stop split app stack
 
 stack-logs: ## Follow logs for split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml logs -f --tail=100; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch logs"; \
@@ -426,25 +426,25 @@ stack-logs: ## Follow logs for split app stack
 
 stack-ps: ## Show status for split app stack services
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env.stack ] && echo "--env-file .env.stack" ); \
+		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
 		docker compose $$ENV_OPT -f docker-compose.stack.yml ps; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch service status"; \
 		exit 0; \
 	fi
 
-stack-env: ## Create .env.stack from template (safe; won't overwrite existing)
-	@if [ -f .env.stack ]; then \
-		echo "ℹ️ .env.stack already exists"; \
+stack-env: ## Create .env from template (safe; won't overwrite existing)
+	@if [ -f .env ]; then \
+		echo "ℹ️ .env already exists"; \
 	else \
-		cp .env.stack.example .env.stack; \
-		echo "✅ Created .env.stack (edit secrets before production use)"; \
+		cp .env.example .env; \
+		echo "✅ Created .env (edit secrets before production use)"; \
 	fi
 
-stack-env-check: ## Validate required variables in .env.stack
+stack-env-check: ## Validate required variables in .env
 	python3 scripts/validate_stack_env.py
 
-stack-env-check-prod: ## Validate .env.stack with strict production rules
+stack-env-check-prod: ## Validate .env with strict production rules
 	python3 scripts/validate_stack_env.py --strict-prod
 
 .DEFAULT_GOAL := help

@@ -70,7 +70,7 @@ func (db *DatabaseSettings) DSN() string {
 	case "sqlite3", "sqlite":
 		return fmt.Sprintf("%s.db", db.Dbname)
 	default:
-		return fmt.Sprint("app.db")
+		return "app.db"
 	}
 }
 
@@ -125,25 +125,25 @@ func LoadConfig() {
 	}
 
 	telegram := TelegramSettings{
-		Token:  os.Getenv("TELEGRAM_TOKEN"),
-		ChatID: os.Getenv("TELEGRAM_CHAT_ID"),
+		Token:  getEnvAny([]string{"TELEGRAM_TOKEN", "TELEGRAM_BOT_TOKEN"}, ""),
+		ChatID: getEnvAny([]string{"TELEGRAM_CHAT_ID"}, ""),
 	}
 
 	dydx := DYDX{
 		IsTestnet: getEnvBool("IS_TESTNET", false),
 		DYDXTestnetSettings: DYDXTestnetSettings{
-			Address: os.Getenv("DYDX_TESTNET_ADDRESS"),
-			Secret:  os.Getenv("DYDX_TESTNET_SECRET"),
+			Address: getEnvAny([]string{"DYDX_TESTNET_ADDRESS"}, ""),
+			Secret:  getEnvAny([]string{"DYDX_TESTNET_SECRET", "DYDX_TESTNET_MNEMONIC"}, ""),
 		},
 		DYDXMainnetSettings: DYDXMainnetSettings{
-			Address: os.Getenv("DYDX_MAINNET_ADDRESS"),
-			Secret:  os.Getenv("DYDX_MAINNET_SECRET"),
+			Address: getEnvAny([]string{"DYDX_MAINNET_ADDRESS"}, ""),
+			Secret:  getEnvAny([]string{"DYDX_MAINNET_SECRET", "DYDX_MAINNET_MNEMONIC"}, ""),
 		},
 	}
 
 	loki := LokiSettings{
 		Enabled:  getEnvBool("LOKI_ENABLED", false),
-		URL:      os.Getenv("LOKI_PUSH_URL"),
+		URL:      getEnvAny([]string{"LOKI_PUSH_URL", "LOKI_URL"}, ""),
 		Username: os.Getenv("LOKI_USERNAME"),
 		Password: os.Getenv("LOKI_PASSWORD"),
 		TenantID: os.Getenv("LOKI_TENANT_ID"),
@@ -151,12 +151,12 @@ func LoadConfig() {
 	}
 
 	database := DatabaseSettings{
-		Host:           getEnv("DB_HOST", "localhost"),
-		Port:           getEnvInt("DB_PORT", 5432),
-		Dbname:         getEnv("DB_NAME", "dydx_bot"),
-		User:           getEnv("DB_USER", "dydx_bot"),
+		Host:           getEnvAny([]string{"DB_HOST"}, "localhost"),
+		Port:           getEnvIntAny([]string{"DB_PORT", "POSTGRES_PORT"}, 5432),
+		Dbname:         getEnvAny([]string{"DB_NAME", "POSTGRES_DB"}, "dydx_bot"),
+		User:           getEnvAny([]string{"DB_USER", "POSTGRES_USER"}, "dydx_bot"),
 		Type:           getEnv("DB_TYPE", "sqlite3"),
-		Password:       os.Getenv("DB_PASSWORD"),
+		Password:       getEnvAny([]string{"DB_PASSWORD", "POSTGRES_PASSWORD"}, ""),
 		SSL:            getEnvBool("SSL_MODE", false),
 		Timeout:        getEnvInt("DB_TIMEOUT", 5),
 		MaxConnections: getEnvInt("DB_MAX_CONNECTIONS", 10),
@@ -167,18 +167,18 @@ func LoadConfig() {
 
 	redis := RedisSettings{
 		Host:            getEnv("REDIS_HOST", "localhost"),
-		Port:            getEnvInt("REDIS_PORT", 6379),
+		Port:            getEnvIntAny([]string{"REDIS_PORT"}, 6379),
 		Db:              getEnvInt("REDIS_DB", 0),
 		Password:        os.Getenv("REDIS_PASSWORD"),
 		SSL:             getEnvBool("REDIS_SSL", false),
 		Timeout:         getEnvInt("REDIS_TIMEOUT", 5),
-		CacheTTLSeconds: getEnvInt("REDIS_CACHE_TTL", 86400),
+		CacheTTLSeconds: getEnvIntAny([]string{"REDIS_CACHE_TTL", "REDIS_CACHE_TTL_SECONDS"}, 86400),
 		MaxConnections:  getEnvInt("REDIS_MAX_CONNECTIONS", 10),
 		Enabled:         getEnvBool("REDIS_ENABLED", true),
 	}
 
 	auth := AuthSettings{
-		JWTSecretKey:             getEnv("JWT_SECRET_KEY", "your-super-secret-key-change-in-production"),
+		JWTSecretKey:             getEnvAny([]string{"JWT_SECRET_KEY", "SECRET_KEY"}, "your-super-secret-key-change-in-production"),
 		JWTAlgorithm:             getEnv("JWT_ALGORITHM", "HS256"),
 		AccessTokenExpireMinutes: getEnvInt("ACCESS_TOKEN_EXPIRE_MINUTES", 30),
 		RefreshTokenExpireDays:   getEnvInt("REFRESH_TOKEN_EXPIRE_DAYS", 7),
@@ -202,10 +202,30 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
+func getEnvAny(keys []string, defaultValue string) string {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+	}
+	return defaultValue
+}
+
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvIntAny(keys []string, defaultValue int) int {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			if intValue, err := strconv.Atoi(value); err == nil {
+				return intValue
+			}
 		}
 	}
 	return defaultValue

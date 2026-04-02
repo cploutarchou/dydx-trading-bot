@@ -305,9 +305,10 @@ All Recharts visualizations follow this structure - responsive containers with d
 ## Environment Variables
 
 ```bash
-# .env.local (development)
+# repo-root .env (development)
 VITE_API_URL=http://localhost:8888
 
+# Development reads VITE_API_URL from the repo-root .env.
 # Production uses VITE_API_URL from environment at build time
 ```
 

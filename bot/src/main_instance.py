@@ -3,9 +3,9 @@ Instance-aware main.py - Modified to support API-controlled bot instances
 """
 
 # ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
-from dotenv import load_dotenv
+from src.shared.env_loader import load_repo_env
 
-load_dotenv()
+load_repo_env(__file__)
 
 import argparse
 import asyncio
@@ -55,7 +55,65 @@ class BotInstance:
     def load_config(self):
         """Load instance-specific configuration"""
         try:
-            # Use default configuration system for now
+            # Attempt to load instance-specific YAML config file first
+            if self.config_file and os.path.exists(self.config_file):
+                import yaml
+                if self.logger:
+                    self.logger.info(f"Loading instance config from {self.config_file}")
+                with open(self.config_file, 'r') as f:
+                    config_data = yaml.safe_load(f)
+                    if config_data:
+                        # Config loaded from file; build minimal DydxConfig from YAML
+                        from config.config import DydxConfig, BotSettings, TelegramSettings, DYDXTestnetSettings, DYDXMainnetSettings, LoggingSettings, BacktestSettings, DatabaseSettings, RedisSettings, LokiSettings
+
+                        self.config = DydxConfig(
+                            is_testnet=config_data.get("is_testnet", True),
+                            environment=config_data.get("environment", "development"),
+                            telegram=TelegramSettings(
+                                token=config_data.get("telegram", {}).get("token", ""),
+                                chat_id=config_data.get("telegram", {}).get("chat_id", ""),
+                            ),
+                            botSettings=BotSettings(
+                                is_testnet=config_data.get("is_testnet", True),
+                                abortAllPositions=config_data.get("botSettings", {}).get("abortAllPositions", False),
+                                findCointegratedPairs=config_data.get("botSettings", {}).get("findCointegratedPairs", False),
+                                manageExits=config_data.get("botSettings", {}).get("manageExits", False),
+                                placeTrades=config_data.get("botSettings", {}).get("placeTrades", False),
+                                resolutionTimeframe=config_data.get("botSettings", {}).get("resolutionTimeframe", "1HOUR"),
+                                strategy=config_data.get("botSettings", {}).get("strategy", "cointegration"),
+                                statsWindow=int(config_data.get("botSettings", {}).get("statsWindow", 21)),
+                                maxHalfLife=int(config_data.get("botSettings", {}).get("maxHalfLife", 24)),
+                                ZScoreThreshold=float(config_data.get("botSettings", {}).get("ZScoreThreshold", 1.5)),
+                                usdPerTrade=float(config_data.get("botSettings", {}).get("usdPerTrade", 10.0)),
+                                usdMinCollateral=float(config_data.get("botSettings", {}).get("usdMinCollateral", 100.0)),
+                                closeAtZscoreCross=config_data.get("botSettings", {}).get("closeAtZscoreCross", True),
+                            ),
+                            dydx_testnet=DYDXTestnetSettings(
+                                dydx_chain_address=config_data.get("dydx_testnet", {}).get("dydx_chain_address", ""),
+                                dydx_chain_secret=config_data.get("dydx_testnet", {}).get("dydx_chain_secret", ""),
+                            ),
+                            dydx_mainnet=DYDXMainnetSettings(
+                                dydx_chain_address=config_data.get("dydx_mainnet", {}).get("dydx_chain_address", ""),
+                                dydx_chain_secret=config_data.get("dydx_mainnet", {}).get("dydx_chain_secret", ""),
+                            ),
+                            logging=LoggingSettings(
+                                level=config_data.get("logging", {}).get("level", "INFO"),
+                                loki=LokiSettings(
+                                    enabled=config_data.get("logging", {}).get("loki", {}).get("enabled", False),
+                                    url=config_data.get("logging", {}).get("loki", {}).get("url", ""),
+                                    username=config_data.get("logging", {}).get("loki", {}).get("username", ""),
+                                    password=config_data.get("logging", {}).get("loki", {}).get("password", ""),
+                                    labels=config_data.get("logging", {}).get("loki", {}).get("labels", {}),
+                                ),
+                            ),
+                        )
+                        if self.logger:
+                            self.logger.info(f"Configuration loaded for instance {self.instance_id}")
+                            self.logger.info(f"Network: {'TESTNET' if self.config.is_testnet else 'MAINNET'}")
+                            self.logger.info(f"Strategy: {self.config.botSettings.strategy}")
+                        return
+
+            # Fallback to environment-based config
             self.config = config()
 
             if self.config is None:

@@ -273,9 +273,13 @@ class DatabaseManager:
 db = DatabaseManager()
 
 
-def get_session() -> Session:
-    """Get database session for dependency injection"""
-    return db.get_session()
+def get_session():
+    """Get database session for dependency injection with automatic cleanup"""
+    session = db.get_session()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 def init_db():

@@ -12,7 +12,7 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 
 ## System Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                      React 19 Frontend                       │
 ├─────────────────────────────────────────────────────────────┤
@@ -106,7 +106,7 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 
 ## Key Directories
 
-```
+```text
 frontend/
 ├── src/
 │   ├── pages/               # Route-level components
@@ -153,7 +153,7 @@ docs/                       # Documentation (you are here)
 
 ### Authentication Flow
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │ User inputs credentials on Login page   │
 └────────────────┬────────────────────────┘
@@ -192,7 +192,7 @@ docs/                       # Documentation (you are here)
 
 ### Data Flow: Starting a Backtest
 
-```
+```text
 BacktestRunner component
        │
        ▼ (user clicks Run Backtest)
@@ -221,7 +221,7 @@ handleRunBacktest()
 
 ### Real-time WebSocket Connection
 
-```
+```text
 BacktestDetails component mounts
        │
        ▼ useBacktestProgress hook initializes
@@ -371,13 +371,13 @@ if (error) return <div className="bg-red-900 border-red-700 p-4">Error: {error}<
 
 ## Environment Configuration
 
-### Development (.env.local)
+### Development (repo-root `.env`)
 
 ```bash
 VITE_API_URL=http://localhost:8888
 ```
 
-### Production (.env.production)
+### Production (build-time environment)
 
 ```bash
 VITE_API_URL=https://api.your-domain.com

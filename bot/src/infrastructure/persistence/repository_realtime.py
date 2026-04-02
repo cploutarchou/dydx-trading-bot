@@ -20,6 +20,12 @@ class PositionRepository:
             Position.status == PositionStatusEnum.OPEN
         ).all()
 
+    def get_position_by_id(self, position_id: str) -> Optional[Position]:
+        """Get position by ID"""
+        return self.session.query(Position).filter(
+            Position.position_id == position_id
+        ).first()
+
     def create_position(self, bot_instance_id: int, position_id: str, pair1: str, pair2: str,
                        side1: str, side2: str, entry_price1: float, entry_price2: float,
                        entry_size1: float, entry_size2: float) -> Position:
@@ -188,6 +194,10 @@ class AlertRepository:
             Alert.acknowledged == False
         ).all()
 
+    def get_unnotified_alerts(self, bot_instance_id: int) -> List[Alert]:
+        """Alias for get_unacknowledged_alerts for API compatibility"""
+        return self.get_unacknowledged_alerts(bot_instance_id)
+
     def acknowledge_alert(self, alert_id: int):
         """Mark an alert as acknowledged"""
         from datetime import datetime
@@ -196,6 +206,20 @@ class AlertRepository:
             alert.acknowledged = True
             alert.acknowledged_at = datetime.utcnow()
             self.session.commit()
+
+
+class PositionSnapshotsRepository:
+    """Repository for position snapshots"""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_position_history(self, position_id: str, hours: int = 24) -> List[dict]:
+        """Get historical P&L snapshots for a position"""
+        from datetime import datetime, timedelta
+        # Placeholder: fetch snapshots from a dedicated table if it exists
+        # For now, return empty list as the schema may not have a dedicated snapshots table
+        return []
 
 
 class UnitOfWorkRealtime:
@@ -207,6 +231,7 @@ class UnitOfWorkRealtime:
         self.market_data = MarketDataRepository(session)
         self.stats = StatsRepository(session)
         self.alerts = AlertRepository(session)
+        self.snapshots = PositionSnapshotsRepository(session)
 
     def __enter__(self):
         return self

@@ -2,9 +2,6 @@ package middleware
 
 import (
 	"fmt"
-	"strings"
-
-	"github.com/dydx-trading-bot/backend-go/internal/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,45 +37,8 @@ func LoggingMiddleware() gin.HandlerFunc {
 	}
 }
 
-// AuthMiddleware validates JWT token using config secret
+// AuthMiddleware is kept for backward compatibility.
+// Deprecated: use RequireAuth() from auth_middleware.go.
 func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Get token from Authorization header
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(401, gin.H{"error": "missing authorization header"})
-			c.Abort()
-			return
-		}
-
-		// Extract token from "Bearer <token>"
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(401, gin.H{"error": "invalid authorization header format"})
-			c.Abort()
-			return
-		}
-
-		tokenString := parts[1]
-
-		// We'll need to pass secret through context or use a package-level variable
-		// For now, create a default manager - this should be set from main
-		jwtManager := auth.NewManager(auth.JWTConfig{Secret: "your-secret-key"})
-
-		// Verify token (expecting access token)
-		claims, err := jwtManager.VerifyToken(tokenString, "access")
-		if err != nil {
-			c.JSON(401, gin.H{"error": fmt.Sprintf("invalid token: %v", err)})
-			c.Abort()
-			return
-		}
-
-		// Store user info in context
-		c.Set("user_id", claims.UserID)
-		c.Set("username", claims.Username)
-		c.Set("email", claims.Email)
-		c.Set("is_admin", claims.IsAdmin)
-
-		c.Next()
-	}
+	return RequireAuth()
 }

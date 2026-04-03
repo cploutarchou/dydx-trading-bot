@@ -1,6 +1,13 @@
-import { Activity, AlertTriangle, RefreshCw, TrendingUp, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Bot, RefreshCw, TrendingUp, Zap } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api';
+import {
+  devFallback,
+  MOCK_ALERTS,
+  MOCK_BOT_INSTANCES,
+  MOCK_BOT_STATS,
+  MOCK_POSITIONS,
+} from '../api/mockData';
 import BotManager from '../components/BotManager';
 
 type TabType = 'overview' | 'manager' | 'positions' | 'alerts';
@@ -42,27 +49,32 @@ interface AlertDataType {
 }
 
 const asArray = <T,>(value: unknown): T[] => {
-  if (Array.isArray(value)) {
-    return value as T[];
-  }
+  if (Array.isArray(value)) return value as T[];
   return [];
 };
 
 const getStatusBadge = (status: string): string => {
   const styles: Record<string, string> = {
-    RUNNING: 'bg-green-100 text-green-800',
-    STOPPED: 'bg-yellow-100 text-yellow-800',
-    FAILED: 'bg-red-100 text-red-800',
-    ERROR: 'bg-red-100 text-red-800',
-    PAUSED: 'bg-orange-100 text-orange-800',
+    RUNNING: 'bg-green-900 text-green-300 border border-green-700',
+    STOPPED: 'bg-slate-700 text-slate-300 border border-slate-600',
+    FAILED: 'bg-red-900 text-red-300 border border-red-700',
+    ERROR: 'bg-red-900 text-red-300 border border-red-700',
+    PAUSED: 'bg-yellow-900 text-yellow-300 border border-yellow-700',
   };
-
-  return styles[status] || 'bg-gray-100 text-gray-800';
+  return styles[status] || 'bg-slate-700 text-slate-300 border border-slate-600';
 };
 
-const formatCurrency = (value: number): string => {
-  return `${value >= 0 ? '' : '-'}$${Math.abs(value).toFixed(2)}`;
+const getPositionStatusBadge = (status: string): string => {
+  const styles: Record<string, string> = {
+    OPEN: 'bg-blue-900 text-blue-300',
+    CLOSED: 'bg-slate-700 text-slate-300',
+    PARTIAL: 'bg-yellow-900 text-yellow-300',
+  };
+  return styles[status.toUpperCase()] || 'bg-slate-700 text-slate-300';
 };
+
+const formatCurrency = (value: number): string =>
+  `${value >= 0 ? '' : '-'}$${Math.abs(value).toFixed(2)}`;
 
 const formatWinRate = (value: number): string => {
   const normalized = value <= 1 ? value * 100 : value;
@@ -87,44 +99,59 @@ const BotDashboard: React.FC = () => {
   const loadBots = useCallback(async () => {
     try {
       setLoading(true);
-
       const response = await api.listBotInstances(0, 100);
       const rawBotData = response.data as { bots?: unknown } | unknown;
-      const instances = asArray<BotListItem>(
+      const rawInstances = asArray<BotListItem>(
         (rawBotData as { bots?: unknown })?.bots ?? rawBotData
       );
-
-      const statsResponses = await Promise.all(
-        instances.map(async (bot) => {
-          try {
-            return await api.getBotStats(bot.instance_id);
-          } catch {
-            return null;
-          }
-        })
+      const instances = devFallback(
+        rawInstances,
+        MOCK_BOT_INSTANCES as unknown as BotListItem[]
       );
 
-      const statsData: BotStatsData[] = instances.map((bot, index) => {
-        const rawStats = statsResponses[index]?.data as Record<string, unknown> | undefined;
-        return {
-          instance_id: bot.instance_id,
-          status: bot.status || String(rawStats?.status || 'UNKNOWN'),
-          total_pnl: Number(rawStats?.total_pnl || 0),
-          realized_pnl: Number(rawStats?.realized_pnl || 0),
-          unrealized_pnl: Number(rawStats?.unrealized_pnl || 0),
-          total_positions: Number(rawStats?.total_positions || 0),
-          open_positions: Number(rawStats?.open_positions || 0),
-          total_trades: Number(rawStats?.total_trades || 0),
-          win_rate: Number(rawStats?.win_rate || 0),
-          last_update: String(rawStats?.last_update || new Date().toISOString()),
-        };
-      });
+      // When using mock instances skip the API stats calls and use mock stats directly
+      const isMock = import.meta.env.DEV && rawInstances.length === 0 && instances.length > 0;
+
+      let statsData: BotStatsData[];
+      if (isMock) {
+        statsData = instances.map((bot) => {
+          const s = MOCK_BOT_STATS[bot.instance_id];
+          return s
+            ? { ...s }
+            : {
+                instance_id: bot.instance_id,
+                status: bot.status,
+                total_pnl: 0, realized_pnl: 0, unrealized_pnl: 0,
+                total_positions: 0, open_positions: 0, total_trades: 0,
+                win_rate: 0, last_update: new Date().toISOString(),
+              };
+        });
+      } else {
+        const statsResponses = await Promise.all(
+          instances.map(async (bot) => {
+            try { return await api.getBotStats(bot.instance_id); } catch { return null; }
+          })
+        );
+        statsData = instances.map((bot, index) => {
+          const rawStats = statsResponses[index]?.data as Record<string, unknown> | undefined;
+          return {
+            instance_id: bot.instance_id,
+            status: bot.status || String(rawStats?.status || 'UNKNOWN'),
+            total_pnl: Number(rawStats?.total_pnl || 0),
+            realized_pnl: Number(rawStats?.realized_pnl || 0),
+            unrealized_pnl: Number(rawStats?.unrealized_pnl || 0),
+            total_positions: Number(rawStats?.total_positions || 0),
+            open_positions: Number(rawStats?.open_positions || 0),
+            total_trades: Number(rawStats?.total_trades || 0),
+            win_rate: Number(rawStats?.win_rate || 0),
+            last_update: String(rawStats?.last_update || new Date().toISOString()),
+          };
+        });
+      }
 
       setBotList(statsData);
       setLastUpdated(new Date());
-      if (statsData.length > 0 && !selectedBot) {
-        setSelectedBot(statsData[0].instance_id);
-      }
+      if (statsData.length > 0 && !selectedBot) setSelectedBot(statsData[0].instance_id);
       setError(null);
     } catch (err) {
       console.error('Failed to load bots:', err);
@@ -135,243 +162,209 @@ const BotDashboard: React.FC = () => {
   }, [selectedBot]);
 
   const loadPositions = useCallback(async () => {
-    if (!selectedBot) {
-      setBotPositions([]);
-      return;
-    }
-
+    if (!selectedBot) { setBotPositions([]); return; }
     try {
       const response = await api.getBotCurrentPositions(selectedBot);
       const rawData = response.data as { positions?: unknown } | unknown;
-      const positions = asArray<PositionData>(
-        (rawData as { positions?: unknown })?.positions ?? rawData
-      );
-      setBotPositions(positions);
+      const live = asArray<PositionData>((rawData as { positions?: unknown })?.positions ?? rawData);
+      setBotPositions(devFallback(live, MOCK_POSITIONS as unknown as PositionData[]));
     } catch (err) {
-      console.error('Failed to load positions:', err);
       setError(err instanceof Error ? err.message : 'Failed to load positions');
     }
   }, [selectedBot]);
 
   const loadAlerts = useCallback(async () => {
-    if (!selectedBot) {
-      setBotAlerts([]);
-      return;
-    }
-
+    if (!selectedBot) { setBotAlerts([]); return; }
     try {
       const response = await api.getBotAlerts(selectedBot, 0, 50);
       const rawData = response.data as { alerts?: unknown } | unknown;
-      const alerts = asArray<AlertDataType>((rawData as { alerts?: unknown })?.alerts ?? rawData);
-      setBotAlerts(alerts);
+      const live = asArray<AlertDataType>((rawData as { alerts?: unknown })?.alerts ?? rawData);
+      setBotAlerts(devFallback(live, MOCK_ALERTS as unknown as AlertDataType[]));
     } catch (err) {
-      console.error('Failed to load alerts:', err);
       setError(err instanceof Error ? err.message : 'Failed to load alerts');
     }
   }, [selectedBot]);
 
+  useEffect(() => { void loadBots(); }, [loadBots]);
   useEffect(() => {
-    void loadBots();
-  }, [loadBots]);
-
-  useEffect(() => {
-    if (activeTab === 'positions') {
-      void loadPositions();
-    } else if (activeTab === 'alerts') {
-      void loadAlerts();
-    }
+    if (activeTab === 'positions') void loadPositions();
+    else if (activeTab === 'alerts') void loadAlerts();
   }, [activeTab, loadAlerts, loadPositions]);
-
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      void loadBots();
-    }, 10000);
-
-    return () => {
-      window.clearInterval(interval);
-    };
+    const interval = window.setInterval(() => void loadBots(), 10000);
+    return () => window.clearInterval(interval);
   }, [loadBots]);
+
+  const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
+    { id: 'overview', label: 'Overview', icon: <TrendingUp size={16} /> },
+    { id: 'manager', label: 'Bot Manager', icon: <Zap size={16} /> },
+    { id: 'positions', label: 'Positions', icon: <Activity size={16} /> },
+    { id: 'alerts', label: 'Alerts', icon: <AlertTriangle size={16} /> },
+  ];
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <div className="border-b border-slate-700 bg-slate-800">
-        <div className="max-w-7xl mx-auto flex gap-8 px-6 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`py-4 px-1 border-b-2 font-medium transition ${
-              activeTab === 'overview'
-                ? 'border-blue-500 text-white'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <TrendingUp size={18} />
-              Overview
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('manager')}
-            className={`py-4 px-1 border-b-2 font-medium transition ${
-              activeTab === 'manager'
-                ? 'border-blue-500 text-white'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Zap size={18} />
-              Bot Manager
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('positions')}
-            className={`py-4 px-1 border-b-2 font-medium transition ${
-              activeTab === 'positions'
-                ? 'border-blue-500 text-white'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Activity size={18} />
-              Positions
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('alerts')}
-            className={`py-4 px-1 border-b-2 font-medium transition ${
-              activeTab === 'alerts'
-                ? 'border-blue-500 text-white'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={18} />
-              Alerts
-            </div>
-          </button>
+      {/* Tab Bar */}
+      <div className="border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto flex gap-1 px-4 overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 py-3.5 px-4 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'border-blue-500 text-white'
+                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600'
+              }`}
+            >
+              <span className={activeTab === tab.id ? 'text-blue-400' : ''}>{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {/* Page header */}
         {activeTab !== 'manager' && (
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-3xl font-bold text-white">Bot Dashboard</h1>
-              <p className="text-slate-400 mt-1">
-                {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Loading...'}
+              <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+                <div className="p-2 bg-blue-500/15 rounded-lg">
+                  <Bot className="w-5 h-5 text-blue-400" />
+                </div>
+                Bot Dashboard
+              </h1>
+              <p className="text-slate-400 mt-1 ml-12 text-sm">
+                {lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString()}` : 'Loading bot data…'}
               </p>
             </div>
             <button
               onClick={() => void loadBots()}
               disabled={loading}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-400 text-white px-4 py-2 rounded-lg transition text-sm font-medium"
             >
-              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               Refresh
             </button>
           </div>
         )}
 
+        {/* Error banner */}
         {error && (
-          <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
-            <AlertTriangle size={20} />
+          <div className="bg-red-900/50 border border-red-700 text-red-100 px-4 py-3 rounded-lg mb-6 flex items-center gap-2 text-sm">
+            <AlertTriangle size={16} className="shrink-0" />
             {error}
           </div>
         )}
 
+        {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {botList.map((bot) => (
+            {botList.length === 0 && !loading ? (
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-16 text-center animate-fade-in">
+                <div className="w-20 h-20 bg-slate-700/60 rounded-full flex items-center justify-center mx-auto mb-5">
+                  <Bot className="w-10 h-10 text-slate-500" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">No Bots Running</h3>
+                <p className="text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
+                  No bot instances found. Open Bot Manager to create and start your first automated trading bot.
+                </p>
                 <button
-                  type="button"
-                  key={bot.instance_id}
-                  onClick={() => setSelectedBot(bot.instance_id)}
-                  className={`bg-slate-800 border rounded-lg p-4 text-left cursor-pointer transition ${
-                    selectedBot === bot.instance_id
-                      ? 'border-blue-500 ring-1 ring-blue-500'
-                      : 'border-slate-700 hover:border-slate-600'
-                  }`}
+                  onClick={() => setActiveTab('manager')}
+                  className="mt-6 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition"
                 >
-                  <div className="flex items-start justify-between mb-2 gap-2">
-                    <h3 className="font-semibold text-white truncate">{bot.instance_id}</h3>
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadge(bot.status)}`}
-                    >
-                      {bot.status}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between gap-3">
-                      <span className="text-slate-400">P&amp;L</span>
-                      <span className={bot.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                        {formatCurrency(bot.total_pnl)}
+                  <Zap size={16} />
+                  Open Bot Manager
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {botList.map((bot) => (
+                  <button
+                    type="button"
+                    key={bot.instance_id}
+                    onClick={() => setSelectedBot(bot.instance_id)}
+                    className={`bg-slate-800 border rounded-xl p-4 text-left cursor-pointer transition-all ${
+                      selectedBot === bot.instance_id
+                        ? 'border-blue-500 ring-1 ring-blue-500/40 shadow-xl shadow-blue-500/10'
+                        : 'border-slate-700 hover:border-slate-600 hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-3 gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Instance</p>
+                        <h3 className="font-semibold text-white truncate text-sm">
+                          {bot.instance_id.substring(0, 16)}{bot.instance_id.length > 16 ? '…' : ''}
+                        </h3>
+                      </div>
+                      <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase whitespace-nowrap ${getStatusBadge(bot.status)}`}>
+                        {bot.status === 'RUNNING' && (
+                          <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                        )}
+                        {bot.status}
                       </span>
                     </div>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-slate-400">Positions</span>
-                      <span className="text-white">{bot.open_positions} open</span>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">P&amp;L</span>
+                        <span className={`font-semibold ${bot.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {formatCurrency(bot.total_pnl)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Open Positions</span>
+                        <span className="text-white font-medium">{bot.open_positions}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Total Trades</span>
+                        <span className="text-white font-medium">{bot.total_trades}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Win Rate</span>
+                        <span className="text-white font-medium">{formatWinRate(bot.win_rate)}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-slate-400">Trades</span>
-                      <span className="text-white">{bot.total_trades}</span>
-                    </div>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-slate-400">Win Rate</span>
-                      <span className="text-white">{formatWinRate(bot.win_rate)}</span>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {selectedBotStats && (
-              <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-                <h2 className="text-xl font-bold text-white mb-6">
-                  {selectedBotStats.instance_id} - Detailed Stats
-                </h2>
-
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                  <div>
-                    <p className="text-sm text-slate-400 mb-1">Total P&amp;L</p>
-                    <p
-                      className={`text-2xl font-semibold ${
-                        selectedBotStats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'
-                      }`}
-                    >
-                      {formatCurrency(selectedBotStats.total_pnl)}
-                    </p>
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 animate-fade-slide-up">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-blue-500/15 rounded-lg">
+                    <Bot className="w-5 h-5 text-blue-400" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-400 mb-1">Realized P&amp;L</p>
-                    <p className="text-2xl font-semibold text-white">
-                      {formatCurrency(selectedBotStats.realized_pnl)}
-                    </p>
+                    <h2 className="text-lg font-bold text-white">{selectedBotStats.instance_id}</h2>
+                    <p className="text-xs text-slate-400">Detailed performance statistics</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-slate-400 mb-1">Unrealized P&amp;L</p>
-                    <p className="text-2xl font-semibold text-white">
-                      {formatCurrency(selectedBotStats.unrealized_pnl)}
-                    </p>
+                  <div className="ml-auto">
+                    <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold ${getStatusBadge(selectedBotStats.status)}`}>
+                      {selectedBotStats.status === 'RUNNING' && (
+                        <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                      )}
+                      {selectedBotStats.status}
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-sm text-slate-400 mb-1">Open Positions</p>
-                    <p className="text-2xl font-semibold text-white">
-                      {selectedBotStats.open_positions}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-400 mb-1">Total Trades</p>
-                    <p className="text-2xl font-semibold text-white">
-                      {selectedBotStats.total_trades}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-400 mb-1">Win Rate</p>
-                    <p className="text-2xl font-semibold text-white">
-                      {formatWinRate(selectedBotStats.win_rate)}
-                    </p>
-                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {[
+                    { label: 'Total P&L', value: formatCurrency(selectedBotStats.total_pnl), colored: true, positive: selectedBotStats.total_pnl >= 0 },
+                    { label: 'Realized P&L', value: formatCurrency(selectedBotStats.realized_pnl), colored: false, positive: false },
+                    { label: 'Unrealized P&L', value: formatCurrency(selectedBotStats.unrealized_pnl), colored: false, positive: false },
+                    { label: 'Open Positions', value: String(selectedBotStats.open_positions), colored: false, positive: false },
+                    { label: 'Total Trades', value: String(selectedBotStats.total_trades), colored: false, positive: false },
+                    { label: 'Win Rate', value: formatWinRate(selectedBotStats.win_rate), colored: false, positive: false },
+                  ].map((stat) => (
+                    <div key={stat.label} className="bg-slate-900/50 rounded-lg p-3 text-center">
+                      <p className="text-xs text-slate-400 mb-1">{stat.label}</p>
+                      <p className={`text-lg font-bold ${stat.colored ? (stat.positive ? 'text-green-400' : 'text-red-400') : 'text-white'}`}>
+                        {stat.value}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -381,39 +374,43 @@ const BotDashboard: React.FC = () => {
         {activeTab === 'manager' && <BotManager />}
 
         {activeTab === 'positions' && (
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-            <h2 className="text-xl font-bold text-white mb-6">
-              Open Positions - {selectedBot || 'No bot selected'}
-            </h2>
-
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-cyan-500/15 rounded-lg">
+                <Activity className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white">Open Positions</h2>
+                <p className="text-xs text-slate-400">{selectedBot ? `Bot: ${selectedBot}` : 'No bot selected'}</p>
+              </div>
+            </div>
             {botPositions.length === 0 ? (
-              <p className="text-slate-400 text-center py-8">No open positions</p>
+              <div className="text-center py-16">
+                <div className="w-14 h-14 bg-slate-700/60 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Activity className="w-7 h-7 text-slate-500" />
+                </div>
+                <p className="text-slate-400 text-sm">No open positions</p>
+                <p className="text-slate-500 text-xs mt-1">Active positions will appear here when trades are live.</p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-700">
-                      <th className="px-4 py-2 text-left text-slate-400">Market 1</th>
-                      <th className="px-4 py-2 text-left text-slate-400">Market 2</th>
-                      <th className="px-4 py-2 text-left text-slate-400">Entry Time</th>
-                      <th className="px-4 py-2 text-left text-slate-400">Z-Score</th>
-                      <th className="px-4 py-2 text-left text-slate-400">Status</th>
+                      {['Market 1', 'Market 2', 'Entry Time', 'Z-Score', 'Status'].map((h) => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-slate-700/60">
                     {botPositions.map((position) => (
-                      <tr
-                        key={position.position_id}
-                        className="border-b border-slate-700 hover:bg-slate-750"
-                      >
-                        <td className="px-4 py-2 text-white">{position.market_1}</td>
-                        <td className="px-4 py-2 text-white">{position.market_2}</td>
-                        <td className="px-4 py-2 text-slate-400">
-                          {new Date(position.entry_time).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2 text-white">{position.z_score.toFixed(3)}</td>
-                        <td className="px-4 py-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                      <tr key={position.position_id} className="hover:bg-slate-700/30 transition-colors">
+                        <td className="px-4 py-3 text-white font-mono text-xs">{position.market_1}</td>
+                        <td className="px-4 py-3 text-white font-mono text-xs">{position.market_2}</td>
+                        <td className="px-4 py-3 text-slate-400 text-xs">{new Date(position.entry_time).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-white font-mono text-xs">{position.z_score.toFixed(3)}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${getPositionStatusBadge(position.status)}`}>
                             {position.status}
                           </span>
                         </td>
@@ -427,29 +424,42 @@ const BotDashboard: React.FC = () => {
         )}
 
         {activeTab === 'alerts' && (
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-            <h2 className="text-xl font-bold text-white mb-6">
-              Alerts - {selectedBot || 'No bot selected'}
-            </h2>
-
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-yellow-500/15 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-yellow-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white">Alerts</h2>
+                <p className="text-xs text-slate-400">{selectedBot ? `Bot: ${selectedBot}` : 'No bot selected'}</p>
+              </div>
+              {botAlerts.length > 0 && (
+                <span className="ml-auto text-xs bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-2 py-0.5 rounded-full">
+                  {botAlerts.length} alert{botAlerts.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
             {botAlerts.length === 0 ? (
-              <p className="text-slate-400 text-center py-8">No alerts</p>
+              <div className="text-center py-16">
+                <div className="w-14 h-14 bg-slate-700/60 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle className="w-7 h-7 text-slate-500" />
+                </div>
+                <p className="text-slate-400 text-sm">No alerts</p>
+                <p className="text-slate-500 text-xs mt-1">System alerts will appear here when they occur.</p>
+              </div>
             ) : (
               <div className="space-y-3">
                 {botAlerts.map((alert, index) => (
-                  <div
-                    key={`${alert.timestamp}-${index}`}
-                    className="bg-slate-700 rounded p-4 flex items-start gap-3"
-                  >
-                    <AlertTriangle size={20} className="text-yellow-400 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-white font-medium">{alert.title || 'Alert'}</p>
-                      <p className="text-slate-300 text-sm mt-1">
+                  <div key={`${alert.timestamp}-${index}`} className="bg-slate-700/50 border border-slate-600 rounded-lg p-4 flex items-start gap-3">
+                    <div className="p-1.5 bg-yellow-900/50 rounded-lg shrink-0 mt-0.5">
+                      <AlertTriangle size={14} className="text-yellow-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-semibold">{alert.title || 'Alert'}</p>
+                      <p className="text-slate-300 text-sm mt-1 leading-relaxed">
                         {alert.message || alert.description || 'No description'}
                       </p>
-                      <p className="text-slate-500 text-xs mt-2">
-                        {new Date(alert.timestamp).toLocaleString()}
-                      </p>
+                      <p className="text-slate-500 text-xs mt-2">{new Date(alert.timestamp).toLocaleString()}</p>
                     </div>
                   </div>
                 ))}

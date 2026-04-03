@@ -11,6 +11,7 @@
 		"@tanstack/react-query-devtools": "^5.90.2",
 		"axios": "^1.6.2",
 		"date-fns": "^4.1.0",
+		"lightweight-charts": "^5.1.0",
 		"lucide-react": "^0.546.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",

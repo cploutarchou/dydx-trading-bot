@@ -296,10 +296,78 @@ export const MOCK_ALERTS: MockAlert[] = [
  * In development mode: if `live` is empty, return `mock` instead.
  * In production (or when live data is present) always returns `live` unchanged.
  */
+export type MockDataMode = 'auto' | 'on' | 'off';
+
+const readQueryMode = (): MockDataMode | null => {
+  if (typeof window === 'undefined') return null;
+  const value = new URLSearchParams(window.location.search).get('mockData');
+  if (value === '1' || value === 'on' || value === 'true') return 'on';
+  if (value === '0' || value === 'off' || value === 'false') return 'off';
+  return null;
+};
+
+const readStoredMode = (): MockDataMode => {
+  if (typeof window === 'undefined') return 'auto';
+
+  const mode = window.localStorage.getItem('mockDataMode');
+  if (mode === 'auto' || mode === 'on' || mode === 'off') return mode;
+
+  // Backward compatibility with previous boolean storage key.
+  const legacy = window.localStorage.getItem('forceMockData');
+  if (legacy === 'true') return 'on';
+  if (legacy === 'false') return 'off';
+
+  return 'auto';
+};
+
+/**
+ * Returns true when mock data should be enabled.
+ * Defaults to Vite dev mode, but can be forced via:
+ * - VITE_FORCE_MOCK_DATA=true
+ * - ?mockData=1
+ * - localStorage.setItem('mockDataMode', 'on')
+ */
+export function getMockDataMode(): MockDataMode {
+  const envForce = String(import.meta.env.VITE_FORCE_MOCK_DATA ?? '').toLowerCase();
+  if (envForce === 'true' || envForce === 'on' || envForce === '1') return 'on';
+  if (envForce === 'false' || envForce === 'off' || envForce === '0') return 'off';
+
+  const queryMode = readQueryMode();
+  if (queryMode) return queryMode;
+
+  return readStoredMode();
+}
+
+export function setMockDataMode(mode: MockDataMode): void {
+  if (typeof window === 'undefined') return;
+
+  if (mode === 'auto') {
+    window.localStorage.removeItem('mockDataMode');
+    window.localStorage.removeItem('forceMockData');
+    return;
+  }
+
+  window.localStorage.setItem('mockDataMode', mode);
+  // Keep legacy key in sync for older code paths.
+  window.localStorage.setItem('forceMockData', String(mode === 'on'));
+}
+
+export function shouldUseDevMocks(): boolean {
+  const mode = getMockDataMode();
+  if (mode === 'on') return true;
+  if (mode === 'off') return false;
+  return import.meta.env.DEV;
+}
+
+let hasLoggedMockFallback = false;
+
 export function devFallback<T>(live: T[], mock: T[]): T[] {
-  if (!import.meta.env.DEV) return live;
+  if (!shouldUseDevMocks()) return live;
   if (live.length > 0) return live;
-  console.info('🔧 [dev] No data from API — rendering mock data for development.');
+  if (!hasLoggedMockFallback) {
+    console.info('🔧 [dev] No data from API — rendering mock data for development.');
+    hasLoggedMockFallback = true;
+  }
   return mock;
 }
 

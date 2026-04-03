@@ -1,6 +1,7 @@
 import { Download, Trash2 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
+import { PageContainer } from './PageContainer';
 
 interface BacktestResult {
   run_id: string;
@@ -233,17 +234,17 @@ export const BacktestComparator: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <PageContainer size="wide" className="space-y-6">
       {/* Backtest Selection - Card View */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-700">
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-white">Compare Backtests</h2>
             <p className="text-sm text-gray-400 mt-1">
               Select up to 5 backtests to compare side by side
             </p>
           </div>
-          <div className="text-right">
+          <div className="text-left md:text-right">
             <div className="text-sm text-gray-400">
               Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} -{' '}
               {Math.min(currentPage * ITEMS_PER_PAGE, backtests.length)} of {backtests.length}
@@ -271,7 +272,7 @@ export const BacktestComparator: React.FC = () => {
         ) : (
           <>
             {/* Card Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               {paginatedBacktests.map((bt) => {
                 const isSelected = selectedBacktests.some((s) => s.run_id === bt.run_id);
                 const canSelectMore = selectedBacktests.length < 5;
@@ -380,7 +381,7 @@ export const BacktestComparator: React.FC = () => {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-4 border-t border-slate-600">
+              <div className="flex items-center justify-between gap-2 pt-4 border-t border-slate-600">
                 <button
                   onClick={handlePreviousPage}
                   disabled={currentPage === 1}
@@ -389,7 +390,7 @@ export const BacktestComparator: React.FC = () => {
                   ← Previous
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 overflow-x-auto">
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                     <button
                       key={page}
@@ -420,8 +421,8 @@ export const BacktestComparator: React.FC = () => {
 
       {/* Comparison Table */}
       {selectedBacktests.length > 0 && (
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 overflow-x-auto">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-700 overflow-x-auto">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-lg font-bold text-white">Comparison Results</h3>
             <button
               onClick={exportToCSV}
@@ -626,6 +627,6 @@ export const BacktestComparator: React.FC = () => {
           Select at least 2 backtests to compare
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 };

@@ -3,6 +3,7 @@ package routes
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -151,6 +152,50 @@ func normalizeBacktestRunPayload(config map[string]interface{}) map[string]inter
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
+	RegisterBotAPIDelegateRoutesWithSync(router, apiClient, nil)
+}
+
+// RegisterBotAPIDelegateRoutesWithSync registers delegated bot API endpoints and
+// optionally persists backtest run status snapshots into local DB tables.
+func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
+	syncRun := func(c *gin.Context, payload map[string]interface{}) {
+		if backtestSync == nil {
+			return
+		}
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			return
+		}
+		userID, ok := userIDValue.(int)
+		if !ok || userID <= 0 {
+			return
+		}
+		if err := backtestSync.SyncBacktestRun(userID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed to sync delegated backtest payload: %v", err)
+		}
+	}
+
+	syncRunList := func(c *gin.Context, payload map[string]interface{}) {
+		if backtestSync == nil || payload == nil {
+			return
+		}
+		root := payload
+		if data, ok := payload["data"].(map[string]interface{}); ok {
+			root = data
+		}
+		runs, ok := root["backtests"].([]interface{})
+		if !ok {
+			return
+		}
+		for _, item := range runs {
+			runPayload, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			syncRun(c, runPayload)
+		}
+	}
+
 	proxyWebSocket := func(c *gin.Context, requestClient *services.BotAPIClient, upstreamEndpoint string) {
 		clientConn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -250,6 +295,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			respondBotAPIError(c, err)
 			return
 		}
+		syncRun(c, result)
 
 		c.JSON(200, result)
 	}
@@ -295,6 +341,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 				respondBotAPIError(c, err)
 				return
 			}
+			syncRunList(c, result)
 			c.JSON(200, result)
 		})
 
@@ -340,6 +387,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 				respondBotAPIError(c, err)
 				return
 			}
+			syncRun(c, result)
 			c.JSON(200, result)
 		})
 
@@ -364,6 +412,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 				respondBotAPIError(c, err)
 				return
 			}
+			syncRun(c, result)
 			c.JSON(200, result)
 		})
 

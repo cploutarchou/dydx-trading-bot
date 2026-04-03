@@ -12,6 +12,7 @@ import (
 
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -69,7 +70,6 @@ func main() {
 			log.Fatalf("Failed to close database: %v", err)
 		}
 	}(database)
-
 
 	// Initialize auth middleware with config
 	middleware.InitAuthMiddleware(config.ConfigInstance)
@@ -166,11 +166,13 @@ func main() {
 	// Token will typically be obtained via login in the frontend
 	apiClient := services.NewBotAPIClient(botAPIURL, botAPIToken)
 	log.Printf("Initialized bot API client pointing to: %s", botAPIURL)
+	backtestSyncRepo := repository.NewBacktestSyncRepository(database.DB)
+	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
 	// Register all other routes on main router
 	// RegisterBacktestRoutes(router, database)
 	// Using bot API delegate routes instead for backtests
 	routes.RegisterBotInstanceRoutes(router, database)
-	routes.RegisterBotAPIDelegateRoutes(router, apiClient) // Register bot API proxy routes (includes backtests)
+	routes.RegisterBotAPIDelegateRoutesWithSync(router, apiClient, backtestSyncService) // Register bot API proxy routes (includes backtests)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)

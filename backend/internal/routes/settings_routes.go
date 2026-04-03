@@ -18,13 +18,12 @@ func RegisterSettingsRoutes(router *gin.Engine, database *db.Database) {
 	v1 := router.Group("/api/v1")
 	{
 		settings := v1.Group("/settings")
+		settings.Use(middleware.RequireAuth())
 		{
-			// Public initialization endpoint (no auth required)
+			// Initialization and schema are admin-level operations; require auth.
 			settings.POST("/initialize", settingsHandler.Initialize)
 			settings.GET("/schema", settingsHandler.GetSchema)
 
-			// Require authentication for all other settings routes
-			settings.Use(middleware.RequireAuth())
 
 			// Get all settings
 			settings.GET("", settingsHandler.GetSettings)

@@ -875,9 +875,11 @@ class BacktestService:
                     "position_snapshots": all_snapshots,
                     "daily_pnl": [
                         {
+                            "candle_id": f"{day}|PORTFOLIO|{resolution}",
                             "date": day,
-                            "timestamp": day,
+                            "timestamp": f"{day}T00:00:00Z",
                             "market": "PORTFOLIO",
+                            "resolution": resolution,
                             "pnl": round(daily_pnl_agg[day], 4),
                             "trades": len(
                                 [
@@ -1130,6 +1132,17 @@ class BacktestService:
             ),
         }
 
+    def get_runtime_health(self) -> Dict[str, int]:
+        """Runtime counters used by orchestration and health endpoints."""
+        runs = list(self._runs.values())
+        active_statuses = {"created", "running"}
+        queued_or_running = [r for r in runs if str(r.get("status")) in active_statuses]
+        return {
+            "queue_depth": len(queued_or_running),
+            "active_jobs": len(self._tasks),
+            "total_runs": len(runs),
+        }
+
     def get_backtest_analytics(self, run_id: str) -> Optional[Dict[str, Any]]:
         data = self._runs.get(run_id)
         if not data:
@@ -1164,10 +1177,12 @@ class BacktestService:
         data = self._runs.get(run_id)
         if not data:
             return None
+        progress = float(data.get("progress_pct", 0.0))
         return {
             "run_id": run_id,
             "status": data.get("status"),
-            "progress_pct": float(data.get("progress_pct", 0.0)),
+            "progress": progress,
+            "progress_pct": progress,
             "current_pair": data.get("current_pair"),
         }
 
@@ -1271,6 +1286,9 @@ class BacktestService:
                     "total_trades": data.get("total_trades"),
                 },
                 "risk": {"max_drawdown_pct": data.get("max_drawdown_pct")},
+                "trades": data.get("trades", []),
+                "position_snapshots": data.get("position_snapshots", []),
+                "candles": daily_pnl_list,
                 "daily_pnl": daily_pnl_list,
                 "created_at": data.get("created_at"),
                 "updated_at": data.get("updated_at"),
@@ -1298,11 +1316,14 @@ class BacktestService:
         daily_pnl_list = []
         for i, raw in enumerate(raw_series):
             day = sd + timedelta(days=i)
+            resolution = "1DAY"
             daily_pnl_list.append(
                 {
+                    "candle_id": f"{day.isoformat()}|PORTFOLIO|{resolution}",
                     "date": day.isoformat(),
-                    "timestamp": day.isoformat(),
+                    "timestamp": f"{day.isoformat()}T00:00:00Z",
                     "market": "PORTFOLIO",
+                    "resolution": resolution,
                     "pnl": round(raw * scale, 2),
                     "trades": max(0, round(total_trades / max(1, num_days))),
                 }
@@ -1317,6 +1338,9 @@ class BacktestService:
                 "total_trades": data.get("total_trades"),
             },
             "risk": {"max_drawdown_pct": data.get("max_drawdown_pct")},
+            "trades": data.get("trades", []),
+            "position_snapshots": data.get("position_snapshots", []),
+            "candles": daily_pnl_list,
             "daily_pnl": daily_pnl_list,
             "created_at": data.get("created_at"),
             "updated_at": data.get("updated_at"),

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -24,19 +25,7 @@ func extractAuthToken(c *gin.Context) string {
 		return ""
 	}
 
-	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-	if authHeader != "" {
-		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			return strings.TrimSpace(authHeader[7:])
-		}
-		return authHeader
-	}
-
-	if cookieToken, err := c.Cookie("access_token"); err == nil {
-		return strings.TrimSpace(cookieToken)
-	}
-
-	return ""
+	return middleware.ExtractRequestAccessToken(c)
 }
 
 type BotInstanceHandler struct {
@@ -51,13 +40,59 @@ func NewBotInstanceHandler(service *services.BotInstanceService, repo *repositor
 	}
 }
 
+// authorizeInstanceAccess ensures the requesting user can access the target
+// bot instance. Legacy compat rows with user_id=0 are allowed.
+func (h *BotInstanceHandler) authorizeInstanceAccess(c *gin.Context, instanceID string) (*models.BotInstance, bool) {
+	userIDValue, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "User ID not found in context",
+		})
+		return nil, false
+	}
+
+	userID, ok := userIDValue.(int)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Invalid user context",
+		})
+		return nil, false
+	}
+
+	instance, err := h.repo.GetBotInstanceByInstanceID(instanceID)
+	if err != nil || instance == nil {
+		c.JSON(http.StatusNotFound, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Bot instance not found",
+		})
+		return nil, false
+	}
+
+	isAdmin := c.GetBool("is_admin")
+	if instance.UserID > 0 && instance.UserID != userID && !isAdmin {
+		c.JSON(http.StatusForbidden, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Forbidden: you do not own this bot instance",
+		})
+		return nil, false
+	}
+
+	return instance, true
+}
+
 // ListBotInstances retrieves all bot instances for the current user
 func (h *BotInstanceHandler) ListBotInstances(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "User ID not found in context",
 		})
 		return
@@ -82,7 +117,7 @@ func (h *BotInstanceHandler) ListBotInstances(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to retrieve bot instances: %v", err),
 		})
 		return
@@ -95,28 +130,22 @@ func (h *BotInstanceHandler) ListBotInstances(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      instances,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // GetBotInstance retrieves a specific bot instance
 func (h *BotInstanceHandler) GetBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
-
-	instance, err := h.repo.GetBotInstanceByInstanceID(instanceID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
-			Error:     fmt.Sprintf("Bot instance not found: %v", err),
-		})
+	instance, ok := h.authorizeInstanceAccess(c, instanceID)
+	if !ok {
 		return
 	}
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      instance,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -126,7 +155,7 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 	if !exists {
 		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "User ID not found in context",
 		})
 		return
@@ -145,7 +174,7 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -158,7 +187,7 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 	if req.Credentials == nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "credentials are required",
 		})
 		return
@@ -167,7 +196,7 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 	if req.TradingParams == nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "trading_params are required",
 		})
 		return
@@ -222,7 +251,7 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 	if err := service.CreateBotInstanceWithConfig(instance, createPayload); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to create bot instance: %v", err),
 		})
 		return
@@ -231,19 +260,22 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 	c.JSON(http.StatusCreated, APIResponse{
 		Success:   true,
 		Data:      instance,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // StartBotInstance starts a bot instance
 func (h *BotInstanceHandler) StartBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
+		return
+	}
 	service := h.service.WithAuthToken(extractAuthToken(c))
 
 	if err := service.StartBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to start bot instance: %v", err),
 		})
 		return
@@ -252,19 +284,22 @@ func (h *BotInstanceHandler) StartBotInstance(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      map[string]string{"status": "started"},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // StopBotInstance stops a bot instance
 func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
+		return
+	}
 	service := h.service.WithAuthToken(extractAuthToken(c))
 
 	if err := service.StopBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to stop bot instance: %v", err),
 		})
 		return
@@ -273,19 +308,22 @@ func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      map[string]string{"status": "stopped"},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // RestartBotInstance restarts a bot instance
 func (h *BotInstanceHandler) RestartBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
+		return
+	}
 	service := h.service.WithAuthToken(extractAuthToken(c))
 
 	if err := service.RestartBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to restart bot instance: %v", err),
 		})
 		return
@@ -294,18 +332,21 @@ func (h *BotInstanceHandler) RestartBotInstance(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      map[string]string{"status": "restarted"},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // DeleteBotInstance deletes a bot instance
 func (h *BotInstanceHandler) DeleteBotInstance(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
+		return
+	}
 
 	if err := h.service.DeleteBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to delete bot instance: %v", err),
 		})
 		return
@@ -314,20 +355,23 @@ func (h *BotInstanceHandler) DeleteBotInstance(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      map[string]string{"status": "deleted"},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // GetBotInstanceStats retrieves statistics for a bot instance
 func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
+		return
+	}
 	service := h.service.WithAuthToken(extractAuthToken(c))
 
 	stats, err := service.GetBotInstanceStats(instanceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get bot instance stats: %v", err),
 		})
 		return
@@ -336,13 +380,16 @@ func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      stats,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // GetBotInstanceTrades retrieves trades for a bot instance
 func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 	instanceID := c.Param("instance_id")
+	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
+		return
+	}
 	service := h.service.WithAuthToken(extractAuthToken(c))
 
 	limit := 100
@@ -369,7 +416,7 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get bot instance trades: %v", err),
 		})
 		return
@@ -378,6 +425,6 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      trades,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

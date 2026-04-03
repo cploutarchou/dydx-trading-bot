@@ -81,7 +81,7 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 
 	key, err := h.service.CreateKey(userID.(int), req.Network, req.ChainAddress, req.SecretPhrase)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
 			Error:     "Failed to create key: " + err.Error(),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -126,7 +126,7 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 		return
 	}
 
-	var keyResponses []KeyResponse
+	keyResponses := make([]KeyResponse, 0)
 	for _, k := range keys {
 		keyResponses = append(keyResponses, KeyResponse{
 			ID:        k["id"].(int),

@@ -175,6 +175,7 @@ class BotInstance:
                     "Initialization Failed",
                     f"Bot instance {self.instance_id} failed to initialize: {str(e)}",
                     is_critical=True,
+                    category="lifecycle_init",
                 )
             raise
 
@@ -208,6 +209,7 @@ class BotInstance:
                 "Setup Failed",
                 f"Bot instance {self.instance_id} setup failed: {str(e)}",
                 is_critical=True,
+                category="lifecycle_setup",
             )
             raise
 
@@ -232,6 +234,7 @@ class BotInstance:
                             "Exit Management Error",
                             f"Instance {self.instance_id}: {str(e)}",
                             is_critical=False,
+                            category="execution_exit",
                         )
 
                 # Place new trades
@@ -245,6 +248,7 @@ class BotInstance:
                             "Trade Entry Error",
                             f"Instance {self.instance_id}: {str(e)}",
                             is_critical=False,
+                            category="execution_entry",
                         )
 
                 # Sleep between iterations
@@ -256,7 +260,10 @@ class BotInstance:
         except Exception as e:
             self.logger.error(f"Critical error in trading loop: {e}")
             self.messenger.send_error_message(
-                "Trading Loop Error", f"Instance {self.instance_id}: {str(e)}", is_critical=True
+                "Trading Loop Error",
+                f"Instance {self.instance_id}: {str(e)}",
+                is_critical=True,
+                category="runtime_loop",
             )
             raise
         finally:

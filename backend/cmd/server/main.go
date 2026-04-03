@@ -59,7 +59,7 @@ func main() {
 		MaxOpenConns:   25,
 		MaxIdleConns:   5,
 	})
-	if err != nil {
+	if err != nil || database == nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	// Defer close to execute at the very end of main
@@ -70,9 +70,6 @@ func main() {
 		}
 	}(database)
 
-	if database == nil {
-		log.Fatalf("Failed to initialize database: %v", err)
-	}
 
 	// Initialize auth middleware with config
 	middleware.InitAuthMiddleware(config.ConfigInstance)

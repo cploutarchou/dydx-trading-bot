@@ -12,13 +12,14 @@
 - React Query layer lives in `src/api/hooks.ts` + `src/api/queryClient.ts` (`queryKeys`, cache tiers, invalidation helpers).
 - Auth state used by routing is `src/store/auth.ts` (legacy store), not `src/store/enhancedAuth.ts`.
 - Many major UI screens still fetch directly with `useState/useEffect` (for example `src/components/BacktestList.tsx`, `src/components/BotManager.tsx`). Do not assume hooks are universally adopted.
+- Backtest progress has two patterns: current UI component `src/components/BacktestProgress.tsx` uses polling via `useBacktestProgress` in `src/api/hooks.ts`, while legacy websocket hook logic remains in `src/hooks/useBacktestProgress.ts`.
 
 ## Key data and control flows
 - Login/session bootstrap: `useAuthStore.initializeSession()` in `src/App.tsx` -> `api.restoreSession()` -> `api.getCurrentUser()`.
-- Protected route check currently requires all of: `isAuthenticated()`, `user`, and `api.hasToken()` (`src/App.tsx`).
+- Protected route check currently requires both `isAuthenticated()` and `user` (`src/App.tsx`).
 - Backtest run flow: `BacktestRunner` posts `api.runBacktest()` then navigates to `/backtest/:runId` (`src/components/BacktestRunner.tsx`).
 - Backtest list polling: `BacktestList` polls every 4s only while runs are `PENDING/RUNNING` (`src/components/BacktestList.tsx`).
-- Realtime progress WebSocket uses `api.connectBacktestSocket(runId, token)` -> `/api/v1/backtests/{runId}/live?access_token=...` (`src/api.ts`, `src/hooks/useBacktestProgress.ts`).
+- Realtime progress in current UI polls backtest status every 2s via `useBacktestProgress` in `src/api/hooks.ts`; websocket support still exists through `api.connectBacktestSocket(runId, token)` and `src/hooks/useBacktestProgress.ts`.
 
 ## Response-shape and typing gotchas
 - Backend envelope is usually `{ success, message, data, timestamp }`; components often need nested extraction (example: `response.data?.backtests`).
@@ -33,11 +34,11 @@
 ## Developer workflows (verified from repo files)
 - Local dev: `npm run dev` (Vite on `5173`), build: `npm run build`, preview: `npm run preview`, lint: `npm run lint` (`package.json`).
 - API proxy in dev server maps `/api` to `VITE_API_URL` (`vite.config.ts`).
-- Local stack via Docker Compose exposes backend `8888`, Postgres `5432`, Redis `6379` (`docker-compose.yml`).
+- Docker Compose workflow is documented in `README.md` (`docker-compose up -d` / `docker-compose down`); expected local service ports are backend `8888`, Postgres `5432`, Redis `6379`.
 - TypeScript is strict (`strict`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`) in `tsconfig.json`.
 
 ## High-value files to read before major edits
 - `src/App.tsx`, `src/api.ts`, `src/api/enhancedClient.ts`, `src/api/hooks.ts`, `src/api/queryClient.ts`
-- `src/store/auth.ts`, `src/components/BacktestRunner.tsx`, `src/components/BacktestList.tsx`, `src/components/BotManager.tsx`
+- `src/store/auth.ts`, `src/components/BacktestRunner.tsx`, `src/components/BacktestList.tsx`, `src/components/BotManager.tsx`, `src/components/BacktestProgress.tsx`
 - `.github/copilot-instructions.md` (project conventions and intended patterns)
 

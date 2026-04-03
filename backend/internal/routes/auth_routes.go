@@ -287,7 +287,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := services.VerifyToken(refreshToken)
+		claims, err := services.VerifyTokenClaims(refreshToken)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
@@ -296,8 +296,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		tokenType, _ := claims["type"].(string)
-		if tokenType != "refresh" {
+		if claims.Type != "refresh" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"error":   "invalid token type for refresh",
@@ -305,15 +304,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		userIDFloat, ok := claims["user_id"].(float64)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"error":   "invalid refresh token payload",
-			})
-			return
-		}
-		userID := int(userIDFloat)
+		userID := claims.UserID
 
 		userRepo := repository.NewUserRepository(database)
 		user, err := userRepo.GetByID(userID)

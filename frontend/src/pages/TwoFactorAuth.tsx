@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle, Copy, Eye, EyeOff, Loader, Shield } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 type TwoFAStep = 'setup' | 'verify' | 'backup-codes' | 'complete';
@@ -15,6 +16,8 @@ export const TwoFactorAuthPage: React.FC = () => {
     const [localError, setLocalError] = useState<string | null>(null);
     const setupButtonRef = useRef<HTMLButtonElement | null>(null);
     const verifyTokenInputRef = useRef<HTMLInputElement | null>(null);
+    const apiErrorAlertRef = useRef<HTMLDivElement | null>(null);
+    const localErrorAlertRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         if (step === 'setup') {
@@ -24,6 +27,14 @@ export const TwoFactorAuthPage: React.FC = () => {
             verifyTokenInputRef.current?.focus();
         }
     }, [step, twoFAQRCode]);
+
+    useFocusOnVisibleError(
+        [
+            { when: !!error, ref: apiErrorAlertRef },
+            { when: !error && !!localError, ref: localErrorAlertRef },
+        ],
+        [error, localError]
+    );
 
     const handleSetup = async () => {
         setLocalError(null);
@@ -85,6 +96,8 @@ export const TwoFactorAuthPage: React.FC = () => {
                     {/* Error Alert */}
                     {error && (
                         <div
+                            ref={apiErrorAlertRef}
+                            tabIndex={-1}
                             role="alert"
                             aria-live="assertive"
                             className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
@@ -96,6 +109,8 @@ export const TwoFactorAuthPage: React.FC = () => {
 
                     {localError && (
                         <div
+                            ref={localErrorAlertRef}
+                            tabIndex={-1}
                             role="alert"
                             aria-live="assertive"
                             className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"

@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -28,10 +29,20 @@ export const RegisterPage: React.FC = () => {
     const passwordInputRef = useRef<HTMLInputElement | null>(null);
     const confirmPasswordInputRef = useRef<HTMLInputElement | null>(null);
     const termsCheckboxRef = useRef<HTMLInputElement | null>(null);
+    const apiErrorAlertRef = useRef<HTMLDivElement | null>(null);
+    const formErrorAlertRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         usernameInputRef.current?.focus();
     }, []);
+
+    useFocusOnVisibleError(
+        [
+            { when: !!error, ref: apiErrorAlertRef },
+            { when: !error && !!formError, ref: formErrorAlertRef },
+        ],
+        [error, formError]
+    );
 
     const validateForm = (): ValidationErrors => {
         const errors: ValidationErrors = {};
@@ -127,6 +138,8 @@ export const RegisterPage: React.FC = () => {
                 <div className="p-8">
                     {error && (
                         <div
+                            ref={apiErrorAlertRef}
+                            tabIndex={-1}
                             role="alert"
                             aria-live="assertive"
                             className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
@@ -138,6 +151,8 @@ export const RegisterPage: React.FC = () => {
 
                     {formError && (
                         <div
+                            ref={formErrorAlertRef}
+                            tabIndex={-1}
                             role="alert"
                             aria-live="assertive"
                             className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"

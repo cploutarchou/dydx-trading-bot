@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle, Lock, LogOut, Shield, User } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 interface ChangePasswordForm {
@@ -23,6 +24,8 @@ export const AuthSettingsComponent: React.FC = () => {
     });
     const [passwordChangeStatus, setPasswordChangeStatus] = useState<{ success?: string; error?: string }>({});
     const [setupError, setSetupError] = useState<string | null>(null);
+    const setupErrorAlertRef = useRef<HTMLDivElement | null>(null);
+    const passwordErrorAlertRef = useRef<HTMLDivElement | null>(null);
 
     const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
         const currentIndex = authTabs.indexOf(activeTab);
@@ -51,6 +54,17 @@ export const AuthSettingsComponent: React.FC = () => {
             setActiveTab(authTabs[authTabs.length - 1]);
         }
     };
+
+    useFocusOnVisibleError(
+        [
+            { when: activeTab === 'security' && !!setupError, ref: setupErrorAlertRef },
+            {
+                when: activeTab === 'security' && !setupError && !!passwordChangeStatus.error,
+                ref: passwordErrorAlertRef,
+            },
+        ],
+        [activeTab, setupError, passwordChangeStatus.error]
+    );
 
     const handleLogout = () => {
         logout();
@@ -261,6 +275,8 @@ export const AuthSettingsComponent: React.FC = () => {
 
                                 {setupError && (
                                     <div
+                                        ref={setupErrorAlertRef}
+                                        tabIndex={-1}
                                         role="alert"
                                         aria-live="assertive"
                                         className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3"
@@ -297,6 +313,8 @@ export const AuthSettingsComponent: React.FC = () => {
 
                                 {passwordChangeStatus.error && (
                                     <div
+                                        ref={passwordErrorAlertRef}
+                                        tabIndex={-1}
                                         role="alert"
                                         aria-live="assertive"
                                         className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"

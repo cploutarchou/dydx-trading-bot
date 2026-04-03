@@ -156,7 +156,7 @@ func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -166,7 +166,7 @@ func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
 	if !exists {
 		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Unauthorized",
 		})
 		return
@@ -182,13 +182,17 @@ func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
 	)
 	if err == nil {
 		applyStrategyPayload(strategy, req)
-		err = h.service.UpdateStrategy(strategy)
+		if updateErr := h.service.UpdateStrategy(strategy); updateErr != nil {
+			// Rollback: delete the orphaned strategy record.
+			_ = h.service.DeleteStrategy(strategy.ID)
+			err = updateErr
+		}
 	}
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to create strategy: %v", err),
 		})
 		return
@@ -197,7 +201,7 @@ func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
 	c.JSON(http.StatusCreated, APIResponse{
 		Success:   true,
 		Data:      strategy.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -208,7 +212,7 @@ func (h *StrategyHandler) GetStrategy(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid strategy ID",
 		})
 		return
@@ -218,7 +222,7 @@ func (h *StrategyHandler) GetStrategy(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get strategy: %v", err),
 		})
 		return
@@ -227,7 +231,7 @@ func (h *StrategyHandler) GetStrategy(c *gin.Context) {
 	if strategy == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Strategy not found",
 		})
 		return
@@ -236,7 +240,7 @@ func (h *StrategyHandler) GetStrategy(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      strategy.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -246,7 +250,7 @@ func (h *StrategyHandler) ListStrategies(c *gin.Context) {
 	if !exists {
 		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Unauthorized",
 		})
 		return
@@ -256,13 +260,13 @@ func (h *StrategyHandler) ListStrategies(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to list strategies: %v", err),
 		})
 		return
 	}
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0)
 	for _, s := range strategies {
 		result = append(result, s.ToDict())
 	}
@@ -274,7 +278,7 @@ func (h *StrategyHandler) ListStrategies(c *gin.Context) {
 			"total":      len(result),
 			"count":      len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -285,8 +289,18 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid strategy ID",
+		})
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Unauthorized",
 		})
 		return
 	}
@@ -296,7 +310,7 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -306,7 +320,7 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get strategy: %v", err),
 		})
 		return
@@ -315,8 +329,19 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 	if strategy == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Strategy not found",
+		})
+		return
+	}
+
+	// Ownership guard: only the owner or an admin may update.
+	isAdmin, _ := c.Get("is_admin")
+	if strategy.UserID != userID.(int) && isAdmin != true {
+		c.JSON(http.StatusForbidden, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Forbidden: you do not own this strategy",
 		})
 		return
 	}
@@ -326,7 +351,7 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 	if err := h.service.UpdateStrategy(strategy); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to update strategy: %v", err),
 		})
 		return
@@ -335,7 +360,7 @@ func (h *StrategyHandler) UpdateStrategy(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      strategy.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -346,8 +371,48 @@ func (h *StrategyHandler) DeleteStrategy(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid strategy ID",
+		})
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Unauthorized",
+		})
+		return
+	}
+
+	// Fetch strategy to enforce ownership before deletion.
+	strategy, err := h.service.GetStrategy(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to get strategy: %v", err),
+		})
+		return
+	}
+	if strategy == nil {
+		c.JSON(http.StatusNotFound, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Strategy not found",
+		})
+		return
+	}
+
+	// Ownership guard: only the owner or an admin may delete.
+	isAdmin, _ := c.Get("is_admin")
+	if strategy.UserID != userID.(int) && isAdmin != true {
+		c.JSON(http.StatusForbidden, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Forbidden: you do not own this strategy",
 		})
 		return
 	}
@@ -355,7 +420,7 @@ func (h *StrategyHandler) DeleteStrategy(c *gin.Context) {
 	if err := h.service.DeleteStrategy(id); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to delete strategy: %v", err),
 		})
 		return

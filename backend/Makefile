@@ -1,6 +1,6 @@
 # Makefile for dYdX Trading Bot Backend
 
-.PHONY: help help-check build run test clean lint fmt vet install-tools docker-build docker-run migrate-up migrate-down dev dev-env
+.PHONY: help help-check build run test clean lint fmt vet install-tools docker-build docker-run migrate-up migrate-down dev dev-env tasks-summary tasks-validate tasks-governance
 
 # Variables
 BINARY_NAME=dydx-bot
@@ -225,6 +225,22 @@ migrate-create:
 	@echo "$(CYAN)Creating migration: $(NAME)...$(NC)"
 	$(MIGRATE) create -ext sql -dir migrations -seq $(NAME)
 	@echo "$(GREEN)✓ Migration files created$(NC)"
+
+## tasks-summary: Recompute Completed/Pending summary counts in backend/bot/frontend tasks.md files
+tasks-summary:
+	@echo "$(CYAN)Updating task status summaries...$(NC)"
+	@powershell -ExecutionPolicy Bypass -File scripts/update_task_summary.ps1
+	@echo "$(GREEN)✓ Task status summaries updated$(NC)"
+
+## tasks-validate: Validate cross-service task governance consistency
+tasks-validate:
+	@echo "$(CYAN)Validating task governance...$(NC)"
+	@powershell -ExecutionPolicy Bypass -File scripts/validate_task_governance.ps1
+	@echo "$(GREEN)✓ Task governance validation passed$(NC)"
+
+## tasks-governance: Update and validate cross-service task governance
+tasks-governance: tasks-summary tasks-validate
+	@echo "$(GREEN)✓ Task governance update + validation complete$(NC)"
 
 ## docker-build: Build Docker image
 docker-build:

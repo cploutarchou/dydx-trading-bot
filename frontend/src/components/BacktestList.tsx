@@ -1,6 +1,8 @@
+import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import { devFallback, MOCK_BACKTEST_RUNS } from '../api/mockData';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -143,7 +145,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
             ? (raw.runs as BacktestRun[])
             : [];
 
-    return pageRuns;
+    return devFallback(pageRuns, MOCK_BACKTEST_RUNS as unknown as BacktestRun[]);
   };
 
   const loadBacktests = async (showBlockingLoader: boolean = true) => {
@@ -184,9 +186,9 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <h3 className="text-xl font-bold text-white mb-4">Backtest Runs</h3>
-        <p className="text-gray-400">Loading...</p>
+      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 flex flex-col items-center justify-center gap-3 min-h-[160px]">
+        <Loader className="w-7 h-7 animate-spin text-blue-400" />
+        <p className="text-slate-400 text-sm">Loading backtest runs…</p>
       </div>
     );
   }
@@ -219,10 +221,16 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       : run.max_drawdown;
 
   return (
-    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-      <h3 className="text-xl font-bold text-white mb-4">Backtest Runs ({runs.length})</h3>
+    <div className="bg-slate-800 rounded-xl border border-slate-700">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+        <div>
+          <h3 className="text-base font-semibold text-white">Backtest Runs</h3>
+          <p className="text-xs text-slate-400 mt-0.5">{runs.length} total run{runs.length !== 1 ? 's' : ''}</p>
+        </div>
+      </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="px-6 py-3 border-b border-slate-700/60">
+        <div className="flex flex-wrap gap-2">
         {(
           [
             ['ALL', runs.length],
@@ -245,31 +253,35 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
             {status} ({count})
           </button>
         ))}
+        </div>
       </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200">
+        <div className="mx-6 my-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm flex items-center gap-2">
           {error}
         </div>
       )}
 
       {filteredRuns.length === 0 ? (
-        <p className="text-gray-400">No backtest runs yet. Start a new analysis above.</p>
+        <div className="py-16 text-center px-6">
+          <p className="text-slate-400 text-sm">No backtest runs found.</p>
+          <p className="text-slate-500 text-xs mt-1">Start a new analysis from the dashboard to see results here.</p>
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-gray-300">
-            <thead className="border-b border-slate-700">
+            <thead className="border-b border-slate-700 bg-slate-900/30">
               <tr>
-                <th className="px-4 py-2 text-left">Run ID</th>
-                <th className="px-4 py-2 text-left">Start Time</th>
-                <th className="px-4 py-2 text-left">Period</th>
-                <th className="px-4 py-2 text-center">Trades</th>
-                <th className="px-4 py-2 text-right">P&L</th>
-                <th className="px-4 py-2 text-right">Win Rate</th>
-                <th className="px-4 py-2 text-right">Sharpe</th>
-                <th className="px-4 py-2 text-right">Max DD</th>
-                <th className="px-4 py-2 text-center">Status</th>
-                <th className="px-4 py-2 text-center">Action</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Run ID</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Started</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Period</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Trades</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">P&L</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Win Rate</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Sharpe</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Max DD</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>

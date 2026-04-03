@@ -77,6 +77,9 @@ interface BacktestResponse {
   created_at: string;
   start_date?: string;
   end_date?: string;
+  progress_percent?: number;
+  progress_pct?: number;
+  progress?: number;
   // Python field names
   total_pnl: number;
   total_pnl_usd?: number;
@@ -86,6 +89,13 @@ interface BacktestResponse {
   max_drawdown?: number;
   profit_factor?: number;
   total_trades?: number;
+}
+
+interface BacktestLogEntry {
+  id: number;
+  message: string;
+  level: string;
+  created_at: string;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -124,6 +134,29 @@ const formatDateValue = (value: string | null | undefined): string => {
 
 const normalizeStatus = (value: unknown): string => String(value || '').toLowerCase();
 
+const firstFiniteNumber = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
+const formatDurationFromSeconds = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '< 1s';
+  const totalSeconds = Math.round(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+  return parts.join(' ');
+};
+
 export const BacktestDetailsV2: React.FC = () => {
   const { runId } = useParams<{ runId: string }>();
   const progressQuery = useBacktestProgress(runId || '');
@@ -144,6 +177,7 @@ export const BacktestDetailsV2: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'summary' | 'candles' | 'positions' | 'trades' | 'results'
   >('summary');
+  const [liveLogs, setLiveLogs] = useState<BacktestLogEntry[]>([]);
 
   // Fetch backtest metadata
   useEffect(() => {
@@ -404,6 +438,50 @@ export const BacktestDetailsV2: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [backtest?.status, runId]);
 
+  // Poll live logs while the backtest is active to surface current scan/task activity.
+  useEffect(() => {
+    if (!runId || !backtest) return;
+
+    const status = normalizeStatus(backtest.status);
+    const isActive = status === 'running' || status === 'pending';
+    if (!isActive) return;
+
+    let cancelled = false;
+
+    const fetchLogs = async () => {
+      try {
+        const response = await api.getBacktestLogs(runId);
+        if (cancelled || !response.success || !response.data?.logs) {
+          return;
+        }
+
+        const normalized = response.data.logs
+          .map((entry) => ({
+            id: entry.id,
+            message: entry.message,
+            level: String(entry.level || 'info').toLowerCase(),
+            created_at: entry.created_at,
+          }))
+          .slice(-8)
+          .reverse();
+
+        setLiveLogs(normalized);
+      } catch (error) {
+        console.warn('📊 BacktestDetailsV2: failed to fetch live backtest logs', error);
+      }
+    };
+
+    void fetchLogs();
+    const intervalId = setInterval(() => {
+      void fetchLogs();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [runId, backtest?.status]);
+
   // Generate Equity Curve from candles (cumulative PnL series)
   const generateEquityCurveData = () => {
     if (candles.length === 0) return [];
@@ -478,7 +556,35 @@ export const BacktestDetailsV2: React.FC = () => {
   const statusNorm = liveStatusNorm || normalizeStatus(backtest.status);
   const isRunning = statusNorm === 'running' || statusNorm === 'pending';
   const isFailed = statusNorm === 'failed' || statusNorm === 'cancelled';
-  const progressPercent = isRunning ? Math.min(100, Math.max(0, progressQuery.progressPercent || 0)) : 0;
+  const metadataProgress = firstFiniteNumber(
+    backtest.progress_percent,
+    backtest.progress_pct,
+    backtest.progress
+  );
+  const liveProgress = progressQuery.progressPercent;
+  const baseProgress =
+    liveProgress > 0
+      ? liveProgress
+      : metadataProgress !== null && metadataProgress > 0
+        ? metadataProgress
+        : liveProgress;
+  const progressPercent = isRunning ? Math.min(100, Math.max(0, baseProgress)) : 0;
+  const currentPair = progressQuery.currentPair;
+  const explicitScanningLine = liveLogs.find((log) => /(^|\b)scanning\s*:/i.test(log.message))?.message;
+  const latestTaskFromLogs =
+    explicitScanningLine ||
+    liveLogs.find((log) => /(scan|processing|pair|market|running)/i.test(log.message))?.message;
+  const currentTaskLine = latestTaskFromLogs || (currentPair ? `Scanning: ${currentPair}` : null);
+  const etaLabel =
+    typeof progressQuery.etaSeconds === 'number'
+      ? formatDurationFromSeconds(progressQuery.etaSeconds)
+      : null;
+  const progressSourceLabel =
+    progressQuery.progressSource === 'list_fallback'
+      ? 'list fallback'
+      : progressQuery.progressSource === 'details'
+        ? 'details status'
+        : 'default';
   const totalPnl = backtest.total_pnl_usd ?? backtest.total_pnl ?? 0;
   const maxDrawdown = backtest.max_drawdown ?? backtest.max_drawdown_pct ?? 0;
   const winRatePercent = normalizePercentValue(backtest.win_rate);
@@ -575,7 +681,7 @@ export const BacktestDetailsV2: React.FC = () => {
                       : 'bg-yellow-900 text-yellow-200'
               }`}
             >
-              {backtest.status}
+              {statusNorm}
             </span>
           </div>
         </div>
@@ -601,6 +707,55 @@ export const BacktestDetailsV2: React.FC = () => {
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
+                  {currentTaskLine ? (
+                    <span>
+                      Task: <span className="font-mono text-slate-100">{currentTaskLine}</span>
+                    </span>
+                  ) : (
+                    <span className="italic text-slate-400">Task: Initialising...</span>
+                  )}
+                  {etaLabel && (
+                    <span className="text-slate-400">
+                      ETA: <span className="text-slate-200 font-medium">{etaLabel}</span>
+                    </span>
+                  )}
+                </div>
+                {import.meta.env.DEV && (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Sync source: {progressSourceLabel}
+                  </p>
+                )}
+                {liveLogs.length > 0 && (
+                  <div className="mt-3 rounded border border-slate-700 bg-slate-900/60 p-2">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">
+                      Live Activity
+                    </p>
+                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                      {liveLogs.map((log) => (
+                        <div key={`${log.id}-${log.created_at}`} className="text-xs text-slate-300">
+                          <span className="text-slate-500 mr-1">
+                            {new Date(log.created_at).toLocaleTimeString()}
+                          </span>
+                          <span
+                            className={`mr-1 ${
+                              log.level === 'error'
+                                ? 'text-red-400'
+                                : log.level === 'warning'
+                                  ? 'text-yellow-400'
+                                  : log.level === 'debug'
+                                    ? 'text-blue-400'
+                                    : 'text-green-400'
+                            }`}
+                          >
+                            [{log.level.toUpperCase()}]
+                          </span>
+                          <span>{log.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

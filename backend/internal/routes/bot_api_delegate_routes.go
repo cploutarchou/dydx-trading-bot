@@ -1,11 +1,14 @@
 package routes
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -21,23 +24,7 @@ var websocketUpgrader = websocket.Upgrader{
 }
 
 func extractBotAuthToken(c *gin.Context) string {
-	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-	if authHeader != "" {
-		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			return strings.TrimSpace(authHeader[7:])
-		}
-		return authHeader
-	}
-
-	if cookieToken, err := c.Cookie("access_token"); err == nil {
-		return strings.TrimSpace(cookieToken)
-	}
-
-	if queryToken := strings.TrimSpace(c.Query("access_token")); queryToken != "" {
-		return queryToken
-	}
-
-	return ""
+	return middleware.ExtractRequestAccessToken(c)
 }
 
 func getRequestBotAPIClient(c *gin.Context, fallback *services.BotAPIClient) *services.BotAPIClient {
@@ -50,15 +37,187 @@ func getRequestBotAPIClient(c *gin.Context, fallback *services.BotAPIClient) *se
 	return fallback
 }
 
+func respondBotAPIError(c *gin.Context, err error) {
+	// Transport-level failures (connection refused, timeout) carry a pre-classified
+	// status code so callers receive a clean 502/504 without raw Go error messages.
+	var transportErr *services.BotAPITransportError
+	if errors.As(err, &transportErr) {
+		status := transportErr.StatusCode
+		if status <= 0 {
+			status = http.StatusBadGateway
+		}
+		c.JSON(status, gin.H{"error": transportErr.Message})
+		return
+	}
+	if apiErr, ok := err.(*services.BotAPIError); ok {
+		status := apiErr.StatusCode
+		if status <= 0 {
+			status = http.StatusBadGateway
+		}
+		message := strings.TrimSpace(apiErr.Message)
+		if message == "" {
+			message = "upstream bot API request failed"
+		}
+		c.JSON(status, gin.H{"error": message})
+		return
+	}
+	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+}
+
+func delegateJSON(c *gin.Context, fallback *services.BotAPIClient, call func(*services.BotAPIClient) (map[string]interface{}, error)) {
+	requestClient := getRequestBotAPIClient(c, fallback)
+	result, err := call(requestClient)
+	if err != nil {
+		respondBotAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func normalizeBacktestRunPayload(config map[string]interface{}) map[string]interface{} {
+	if config == nil {
+		return nil
+	}
+
+	normalized := make(map[string]interface{}, len(config)+1)
+	for k, v := range config {
+		normalized[k] = v
+	}
+
+	tradingParameters, _ := normalized["trading_parameters"].(map[string]interface{})
+	if tradingParameters == nil {
+		tradingParameters = map[string]interface{}{}
+	}
+
+	legacyTradingParameterFields := []string{
+		"zscore_threshold",
+		"stats_window",
+		"max_half_life",
+		"usd_per_trade",
+		"usd_min_collateral",
+		"close_at_zscore_cross",
+		"find_cointegrated_pairs",
+		"manage_exits",
+		"place_trades",
+		"abort_all_positions",
+		"max_positions",
+		"max_drawdown_pct",
+		"stop_loss_pct",
+		"take_profit_pct",
+		"trailing_stop_pct",
+		"rebalance_interval_hours",
+		"position_timeout_hours",
+		"transaction_fee",
+		"slippage",
+		"risk_free_rate",
+		"resolution",
+		"candle_resolution",
+	}
+
+	for _, field := range legacyTradingParameterFields {
+		if _, exists := tradingParameters[field]; exists {
+			continue
+		}
+		if value, exists := normalized[field]; exists {
+			tradingParameters[field] = value
+			delete(normalized, field)
+		}
+	}
+
+	if value, exists := normalized["num_pairs"]; exists {
+		if _, hasMaxPairs := normalized["max_pairs"]; !hasMaxPairs {
+			normalized["max_pairs"] = value
+		}
+		delete(normalized, "num_pairs")
+	}
+
+	if value, exists := normalized["pair_selection_mode"]; exists {
+		if _, ok := tradingParameters["pair_selection_mode"]; !ok {
+			tradingParameters["pair_selection_mode"] = value
+		}
+	}
+
+	if value, exists := normalized["max_pairs"]; exists {
+		if _, ok := tradingParameters["max_pairs"]; !ok {
+			tradingParameters["max_pairs"] = value
+		}
+	}
+
+	if len(tradingParameters) > 0 {
+		normalized["trading_parameters"] = tradingParameters
+	}
+
+	return normalized
+}
+
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
+	RegisterBotAPIDelegateRoutesWithSync(router, apiClient, nil)
+}
+
+// RegisterBotAPIDelegateRoutesWithSync registers delegated bot API endpoints and
+// optionally persists backtest run status snapshots into local DB tables.
+func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
+	syncRun := func(c *gin.Context, payload map[string]interface{}) {
+		if backtestSync == nil {
+			return
+		}
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			return
+		}
+		userID, ok := userIDValue.(int)
+		if !ok || userID <= 0 {
+			return
+		}
+		if err := backtestSync.SyncBacktestRun(userID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed to sync delegated backtest payload: %v", err)
+		}
+	}
+
+	syncRunList := func(c *gin.Context, payload map[string]interface{}) {
+		if backtestSync == nil || payload == nil {
+			return
+		}
+		root := payload
+		if data, ok := payload["data"].(map[string]interface{}); ok {
+			root = data
+		}
+		runs, ok := root["backtests"].([]interface{})
+		if !ok {
+			return
+		}
+		for _, item := range runs {
+			runPayload, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			syncRun(c, runPayload)
+		}
+	}
+
+	syncChildren := func(c *gin.Context, runID string, payload map[string]interface{}) {
+		if backtestSync == nil || strings.TrimSpace(runID) == "" {
+			return
+		}
+		if err := backtestSync.SyncBacktestTrades(runID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed syncing trades for run %s: %v", runID, err)
+		}
+		if err := backtestSync.SyncBacktestPositions(runID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed syncing positions for run %s: %v", runID, err)
+		}
+		if err := backtestSync.SyncBacktestCandles(runID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed syncing candles for run %s: %v", runID, err)
+		}
+	}
+
 	proxyWebSocket := func(c *gin.Context, requestClient *services.BotAPIClient, upstreamEndpoint string) {
 		clientConn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			return
 		}
-		defer clientConn.Close()
+		defer func() { _ = clientConn.Close() }()
 
 		upstreamWSURL, err := requestClient.WebSocketURL(upstreamEndpoint)
 		if err != nil {
@@ -82,7 +241,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			)
 			return
 		}
-		defer upstreamConn.Close()
+		defer func() { _ = upstreamConn.Close() }()
 
 		forward := func(src *websocket.Conn, dst *websocket.Conn, done chan<- struct{}) {
 			defer func() { done <- struct{}{} }()
@@ -137,12 +296,22 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			c.JSON(400, gin.H{"error": "Invalid request body"})
 			return
 		}
+		config = normalizeBacktestRunPayload(config)
 
-		result, err := requestClient.CreateBacktest(config)
+		var (
+			result map[string]interface{}
+			err    error
+		)
+		if c.FullPath() == "/api/v1/backtests/run" {
+			result, err = requestClient.CreateBacktestRun(config)
+		} else {
+			result, err = requestClient.CreateBacktest(config)
+		}
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			respondBotAPIError(c, err)
 			return
 		}
+		syncRun(c, result)
 
 		c.JSON(200, result)
 	}
@@ -152,6 +321,64 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 	backtestGroup.Use(middleware.RequireAuth())
 	backtestGroup.Use(withRequestScopedBotClient)
 	{
+		// Local DB sync-health dashboard for delegated backtests.
+		backtestGroup.GET("/sync-health", func(c *gin.Context) {
+			if backtestSync == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"success":   false,
+					"error":     "backtest sync service unavailable",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			userIDValue, exists := c.Get("user_id")
+			if !exists {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"error":     "unauthorized",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+			userID, ok := userIDValue.(int)
+			if !ok || userID <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"error":     "invalid user context",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			runID := strings.TrimSpace(c.Query("run_id"))
+			limit := 20
+			if l := c.Query("limit"); l != "" {
+				if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
+					limit = parsed
+				}
+			}
+
+			health, err := backtestSync.GetSyncHealthByRun(userID, runID, limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data": gin.H{
+					"runs":  health,
+					"count": len(health),
+				},
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
+		})
+
 		// Create backtest
 		backtestGroup.POST("", createBacktestHandler)
 		// Frontend compatibility alias
@@ -185,9 +412,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.ListBacktestsWithFilters(limit, offset, status, parseIntPtr(days))
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
+			syncRunList(c, result)
 			c.JSON(200, result)
 		})
 
@@ -202,7 +430,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.GetBacktestSummaryStats(days)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -218,7 +446,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.CompareBacktests(config)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -230,9 +458,11 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetBacktestDetails(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
+			syncRun(c, result)
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -242,7 +472,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.DeleteBacktest(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -254,10 +484,74 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetBacktestStatus(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
+			syncRun(c, result)
 			c.JSON(200, result)
+		})
+
+		// Force re-sync run + child artifacts from upstream bot API into local DB.
+		backtestGroup.POST("/:run_id/resync", func(c *gin.Context) {
+			if backtestSync == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"success":   false,
+					"error":     "backtest sync service unavailable",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			runID := strings.TrimSpace(c.Param("run_id"))
+			if runID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success":   false,
+					"error":     "run_id is required",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			result := gin.H{
+				"run_synced":       false,
+				"trades_synced":    false,
+				"positions_synced": false,
+				"candles_synced":   false,
+			}
+
+			details, err := requestClient.GetBacktestDetails(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			syncRun(c, details)
+			syncChildren(c, runID, details)
+			result["run_synced"] = true
+
+			tradesPayload, err := requestClient.GetBacktestTradesWithFilters(runID, 500, 0, false)
+			if err == nil {
+				syncChildren(c, runID, tradesPayload)
+				result["trades_synced"] = true
+			}
+
+			positionsPayload, err := requestClient.GetPositionSnapshots(runID, 500, 0, nil)
+			if err == nil {
+				syncChildren(c, runID, positionsPayload)
+				result["positions_synced"] = true
+			}
+
+			metricsPayload, err := requestClient.GetAdvancedPerformanceMetrics(runID, "BTC-USD")
+			if err == nil {
+				syncChildren(c, runID, metricsPayload)
+				result["candles_synced"] = true
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"success":   true,
+				"data":      result,
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
 		})
 
 		// Get backtest trades
@@ -284,9 +578,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.GetBacktestTradesWithFilters(runID, limit, offset, winningOnly)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -296,7 +591,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.CancelBacktest(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -308,9 +603,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetBacktestAnalytics(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -338,9 +634,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.GetPositionSnapshots(runID, limit, offset, marketPair)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -350,7 +647,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.ValidateAgainstdYdXData(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -363,9 +660,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			benchmark := c.DefaultQuery("benchmark", "BTC-USD")
 			result, err := requestClient.GetAdvancedPerformanceMetrics(runID, benchmark)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -375,7 +673,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetLiveProgress(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -397,27 +695,19 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 	{
 		// Get current positions
 		botGroup.GET("/:instance_id/positions/current", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
-			result, err := requestClient.GetCurrentPositions(botID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetCurrentPositions(botID)
+			})
 		})
 
 		// Get specific position
 		botGroup.GET("/:instance_id/positions/:position_id", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
 			positionID := c.Param("position_id")
-			result, err := requestClient.GetPosition(botID, positionID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetPosition(botID, positionID)
+			})
 		})
 
 		// Get position history
@@ -433,7 +723,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.GetPositionHistory(botID, positionID, hours)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -441,26 +731,18 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 		// Get market data
 		botGroup.GET("/:instance_id/market-data", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
-			result, err := requestClient.GetMarketData(botID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetMarketData(botID)
+			})
 		})
 
 		// Get realtime stats
 		botGroup.GET("/:instance_id/realtime-stats", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
-			result, err := requestClient.GetRealtimeStats(botID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetRealtimeStats(botID)
+			})
 		})
 
 		// Get alerts
@@ -475,7 +757,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.GetAlerts(botID, limit)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -483,7 +765,6 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 		// Get bot history
 		botGroup.GET("/:instance_id/history", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
@@ -491,17 +772,13 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 					days = v
 				}
 			}
-			result, err := requestClient.GetBotHistory(instanceID, days)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetBotHistory(instanceID, days)
+			})
 		})
 
 		// Get bot jobs
 		botGroup.GET("/:instance_id/jobs", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
@@ -509,12 +786,9 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 					days = v
 				}
 			}
-			result, err := requestClient.GetBotJobs(instanceID, days)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetBotJobs(instanceID, days)
+			})
 		})
 
 		// Quick deploy bot
@@ -531,7 +805,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.QuickDeployBot(instanceName, autoStart, config)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -566,12 +840,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 		if token := extractBotAuthToken(c); token != "" {
 			requestClient = apiClient.WithToken(token)
 		}
-		result, err := requestClient.SystemStatus()
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, result)
+		c.Set("bot_api_client", requestClient)
+		delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+			return requestClient.SystemStatus()
+		})
 	})
 
 	// Frontend strategy websocket compatibility endpoint.

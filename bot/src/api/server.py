@@ -3,14 +3,24 @@ Bot API Server - FastAPI server for controlling multiple bot instances
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+from uuid import uuid4
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -75,6 +85,9 @@ from src.trading.dydx_client import connect_dydx
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "trace_id", default=""
+)
 
 DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 
@@ -519,16 +532,61 @@ app.include_router(
 
 def api_response(success: bool, data=None, message: str = "", status_code: int = 200):
     """Standardized API response format"""
+    trace_id = trace_id_ctx.get()
     response_data = {
         "success": success,
         "message": message,
         "data": data,
         "timestamp": datetime.now().isoformat(),
+        "trace_id": trace_id,
     }
-    return JSONResponse(
+    response = JSONResponse(
         content=jsonable_encoder(response_data),
         status_code=status_code,
     )
+    if trace_id:
+        response.headers["X-Trace-Id"] = trace_id
+    return response
+
+
+@app.middleware("http")
+async def request_trace_logging_middleware(request: Request, call_next):
+    """Attach per-request trace IDs and emit verbose request logs in development."""
+    inbound_trace_id = (request.headers.get("X-Trace-Id") or "").strip()
+    trace_id = inbound_trace_id or f"req-{uuid4().hex[:12]}"
+    token = trace_id_ctx.set(trace_id)
+    started = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        logger.exception(
+            "request_failed trace_id=%s method=%s path=%s duration_ms=%.2f",
+            trace_id,
+            request.method,
+            request.url.path,
+            elapsed_ms,
+        )
+        raise
+    finally:
+        trace_id_ctx.reset(token)
+
+    response.headers["X-Trace-Id"] = trace_id
+
+    if os.getenv("ENVIRONMENT", "development").lower() == "development":
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        logger.info(
+            "request trace_id=%s method=%s path=%s status=%s duration_ms=%.2f client=%s",
+            trace_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+            request.client.host if request.client else "unknown",
+        )
+
+    return response
 
 
 # ============================================================================
@@ -1211,12 +1269,15 @@ async def quick_deploy_bot(
 @app.get("/health")
 async def health_check():
     """API health check"""
+    service = get_backtest_service()
+    runtime_health = service.get_runtime_health()
     return api_response(
         success=True,
         data={
             "status": "healthy",
             "api_version": "1.0.0",
             "timestamp": datetime.now().isoformat(),
+            "backtest_runtime": runtime_health,
         },
         message="API is healthy",
     )
@@ -1253,6 +1314,8 @@ async def get_current_user_profile(
 async def system_status(current_user: User = Depends(get_current_active_user)):
     """Get system status and statistics"""
     try:
+        service = get_backtest_service()
+        runtime_health = service.get_runtime_health()
         if not _bot_manager_ready():
             return api_response(
                 success=True,
@@ -1264,6 +1327,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                         "memory_available_gb": 0,
                     },
                     "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
+                    "backtest_runtime": runtime_health,
                 },
                 message="System status available; bot manager unavailable",
             )
@@ -1299,6 +1363,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                     "version": "1.0.0",
                     "uptime_hours": "N/A",  # Could implement uptime tracking
                 },
+                "backtest_runtime": runtime_health,
             },
             message="System status retrieved successfully",
         )
@@ -1960,9 +2025,12 @@ async def run_backtest_compat(
 
         service = get_backtest_service()
         result = await service.create_and_run_backtest(backtest_request)
+        payload = result.model_dump()
+        payload["progress"] = float(payload.get("progress_pct", 0.0))
+        payload["count"] = 1
         return api_response(
             success=True,
-            data=result.model_dump(),
+            data=payload,
             message=f"Backtest '{result.name}' started",
         )
     except Exception as e:
@@ -1988,10 +2056,13 @@ async def list_backtests(
         result = service.list_backtest_runs(
             limit=limit, offset=offset, status_filter=status, days_filter=days
         )
+        payload = result.model_dump()
+        payload["backtests"] = payload.get("runs", [])
+        payload["count"] = len(payload["backtests"])
 
         return api_response(
             success=True,
-            data=result.model_dump(),
+            data=payload,
             message=f"Retrieved {len(result.runs)} backtest runs",
         )
 
@@ -2047,9 +2118,13 @@ async def get_backtest_status(
                 status_code=404,
             )
 
+        payload = result.model_dump()
+        payload["progress"] = float(payload.get("progress_pct", 0.0))
+        payload["count"] = 1
+
         return api_response(
             success=True,
-            data=result.model_dump(),
+            data=payload,
             message=f"Retrieved status for backtest '{run_id}'",
         )
 
@@ -2109,7 +2184,12 @@ async def get_backtest_trades(
 
         return api_response(
             success=True,
-            data={"trades": [trade.model_dump() for trade in trades]},
+            data={
+                "run_id": run_id,
+                "trades": [trade.model_dump() for trade in trades],
+                "total": len(trades),
+                "count": len(trades),
+            },
             message=f"Retrieved {len(trades)} trades for backtest '{run_id}'",
         )
 
@@ -2241,7 +2321,13 @@ async def get_position_snapshots(
 
         return api_response(
             success=True,
-            data={"snapshots": snapshots},  # Already a list of dicts
+            data={
+                "run_id": run_id,
+                "snapshots": snapshots,
+                "position_snapshots": snapshots,
+                "total": len(snapshots),
+                "count": len(snapshots),
+            },
             message=f"Retrieved {len(snapshots)} position snapshots for '{run_id}'",
         )
 
@@ -2282,6 +2368,27 @@ async def compare_backtests(
 
     except Exception as e:
         logger.error(f"Error comparing backtests: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/sync-health")
+async def backtest_sync_health():
+    """Backend sync visibility endpoint for run orchestration health."""
+    try:
+        service = get_backtest_service()
+        runtime_health = service.get_runtime_health()
+        return api_response(
+            success=True,
+            data={
+                "status": "ok",
+                **runtime_health,
+            },
+            message="Backtest sync health retrieved",
+        )
+    except Exception as e:
+        logger.error(f"Error getting backtest sync health: {e}")
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )

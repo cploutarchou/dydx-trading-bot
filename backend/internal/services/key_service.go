@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ type KeyManagementService struct {
 func NewKeyManagementService(repo *repository.KeyRepository) *KeyManagementService {
 	secret := os.Getenv("ENCRYPTION_KEY")
 	if secret == "" {
+		log.Printf("WARNING: ENCRYPTION_KEY is not set. Using insecure default key. " +
+			"Set ENCRYPTION_KEY in your .env file before storing real credentials.")
 		secret = "default-secret-key-change-in-production" // 32 chars min
 	}
 	// Pad to 32 bytes for AES-256

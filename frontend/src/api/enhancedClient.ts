@@ -541,34 +541,140 @@ class EnhancedAPIClient {
 
   async getBacktestStatus(
     runId: string
-  ): Promise<{ run_id: string; status: string; progress_percent: number }> {
-    const result = await this.baseClient.getBacktest(runId);
-    const data = (result.data ?? {}) as Record<string, unknown>;
+  ): Promise<{
+    run_id: string;
+    status: string;
+    progress_percent: number;
+    current_pair?: string;
+    estimated_completion_seconds?: number;
+    progress_source?: 'details' | 'list_fallback' | 'default';
+  }> {
+    const asRecordOrNull = (value: unknown): Record<string, unknown> | null =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
 
-    const rawStatus = typeof data.status === 'string' ? data.status : 'PENDING';
-    const normalizedStatus = rawStatus.toUpperCase();
+    const unwrapPayload = (value: unknown): Record<string, unknown> => {
+      const root = asRecordOrNull(value) ?? {};
+      const directData = asRecordOrNull(root.data);
+      const nestedData = asRecordOrNull(directData?.data);
 
-    const progressSources = [
-      data.progress_percent,
-      data.progress_pct,
-      data.progress,
-      data.percent_complete,
-    ];
+      if (nestedData) return nestedData;
+      if (directData) return directData;
+      return root;
+    };
 
-    const parsedProgress = progressSources
-      .map((value) => (typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN))
-      .find((value) => Number.isFinite(value));
+    const normalizeRunId = (value: unknown): string => String(value ?? '').trim();
 
-    const computedProgress = Number.isFinite(parsedProgress)
-      ? Math.min(100, Math.max(0, parsedProgress as number))
-      : normalizedStatus === 'COMPLETED'
-        ? 100
-        : 0;
+    const parseProgress = (value: unknown): number | null => {
+      if (typeof value !== 'number' && typeof value !== 'string') {
+        return null;
+      }
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) {
+        return null;
+      }
+      return Math.min(100, Math.max(0, parsed));
+    };
+
+    const extractFromRunRecord = (
+      run: Record<string, unknown>
+    ): {
+      status?: string;
+      progress?: number;
+      currentPair?: string;
+      etaSeconds?: number;
+    } => {
+      const status = typeof run.status === 'string' ? run.status.toUpperCase() : undefined;
+      const progress =
+        parseProgress(run.progress_percent) ??
+        parseProgress(run.progress_pct) ??
+        parseProgress(run.progress) ??
+        parseProgress(run.percent_complete);
+
+      const currentPairRaw = run.current_pair ?? run.current_market ?? run.market;
+      const currentPair =
+        typeof currentPairRaw === 'string' && currentPairRaw.trim().length > 0
+          ? currentPairRaw
+          : undefined;
+
+      const etaRaw =
+        run.estimated_completion_seconds ?? run.eta_seconds ?? run.remaining_seconds;
+      const etaParsed =
+        typeof etaRaw === 'number' || typeof etaRaw === 'string' ? Number(etaRaw) : Number.NaN;
+      const etaSeconds = Number.isFinite(etaParsed) && etaParsed >= 0 ? etaParsed : undefined;
+
+      return {
+        status,
+        progress: progress ?? undefined,
+        currentPair,
+        etaSeconds,
+      };
+    };
+
+    const detailsResult = await this.baseClient.getBacktest(runId);
+    const detailsData = unwrapPayload(detailsResult);
+    const detailsStatusProgress = extractFromRunRecord(detailsData);
+
+    let status = detailsStatusProgress.status ?? 'PENDING';
+    let progress = detailsStatusProgress.progress;
+    let currentPair = detailsStatusProgress.currentPair;
+    let etaSeconds = detailsStatusProgress.etaSeconds;
+    let progressSource: 'details' | 'list_fallback' | 'default' =
+      detailsStatusProgress.progress !== undefined ||
+      detailsStatusProgress.currentPair !== undefined ||
+      detailsStatusProgress.etaSeconds !== undefined
+        ? 'details'
+        : 'default';
+
+    // Fallback: list endpoint carries live progress_pct in this backend integration.
+    if (progress === undefined || (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))) {
+      try {
+        const listResult = await this.baseClient.listBacktests(0, 200);
+        const listPayload = unwrapPayload(listResult);
+        const rawRuns = Array.isArray(listPayload.backtests)
+          ? listPayload.backtests
+          : Array.isArray(listPayload.runs)
+            ? listPayload.runs
+            : [];
+
+        const matchedRun = rawRuns.find((item) => {
+              if (!isRecord(item)) return false;
+              return normalizeRunId(item.run_id) === normalizeRunId(runId);
+            });
+
+        if (isRecord(matchedRun)) {
+          const fallbackStatusProgress = extractFromRunRecord(matchedRun);
+          const hadFallbackValue =
+            fallbackStatusProgress.status !== undefined ||
+            fallbackStatusProgress.progress !== undefined ||
+            fallbackStatusProgress.currentPair !== undefined ||
+            fallbackStatusProgress.etaSeconds !== undefined;
+          status = fallbackStatusProgress.status ?? status;
+          if (fallbackStatusProgress.progress !== undefined) {
+            progress = fallbackStatusProgress.progress;
+          }
+          currentPair = fallbackStatusProgress.currentPair ?? currentPair;
+          etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
+          if (hadFallbackValue) {
+            progressSource = 'list_fallback';
+          }
+        }
+      } catch (error) {
+        console.warn('📊 enhancedClient.ts: failed to fetch list fallback for backtest status', error);
+      }
+    }
+
+    const computedProgress =
+      progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;
 
     return {
       run_id: runId,
-      status: normalizedStatus,
+      status,
       progress_percent: computedProgress,
+      current_pair: currentPair,
+      estimated_completion_seconds: etaSeconds,
+      progress_source: progressSource,
     };
   }
 

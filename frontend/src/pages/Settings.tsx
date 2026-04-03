@@ -12,7 +12,7 @@
  */
 
 import { Loader } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api';
 import { AuthSettingsComponent } from '../components/AuthSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
@@ -77,6 +77,18 @@ interface SidebarSectionItem {
   title: string;
   description: string;
 }
+
+interface PendingFocusTarget {
+  section: string;
+  fieldKey: string;
+}
+
+const SETTINGS_LAST_SECTION_KEY = 'settings:last-section';
+
+const getSettingsFieldDomId = (section: string, fieldKey: string): string =>
+  `settings-${section}-${fieldKey}`.replace(/[^a-zA-Z0-9_-]/g, '-');
+
+const getSettingsFieldRefKey = (section: string, fieldKey: string): string => `${section}.${fieldKey}`;
 
 const MANUAL_SECTION_IDS = new Set([
   'profile',
@@ -205,6 +217,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
   const [activeSection, setActiveSection] = useState<string>('profile');
+  const [pendingFocusTarget, setPendingFocusTarget] = useState<PendingFocusTarget | null>(null);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionResult, setConnectionResult] = useState<{
@@ -214,6 +227,8 @@ export default function Settings() {
     port?: number;
     latency_ms?: number;
   } | null>(null);
+  const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
+  const hasRestoredSectionRef = useRef(false);
 
   const visibleSchemaSections = useMemo(
     () =>
@@ -261,6 +276,51 @@ export default function Settings() {
   useEffect(() => {
     fetchSettingsData();
   }, []);
+
+  useEffect(() => {
+    if (hasRestoredSectionRef.current || sidebarSections.length === 0) {
+      return;
+    }
+
+    hasRestoredSectionRef.current = true;
+
+    try {
+      const savedSection = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
+      if (savedSection && sidebarSections.some((section) => section.section === savedSection)) {
+        setActiveSection(savedSection);
+      }
+    } catch (error) {
+      console.warn('⚠️ Settings.tsx: Failed to restore last opened section', error);
+    }
+  }, [sidebarSections]);
+
+  useEffect(() => {
+    if (!sidebarSections.some((section) => section.section === activeSection)) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(SETTINGS_LAST_SECTION_KEY, activeSection);
+    } catch (error) {
+      console.warn('⚠️ Settings.tsx: Failed to persist last opened section', error);
+    }
+  }, [activeSection, sidebarSections]);
+
+  useEffect(() => {
+    if (!pendingFocusTarget || pendingFocusTarget.section !== activeSection) {
+      return;
+    }
+
+    const refKey = getSettingsFieldRefKey(pendingFocusTarget.section, pendingFocusTarget.fieldKey);
+    const fieldElement = fieldRefs.current[refKey];
+    if (!fieldElement) {
+      return;
+    }
+
+    fieldElement.focus();
+    fieldElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setPendingFocusTarget(null);
+  }, [activeSection, pendingFocusTarget]);
 
   const fetchSettingsData = async () => {
     try {
@@ -345,6 +405,13 @@ export default function Settings() {
         (section) => nextErrors[section.section] && Object.keys(nextErrors[section.section]).length > 0
       );
       if (firstInvalidSection) {
+        const firstInvalidFieldKey = Object.keys(nextErrors[firstInvalidSection.section] || {})[0];
+        if (firstInvalidFieldKey) {
+          setPendingFocusTarget({
+            section: firstInvalidSection.section,
+            fieldKey: firstInvalidFieldKey,
+          });
+        }
         setActiveSection(firstInvalidSection.section);
       }
       setMessage({
@@ -579,6 +646,9 @@ export default function Settings() {
                     const inputValue = typeof value === 'string' || typeof value === 'number' ? value : '';
                     const selectValue =
                       typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+                    const fieldDomId = getSettingsFieldDomId(activeSection, field.key);
+                    const fieldRefKey = getSettingsFieldRefKey(activeSection, field.key);
+                    const errorMessage = fieldErrors[activeSection]?.[field.key];
 
                     return (
                       <div
@@ -599,6 +669,10 @@ export default function Settings() {
                             field.value_type === 'integer') &&
                             !field.options && (
                               <input
+                                id={fieldDomId}
+                                ref={(element) => {
+                                  fieldRefs.current[fieldRefKey] = element;
+                                }}
                                 type={
                                   field.value_type === 'float' ||
                                   field.value_type === 'int' ||
@@ -606,6 +680,8 @@ export default function Settings() {
                                     ? 'number'
                                     : 'text'
                                 }
+                                aria-invalid={!!errorMessage}
+                                aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
                                 value={inputValue}
                                 onChange={(e) =>
                                   handleFieldChange(
@@ -625,6 +701,12 @@ export default function Settings() {
                           {/* Select Dropdown */}
                           {field.options && (
                             <select
+                              id={fieldDomId}
+                              ref={(element) => {
+                                fieldRefs.current[fieldRefKey] = element;
+                              }}
+                              aria-invalid={!!errorMessage}
+                              aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
                               value={selectValue}
                               onChange={(e) =>
                                 handleFieldChange(activeSection, field.key, e.target.value)
@@ -643,7 +725,13 @@ export default function Settings() {
                           {field.value_type === 'boolean' && (
                             <label className="flex items-center gap-3 cursor-pointer">
                               <input
+                                id={fieldDomId}
+                                ref={(element) => {
+                                  fieldRefs.current[fieldRefKey] = element;
+                                }}
                                 type="checkbox"
+                                aria-invalid={!!errorMessage}
+                                aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
                                 checked={Boolean(value)}
                                 onChange={(e) =>
                                   handleFieldChange(activeSection, field.key, e.target.checked)
@@ -667,9 +755,9 @@ export default function Settings() {
                             </p>
                           ) : null}
 
-                          {fieldErrors[activeSection]?.[field.key] && (
-                            <p className="text-xs text-red-300 mt-2">
-                              {fieldErrors[activeSection][field.key]}
+                          {errorMessage && (
+                            <p id={`${fieldDomId}-error`} className="text-xs text-red-300 mt-2">
+                              {errorMessage}
                             </p>
                           )}
                         </label>
@@ -684,7 +772,7 @@ export default function Settings() {
                     <button
                       type="button"
                       onClick={handleSave}
-                      disabled={saving || !hasUnsavedChanges || hasValidationErrors}
+                      disabled={saving || !hasUnsavedChanges}
                       className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       {saving ? 'Saving...' : 'Save Changes'}

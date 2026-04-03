@@ -34,6 +34,28 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <MainLayout>{children}</MainLayout>;
 };
 
+const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const user = useAuthStore((state) => state.user);
+
+  if (isAuthenticated && user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const SessionRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const user = useAuthStore((state) => state.user);
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 export const App: React.FC = () => {
   const [mounted, setMounted] = useState(false);
   const [authReady, setAuthReady] = useState(false);
@@ -92,9 +114,30 @@ export const App: React.FC = () => {
         <Router>
           <ToastContainer />
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
+            <Route
+              path="/login"
+              element={
+                <GuestRoute>
+                  <LoginPage />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/register"
+              element={
+                <GuestRoute>
+                  <RegisterPage />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/2fa-setup"
+              element={
+                <SessionRoute>
+                  <TwoFactorAuthPage />
+                </SessionRoute>
+              }
+            />
             <Route
               path="/dashboard"
               element={

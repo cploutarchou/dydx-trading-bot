@@ -17,6 +17,7 @@ import apiClient from '../api';
 import { AuthSettingsComponent } from '../components/AuthSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { useToastStore } from '../components/ErrorBoundary';
+import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 
 type SettingValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[];
@@ -485,19 +486,21 @@ export default function Settings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96 bg-slate-900 rounded-lg border border-slate-700">
-        <div className="text-center">
-          <Loader className="w-12 h-12 animate-spin text-blue-500 mx-auto" />
-          <p className="mt-4 text-slate-300">Loading settings...</p>
+      <PageContainer size="wide">
+        <div className="flex h-96 items-center justify-center rounded-2xl border border-slate-700 bg-slate-800/70">
+          <div className="text-center">
+            <Loader className="mx-auto h-12 w-12 animate-spin text-blue-500" />
+            <p className="mt-4 text-slate-300">Loading settings...</p>
+          </div>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   if (!schema || !settings) {
     return (
-      <div className="p-8 min-h-screen bg-slate-900">
-        <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded">
+      <PageContainer size="wide">
+        <div className="rounded-xl border border-red-700 bg-red-900 px-4 py-3 text-red-100">
           Failed to load settings. Please try again.
           <button
             type="button"
@@ -507,15 +510,15 @@ export default function Settings() {
             Retry
           </button>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   const currentSection = visibleSchemaSections.find((s) => s.section === activeSection);
 
   return (
-    <div className="bg-linear-to-br from-slate-900 to-slate-800 min-h-screen">
-      <div className="max-w-6xl mx-auto px-4 py-8">
+    <PageContainer size="wide" className="space-y-8">
+      <div className="rounded-3xl border border-slate-700/70 bg-linear-to-br from-slate-900 to-slate-800 p-4 shadow-2xl shadow-slate-950/30 sm:p-6 lg:p-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white">Settings</h1>
@@ -524,7 +527,7 @@ export default function Settings() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
           {/* Sidebar Navigation */}
           <div className="lg:col-span-1">
             <div className="bg-slate-800 rounded-lg shadow border border-slate-700">
@@ -784,6 +787,6 @@ export default function Settings() {
           </ul>
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }

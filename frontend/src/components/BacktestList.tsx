@@ -2,7 +2,12 @@ import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
-import { devFallback, MOCK_BACKTEST_RUNS } from '../api/mockData';
+import {
+  devFallback,
+  getMockDataMode,
+  MOCK_BACKTEST_RUNS,
+  shouldUseDevMocks,
+} from '../api/mockData';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -91,9 +96,11 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   const [runs, setRuns] = useState<BacktestRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [usingMockData, setUsingMockData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasWarnedMockRef = useRef(false);
 
   useEffect(() => {
     // First load blocks with spinner; subsequent refreshes stay non-blocking
@@ -102,6 +109,14 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   // Auto-poll while any run is active
   useEffect(() => {
+    if (usingMockData) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
     const hasActive = runs.some((r) => {
       const s = normalizeStatus(r.status);
       return s === 'RUNNING' || s === 'PENDING';
@@ -126,26 +141,31 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         pollRef.current = null;
       }
     };
-  }, [runs]);
+  }, [runs, usingMockData]);
 
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
+    if (getMockDataMode() === 'on') {
+      return MOCK_BACKTEST_RUNS as unknown as BacktestRun[];
+    }
+
     // Keep this fast for dashboard rendering: fetch the newest page only.
     // If needed later, we can add cursor-based pagination without blocking initial paint.
     const response = await api.listBacktests(0, 200);
     const raw = toRecord(response);
     const rawData = toRecord(raw.data);
 
-    const pageRuns: BacktestRun[] = Array.isArray(rawData.backtests)
-      ? (rawData.backtests as BacktestRun[])
-      : Array.isArray(raw?.backtests)
-        ? (raw.backtests as BacktestRun[])
-        : Array.isArray(rawData.runs)
-          ? (rawData.runs as BacktestRun[])
-          : Array.isArray(raw?.runs)
-            ? (raw.runs as BacktestRun[])
-            : [];
-
-    return devFallback(pageRuns, MOCK_BACKTEST_RUNS as unknown as BacktestRun[]);
+    return devFallback(
+      Array.isArray(rawData.backtests)
+        ? (rawData.backtests as BacktestRun[])
+        : Array.isArray(raw?.backtests)
+          ? (raw.backtests as BacktestRun[])
+          : Array.isArray(rawData.runs)
+            ? (rawData.runs as BacktestRun[])
+            : Array.isArray(raw?.runs)
+              ? (raw.runs as BacktestRun[])
+              : [],
+      MOCK_BACKTEST_RUNS as unknown as BacktestRun[]
+    );
   };
 
   const loadBacktests = async (showBlockingLoader: boolean = true) => {
@@ -162,10 +182,22 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
       setRuns(nextRuns);
       setHasLoadedOnce(true);
+      setUsingMockData(shouldUseDevMocks() && nextRuns.length > 0 && nextRuns[0].run_id.startsWith('mock-run-'));
     } catch (err: unknown) {
+      if (shouldUseDevMocks()) {
+        if (!hasWarnedMockRef.current) {
+          console.warn('🔧 BacktestList: API unavailable, using mock runs in development.');
+          hasWarnedMockRef.current = true;
+        }
+        setRuns(MOCK_BACKTEST_RUNS as unknown as BacktestRun[]);
+        setHasLoadedOnce(true);
+        setUsingMockData(true);
+        setError(null);
+        return;
+      }
       console.error('❌ BacktestList: Error loading backtests:', err);
       setError(getErrorMessage(err, 'Failed to load backtests'));
-      if (!hasLoadedOnce) {
+      if (!hasLoadedOnce && !shouldUseDevMocks()) {
         setRuns([]);
       }
     } finally {
@@ -177,6 +209,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   /** Silent refresh — keeps existing data visible while updating in background. */
   const loadBacktestsSilent = async () => {
+    if (usingMockData) return;
     try {
       setRuns(await fetchAllRuns());
     } catch {
@@ -186,7 +219,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 flex flex-col items-center justify-center gap-3 min-h-[160px]">
+      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 flex flex-col items-center justify-center gap-3 min-h-40">
         <Loader className="w-7 h-7 animate-spin text-blue-400" />
         <p className="text-slate-400 text-sm">Loading backtest runs…</p>
       </div>
@@ -227,6 +260,11 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
           <h3 className="text-base font-semibold text-white">Backtest Runs</h3>
           <p className="text-xs text-slate-400 mt-0.5">{runs.length} total run{runs.length !== 1 ? 's' : ''}</p>
         </div>
+        {usingMockData && (
+          <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded border border-amber-700 bg-amber-900/40 text-amber-300">
+            Dev Mock Data
+          </span>
+        )}
       </div>
 
       <div className="px-6 py-3 border-b border-slate-700/60">

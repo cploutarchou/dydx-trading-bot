@@ -1,11 +1,19 @@
 /**
  * CumulativePnlChart
- * Uses TradingView lightweight-charts v5 to render an interactive
- * cumulative-PnL area/line chart with dark theme styling.
+ * Responsive cumulative-PnL chart with a reliable SVG renderer.
  */
 
-import { ColorType, createChart, LineSeries } from 'lightweight-charts';
-import React, { useEffect, useRef } from 'react';
+import React, { useId, useMemo } from 'react';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 export interface PnlPoint {
   time: string; // "YYYY-MM-DD"
@@ -25,84 +33,30 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   positiveColor = '#22c55e',
   negativeColor = '#ef4444',
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chartRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const seriesRef = useRef<any>(null);
+  const gradientId = useId().replace(/:/g, '-');
 
-  /* ── Mount: create chart and series ──────────────────────── */
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+  const normalizedData = useMemo(
+    () =>
+      [...data]
+        .filter((point) => Number.isFinite(point.value) && typeof point.time === 'string')
+        .sort((a, b) => a.time.localeCompare(b.time))
+        .map((point) => ({
+          ...point,
+          label: new Date(`${point.time}T00:00:00`).toLocaleDateString([], {
+            month: 'short',
+            day: 'numeric',
+          }),
+        })),
+    [data]
+  );
 
-    const chart = createChart(container, {
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#94a3b8',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: '#1e293b' },
-        horzLines: { color: '#1e293b' },
-      },
-      crosshair: { mode: 1 },
-      rightPriceScale: {
-        borderColor: '#334155',
-        textColor: '#94a3b8',
-      },
-      timeScale: {
-        borderColor: '#334155',
-        timeVisible: true,
-        fixLeftEdge: true,
-        fixRightEdge: true,
-      },
-      width: container.clientWidth,
-      height,
-    });
-
-    chartRef.current = chart;
-    seriesRef.current = chart.addSeries(LineSeries, {
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: true,
-    });
-
-    const handleResize = () => {
-      if (container && chartRef.current) {
-        chartRef.current.applyOptions({ width: container.clientWidth });
-      }
-    };
-
-    const observer = new ResizeObserver(handleResize);
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-      chart.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-    };
-  }, [height]); // intentionally omit data — handled by the second effect
-
-  /* ── Update: push new data without recreating chart ──────── */
-  useEffect(() => {
-    const series = seriesRef.current;
-    const chart = chartRef.current;
-    if (!series || !chart) return;
-
-    if (data.length === 0) {
-      series.setData([]);
-      return;
-    }
-
-    const lastValue = data[data.length - 1].value;
-    const color = lastValue >= 0 ? positiveColor : negativeColor;
-
-    series.applyOptions({ color });
-    series.setData(data);
-    chart.timeScale().fitContent();
-  }, [data, positiveColor, negativeColor]);
+  const lastValue = normalizedData[normalizedData.length - 1]?.value ?? 0;
+  const strokeColor = lastValue >= 0 ? positiveColor : negativeColor;
+  const values = normalizedData.map((point) => point.value);
+  const minValue = values.length > 0 ? Math.min(...values, 0) : 0;
+  const maxValue = values.length > 0 ? Math.max(...values, 0) : 0;
+  const valuePadding = Math.max((maxValue - minValue) * 0.15, 100);
+  const yDomain: [number, number] = [minValue - valuePadding, maxValue + valuePadding];
 
   if (data.length === 0) {
     return (
@@ -115,6 +69,64 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
     );
   }
 
-  return <div ref={containerRef} style={{ width: '100%', height }} />;
+  return (
+    <div style={{ width: '100%' }}>
+      <ResponsiveContainer width="100%" height={height} minWidth={280} minHeight={220}>
+        <AreaChart data={normalizedData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={strokeColor} stopOpacity={0.35} />
+              <stop offset="100%" stopColor={strokeColor} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+
+          <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey="label"
+            stroke="#64748b"
+            tick={{ fill: '#94a3b8', fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            minTickGap={24}
+          />
+          <YAxis
+            stroke="#64748b"
+            tick={{ fill: '#94a3b8', fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            width={72}
+            domain={yDomain}
+            tickFormatter={(value: number) => `$${Math.round(value).toLocaleString('en-US')}`}
+          />
+          <ReferenceLine y={0} stroke="#334155" strokeDasharray="4 4" />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: '0.75rem',
+              color: '#e2e8f0',
+            }}
+            labelStyle={{ color: '#cbd5e1', marginBottom: '0.25rem' }}
+            formatter={(value: number) => [
+              `${value >= 0 ? '+' : '-'}$${Math.abs(value).toLocaleString('en-US', {
+                maximumFractionDigits: 2,
+              })}`,
+              'Cumulative P&L',
+            ]}
+          />
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke={strokeColor}
+            strokeWidth={3}
+            fill={`url(#${gradientId})`}
+            isAnimationActive={false}
+            activeDot={{ r: 5, stroke: strokeColor, strokeWidth: 2, fill: '#0f172a' }}
+            dot={normalizedData.length <= 2 ? { r: 3, fill: strokeColor, strokeWidth: 0 } : false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
 };
 

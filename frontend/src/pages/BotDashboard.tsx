@@ -7,8 +7,10 @@ import {
   MOCK_BOT_INSTANCES,
   MOCK_BOT_STATS,
   MOCK_POSITIONS,
+  shouldUseDevMocks,
 } from '../api/mockData';
 import BotManager from '../components/BotManager';
+import { PageContainer } from '../components/PageContainer';
 
 type TabType = 'overview' | 'manager' | 'positions' | 'alerts';
 
@@ -110,7 +112,7 @@ const BotDashboard: React.FC = () => {
       );
 
       // When using mock instances skip the API stats calls and use mock stats directly
-      const isMock = import.meta.env.DEV && rawInstances.length === 0 && instances.length > 0;
+      const isMock = shouldUseDevMocks() && rawInstances.length === 0 && instances.length > 0;
 
       let statsData: BotStatsData[];
       if (isMock) {
@@ -203,10 +205,11 @@ const BotDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-900">
+    <div className="space-y-6">
       {/* Tab Bar */}
       <div className="border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto flex gap-1 px-4 overflow-x-auto">
+        <PageContainer size="wide" className="!px-4 !py-0 sm:!px-6 lg:!px-8">
+          <div className="flex gap-1 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -221,13 +224,14 @@ const BotDashboard: React.FC = () => {
               {tab.label}
             </button>
           ))}
-        </div>
+          </div>
+        </PageContainer>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <PageContainer size="wide">
         {/* Page header */}
         {activeTab !== 'manager' && (
-          <div className="flex items-center justify-between mb-8">
+          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-bold text-white flex items-center gap-3">
                 <div className="p-2 bg-blue-500/15 rounded-lg">
@@ -349,7 +353,7 @@ const BotDashboard: React.FC = () => {
                     </span>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
                   {[
                     { label: 'Total P&L', value: formatCurrency(selectedBotStats.total_pnl), colored: true, positive: selectedBotStats.total_pnl >= 0 },
                     { label: 'Realized P&L', value: formatCurrency(selectedBotStats.realized_pnl), colored: false, positive: false },
@@ -467,7 +471,7 @@ const BotDashboard: React.FC = () => {
             )}
           </div>
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 };

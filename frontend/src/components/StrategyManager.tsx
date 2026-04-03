@@ -23,6 +23,7 @@ import {
 import { useEffect, useState } from 'react';
 import apiClient from '../api';
 import { Strategy, useStrategyStore } from '../store/strategies';
+import { PageContainer } from './PageContainer';
 
 interface StrategyStatus {
   strategyId: number;
@@ -283,25 +284,25 @@ export default function StrategyManager() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <PageContainer size="wide" className="flex h-96 items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
           <p className="mt-4 text-gray-400">Loading strategies...</p>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <PageContainer size="wide" className="space-y-6">
       {/* Header */}
       <div className="bg-linear-to-r from-slate-900 to-slate-800 rounded-lg border border-slate-700 p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">🎯 Strategy Manager</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">🎯 Strategy Manager</h1>
             <p className="text-gray-400 mt-2">Run and manage multiple strategies simultaneously</p>
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right">
             <div className="text-4xl font-bold text-green-400">{runningCount}</div>
             <div className="text-sm text-gray-400">Active Strategies</div>
           </div>
@@ -404,7 +405,7 @@ export default function StrategyManager() {
                 )}
 
                 {/* Key Parameters */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="bg-slate-900/50 rounded p-3">
                     <p className="text-gray-400 text-xs">Z-Score Threshold</p>
                     <p className="text-white font-semibold">{strategy.zscore_threshold}</p>
@@ -695,6 +696,6 @@ export default function StrategyManager() {
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

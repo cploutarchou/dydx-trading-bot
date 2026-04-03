@@ -23,10 +23,16 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api';
-import { devFallback, MOCK_BACKTEST_RUNS } from '../api/mockData';
+import {
+  devFallback,
+  getMockDataMode,
+  MOCK_BACKTEST_RUNS,
+  shouldUseDevMocks,
+} from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
+import { PageContainer } from '../components/PageContainer';
 import { useAuthStore } from '../store/auth';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -194,6 +200,89 @@ const safeNum = (v: unknown, fallback = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const parseTimestamp = (value: unknown): number | null => {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  const normalized = value.includes(' ') ? value.replace(' ', 'T') : value;
+  const ms = Date.parse(normalized);
+  return Number.isFinite(ms) ? ms : null;
+};
+
+const getRunTimestamp = (run: BacktestRunSummary): number | null => {
+  const direct = parseTimestamp(run.created_at);
+  if (direct !== null) return direct;
+
+  const raw = run as unknown as Record<string, unknown>;
+  return (
+    parseTimestamp(raw.updated_at) ??
+    parseTimestamp(raw.start_date) ??
+    parseTimestamp(raw.end_date)
+  );
+};
+
+const buildPnlSeries = (runs: BacktestRunSummary[]): PnlPoint[] => {
+  const completed = runs.filter((r) => String(r.status ?? '').toUpperCase() === 'COMPLETED');
+  const sorted = [...completed].sort((a, b) => {
+    const ta = getRunTimestamp(a) ?? Number.MAX_SAFE_INTEGER;
+    const tb = getRunTimestamp(b) ?? Number.MAX_SAFE_INTEGER;
+    return ta - tb;
+  });
+
+  const pnlTimeSeries: PnlPoint[] = [];
+  let cumulative = 0;
+  const seenDates = new Set<string>();
+
+  for (let i = 0; i < sorted.length; i += 1) {
+    const r = sorted[i];
+    const ts = getRunTimestamp(r);
+    const fallbackTs = Date.now() - (sorted.length - i) * 24 * 60 * 60 * 1000;
+    const dateStr = new Date(ts ?? fallbackTs).toISOString().substring(0, 10);
+    cumulative += safeNum(r.total_pnl);
+
+    if (seenDates.has(dateStr)) {
+      const last = pnlTimeSeries[pnlTimeSeries.length - 1];
+      if (last?.time === dateStr) last.value = parseFloat(cumulative.toFixed(2));
+    } else {
+      pnlTimeSeries.push({ time: dateStr, value: parseFloat(cumulative.toFixed(2)) });
+      seenDates.add(dateStr);
+    }
+  }
+
+  return pnlTimeSeries;
+};
+
+const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
+  const norm = (s?: string) => String(s ?? '').toUpperCase();
+
+  const completed = runs.filter((r) => norm(r.status) === 'COMPLETED');
+  const running = runs.filter((r) => norm(r.status) === 'RUNNING' || norm(r.status) === 'PENDING');
+  const failed = runs.filter((r) => norm(r.status) === 'FAILED' || norm(r.status) === 'CANCELLED');
+
+  const totalPnl = completed.reduce((acc, r) => acc + safeNum(r.total_pnl), 0);
+  const bestWinRate = completed.reduce((max, r) => Math.max(max, safeNum(r.win_rate)), 0);
+  const bestSharpe = completed.reduce((max, r) => Math.max(max, safeNum(r.sharpe_ratio)), 0);
+  const totalTrades = runs.reduce((acc, r) => acc + safeNum(r.total_trades), 0);
+  const avgPnlPerRun = completed.length > 0 ? totalPnl / completed.length : 0;
+
+  let pnlTimeSeries = buildPnlSeries(runs);
+  if (shouldUseDevMocks() && pnlTimeSeries.length === 0) {
+    pnlTimeSeries = buildPnlSeries(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
+  }
+
+  return {
+    total: runs.length,
+    completed: completed.length,
+    running: running.length,
+    failed: failed.length,
+    totalPnl,
+    bestWinRate,
+    bestSharpe,
+    totalTrades,
+    avgPnlPerRun,
+    activeRuns: running,
+    pnlTimeSeries,
+  };
+};
+
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export const DashboardPage: React.FC = () => {
@@ -207,9 +296,19 @@ export const DashboardPage: React.FC = () => {
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [launcherOpen, setLauncherOpen] = useState(false);
+  const [usingMockData, setUsingMockData] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasWarnedMockRef = useRef(false);
 
   const computeStats = useCallback(async () => {
+    if (getMockDataMode() === 'on') {
+      const mockRuns = MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[];
+      setUsingMockData(true);
+      setStats(buildDashboardStats(mockRuns));
+      setStatsLoading(false);
+      return;
+    }
+
     try {
       const response = await api.listBacktests(0, 500);
       const raw = toRecord(response);
@@ -217,53 +316,26 @@ export const DashboardPage: React.FC = () => {
 
       const rawRuns: BacktestRunSummary[] = Array.isArray(rawData.backtests)
         ? (rawData.backtests as BacktestRunSummary[])
-        : [];
+        : Array.isArray(raw.backtests)
+          ? (raw.backtests as BacktestRunSummary[])
+          : Array.isArray(rawData.runs)
+            ? (rawData.runs as BacktestRunSummary[])
+            : Array.isArray(raw.runs)
+              ? (raw.runs as BacktestRunSummary[])
+              : [];
 
       const runs = devFallback(rawRuns, MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
-
-      const norm = (s?: string) => String(s ?? '').toUpperCase();
-
-      const completed = runs.filter((r) => norm(r.status) === 'COMPLETED');
-      const running   = runs.filter((r) => norm(r.status) === 'RUNNING' || norm(r.status) === 'PENDING');
-      const failed    = runs.filter((r) => norm(r.status) === 'FAILED' || norm(r.status) === 'CANCELLED');
-
-      const totalPnl    = completed.reduce((acc, r) => acc + safeNum(r.total_pnl), 0);
-      const bestWinRate = completed.reduce((max, r) => Math.max(max, safeNum(r.win_rate)), 0);
-      const bestSharpe  = completed.reduce((max, r) => Math.max(max, safeNum(r.sharpe_ratio)), 0);
-      const totalTrades = runs.reduce((acc, r) => acc + safeNum(r.total_trades), 0);
-      const avgPnlPerRun = completed.length > 0 ? totalPnl / completed.length : 0;
-
-      const sorted = [...completed].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
-
-      const pnlTimeSeries: PnlPoint[] = [];
-      let cumulative = 0;
-      const seenDates = new Set<string>();
-
-      for (const r of sorted) {
-        const d = new Date(r.created_at);
-        if (isNaN(d.getTime())) continue;
-        const dateStr = d.toISOString().substring(0, 10);
-        cumulative += safeNum(r.total_pnl);
-
-        if (seenDates.has(dateStr)) {
-          const last = pnlTimeSeries[pnlTimeSeries.length - 1];
-          if (last?.time === dateStr) last.value = parseFloat(cumulative.toFixed(2));
-        } else {
-          pnlTimeSeries.push({ time: dateStr, value: parseFloat(cumulative.toFixed(2)) });
-          seenDates.add(dateStr);
+      setUsingMockData(shouldUseDevMocks() && rawRuns.length === 0 && runs.length > 0);
+      setStats(buildDashboardStats(runs));
+    } catch (error) {
+      if (shouldUseDevMocks()) {
+        if (!hasWarnedMockRef.current) {
+          console.warn('🔧 Dashboard: API unavailable, using mock stats in development.', error);
+          hasWarnedMockRef.current = true;
         }
+        setUsingMockData(true);
+        setStats(buildDashboardStats(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]));
       }
-
-      setStats({
-        total: runs.length, completed: completed.length,
-        running: running.length, failed: failed.length,
-        totalPnl, bestWinRate, bestSharpe, totalTrades, avgPnlPerRun,
-        activeRuns: running, pnlTimeSeries,
-      });
-    } catch {
-      /* silent – BacktestList shows its own error state */
     } finally {
       setStatsLoading(false);
     }
@@ -272,6 +344,14 @@ export const DashboardPage: React.FC = () => {
   useEffect(() => { void computeStats(); }, [computeStats, refreshTrigger]);
 
   useEffect(() => {
+    if (usingMockData) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
     if (stats.running > 0 && !pollRef.current) {
       pollRef.current = setInterval(() => void computeStats(), 4000);
     } else if (stats.running === 0 && pollRef.current) {
@@ -281,7 +361,7 @@ export const DashboardPage: React.FC = () => {
     return () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [stats.running, computeStats]);
+  }, [stats.running, computeStats, usingMockData]);
 
   // Animated counters
   const countTotal    = useCountUp(stats.total);
@@ -302,7 +382,7 @@ export const DashboardPage: React.FC = () => {
   const pnlColor = stats.totalPnl >= 0 ? '#22c55e' : '#ef4444';
 
   return (
-    <div className="min-h-screen bg-slate-900 p-6 space-y-6">
+    <PageContainer size="wide" className="space-y-4 sm:space-y-6">
 
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <div
@@ -312,7 +392,7 @@ export const DashboardPage: React.FC = () => {
         <div className="absolute -top-20 -right-20 w-72 h-72 bg-blue-600/8 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-purple-600/8 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="relative flex flex-col gap-3 px-4 py-4 sm:px-6 sm:py-5 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-slate-400 text-sm">{greeting},</p>
             <h1 className="text-2xl font-bold text-white mt-0.5">
@@ -324,6 +404,11 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-sm">
+            {usingMockData && (
+              <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded border border-amber-700 bg-amber-900/40 text-amber-300">
+                Dev Mock Data
+              </span>
+            )}
             <div className="flex items-center gap-2 text-slate-300">
               <Clock className="w-4 h-4 text-blue-400" />
               <LiveClock />
@@ -347,7 +432,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── KPI row 1 ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Total Runs" icon={<BarChart2 className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countTotal)}
           subtitle={`${stats.completed} completed`} color="blue" animDelay={0} />
@@ -367,7 +452,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── KPI row 2 ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Lifetime P&L" icon={<TrendingUp className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtPnl(stats.totalPnl)}
           subtitle={`avg ${fmtPnl(stats.avgPnlPerRun)}/run`}
@@ -389,7 +474,7 @@ export const DashboardPage: React.FC = () => {
         className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 animate-fade-slide-up"
         style={{ animationDelay: '200ms' }}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <TrendingUp className="w-4 h-4" style={{ color: pnlColor }} />
@@ -409,7 +494,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── Quick Launch + Active Runs ──────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
 
         {/* Quick Launch accordion */}
         <div
@@ -510,6 +595,6 @@ export const DashboardPage: React.FC = () => {
       <div className="animate-fade-slide-up" style={{ animationDelay: '420ms' }}>
         <BacktestList refreshTrigger={refreshTrigger} />
       </div>
-    </div>
+    </PageContainer>
   );
 };

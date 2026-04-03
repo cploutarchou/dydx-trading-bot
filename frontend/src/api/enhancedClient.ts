@@ -543,10 +543,32 @@ class EnhancedAPIClient {
     runId: string
   ): Promise<{ run_id: string; status: string; progress_percent: number }> {
     const result = await this.baseClient.getBacktest(runId);
+    const data = (result.data ?? {}) as Record<string, unknown>;
+
+    const rawStatus = typeof data.status === 'string' ? data.status : 'PENDING';
+    const normalizedStatus = rawStatus.toUpperCase();
+
+    const progressSources = [
+      data.progress_percent,
+      data.progress_pct,
+      data.progress,
+      data.percent_complete,
+    ];
+
+    const parsedProgress = progressSources
+      .map((value) => (typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN))
+      .find((value) => Number.isFinite(value));
+
+    const computedProgress = Number.isFinite(parsedProgress)
+      ? Math.min(100, Math.max(0, parsedProgress as number))
+      : normalizedStatus === 'COMPLETED'
+        ? 100
+        : 0;
+
     return {
       run_id: runId,
-      status: result.data?.status || 'PENDING',
-      progress_percent: 100, // Mock for now
+      status: normalizedStatus,
+      progress_percent: computedProgress,
     };
   }
 

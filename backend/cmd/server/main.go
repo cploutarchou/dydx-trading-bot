@@ -16,12 +16,11 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 func loadRootEnv() {
-	candidates := []string{"../.env", ".env", "../../.env"}
+	// Prefer backend-local .env first, then fallback to parent locations.
+	candidates := []string{".env", "../.env", "../../.env"}
 
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err != nil {

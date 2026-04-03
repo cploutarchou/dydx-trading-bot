@@ -20,8 +20,10 @@ import {
 	YAxis,
 } from 'recharts';
 import api from '../api';
+import { MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { useBacktestProgress } from '../api/hooks';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
+import { PageContainer } from '../components/PageContainer';
 
 interface Candle {
   market: string;
@@ -157,6 +159,143 @@ const formatDurationFromSeconds = (seconds: number): string => {
   return parts.join(' ');
 };
 
+const isMockRunId = (runId?: string): boolean =>
+  Boolean(runId && runId.startsWith('mock-run-') && shouldUseDevMocks());
+
+const getMockRunById = (runId?: string) =>
+  MOCK_BACKTEST_RUNS.find((run) => run.run_id === runId);
+
+const buildMockBacktestResponse = (runId: string): BacktestResponse | null => {
+  const run = getMockRunById(runId);
+  if (!run) return null;
+
+  return {
+    run_id: run.run_id,
+    status: run.status,
+    created_at: run.created_at,
+    start_date: run.start_date,
+    end_date: run.end_date,
+    progress_pct: run.progress_pct,
+    total_pnl: run.total_pnl,
+    total_pnl_usd: run.total_pnl,
+    win_rate: run.win_rate,
+    sharpe_ratio: run.sharpe_ratio,
+    max_drawdown_pct: run.max_drawdown_pct,
+    profit_factor: run.profit_factor,
+    total_trades: run.total_trades,
+  };
+};
+
+const buildMockCandles = (run: BacktestResponse): Candle[] => {
+  const start = new Date(run.start_date || new Date().toISOString());
+  const days = 30;
+  const totalPnl = run.total_pnl_usd ?? run.total_pnl ?? 0;
+  const market = 'PORTFOLIO';
+
+  return Array.from({ length: days }, (_, index) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + index);
+    const progress = (index + 1) / days;
+    const base = totalPnl * progress;
+    const wave = Math.sin(index / 2.3) * Math.max(Math.abs(totalPnl) * 0.02, 10);
+    const close = Number((base + wave).toFixed(2));
+
+    return {
+      market,
+      timestamp: d.toISOString(),
+      open: close,
+      high: close,
+      low: close,
+      close,
+      volume: Math.max(1, Math.round((run.total_trades ?? 0) / days)),
+    };
+  });
+};
+
+const buildMockPositions = (): Position[] => {
+  const now = new Date();
+  return [
+    {
+      position_id: 1,
+      market_1: 'ETH-USD',
+      market_2: 'BTC-USD',
+      entry_timestamp: new Date(now.getTime() - 10 * 86400000).toISOString(),
+      exit_timestamp: new Date(now.getTime() - 8 * 86400000).toISOString(),
+      entry_price_m1: 3200,
+      exit_price_m1: 3330,
+      entry_price_m2: 62000,
+      exit_price_m2: 61000,
+      hedge_ratio: 0.52,
+      entry_zscore: 2.1,
+      exit_zscore: 0.2,
+      pnl_m1_usd: 120,
+      pnl_m2_usd: 80,
+      total_pnl_usd: 200,
+      status: 'CLOSED',
+    },
+    {
+      position_id: 2,
+      market_1: 'SOL-USD',
+      market_2: 'AVAX-USD',
+      entry_timestamp: new Date(now.getTime() - 6 * 86400000).toISOString(),
+      exit_timestamp: new Date(now.getTime() - 4 * 86400000).toISOString(),
+      entry_price_m1: 138,
+      exit_price_m1: 145,
+      entry_price_m2: 39,
+      exit_price_m2: 37,
+      hedge_ratio: 1.74,
+      entry_zscore: -2.3,
+      exit_zscore: -0.1,
+      pnl_m1_usd: 90,
+      pnl_m2_usd: 60,
+      total_pnl_usd: 150,
+      status: 'CLOSED',
+    },
+  ];
+};
+
+const buildMockTrades = (): Trade[] => {
+  const now = new Date();
+  return [
+    {
+      trade_id: 'mock-trade-001',
+      market_1: 'ETH-USD',
+      market_2: 'BTC-USD',
+      entry_timestamp: new Date(now.getTime() - 10 * 86400000).toISOString(),
+      exit_timestamp: new Date(now.getTime() - 8 * 86400000).toISOString(),
+      entry_zscore: 2.1,
+      exit_zscore: 0.2,
+      entry_price_m1: 3200,
+      exit_price_m1: 3330,
+      entry_price_m2: 62000,
+      exit_price_m2: 61000,
+      hedge_ratio: 0.52,
+      pnl_usd: 200,
+      pnl_pct: 6.4,
+      duration_hours: 48,
+      win: true,
+    },
+    {
+      trade_id: 'mock-trade-002',
+      market_1: 'SOL-USD',
+      market_2: 'AVAX-USD',
+      entry_timestamp: new Date(now.getTime() - 6 * 86400000).toISOString(),
+      exit_timestamp: new Date(now.getTime() - 4 * 86400000).toISOString(),
+      entry_zscore: -2.3,
+      exit_zscore: -0.1,
+      entry_price_m1: 138,
+      exit_price_m1: 145,
+      entry_price_m2: 39,
+      exit_price_m2: 37,
+      hedge_ratio: 1.74,
+      pnl_usd: 150,
+      pnl_pct: 4.1,
+      duration_hours: 36,
+      win: true,
+    },
+  ];
+};
+
 export const BacktestDetailsV2: React.FC = () => {
   const { runId } = useParams<{ runId: string }>();
   const progressQuery = useBacktestProgress(runId || '');
@@ -192,10 +331,37 @@ export const BacktestDetailsV2: React.FC = () => {
           return;
         }
 
+        if (isMockRunId(runId)) {
+          const mockData = buildMockBacktestResponse(runId);
+          if (mockData) {
+            setBacktest(mockData);
+            setCandles(buildMockCandles(mockData));
+            setMarkets(['PORTFOLIO']);
+            setSelectedMarket('PORTFOLIO');
+            setPositions(buildMockPositions());
+            setTrades(buildMockTrades());
+            return;
+          }
+        }
+
         const response = await api.getBacktest(runId);
         const data = response?.data || response;
         setBacktest(data as unknown as BacktestResponse);
       } catch (err: unknown) {
+        if (isMockRunId(runId)) {
+          const mockData = buildMockBacktestResponse(runId);
+          if (mockData) {
+            setBacktest(mockData);
+            setCandles(buildMockCandles(mockData));
+            setMarkets(['PORTFOLIO']);
+            setSelectedMarket('PORTFOLIO');
+            setPositions(buildMockPositions());
+            setTrades(buildMockTrades());
+            setError(null);
+            return;
+          }
+        }
+
         const msg = err instanceof Error ? err.message : 'Failed to fetch backtest';
         setError(msg);
         setBacktest(null);
@@ -211,6 +377,7 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchAnalytics = async () => {
       if (!runId || !backtest) return;
+      if (isMockRunId(runId)) return;
       if (normalizeStatus(backtest.status) !== 'completed') {
         setCandles([]);
         setMarkets([]);
@@ -292,6 +459,7 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchPositionSnapshots = async () => {
       if (!runId || !backtest) return;
+      if (isMockRunId(runId)) return;
       if (normalizeStatus(backtest.status) !== 'completed') {
         setPositions([]);
         return;
@@ -364,6 +532,7 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchTrades = async () => {
       if (!runId || !backtest) return;
+      if (isMockRunId(runId)) return;
       if (normalizeStatus(backtest.status) !== 'completed') {
         setTrades([]);
         return;
@@ -447,8 +616,12 @@ export const BacktestDetailsV2: React.FC = () => {
     if (!isActive) return;
 
     let cancelled = false;
+    let logsSupported = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const fetchLogs = async () => {
+      if (!logsSupported) return;
+
       try {
         const response = await api.getBacktestLogs(runId);
         if (cancelled || !response.success || !response.data?.logs) {
@@ -467,12 +640,22 @@ export const BacktestDetailsV2: React.FC = () => {
 
         setLiveLogs(normalized);
       } catch (error) {
+        const statusCode = asRecord(asRecord(error)?.response)?.status;
+        if (statusCode === 404) {
+          logsSupported = false;
+          setLiveLogs([]);
+          if (intervalId) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
+          return;
+        }
         console.warn('📊 BacktestDetailsV2: failed to fetch live backtest logs', error);
       }
     };
 
     void fetchLogs();
-    const intervalId = setInterval(() => {
+    intervalId = setInterval(() => {
       void fetchLogs();
     }, 5000);
 
@@ -535,20 +718,20 @@ export const BacktestDetailsV2: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-900">
-        <Loader className="w-8 h-8 animate-spin text-blue-500" />
-      </div>
+      <PageContainer size="wide" className="flex min-h-[60vh] items-center justify-center">
+        <Loader className="h-8 w-8 animate-spin text-blue-500" />
+      </PageContainer>
     );
   }
 
   if (error || !backtest) {
     return (
-      <div className="min-h-screen bg-slate-900 p-8 flex items-center justify-center">
+      <PageContainer size="wide" className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center text-red-500">
           <p className="text-xl font-bold mb-2">Error</p>
           <p>{error || 'Backtest not found'}</p>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -661,12 +844,11 @@ export const BacktestDetailsV2: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
-      <div className="max-w-7xl mx-auto p-8">
+    <PageContainer size="wide" className="space-y-6 text-white">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Backtest Results</h1>
-          <div className="flex items-center gap-4 text-slate-300">
+        <div>
+          <h1 className="mb-2 text-2xl font-bold sm:text-4xl">Backtest Results</h1>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:text-base">
             <span>
               {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
             </span>
@@ -688,7 +870,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
         {/* Status Banner */}
         {isRunning && (
-          <div className="mb-6 p-4 bg-blue-900/40 border border-blue-700 rounded-lg flex items-start gap-3">
+          <div className="rounded-lg border border-blue-700 bg-blue-900/40 p-4 flex items-start gap-3">
             <Loader className="w-5 h-5 animate-spin text-blue-400 shrink-0 mt-0.5" />
             <div className="w-full">
               <p className="text-blue-300 font-medium">Backtest in progress</p>
@@ -761,7 +943,7 @@ export const BacktestDetailsV2: React.FC = () => {
           </div>
         )}
         {isFailed && (
-          <div className="mb-6 p-4 bg-red-900/40 border border-red-700 rounded-lg">
+          <div className="rounded-lg border border-red-700 bg-red-900/40 p-4">
             <p className="text-red-300 font-medium capitalize">Backtest {statusNorm}</p>
             <p className="text-slate-400 text-sm mt-1">
               This backtest did not complete successfully. No result data is available.
@@ -770,7 +952,7 @@ export const BacktestDetailsV2: React.FC = () => {
         )}
 
         {/* Metrics Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           {metrics.map((metric) => (
             <div key={metric.label} className="bg-slate-800 p-4 rounded-lg border border-slate-700">
               <p className="text-2xl mb-2">{metric.icon}</p>
@@ -783,27 +965,29 @@ export const BacktestDetailsV2: React.FC = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-4 mb-8 border-b border-slate-700">
-          {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 border-b-2 transition ${
-                activeTab === tab
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
+        <div className="overflow-x-auto border-b border-slate-700">
+          <div className="flex min-w-max gap-2 sm:gap-4">
+            {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`border-b-2 px-4 py-2 transition ${
+                  activeTab === tab
+                    ? 'border-blue-500 text-blue-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Summary Tab */}
         {activeTab === 'summary' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             {/* Equity Curve */}
-            <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+              <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
               <h2 className="text-xl font-bold mb-4">Equity Curve</h2>
               {equityData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -833,7 +1017,7 @@ export const BacktestDetailsV2: React.FC = () => {
             </div>
 
             {/* P&L by Pair */}
-            <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+              <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
               <h2 className="text-xl font-bold mb-4">P&L by Pair</h2>
               {pnlByPairData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -860,7 +1044,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
         {/* Candles Tab */}
         {activeTab === 'candles' && (
-          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+          <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             {candles.length === 0 ? (
               renderEmptyState('candle data')
             ) : (
@@ -918,7 +1102,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
         {/* Positions Tab */}
         {activeTab === 'positions' && (
-          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Positions ({positions.length})</h2>
             {positions.length === 0 ? (
               renderEmptyState('position data')
@@ -980,7 +1164,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
         {/* Trades Tab */}
         {activeTab === 'trades' && (
-          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Trades ({trades.length})</h2>
             {trades.length === 0 ? (
               renderEmptyState('trade data')
@@ -1048,13 +1232,12 @@ export const BacktestDetailsV2: React.FC = () => {
 
         {/* Results Tab */}
         {activeTab === 'results' && (
-          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+          <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Detailed Results</h2>
             <BacktestResultsEnhanced runId={runId || ''} />
           </div>
         )}
-      </div>
-    </div>
+    </PageContainer>
   );
 };
 

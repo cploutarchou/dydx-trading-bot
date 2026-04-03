@@ -381,3 +381,58 @@ def test_prioritize_pairs_respects_mode_selection():
         ("BTC-USD", "SOL-USD"),
         ("ETH-USD", "SOL-USD"),
     }
+
+
+def test_live_progress_and_runtime_health_contract(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    service = BacktestService(session=None)
+
+    async def _run():
+        created = await service.create_and_run_backtest(_request())
+
+        progress = service.get_live_progress(created.run_id)
+        assert progress is not None
+        assert "progress" in progress
+        assert progress["progress"] == progress["progress_pct"]
+
+        health = service.get_runtime_health()
+        assert set(health.keys()) == {"queue_depth", "active_jobs", "total_runs"}
+        assert health["total_runs"] >= 1
+
+    asyncio.run(_run())
+
+
+def test_comprehensive_analytics_includes_sub_objects_and_candle_fields(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    service = BacktestService(session=None)
+
+    async def _run():
+        created = await service.create_and_run_backtest(_request())
+        terminal = await _wait_for_terminal_status(service, created.run_id)
+        assert terminal == "completed"
+
+        analytics = service.get_comprehensive_analytics(created.run_id)
+        assert analytics is not None
+        assert isinstance(analytics.get("trades"), list)
+        assert isinstance(analytics.get("position_snapshots"), list)
+        assert isinstance(analytics.get("candles"), list)
+        if analytics["candles"]:
+            first = analytics["candles"][0]
+            assert "candle_id" in first
+            assert "resolution" in first
+            assert str(first.get("timestamp", "")).endswith("Z")
+
+    asyncio.run(_run())
+

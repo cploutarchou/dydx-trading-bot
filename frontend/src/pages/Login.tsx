@@ -1,6 +1,7 @@
 import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 export const LoginPage: React.FC = () => {
@@ -9,10 +10,13 @@ export const LoginPage: React.FC = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const usernameInputRef = useRef<HTMLInputElement | null>(null);
+    const errorAlertRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         usernameInputRef.current?.focus();
     }, []);
+
+    useFocusOnVisibleError([{ when: !!error, ref: errorAlertRef }], [error]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -33,6 +37,8 @@ export const LoginPage: React.FC = () => {
 
                 {error && (
                     <div
+                        ref={errorAlertRef}
+                        tabIndex={-1}
                         role="alert"
                         aria-live="assertive"
                         className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200"

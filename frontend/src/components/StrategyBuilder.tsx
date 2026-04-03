@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
+import { PageContainer } from './PageContainer';
 
 interface StrategyFormData {
   name: string;
@@ -257,18 +258,17 @@ export default function StrategyBuilder() {
 
   if (loadingExisting) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-900">
+      <PageContainer size="narrow" className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-white">Loading strategy...</p>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto">
+    <PageContainer size="narrow">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">
@@ -549,7 +549,7 @@ export default function StrategyBuilder() {
           {/* Preset Buttons */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-3">Quick Presets</label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <button
                 type="button"
                 onClick={() => applyPreset('conservative')}
@@ -593,7 +593,7 @@ export default function StrategyBuilder() {
                 {/* Risk Management Parameters */}
                 <div>
                   <h3 className="text-sm font-semibold text-gray-300 mb-3">Risk Management</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     {/* Max Positions */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
@@ -713,7 +713,7 @@ export default function StrategyBuilder() {
                 {/* Trading Parameters */}
                 <div className="border-t border-slate-700 pt-4">
                   <h3 className="text-sm font-semibold text-gray-300 mb-3">Trading Parameters</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     {/* Amount Per Trade */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
@@ -965,7 +965,7 @@ export default function StrategyBuilder() {
           </div>
 
           {/* Form Actions */}
-          <div className="flex gap-4 pt-6">
+          <div className="flex flex-col gap-4 pt-6 sm:flex-row">
             <button
               type="submit"
               disabled={loading}
@@ -1009,7 +1009,6 @@ export default function StrategyBuilder() {
             </li>
           </ul>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   );
 }

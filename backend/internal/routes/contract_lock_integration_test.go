@@ -232,3 +232,86 @@ func TestContractLock_BacktestSyncHealthEndpoint(t *testing.T) {
 		t.Fatalf("expected data.count number, got %T (%v)", data["count"], data["count"])
 	}
 }
+
+func TestContractLock_BacktestResyncEndpointResponseShape(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"lock-run","status":"completed","start_date":"2025-07-01","end_date":"2025-07-31","num_pairs":3,"total_markets":8}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-run/trades", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"trades":[{"trade_id":"lock-trade","market_1":"BTC-USD","market_2":"ETH-USD","entry_timestamp":"2025-07-10T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.1,"side_1":"BUY","side_2":"SELL","size_1":1,"size_2":2,"hedge_ratio":0.5}]}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-run/position-snapshots", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"position_snapshots":[{"position_id":"lock-pos","market_1":"BTC-USD","market_2":"ETH-USD","status":"OPEN","entry_timestamp":"2025-07-10T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.1,"size_1":1,"size_2":2,"side_1":"BUY","side_2":"SELL","hedge_ratio":0.5}]}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-run/performance-metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candles":[{"market":"BTC-USD","timestamp":"2025-07-10T00:00:00Z","resolution":"1HOUR","open":100,"high":101,"low":99,"close":100.5,"volume":12}]}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"username": "smoke-user",
+		"password": "Pass123!",
+	})
+	loginResp, err := http.Post(backendServer.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	defer func() { _ = loginResp.Body.Close() }()
+
+	var loginJSON map[string]interface{}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginJSON); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	token, _ := loginJSON["access_token"].(string)
+	if token == "" {
+		t.Fatal("missing access token")
+	}
+
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/lock-run/resync", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("resync request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if _, ok := got["success"].(bool); !ok {
+		t.Fatalf("expected success bool, got %T (%v)", got["success"], got["success"])
+	}
+	if _, ok := got["timestamp"].(string); !ok {
+		t.Fatalf("expected timestamp string, got %T (%v)", got["timestamp"], got["timestamp"])
+	}
+
+	data, ok := got["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T (%v)", got["data"], got["data"])
+	}
+
+	for _, key := range []string{"run_synced", "trades_synced", "positions_synced", "candles_synced"} {
+		if _, ok := data[key].(bool); !ok {
+			t.Fatalf("expected data.%s bool, got %T (%v)", key, data[key], data[key])
+		}
+	}
+}

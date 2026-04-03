@@ -1,0 +1,31 @@
+name: Governance And Contract Lock
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  governance-and-contract-lock:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run task governance checks
+        shell: pwsh
+        run: |
+          ./make.ps1 tasks-governance
+
+      - name: Run contract lock tests
+        shell: pwsh
+        run: |
+          go test -count=1 ./internal/routes -run "TestContractLock_AuthAndDelegatedHighTrafficEndpoints|TestContractLock_BacktestSyncHealthEndpoint"
+

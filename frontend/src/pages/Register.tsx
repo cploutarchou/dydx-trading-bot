@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -22,8 +23,28 @@ export const RegisterPage: React.FC = () => {
     });
     const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
     const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong'>('weak');
+    const [formError, setFormError] = useState<string | null>(null);
+    const usernameInputRef = useRef<HTMLInputElement | null>(null);
+    const emailInputRef = useRef<HTMLInputElement | null>(null);
+    const passwordInputRef = useRef<HTMLInputElement | null>(null);
+    const confirmPasswordInputRef = useRef<HTMLInputElement | null>(null);
+    const termsCheckboxRef = useRef<HTMLInputElement | null>(null);
+    const apiErrorAlertRef = useRef<HTMLDivElement | null>(null);
+    const formErrorAlertRef = useRef<HTMLDivElement | null>(null);
 
-    const validateForm = (): boolean => {
+    useEffect(() => {
+        usernameInputRef.current?.focus();
+    }, []);
+
+    useFocusOnVisibleError(
+        [
+            { when: !!error, ref: apiErrorAlertRef },
+            { when: !error && !!formError, ref: formErrorAlertRef },
+        ],
+        [error, formError]
+    );
+
+    const validateForm = (): ValidationErrors => {
         const errors: ValidationErrors = {};
 
         // Username validation
@@ -57,7 +78,7 @@ export const RegisterPage: React.FC = () => {
         }
 
         setValidationErrors(errors);
-        return Object.keys(errors).length === 0;
+        return errors;
     };
 
     const calculatePasswordStrength = (password: string) => {
@@ -74,13 +95,25 @@ export const RegisterPage: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setFormError(null);
 
-        if (!validateForm()) {
+        const errors = validateForm();
+        if (Object.keys(errors).length > 0) {
+            if (errors.username) {
+                usernameInputRef.current?.focus();
+            } else if (errors.email) {
+                emailInputRef.current?.focus();
+            } else if (errors.password) {
+                passwordInputRef.current?.focus();
+            } else if (errors.confirmPassword) {
+                confirmPasswordInputRef.current?.focus();
+            }
             return;
         }
 
         if (!formData.agreedToTerms) {
-            alert('Please agree to the Terms of Service');
+            setFormError('Please agree to the Terms of Service and Privacy Policy');
+            termsCheckboxRef.current?.focus();
             return;
         }
 
@@ -95,79 +128,110 @@ export const RegisterPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-8 text-white">
+        <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl w-full max-w-md">
+                <div className="bg-linear-to-r from-blue-600 to-blue-700 p-8 text-white">
                     <h1 className="text-3xl font-bold">Create Account</h1>
                     <p className="text-blue-100 mt-2">Join dYdX Backtest Trading</p>
                 </div>
 
                 <div className="p-8">
                     {error && (
-                        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                            <div className="text-red-700 text-sm">{error}</div>
+                        <div
+                            ref={apiErrorAlertRef}
+                            tabIndex={-1}
+                            role="alert"
+                            aria-live="assertive"
+                            className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+                        >
+                            <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
+                            <div className="text-red-200 text-sm">{error}</div>
+                        </div>
+                    )}
+
+                    {formError && (
+                        <div
+                            ref={formErrorAlertRef}
+                            tabIndex={-1}
+                            role="alert"
+                            aria-live="assertive"
+                            className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+                        >
+                            <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
+                            <div className="text-red-200 text-sm">{formError}</div>
                         </div>
                     )}
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Username */}
                         <div>
-                            <label htmlFor="username" className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="username" className="block text-sm font-medium text-slate-300 mb-2">
                                 Username
                             </label>
                             <input
                                 id="username"
                                 name="username"
                                 type="text"
+                                ref={usernameInputRef}
+                                autoComplete="username"
+                                aria-invalid={!!validationErrors.username}
+                                aria-describedby={validationErrors.username ? 'username-error' : undefined}
                                 value={formData.username}
                                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                                className={`w-full px-4 py-2 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.username ? 'border-red-300' : 'border-slate-300'
+                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                    validationErrors.username ? 'border-red-500' : 'border-slate-600'
                                 }`}
                                 placeholder="john_doe"
                                 disabled={loading}
                             />
                             {validationErrors.username && (
-                                <p className="text-xs text-red-600 mt-1">{validationErrors.username}</p>
+                                <p id="username-error" className="text-xs text-red-300 mt-1">{validationErrors.username}</p>
                             )}
                         </div>
 
                         {/* Email */}
                         <div>
-                            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
                                 Email Address
                             </label>
                             <input
                                 id="email"
                                 name="email"
                                 type="email"
+                                ref={emailInputRef}
+                                autoComplete="email"
+                                aria-invalid={!!validationErrors.email}
+                                aria-describedby={validationErrors.email ? 'email-error' : undefined}
                                 value={formData.email}
                                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                className={`w-full px-4 py-2 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.email ? 'border-red-300' : 'border-slate-300'
+                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                    validationErrors.email ? 'border-red-500' : 'border-slate-600'
                                 }`}
                                 placeholder="john@example.com"
                                 disabled={loading}
                             />
                             {validationErrors.email && (
-                                <p className="text-xs text-red-600 mt-1">{validationErrors.email}</p>
+                                <p id="email-error" className="text-xs text-red-300 mt-1">{validationErrors.email}</p>
                             )}
                         </div>
 
                         {/* Password */}
                         <div>
-                            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
                                 Password
                             </label>
                             <input
                                 id="password"
                                 name="password"
                                 type="password"
+                                ref={passwordInputRef}
+                                autoComplete="new-password"
+                                aria-invalid={!!validationErrors.password}
+                                aria-describedby={validationErrors.password ? 'password-error' : 'password-help'}
                                 value={formData.password}
                                 onChange={handlePasswordChange}
-                                className={`w-full px-4 py-2 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.password ? 'border-red-300' : 'border-slate-300'
+                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                    validationErrors.password ? 'border-red-500' : 'border-slate-600'
                                 }`}
                                 placeholder="••••••••"
                                 disabled={loading}
@@ -179,44 +243,48 @@ export const RegisterPage: React.FC = () => {
                                         passwordStrength === 'medium' ? 'bg-yellow-500' :
                                         'bg-green-500'
                                     }`} />
-                                    <span className="text-xs font-medium text-slate-600">
+                                    <span className="text-xs font-medium text-slate-400">
                                         {passwordStrength.charAt(0).toUpperCase() + passwordStrength.slice(1)}
                                     </span>
                                 </div>
                             )}
                             {validationErrors.password && (
-                                <p className="text-xs text-red-600 mt-1">{validationErrors.password}</p>
+                                <p id="password-error" className="text-xs text-red-300 mt-1">{validationErrors.password}</p>
                             )}
-                            <p className="text-xs text-slate-500 mt-2">
+                            <p id="password-help" className="text-xs text-slate-400 mt-2">
                                 At least 8 characters, one uppercase letter, and one number
                             </p>
                         </div>
 
                         {/* Confirm Password */}
                         <div>
-                            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-300 mb-2">
                                 Confirm Password
                             </label>
                             <input
                                 id="confirmPassword"
                                 name="confirmPassword"
                                 type="password"
+                                ref={confirmPasswordInputRef}
+                                autoComplete="new-password"
+                                aria-invalid={!!validationErrors.confirmPassword}
+                                aria-describedby={validationErrors.confirmPassword ? 'confirm-password-error' : undefined}
                                 value={formData.confirmPassword}
                                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                                className={`w-full px-4 py-2 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.confirmPassword ? 'border-red-300' : 'border-slate-300'
+                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                    validationErrors.confirmPassword ? 'border-red-500' : 'border-slate-600'
                                 }`}
                                 placeholder="••••••••"
                                 disabled={loading}
                             />
                             {formData.confirmPassword && formData.password === formData.confirmPassword && (
                                 <div className="flex items-center gap-2 mt-1">
-                                    <CheckCircle className="w-4 h-4 text-green-600" />
-                                    <span className="text-xs text-green-600">Passwords match</span>
+                                    <CheckCircle className="w-4 h-4 text-green-400" />
+                                    <span className="text-xs text-green-400">Passwords match</span>
                                 </div>
                             )}
                             {validationErrors.confirmPassword && (
-                                <p className="text-xs text-red-600 mt-1">{validationErrors.confirmPassword}</p>
+                                <p id="confirm-password-error" className="text-xs text-red-300 mt-1">{validationErrors.confirmPassword}</p>
                             )}
                         </div>
 
@@ -225,18 +293,19 @@ export const RegisterPage: React.FC = () => {
                             <input
                                 type="checkbox"
                                 id="terms"
+                                ref={termsCheckboxRef}
                                 checked={formData.agreedToTerms}
                                 onChange={(e) => setFormData({ ...formData, agreedToTerms: e.target.checked })}
                                 className="mt-1"
                                 disabled={loading}
                             />
-                            <label htmlFor="terms" className="text-xs text-slate-600">
+                            <label htmlFor="terms" className="text-xs text-slate-400">
                                 I agree to the{' '}
-                                <a href="#" className="text-blue-600 hover:underline">
+                                <a href="#" className="text-blue-400 hover:underline">
                                     Terms of Service
                                 </a>
                                 {' '}and{' '}
-                                <a href="#" className="text-blue-600 hover:underline">
+                                <a href="#" className="text-blue-400 hover:underline">
                                     Privacy Policy
                                 </a>
                             </label>
@@ -253,11 +322,12 @@ export const RegisterPage: React.FC = () => {
                         </button>
                     </form>
 
-                    <p className="mt-6 text-center text-sm text-slate-600">
+                    <p className="mt-6 text-center text-sm text-slate-400">
                         Already have an account?{' '}
                         <button
+                            type="button"
                             onClick={() => navigate('/login')}
-                            className="text-blue-600 hover:underline font-medium"
+                            className="text-blue-400 hover:underline font-medium"
                         >
                             Login
                         </button>

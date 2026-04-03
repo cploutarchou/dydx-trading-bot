@@ -1,6 +1,7 @@
 import { Loader } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 export const LoginPage: React.FC = () => {
@@ -8,6 +9,14 @@ export const LoginPage: React.FC = () => {
     const { login, loading, error } = useAuthStore();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const usernameInputRef = useRef<HTMLInputElement | null>(null);
+    const errorAlertRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        usernameInputRef.current?.focus();
+    }, []);
+
+    useFocusOnVisibleError([{ when: !!error, ref: errorAlertRef }], [error]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -20,41 +29,52 @@ export const LoginPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-            <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-                <h1 className="text-3xl font-bold text-center mb-8 text-slate-900">
+        <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl p-8 w-full max-w-md">
+                <h1 className="text-3xl font-bold text-center mb-8 text-white">
                     dYdX Backtest
                 </h1>
 
                 {error && (
-                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded text-red-600">
+                    <div
+                        ref={errorAlertRef}
+                        tabIndex={-1}
+                        role="alert"
+                        aria-live="assertive"
+                        className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200"
+                    >
                         {error}
                     </div>
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                        <label htmlFor="login-username" className="block text-sm font-medium text-slate-300 mb-2">
                             Username
                         </label>
                         <input
+                            id="login-username"
                             type="text"
+                            autoComplete="username"
+                            ref={usernameInputRef}
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             required
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                        <label htmlFor="login-password" className="block text-sm font-medium text-slate-300 mb-2">
                             Password
                         </label>
                         <input
+                            id="login-password"
                             type="password"
+                            autoComplete="current-password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             required
                         />
                     </div>
@@ -69,11 +89,12 @@ export const LoginPage: React.FC = () => {
                     </button>
                 </form>
 
-                <p className="mt-4 text-center text-sm text-slate-600">
+                <p className="mt-4 text-center text-sm text-slate-400">
                     Don&apos;t have an account?{' '}
                     <button
+                        type="button"
                         onClick={() => navigate('/register')}
-                        className="text-blue-600 hover:underline font-medium"
+                        className="text-blue-400 hover:underline font-medium"
                     >
                         Register
                     </button>

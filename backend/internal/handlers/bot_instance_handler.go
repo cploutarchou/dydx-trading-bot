@@ -218,7 +218,8 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 		createPayload["config"] = req.Config
 	}
 
-	if err := h.service.CreateBotInstanceWithConfig(instance, createPayload); err != nil {
+	service := h.service.WithAuthToken(extractAuthToken(c))
+	if err := service.CreateBotInstanceWithConfig(instance, createPayload); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",

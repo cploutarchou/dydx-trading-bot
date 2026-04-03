@@ -16,7 +16,9 @@ import StrategyManager from './components/StrategyManager';
 import BacktestDetailsV2 from './pages/BacktestDetailsV2';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
+import { RegisterPage } from './pages/Register';
 import SettingsPage from './pages/Settings';
+import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
 import { useAuthStore } from './store/auth';
 
 // Legacy error boundary removed - using enhanced version from components/ErrorBoundary
@@ -91,6 +93,8 @@ export const App: React.FC = () => {
           <ToastContainer />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
             <Route
               path="/dashboard"
               element={

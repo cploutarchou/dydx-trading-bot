@@ -100,6 +100,9 @@ function Show-Help {
 		"  migrate-up      migrate database up (requires migrate CLI)",
 		"  migrate-down    rollback one migration (requires migrate CLI)",
 		"  migrate-create  create migration (requires -Name)",
+		"  tasks-summary   recompute Completed/Pending status in backend/bot/frontend tasks.md",
+		"  tasks-validate  validate cross-service task governance consistency",
+		"  tasks-governance update summaries + validate governance checks",
 		"",
 		"Examples:",
 		"  .\make.ps1 doctor",
@@ -382,6 +385,25 @@ try {
 			Write-Info "Creating migration: $Name"
 			& migrate create -ext sql -dir migrations -seq "$Name"
 			Write-Success "Migration files created"
+		}
+
+		"tasks-summary" {
+			Write-Info "Updating task status summaries..."
+			& powershell -ExecutionPolicy Bypass -File (Join-Path $backendRoot "scripts\update_task_summary.ps1")
+			Write-Success "Task status summaries updated"
+		}
+
+		"tasks-validate" {
+			Write-Info "Validating task governance..."
+			& powershell -ExecutionPolicy Bypass -File (Join-Path $backendRoot "scripts\validate_task_governance.ps1")
+			Write-Success "Task governance validation passed"
+		}
+
+		"tasks-governance" {
+			Write-Info "Updating and validating task governance..."
+			& powershell -ExecutionPolicy Bypass -File (Join-Path $backendRoot "scripts\update_task_summary.ps1")
+			& powershell -ExecutionPolicy Bypass -File (Join-Path $backendRoot "scripts\validate_task_governance.ps1")
+			Write-Success "Task governance update + validation complete"
 		}
 
 		default {

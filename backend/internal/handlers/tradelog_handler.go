@@ -44,7 +44,7 @@ func (h *TradeLogHandler) CreateTradeLog(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -54,7 +54,7 @@ func (h *TradeLogHandler) CreateTradeLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to create trade log: %v", err),
 		})
 		return
@@ -75,7 +75,7 @@ func (h *TradeLogHandler) CreateTradeLog(c *gin.Context) {
 	c.JSON(http.StatusCreated, APIResponse{
 		Success:   true,
 		Data:      tradeLog.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -86,7 +86,7 @@ func (h *TradeLogHandler) GetTradeLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid trade log ID",
 		})
 		return
@@ -96,7 +96,7 @@ func (h *TradeLogHandler) GetTradeLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get trade log: %v", err),
 		})
 		return
@@ -105,7 +105,7 @@ func (h *TradeLogHandler) GetTradeLog(c *gin.Context) {
 	if tradeLog == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Trade log not found",
 		})
 		return
@@ -114,7 +114,7 @@ func (h *TradeLogHandler) GetTradeLog(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      tradeLog.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -125,7 +125,7 @@ func (h *TradeLogHandler) ListTradeLogsByResult(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid result ID",
 		})
 		return
@@ -135,13 +135,13 @@ func (h *TradeLogHandler) ListTradeLogsByResult(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to list trade logs: %v", err),
 		})
 		return
 	}
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0)
 	for _, tl := range tradeLogs {
 		result = append(result, tl.ToDict())
 	}
@@ -152,7 +152,7 @@ func (h *TradeLogHandler) ListTradeLogsByResult(c *gin.Context) {
 			"trade_logs": result,
 			"count":      len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -163,7 +163,7 @@ func (h *TradeLogHandler) ListTradeLogsByBacktestRun(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid run ID",
 		})
 		return
@@ -173,13 +173,13 @@ func (h *TradeLogHandler) ListTradeLogsByBacktestRun(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to list trade logs: %v", err),
 		})
 		return
 	}
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0)
 	for _, tl := range tradeLogs {
 		result = append(result, tl.ToDict())
 	}
@@ -190,7 +190,7 @@ func (h *TradeLogHandler) ListTradeLogsByBacktestRun(c *gin.Context) {
 			"trade_logs": result,
 			"count":      len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -201,7 +201,7 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid trade log ID",
 		})
 		return
@@ -211,7 +211,7 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get trade log: %v", err),
 		})
 		return
@@ -220,7 +220,7 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 	if tradeLog == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Trade log not found",
 		})
 		return
@@ -238,7 +238,7 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -269,7 +269,7 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 	if err := h.service.UpdateTradeLog(tradeLog); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to update trade log: %v", err),
 		})
 		return
@@ -278,7 +278,7 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      tradeLog.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -289,7 +289,7 @@ func (h *TradeLogHandler) DeleteTradeLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid trade log ID",
 		})
 		return
@@ -298,7 +298,7 @@ func (h *TradeLogHandler) DeleteTradeLog(c *gin.Context) {
 	if err := h.service.DeleteTradeLog(id); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to delete trade log: %v", err),
 		})
 		return

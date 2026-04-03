@@ -7,8 +7,12 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
 import { BacktestComparator } from './components/BacktestComparator';
-import BotManager from './components/BotManager';
-import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer } from './components/ErrorBoundary';
+import BotDashboard from './pages/BotDashboard';
+import {
+  ErrorBoundary as EnhancedErrorBoundary,
+  ToastContainer,
+  useToastStore,
+} from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
@@ -34,11 +38,34 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <MainLayout>{children}</MainLayout>;
 };
 
+const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const user = useAuthStore((state) => state.user);
+
+  if (isAuthenticated && user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const SessionRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const user = useAuthStore((state) => state.user);
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 export const App: React.FC = () => {
   const [mounted, setMounted] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
+  const warningToast = useToastStore((state) => state.warning);
 
   useEffect(() => {
     setMounted(true);
@@ -68,7 +95,8 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handleSessionExpired = () => {
-      console.warn('🔒 Session expired event received, logging out');
+      console.warn('🔐 Session expired event received, logging out');
+      warningToast('Session expired', 'Please sign in again to continue trading.');
       logout();
     };
 
@@ -76,7 +104,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
     };
-  }, [logout]);
+  }, [logout, warningToast]);
 
   if (!mounted || !authReady) {
     return (
@@ -92,9 +120,30 @@ export const App: React.FC = () => {
         <Router>
           <ToastContainer />
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
+            <Route
+              path="/login"
+              element={
+                <GuestRoute>
+                  <LoginPage />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/register"
+              element={
+                <GuestRoute>
+                  <RegisterPage />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/2fa-setup"
+              element={
+                <SessionRoute>
+                  <TwoFactorAuthPage />
+                </SessionRoute>
+              }
+            />
             <Route
               path="/dashboard"
               element={
@@ -163,7 +212,7 @@ export const App: React.FC = () => {
               path="/bots"
               element={
                 <ProtectedRoute>
-                  <BotManager />
+                  <BotDashboard />
                 </ProtectedRoute>
               }
             />

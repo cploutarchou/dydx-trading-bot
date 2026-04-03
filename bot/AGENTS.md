@@ -24,19 +24,25 @@ Repository-level guidance for coding agents working on this project.
    - Any change touching `bot_states/*` handling must include restart/recovery reconciliation notes.
 7. **Documentation sync**
    - If runtime behavior or operations change, update relevant docs in `docs/` and `PRODUCTION_READINESS.md` in the same change.
+8. **Canonical API entrypoints**
+   - Treat `src/api/server.py` as the canonical API; keep `app.py` and `start_api.py` as compatibility wrappers around `src.api.server` / `src.api.start_api`.
+9. **API/auth contract stability**
+   - Preserve the standardized `api_response(...)` envelope in `src/api/server.py` routes and keep websocket auth aligned with `authenticate_bearer_token(...)`.
+10. **Service-token rotation support**
+   - Keep overlap support for `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, and `BOT_API_TOKENS`; if changed, update `tests/test_auth_middleware_service_token.py`.
 
 ## Required checks for bot-runtime changes
 
 - Verify startup/import works in configured interpreter.
 - Verify one instance lifecycle path (create/start/status/stop).
 - Verify no new placeholders are introduced in production paths.
+- Verify auth behavior with service-token overlap path (`tests/test_auth_middleware_service_token.py`) when touching auth middleware/routes.
+- Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for runtime/safety-impacting edits.
 - Document failure-mode impact and rollback plan.
 
 ## Key documentation map
 
 - `PRODUCTION_READINESS.md`
-- `docs/OPERATIONS_RUNBOOK.md`
-- `docs/FAILURE_MODES.md`
-- `docs/MULTI_INSTANCE_ARCHITECTURE.md`
-- `docs/FEATURE_STATUS.md`
-- `docs/CONFIG_MATRIX.md`
+- `LOCAL_SETUP.md`
+- `.github/copilot-instructions.md`
+- `tasks.md`

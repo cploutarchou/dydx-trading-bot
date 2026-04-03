@@ -13,6 +13,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const location = useLocation();
+  const environmentLabel = import.meta.env.DEV ? '🟡 Development' : '🟢 Production';
+  const environmentColor = import.meta.env.DEV ? 'text-yellow-400' : 'text-green-400';
 
   // Map routes to breadcrumb labels
   const getBreadcrumbs = () => {
@@ -92,7 +94,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         <div className="flex items-center gap-4">
           <div className="text-right hidden lg:block">
             <p className="text-xs text-gray-400">Environment</p>
-            <p className="text-sm font-medium text-green-400">🟢 Production</p>
+            <p className={`text-sm font-medium ${environmentColor}`}>{environmentLabel}</p>
           </div>
         </div>
       </div>

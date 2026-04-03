@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import api from '../api';
 import BacktestProgress from '../components/BacktestProgress';
+import { useToastStore } from '../components/ErrorBoundary';
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
@@ -93,6 +94,7 @@ export const BacktestDetailsPage: React.FC = () => {
   const [logs, setLogs] = useState<
     Array<{ id: number; message: string; level: string; created_at: string }>
   >([]);
+  const warningToast = useToastStore((state) => state.warning);
 
   useEffect(() => {
     const fetchBacktest = async () => {
@@ -191,7 +193,8 @@ export const BacktestDetailsPage: React.FC = () => {
   // Handler to create a new strategy using current settings
   const handleCreateStrategy = () => {
     if (!backtest || !backtest.strategy_snapshot) {
-      alert('No strategy configuration available');
+      console.warn('📊 BacktestDetails: missing strategy snapshot for create strategy action');
+      warningToast('No strategy configuration', 'This backtest does not include a strategy snapshot.');
       return;
     }
 

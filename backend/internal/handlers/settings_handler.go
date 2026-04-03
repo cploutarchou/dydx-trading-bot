@@ -113,7 +113,7 @@ func (h *SettingsHandler) CreateBotSetting(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -132,7 +132,7 @@ func (h *SettingsHandler) CreateBotSetting(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to create setting: %v", err),
 		})
 		return
@@ -141,7 +141,7 @@ func (h *SettingsHandler) CreateBotSetting(c *gin.Context) {
 	c.JSON(http.StatusCreated, APIResponse{
 		Success:   true,
 		Data:      setting.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -153,7 +153,7 @@ func (h *SettingsHandler) GetBotSetting(c *gin.Context) {
 	if section == "" || key == "" {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "section and key are required",
 		})
 		return
@@ -163,7 +163,7 @@ func (h *SettingsHandler) GetBotSetting(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get setting: %v", err),
 		})
 		return
@@ -172,7 +172,7 @@ func (h *SettingsHandler) GetBotSetting(c *gin.Context) {
 	if setting == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Setting not found",
 		})
 		return
@@ -181,7 +181,7 @@ func (h *SettingsHandler) GetBotSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      setting.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -192,7 +192,7 @@ func (h *SettingsHandler) GetBotSettingsBySection(c *gin.Context) {
 	if section == "" {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "section is required",
 		})
 		return
@@ -202,7 +202,7 @@ func (h *SettingsHandler) GetBotSettingsBySection(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get settings: %v", err),
 		})
 		return
@@ -219,7 +219,7 @@ func (h *SettingsHandler) GetBotSettingsBySection(c *gin.Context) {
 			"settings": result,
 			"count":    len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -229,7 +229,7 @@ func (h *SettingsHandler) ListAllBotSettings(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to list settings: %v", err),
 		})
 		return
@@ -246,7 +246,7 @@ func (h *SettingsHandler) ListAllBotSettings(c *gin.Context) {
 			"settings": result,
 			"count":    len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -257,7 +257,7 @@ func (h *SettingsHandler) UpdateBotSetting(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid setting ID",
 		})
 		return
@@ -272,7 +272,7 @@ func (h *SettingsHandler) UpdateBotSetting(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -282,7 +282,7 @@ func (h *SettingsHandler) UpdateBotSetting(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to update setting: %v", err),
 		})
 		return
@@ -291,7 +291,7 @@ func (h *SettingsHandler) UpdateBotSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      setting.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -302,7 +302,7 @@ func (h *SettingsHandler) DeleteBotSetting(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid setting ID",
 		})
 		return
@@ -311,7 +311,7 @@ func (h *SettingsHandler) DeleteBotSetting(c *gin.Context) {
 	if err := h.service.DeleteBotSetting(id); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to delete setting: %v", err),
 		})
 		return
@@ -328,7 +328,7 @@ func (h *SettingsHandler) GetRedisSetting(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get redis setting: %v", err),
 		})
 		return
@@ -337,7 +337,7 @@ func (h *SettingsHandler) GetRedisSetting(c *gin.Context) {
 	if setting == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Redis setting not found",
 		})
 		return
@@ -346,7 +346,7 @@ func (h *SettingsHandler) GetRedisSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      setting.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -364,7 +364,7 @@ func (h *SettingsHandler) UpdateRedisSetting(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -374,7 +374,7 @@ func (h *SettingsHandler) UpdateRedisSetting(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to update redis setting: %v", err),
 		})
 		return
@@ -383,7 +383,7 @@ func (h *SettingsHandler) UpdateRedisSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      setting.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -396,7 +396,7 @@ func (h *SettingsHandler) ClearSettingsCache(c *gin.Context) {
 		Data: map[string]interface{}{
 			"message": "Settings cache cleared",
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -407,7 +407,7 @@ func (h *SettingsHandler) GetCacheStats(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      stats,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -516,7 +516,7 @@ func (h *SettingsHandler) Initialize(c *gin.Context) {
 		Data: map[string]interface{}{
 			"message": "Settings initialized successfully",
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -640,7 +640,7 @@ func (h *SettingsHandler) GetSchema(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      schema,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -651,7 +651,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to retrieve settings: %v", err),
 		})
 		return
@@ -802,7 +802,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to retrieve redis settings: %v", err),
 		})
 		return
@@ -885,7 +885,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      response,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -895,7 +895,7 @@ func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to load Redis settings: %v", err),
 		})
 		return
@@ -908,7 +908,7 @@ func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
 				"connected": false,
 				"message":   "Redis is not configured",
 			},
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -942,7 +942,7 @@ func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
 				"port":       redisSetting.Port,
 				"latency_ms": latencyMs,
 			},
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
@@ -956,7 +956,7 @@ func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
 			"port":       redisSetting.Port,
 			"latency_ms": latencyMs,
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -967,7 +967,7 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -997,7 +997,7 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, APIResponse{
 				Success:   false,
-				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Error:     fmt.Sprintf("Failed to load existing setting %s: %v", compoundKey, err),
 			})
 			return
@@ -1021,7 +1021,7 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, APIResponse{
 				Success:   false,
-				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Error:     fmt.Sprintf("Failed to persist setting %s: %v", compoundKey, err),
 			})
 			return
@@ -1035,7 +1035,7 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, APIResponse{
 				Success:   false,
-				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Error:     fmt.Sprintf("Failed to load redis settings: %v", err),
 			})
 			return
@@ -1080,7 +1080,7 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, APIResponse{
 				Success:   false,
-				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Error:     fmt.Sprintf("Failed to persist redis settings: %v", err),
 			})
 			return
@@ -1094,6 +1094,6 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		Data: map[string]interface{}{
 			"updated": updated,
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

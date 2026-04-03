@@ -401,11 +401,56 @@ export function useBacktestAnalysis(runId: string) {
  * Automatically stops polling when backtest is complete
  */
 export function useBacktestProgress(runId: string) {
+  const normalizeStatus = (status: unknown): string => String(status || '').trim().toUpperCase();
+
+  const normalizeProgressPercent = (data: unknown): number => {
+    const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+    const rawProgress =
+      record.progress_percent ?? record.progress_pct ?? record.progress ?? record.percent_complete;
+
+    if (typeof rawProgress !== 'number' && typeof rawProgress !== 'string') {
+      return 0;
+    }
+
+    const parsed = Number(rawProgress);
+    if (!Number.isFinite(parsed)) {
+      return 0;
+    }
+
+    // Backtest endpoints already report percentage values (including decimals like 0.5%).
+    return Math.min(100, Math.max(0, parsed));
+  };
+
+  const extractCurrentPair = (data: unknown): string | null => {
+    const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+    const pair = record.current_pair ?? record.current_market ?? record.market;
+    return typeof pair === 'string' && pair.trim().length > 0 ? pair : null;
+  };
+
+  const extractEtaSeconds = (data: unknown): number | null => {
+    const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+    const rawEta = record.estimated_completion_seconds ?? record.eta_seconds ?? record.remaining_seconds;
+    if (typeof rawEta !== 'number' && typeof rawEta !== 'string') {
+      return null;
+    }
+    const parsed = Number(rawEta);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  };
+
+  const extractProgressSource = (data: unknown): 'details' | 'list_fallback' | 'default' => {
+    const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+    const source = record.progress_source;
+    if (source === 'details' || source === 'list_fallback' || source === 'default') {
+      return source;
+    }
+    return 'default';
+  };
+
   const query = useQuery({
     queryKey: queryKeys.backtestStatus(runId),
     queryFn: () => apiClient.getBacktestStatus(runId),
     refetchInterval: (query) => {
-      const status = (query.state.data as { status?: string } | undefined)?.status;
+      const status = normalizeStatus((query.state.data as { status?: string } | undefined)?.status);
       // Stop polling if backtest is complete or failed
       if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED') {
         return false;
@@ -417,11 +462,14 @@ export function useBacktestProgress(runId: string) {
 
   return {
     ...query,
-    isComplete: query.data?.status === 'COMPLETED',
-    isFailed: query.data?.status === 'FAILED',
-    isCancelled: query.data?.status === 'CANCELLED',
-    isRunning: query.data?.status === 'RUNNING',
-    progressPercent: query.data?.progress_percent || 0,
+    isComplete: normalizeStatus(query.data?.status) === 'COMPLETED',
+    isFailed: normalizeStatus(query.data?.status) === 'FAILED',
+    isCancelled: normalizeStatus(query.data?.status) === 'CANCELLED',
+    isRunning: normalizeStatus(query.data?.status) === 'RUNNING',
+    progressPercent: normalizeProgressPercent(query.data),
+    currentPair: extractCurrentPair(query.data),
+    etaSeconds: extractEtaSeconds(query.data),
+    progressSource: extractProgressSource(query.data),
   };
 }
 

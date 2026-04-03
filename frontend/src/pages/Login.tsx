@@ -1,5 +1,5 @@
 import { Loader } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 
@@ -8,6 +8,11 @@ export const LoginPage: React.FC = () => {
     const { login, loading, error } = useAuthStore();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const usernameInputRef = useRef<HTMLInputElement | null>(null);
+
+    useEffect(() => {
+        usernameInputRef.current?.focus();
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -45,6 +50,7 @@ export const LoginPage: React.FC = () => {
                             id="login-username"
                             type="text"
                             autoComplete="username"
+                            ref={usernameInputRef}
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"

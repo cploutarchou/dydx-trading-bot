@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 
@@ -23,8 +23,17 @@ export const RegisterPage: React.FC = () => {
     const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
     const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong'>('weak');
     const [formError, setFormError] = useState<string | null>(null);
+    const usernameInputRef = useRef<HTMLInputElement | null>(null);
+    const emailInputRef = useRef<HTMLInputElement | null>(null);
+    const passwordInputRef = useRef<HTMLInputElement | null>(null);
+    const confirmPasswordInputRef = useRef<HTMLInputElement | null>(null);
+    const termsCheckboxRef = useRef<HTMLInputElement | null>(null);
 
-    const validateForm = (): boolean => {
+    useEffect(() => {
+        usernameInputRef.current?.focus();
+    }, []);
+
+    const validateForm = (): ValidationErrors => {
         const errors: ValidationErrors = {};
 
         // Username validation
@@ -58,7 +67,7 @@ export const RegisterPage: React.FC = () => {
         }
 
         setValidationErrors(errors);
-        return Object.keys(errors).length === 0;
+        return errors;
     };
 
     const calculatePasswordStrength = (password: string) => {
@@ -77,12 +86,23 @@ export const RegisterPage: React.FC = () => {
         e.preventDefault();
         setFormError(null);
 
-        if (!validateForm()) {
+        const errors = validateForm();
+        if (Object.keys(errors).length > 0) {
+            if (errors.username) {
+                usernameInputRef.current?.focus();
+            } else if (errors.email) {
+                emailInputRef.current?.focus();
+            } else if (errors.password) {
+                passwordInputRef.current?.focus();
+            } else if (errors.confirmPassword) {
+                confirmPasswordInputRef.current?.focus();
+            }
             return;
         }
 
         if (!formData.agreedToTerms) {
             setFormError('Please agree to the Terms of Service and Privacy Policy');
+            termsCheckboxRef.current?.focus();
             return;
         }
 
@@ -137,6 +157,7 @@ export const RegisterPage: React.FC = () => {
                                 id="username"
                                 name="username"
                                 type="text"
+                                ref={usernameInputRef}
                                 autoComplete="username"
                                 aria-invalid={!!validationErrors.username}
                                 aria-describedby={validationErrors.username ? 'username-error' : undefined}
@@ -162,6 +183,7 @@ export const RegisterPage: React.FC = () => {
                                 id="email"
                                 name="email"
                                 type="email"
+                                ref={emailInputRef}
                                 autoComplete="email"
                                 aria-invalid={!!validationErrors.email}
                                 aria-describedby={validationErrors.email ? 'email-error' : undefined}
@@ -187,6 +209,7 @@ export const RegisterPage: React.FC = () => {
                                 id="password"
                                 name="password"
                                 type="password"
+                                ref={passwordInputRef}
                                 autoComplete="new-password"
                                 aria-invalid={!!validationErrors.password}
                                 aria-describedby={validationErrors.password ? 'password-error' : 'password-help'}
@@ -227,6 +250,7 @@ export const RegisterPage: React.FC = () => {
                                 id="confirmPassword"
                                 name="confirmPassword"
                                 type="password"
+                                ref={confirmPasswordInputRef}
                                 autoComplete="new-password"
                                 aria-invalid={!!validationErrors.confirmPassword}
                                 aria-describedby={validationErrors.confirmPassword ? 'confirm-password-error' : undefined}
@@ -254,6 +278,7 @@ export const RegisterPage: React.FC = () => {
                             <input
                                 type="checkbox"
                                 id="terms"
+                                ref={termsCheckboxRef}
                                 checked={formData.agreedToTerms}
                                 onChange={(e) => setFormData({ ...formData, agreedToTerms: e.target.checked })}
                                 className="mt-1"

@@ -315,3 +315,85 @@ func TestContractLock_BacktestResyncEndpointResponseShape(t *testing.T) {
 		}
 	}
 }
+
+func TestContractLock_BacktestEmptyStateShapes(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-empty/logs", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-empty/analytics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-empty/position-snapshots", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-empty/trades/detailed", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	loginBody, _ := json.Marshal(map[string]string{"username": "smoke-user", "password": "Pass123!"})
+	loginResp, err := http.Post(backendServer.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	defer func() { _ = loginResp.Body.Close() }()
+	var loginJSON map[string]interface{}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginJSON); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	token, _ := loginJSON["access_token"].(string)
+
+	type endpointCase struct {
+		path  string
+		field string
+	}
+	checks := []endpointCase{
+		{path: "/api/v1/backtests/lock-empty/logs", field: "logs"},
+		{path: "/api/v1/backtests/lock-empty/analytics", field: "daily_pnl"},
+		{path: "/api/v1/backtests/lock-empty/position-snapshots", field: "snapshots"},
+		{path: "/api/v1/backtests/lock-empty/positions/snapshots", field: "snapshots"},
+		{path: "/api/v1/backtests/lock-empty/trades/detailed", field: "trades"},
+	}
+
+	for _, check := range checks {
+		req, _ := http.NewRequest(http.MethodGet, backendServer.URL+check.path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request %s failed: %v", check.path, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			t.Fatalf("expected 200 for %s, got %d", check.path, resp.StatusCode)
+		}
+		var payload map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			_ = resp.Body.Close()
+			t.Fatalf("decode %s payload: %v", check.path, err)
+		}
+		_ = resp.Body.Close()
+		if _, ok := payload["success"].(bool); !ok {
+			t.Fatalf("expected success bool for %s", check.path)
+		}
+		data, ok := payload["data"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected data object for %s", check.path)
+		}
+		if _, ok := data[check.field].([]interface{}); !ok {
+			t.Fatalf("expected data.%s array for %s", check.field, check.path)
+		}
+	}
+}

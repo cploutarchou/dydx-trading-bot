@@ -150,6 +150,97 @@ func normalizeBacktestRunPayload(config map[string]interface{}) map[string]inter
 	return normalized
 }
 
+func asMap(value interface{}) map[string]interface{} {
+	if mapped, ok := value.(map[string]interface{}); ok {
+		return mapped
+	}
+	return nil
+}
+
+func asSlice(value interface{}) []interface{} {
+	if items, ok := value.([]interface{}); ok {
+		return items
+	}
+	return nil
+}
+
+func getNumberField(payload map[string]interface{}, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		v, ok := payload[key]
+		if !ok || v == nil {
+			continue
+		}
+		switch typed := v.(type) {
+		case float64:
+			return typed, true
+		case float32:
+			return float64(typed), true
+		case int:
+			return float64(typed), true
+		case int32:
+			return float64(typed), true
+		case int64:
+			return float64(typed), true
+		}
+	}
+	return 0, false
+}
+
+func normalizeBacktestDetailsPayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	if _, ok := payload["status"]; !ok {
+		payload["status"] = "unknown"
+	}
+	if progress, ok := getNumberField(payload, "progress_percent", "progress_pct", "progress"); ok {
+		payload["progress_pct"] = progress
+	} else {
+		payload["progress_pct"] = 0.0
+	}
+
+	for _, key := range []string{"total_pnl", "win_rate", "sharpe_ratio", "max_drawdown_pct", "total_trades"} {
+		if _, ok := payload[key]; !ok {
+			payload[key] = nil
+		}
+	}
+	if payload["max_drawdown_pct"] == nil {
+		if drawdown, ok := getNumberField(payload, "max_drawdown"); ok {
+			payload["max_drawdown_pct"] = drawdown
+		}
+	}
+
+	return payload
+}
+
+func normalizeBacktestStatusPayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", payload["status"])))
+	if progress, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
+		payload["progress_pct"] = progress
+	} else {
+		payload["progress_pct"] = 0.0
+	}
+	if status == "pending" || status == "queued" {
+		payload["progress_pct"] = 0.0
+		payload["current_task"] = nil
+	}
+	if _, ok := payload["current_task"]; !ok {
+		payload["current_task"] = nil
+	}
+	if _, ok := payload["current_pair"]; !ok {
+		payload["current_pair"] = nil
+	}
+	return payload
+}
+
+func isUpstreamNotFound(err error) bool {
+	var apiErr *services.BotAPIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
+}
+
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
@@ -461,6 +552,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
+			result = normalizeBacktestDetailsPayload(result)
 			syncRun(c, result)
 			syncChildren(c, runID, result)
 			c.JSON(200, result)
@@ -487,8 +579,46 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
+			result = normalizeBacktestStatusPayload(result)
 			syncRun(c, result)
 			c.JSON(200, result)
+		})
+
+		backtestGroup.GET("/:run_id/logs", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			limit := 200
+			if l := c.Query("limit"); l != "" {
+				if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+					limit = parsed
+				}
+			}
+			result, err := requestClient.GetBacktestLogs(runID, limit)
+			if err != nil {
+				if isUpstreamNotFound(err) {
+					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"logs": []interface{}{}, "total": 0}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					return
+				}
+				respondBotAPIError(c, err)
+				return
+			}
+
+			data := asMap(result["data"])
+			if data == nil {
+				data = map[string]interface{}{}
+			}
+			logs := asSlice(data["logs"])
+			if logs == nil {
+				logs = asSlice(result["logs"])
+			}
+			if logs == nil {
+				logs = []interface{}{}
+			}
+			total, hasTotal := getNumberField(data, "total")
+			if !hasTotal {
+				total = float64(len(logs))
+			}
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"logs": logs, "total": total}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
 		})
 
 		// Force re-sync run + child artifacts from upstream bot API into local DB.
@@ -585,6 +715,50 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			c.JSON(200, result)
 		})
 
+		backtestGroup.GET("/:run_id/trades/detailed", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			limit := 100
+			offset := 0
+			if l := c.Query("limit"); l != "" {
+				if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+					limit = parsed
+				}
+			}
+			if o := c.Query("offset"); o != "" {
+				if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+					offset = parsed
+				}
+			}
+
+			result, err := requestClient.GetBacktestDetailedTrades(runID, limit, offset)
+			if err != nil {
+				if isUpstreamNotFound(err) {
+					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"trades": []interface{}{}, "total": 0}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					return
+				}
+				respondBotAPIError(c, err)
+				return
+			}
+
+			data := asMap(result["data"])
+			if data == nil {
+				data = map[string]interface{}{}
+			}
+			trades := asSlice(data["trades"])
+			if trades == nil {
+				trades = asSlice(result["trades"])
+			}
+			if trades == nil {
+				trades = []interface{}{}
+			}
+			total, hasTotal := getNumberField(data, "total")
+			if !hasTotal {
+				total = float64(len(trades))
+			}
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"trades": trades, "total": total}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+		})
+
 		// Cancel backtest
 		backtestGroup.POST("/:run_id/cancel", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
@@ -603,11 +777,27 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			runID := c.Param("run_id")
 			result, err := requestClient.GetBacktestAnalytics(runID)
 			if err != nil {
+				if isUpstreamNotFound(err) {
+					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"daily_pnl": []interface{}{}}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					return
+				}
 				respondBotAPIError(c, err)
 				return
 			}
 			syncChildren(c, runID, result)
-			c.JSON(200, result)
+			data := asMap(result["data"])
+			if data == nil {
+				data = map[string]interface{}{}
+			}
+			daily := asSlice(data["daily_pnl"])
+			if daily == nil {
+				daily = asSlice(result["daily_pnl"])
+			}
+			if daily == nil {
+				daily = []interface{}{}
+			}
+			data["daily_pnl"] = daily
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": data, "timestamp": time.Now().UTC().Format(time.RFC3339)})
 		})
 
 		// Get position snapshots
@@ -634,11 +824,61 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 
 			result, err := requestClient.GetPositionSnapshots(runID, limit, offset, marketPair)
 			if err != nil {
+				if isUpstreamNotFound(err) {
+					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"snapshots": []interface{}{}}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					return
+				}
 				respondBotAPIError(c, err)
 				return
 			}
 			syncChildren(c, runID, result)
-			c.JSON(200, result)
+			data := asMap(result["data"])
+			if data == nil {
+				data = map[string]interface{}{}
+			}
+			snapshots := asSlice(data["snapshots"])
+			if snapshots == nil {
+				snapshots = asSlice(data["position_snapshots"])
+			}
+			if snapshots == nil {
+				snapshots = asSlice(result["position_snapshots"])
+			}
+			if snapshots == nil {
+				snapshots = []interface{}{}
+			}
+			data["snapshots"] = snapshots
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": data, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+		})
+
+		// Frontend compatibility alias for snapshots endpoint.
+		backtestGroup.GET("/:run_id/positions/snapshots", func(c *gin.Context) {
+			c.Request.URL.Path = strings.Replace(c.Request.URL.Path, "/positions/snapshots", "/position-snapshots", 1)
+			c.Params = append(c.Params, gin.Param{Key: "__alias__", Value: "positions/snapshots"})
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			result, err := requestClient.GetPositionSnapshots(runID, 100, 0, nil)
+			if err != nil {
+				if isUpstreamNotFound(err) {
+					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"snapshots": []interface{}{}}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					return
+				}
+				respondBotAPIError(c, err)
+				return
+			}
+			syncChildren(c, runID, result)
+			data := asMap(result["data"])
+			if data == nil {
+				data = map[string]interface{}{}
+			}
+			snapshots := asSlice(data["snapshots"])
+			if snapshots == nil {
+				snapshots = asSlice(result["position_snapshots"])
+			}
+			if snapshots == nil {
+				snapshots = []interface{}{}
+			}
+			data["snapshots"] = snapshots
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": data, "timestamp": time.Now().UTC().Format(time.RFC3339)})
 		})
 
 		// Get dYdX validation

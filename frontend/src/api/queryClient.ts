@@ -39,7 +39,8 @@ export const queryKeys = {
     ['backtests', runId, 'trades', params] as const,
   backtestMetrics: (runId: string) => ['backtests', runId, 'metrics'] as const,
   backtestAnalytics: (runId: string) => ['backtests', runId, 'analytics'] as const,
-  
+  backtestSyncHealth: (runId?: string) => ['backtests', 'sync-health', runId ?? 'all'] as const,
+
   // System
   systemStatus: ['system', 'status'] as const,
   health: ['system', 'health'] as const,

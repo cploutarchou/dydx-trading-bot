@@ -491,6 +491,69 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			c.JSON(200, result)
 		})
 
+		// Force re-sync run + child artifacts from upstream bot API into local DB.
+		backtestGroup.POST("/:run_id/resync", func(c *gin.Context) {
+			if backtestSync == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"success":   false,
+					"error":     "backtest sync service unavailable",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			runID := strings.TrimSpace(c.Param("run_id"))
+			if runID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success":   false,
+					"error":     "run_id is required",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			result := gin.H{
+				"run_synced":       false,
+				"trades_synced":    false,
+				"positions_synced": false,
+				"candles_synced":   false,
+			}
+
+			details, err := requestClient.GetBacktestDetails(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			syncRun(c, details)
+			syncChildren(c, runID, details)
+			result["run_synced"] = true
+
+			tradesPayload, err := requestClient.GetBacktestTradesWithFilters(runID, 500, 0, false)
+			if err == nil {
+				syncChildren(c, runID, tradesPayload)
+				result["trades_synced"] = true
+			}
+
+			positionsPayload, err := requestClient.GetPositionSnapshots(runID, 500, 0, nil)
+			if err == nil {
+				syncChildren(c, runID, positionsPayload)
+				result["positions_synced"] = true
+			}
+
+			metricsPayload, err := requestClient.GetAdvancedPerformanceMetrics(runID, "BTC-USD")
+			if err == nil {
+				syncChildren(c, runID, metricsPayload)
+				result["candles_synced"] = true
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"success":   true,
+				"data":      result,
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
+		})
+
 		// Get backtest trades
 		backtestGroup.GET("/:run_id/trades", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)

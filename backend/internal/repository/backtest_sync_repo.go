@@ -90,12 +90,15 @@ type BacktestCandleSyncPayload struct {
 }
 
 type BacktestSyncHealth struct {
-	RunID     string     `json:"run_id"`
-	Status    string     `json:"status"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
-	Trades    int        `json:"trades"`
-	Positions int        `json:"positions"`
-	Candles   int        `json:"candles"`
+	RunID         string     `json:"run_id"`
+	Status        string     `json:"status"`
+	CreatedAt     *time.Time `json:"created_at,omitempty"`
+	Trades        int        `json:"trades"`
+	Positions     int        `json:"positions"`
+	Candles       int        `json:"candles"`
+	RunAgeSec     int64      `json:"run_age_seconds"`
+	SyncLagSec    int64      `json:"sync_lag_seconds"`
+	QualityIssues int        `json:"quality_issues"`
 }
 
 type BacktestSyncRepository struct {
@@ -681,16 +684,39 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 		if err != nil {
 			candles = 0
 		}
+		qualityIssues, err := r.countDataQualityIssuesByRunID(runIDVal, userID)
+		if err != nil {
+			qualityIssues = 0
+		}
+		lastSyncedAt, err := r.getLastSyncedAtByRunID(runIDVal, userID)
+		if err != nil {
+			lastSyncedAt = nil
+		}
 
 		item := BacktestSyncHealth{
-			RunID:     runIDVal,
-			Status:    status,
-			Trades:    trades,
-			Positions: positions,
-			Candles:   candles,
+			RunID:         runIDVal,
+			Status:        status,
+			Trades:        trades,
+			Positions:     positions,
+			Candles:       candles,
+			QualityIssues: qualityIssues,
 		}
 		if createdAt.Valid {
-			item.CreatedAt = &createdAt.Time
+			created := createdAt.Time.UTC()
+			item.CreatedAt = &created
+			item.RunAgeSec = int64(time.Since(created).Seconds())
+			if item.RunAgeSec < 0 {
+				item.RunAgeSec = 0
+			}
+		}
+		if lastSyncedAt != nil {
+			lag := int64(time.Since(lastSyncedAt.UTC()).Seconds())
+			if lag < 0 {
+				lag = 0
+			}
+			item.SyncLagSec = lag
+		} else if item.CreatedAt != nil {
+			item.SyncLagSec = item.RunAgeSec
 		}
 		health = append(health, item)
 	}
@@ -751,4 +777,58 @@ func (r *BacktestSyncRepository) countRowsForRunByRunID(tableName string, runID 
 		return 0, fmt.Errorf("failed counting rows for %s by run_id: %w", tableName, lastErr)
 	}
 	return 0, fmt.Errorf("failed counting rows for %s by run_id", tableName)
+}
+
+func (r *BacktestSyncRepository) countDataQualityIssuesByRunID(runID string, userID int) (int, error) {
+	queries := []string{
+		`SELECT COUNT(*) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2 AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
+		`SELECT COUNT(*) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2 AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
+		`SELECT COUNT(*) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2 AND c.market = 'UNKNOWN'`,
+	}
+	total := 0
+	for _, query := range queries {
+		var count int
+		err := r.db.QueryRow(query, runID, userID).Scan(&count)
+		if err != nil {
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") {
+				continue
+			}
+			return 0, err
+		}
+		total += count
+	}
+	return total, nil
+}
+
+func (r *BacktestSyncRepository) getLastSyncedAtByRunID(runID string, userID int) (*time.Time, error) {
+	candidates := []string{
+		`SELECT MAX(c.entry_timestamp) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2`,
+		`SELECT MAX(c.entry_timestamp) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2`,
+		`SELECT MAX(c.timestamp) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2`,
+	}
+	var latest time.Time
+	found := false
+	for _, query := range candidates {
+		var ts sql.NullTime
+		err := r.db.QueryRow(query, runID, userID).Scan(&ts)
+		if err != nil {
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") {
+				continue
+			}
+			return nil, err
+		}
+		if ts.Valid {
+			current := ts.Time.UTC()
+			if !found || current.After(latest) {
+				latest = current
+				found = true
+			}
+		}
+	}
+	if !found {
+		return nil, nil
+	}
+	return &latest, nil
 }

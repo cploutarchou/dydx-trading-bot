@@ -811,3 +811,73 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 		t.Fatalf("expected positions count >= 1, got %d", payload.Data.Runs[0].Positions)
 	}
 }
+
+func TestDelegatedBacktestResync_RefreshesRunAndChildren(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/resync-run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"resync-run","status":"completed","start_date":"2025-06-01","end_date":"2025-06-30","num_pairs":4,"total_markets":9}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/resync-run/trades", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"trades":[{"trade_id":"resync-trade","market_1":"BTC-USD","market_2":"ETH-USD","entry_timestamp":"2025-06-10T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.1,"side_1":"BUY","side_2":"SELL","size_1":1,"size_2":2,"hedge_ratio":0.5}]}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/resync-run/position-snapshots", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"position_snapshots":[{"position_id":"resync-pos","market_1":"BTC-USD","market_2":"ETH-USD","status":"OPEN","entry_timestamp":"2025-06-10T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.1,"size_1":1,"size_2":2,"side_1":"BUY","side_2":"SELL","hedge_ratio":0.5}]}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/resync-run/performance-metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candles":[{"market":"BTC-USD","timestamp":"2025-06-10T00:00:00Z","resolution":"1HOUR","open":100,"high":101,"low":99,"close":100.5,"volume":12}]}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	resyncReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/resync-run/resync", nil)
+	resyncReq.Header.Set("Authorization", "Bearer "+token)
+	resyncResp, err := http.DefaultClient.Do(resyncReq)
+	if err != nil {
+		t.Fatalf("resync request failed: %v", err)
+	}
+	defer func() { _ = resyncResp.Body.Close() }()
+
+	if resyncResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resyncResp.StatusCode)
+	}
+
+	var runCount int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM backtest_runs WHERE run_id = ?`, "resync-run").Scan(&runCount); err != nil {
+		t.Fatalf("query run count: %v", err)
+	}
+	if runCount != 1 {
+		t.Fatalf("expected run count 1, got %d", runCount)
+	}
+
+	var tradeCount int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM backtest_trades WHERE trade_id = ?`, "resync-trade").Scan(&tradeCount); err != nil {
+		t.Fatalf("query trade count: %v", err)
+	}
+	if tradeCount != 1 {
+		t.Fatalf("expected trade count 1, got %d", tradeCount)
+	}
+
+	var posCount int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM backtest_positions WHERE position_id = ?`, "resync-pos").Scan(&posCount); err != nil {
+		t.Fatalf("query position count: %v", err)
+	}
+	if posCount != 1 {
+		t.Fatalf("expected position count 1, got %d", posCount)
+	}
+
+	var candleCount int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM backtest_candles WHERE market = ?`, "BTC-USD").Scan(&candleCount); err != nil {
+		t.Fatalf("query candle count: %v", err)
+	}
+	if candleCount != 1 {
+		t.Fatalf("expected candle count 1, got %d", candleCount)
+	}
+}

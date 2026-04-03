@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api';
 import { AuthSettingsComponent } from '../components/AuthSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
+import { useToastStore } from '../components/ErrorBoundary';
 import { ProfileSettings } from '../components/ProfileSettings';
 
 type SettingValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[];
@@ -215,20 +216,15 @@ export default function Settings() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
   const [activeSection, setActiveSection] = useState<string>('profile');
   const [pendingFocusTarget, setPendingFocusTarget] = useState<PendingFocusTarget | null>(null);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
-  const [connectionResult, setConnectionResult] = useState<{
-    connected: boolean;
-    message: string;
-    host?: string;
-    port?: number;
-    latency_ms?: number;
-  } | null>(null);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
   const hasRestoredSectionRef = useRef(false);
+  const successToast = useToastStore((state) => state.success);
+  const errorToast = useToastStore((state) => state.error);
+  const infoToast = useToastStore((state) => state.info);
 
   const visibleSchemaSections = useMemo(
     () =>
@@ -367,10 +363,7 @@ export default function Settings() {
       setInitialFormValues(formVals);
       setFieldErrors(buildFieldErrors(schemaData.sections, formVals));
     } catch (error: unknown) {
-      setMessage({
-        type: 'error',
-        text: `Failed to load settings: ${getApiErrorMessage(error, 'Unknown error')}`,
-      });
+      errorToast('Failed to load settings', getApiErrorMessage(error, 'Unknown error'));
     } finally {
       setLoading(false);
     }
@@ -414,21 +407,17 @@ export default function Settings() {
         }
         setActiveSection(firstInvalidSection.section);
       }
-      setMessage({
-        type: 'error',
-        text: 'Please fix validation errors before saving your changes.',
-      });
+      errorToast('Validation errors', 'Please fix validation errors before saving your changes.');
       return;
     }
 
     if (!hasUnsavedChanges) {
-      setMessage({ type: 'success', text: 'No changes to save.' });
+      infoToast('No changes to save');
       return;
     }
 
     try {
       setSaving(true);
-      setMessage(null);
 
       // Flatten formValues for API
       const updates: Record<string, SettingValue> = {};
@@ -441,24 +430,15 @@ export default function Settings() {
       const response = await apiClient.updateSettings(updates);
 
       if (response.success) {
-        setMessage({
-          type: 'success',
-          text: 'Settings saved successfully',
-        });
+        successToast('Settings saved', 'Your configuration has been updated successfully.');
         setInitialFormValues(formValues);
         // Refresh settings to confirm changes
         setTimeout(() => fetchSettingsData(), 1000);
       } else {
-        setMessage({
-          type: 'error',
-          text: response.message || 'Failed to save settings',
-        });
+        errorToast('Failed to save settings', response.message || 'Please try again.');
       }
     } catch (error: unknown) {
-      setMessage({
-        type: 'error',
-        text: `Error saving settings: ${getApiErrorMessage(error, 'Unknown error')}`,
-      });
+      errorToast('Error saving settings', getApiErrorMessage(error, 'Unknown error'));
     } finally {
       setSaving(false);
     }
@@ -467,7 +447,6 @@ export default function Settings() {
   const handleTestConnection = async () => {
     try {
       setTestingConnection(true);
-      setConnectionResult(null);
       const response = await apiClient.testRedisConnection();
       if (response.success && response.data) {
         const data = response.data as {
@@ -477,15 +456,21 @@ export default function Settings() {
           port?: number;
           latency_ms?: number;
         };
-        setConnectionResult(data);
+        if (data.connected) {
+          successToast(
+            'Redis connection successful',
+            data.latency_ms !== undefined && data.host && data.port
+              ? `${data.host}:${data.port} responded in ${data.latency_ms} ms`
+              : data.message
+          );
+        } else {
+          errorToast('Redis connection failed', data.message || 'Connection test failed');
+        }
       } else {
-        setConnectionResult({ connected: false, message: response.message || 'Test failed' });
+        errorToast('Redis connection failed', response.message || 'Connection test failed');
       }
     } catch (error: unknown) {
-      setConnectionResult({
-        connected: false,
-        message: getApiErrorMessage(error, 'Connection test failed'),
-      });
+      errorToast('Redis connection failed', getApiErrorMessage(error, 'Connection test failed'));
     } finally {
       setTestingConnection(false);
     }
@@ -495,7 +480,7 @@ export default function Settings() {
     if (!schema) return;
     setFormValues(initialFormValues);
     setFieldErrors(buildFieldErrors(schema.sections, initialFormValues));
-    setMessage(null);
+    infoToast('Changes reset', 'Unsaved edits have been reverted for this session.');
   };
 
   if (loading) {
@@ -538,21 +523,6 @@ export default function Settings() {
             Manage your profile, keys, and system-wide configuration
           </p>
         </div>
-
-        {/* Message Display */}
-        {message && (
-          <div
-            role={message.type === 'success' ? 'status' : 'alert'}
-            aria-live={message.type === 'success' ? 'polite' : 'assertive'}
-            className={`mb-6 px-4 py-3 rounded border ${
-              message.type === 'success'
-                ? 'bg-green-900 border-green-700 text-green-100'
-                : 'bg-red-900 border-red-700 text-red-100'
-            }`}
-          >
-            {message.text}
-          </div>
-        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Sidebar Navigation */}
@@ -797,31 +767,6 @@ export default function Settings() {
                     )}
                   </div>
 
-                  {/* Connection test result — only shown in the Redis section */}
-                  {activeSection === 'redis' && connectionResult && (
-                    <div
-                      className={`flex items-start gap-3 px-4 py-3 rounded-lg border text-sm ${
-                        connectionResult.connected
-                          ? 'bg-green-900/30 border-green-700 text-green-200'
-                          : 'bg-red-900/30 border-red-700 text-red-200'
-                      }`}
-                    >
-                      <span className="text-lg">{connectionResult.connected ? '✅' : '❌'}</span>
-                      <div>
-                        <p className="font-semibold">
-                          {connectionResult.connected ? 'Connected' : 'Connection failed'}
-                        </p>
-                        <p className="opacity-80">{connectionResult.message}</p>
-                        {connectionResult.connected &&
-                          connectionResult.latency_ms !== undefined && (
-                            <p className="opacity-60 text-xs mt-1">
-                              {connectionResult.host}:{connectionResult.port} —{' '}
-                              {connectionResult.latency_ms} ms
-                            </p>
-                          )}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             )}

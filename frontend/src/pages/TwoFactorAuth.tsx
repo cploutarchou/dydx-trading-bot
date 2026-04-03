@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, Copy, Eye, EyeOff, Loader, Shield } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 
@@ -13,6 +13,17 @@ export const TwoFactorAuthPage: React.FC = () => {
     const [showBackupCodes, setShowBackupCodes] = useState(false);
     const [copiedCodes, setCopiedCodes] = useState(false);
     const [localError, setLocalError] = useState<string | null>(null);
+    const setupButtonRef = useRef<HTMLButtonElement | null>(null);
+    const verifyTokenInputRef = useRef<HTMLInputElement | null>(null);
+
+    useEffect(() => {
+        if (step === 'setup') {
+            setupButtonRef.current?.focus();
+        }
+        if (step === 'verify' && twoFAQRCode) {
+            verifyTokenInputRef.current?.focus();
+        }
+    }, [step, twoFAQRCode]);
 
     const handleSetup = async () => {
         setLocalError(null);
@@ -127,6 +138,7 @@ export const TwoFactorAuthPage: React.FC = () => {
 
                             <button
                                 type="button"
+                                ref={setupButtonRef}
                                 onClick={handleSetup}
                                 disabled={loading}
                                 className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
@@ -170,6 +182,7 @@ export const TwoFactorAuthPage: React.FC = () => {
                                     </label>
                                     <input
                                         id="twofa-token"
+                                        ref={verifyTokenInputRef}
                                         type="text"
                                         maxLength={6}
                                         inputMode="numeric"

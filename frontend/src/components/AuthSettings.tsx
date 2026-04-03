@@ -9,10 +9,13 @@ interface ChangePasswordForm {
     confirmPassword: string;
 }
 
+const authTabs = ['profile', 'security', 'sessions'] as const;
+type AuthTab = (typeof authTabs)[number];
+
 export const AuthSettingsComponent: React.FC = () => {
     const navigate = useNavigate();
     const { user, logout, setup2FA, loading } = useAuthStore();
-    const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'sessions'>('profile');
+    const [activeTab, setActiveTab] = useState<AuthTab>('profile');
     const [changePasswordForm, setChangePasswordForm] = useState<ChangePasswordForm>({
         currentPassword: '',
         newPassword: '',
@@ -20,6 +23,34 @@ export const AuthSettingsComponent: React.FC = () => {
     });
     const [passwordChangeStatus, setPasswordChangeStatus] = useState<{ success?: string; error?: string }>({});
     const [setupError, setSetupError] = useState<string | null>(null);
+
+    const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        const currentIndex = authTabs.indexOf(activeTab);
+        if (currentIndex === -1) return;
+
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            setActiveTab(authTabs[(currentIndex + 1) % authTabs.length]);
+            return;
+        }
+
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            setActiveTab(authTabs[(currentIndex - 1 + authTabs.length) % authTabs.length]);
+            return;
+        }
+
+        if (e.key === 'Home') {
+            e.preventDefault();
+            setActiveTab(authTabs[0]);
+            return;
+        }
+
+        if (e.key === 'End') {
+            e.preventDefault();
+            setActiveTab(authTabs[authTabs.length - 1]);
+        }
+    };
 
     const handleLogout = () => {
         logout();
@@ -87,13 +118,19 @@ export const AuthSettingsComponent: React.FC = () => {
 
             {/* Tabs */}
             <div className="bg-white rounded-lg shadow">
-                <div className="flex border-b border-slate-200" role="tablist" aria-label="Auth settings sections">
+                <div
+                    className="flex border-b border-slate-200"
+                    role="tablist"
+                    aria-label="Auth settings sections"
+                    onKeyDown={handleTabKeyDown}
+                >
                     <button
                         type="button"
                         role="tab"
                         id="auth-tab-profile"
                         aria-selected={activeTab === 'profile'}
                         aria-controls="auth-panel-profile"
+                        tabIndex={activeTab === 'profile' ? 0 : -1}
                         onClick={() => setActiveTab('profile')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'profile'
@@ -110,6 +147,7 @@ export const AuthSettingsComponent: React.FC = () => {
                         id="auth-tab-security"
                         aria-selected={activeTab === 'security'}
                         aria-controls="auth-panel-security"
+                        tabIndex={activeTab === 'security' ? 0 : -1}
                         onClick={() => setActiveTab('security')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'security'
@@ -126,6 +164,7 @@ export const AuthSettingsComponent: React.FC = () => {
                         id="auth-tab-sessions"
                         aria-selected={activeTab === 'sessions'}
                         aria-controls="auth-panel-sessions"
+                        tabIndex={activeTab === 'sessions' ? 0 : -1}
                         onClick={() => setActiveTab('sessions')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'sessions'

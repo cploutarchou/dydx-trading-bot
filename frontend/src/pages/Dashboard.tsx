@@ -33,6 +33,7 @@ import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
+import { SyncHealthPanel } from '../components/SyncHealthPanel';
 import { useAuthStore } from '../store/auth';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -590,6 +591,8 @@ export const DashboardPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      <SyncHealthPanel activeRunIds={stats.activeRuns.map((run) => run.run_id)} />
 
       {/* ── Full Backtest List ──────────────────────────────────────── */}
       <div className="animate-fade-slide-up" style={{ animationDelay: '420ms' }}>

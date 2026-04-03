@@ -267,6 +267,15 @@ export function useBacktestStatus(runId: string, enabled: boolean = true) {
   });
 }
 
+export function useBacktestSyncHealth(runId?: string, enabled: boolean = true) {
+  return useQuery({
+    queryKey: queryKeys.backtestSyncHealth(runId),
+    queryFn: () => apiClient.getBacktestSyncHealth(runId),
+    ...queryConfigs.realtime,
+    enabled,
+  });
+}
+
 export function useBacktestTrades(runId: string, limit: number = 50, offset: number = 0) {
   return useQuery({
     queryKey: queryKeys.backtestTrades(runId, { limit, offset }),

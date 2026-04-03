@@ -7,19 +7,23 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	_ "os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/database/sqlite3"
+	_ "github.com/golang-migrate/migrate/v4/database/sqlite"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+)
+
+const (
+	sqliteAliasDriver   = "sqlite3"
+	sqliteRuntimeDriver = "sqlite"
 )
 
 var (
@@ -71,8 +75,10 @@ func New(cfg Config) (*Database, error) {
 		maxRetries = 3
 	}
 
+	runtimeDriver := runtimeSQLDriver(cfg.Driver)
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		conn, err = sql.Open(cfg.Driver, cfg.DSN)
+		conn, err = sql.Open(runtimeDriver, cfg.DSN)
 		if err != nil {
 			if attempt < maxRetries {
 				log.Printf("⚠️  Database connection attempt %d/%d failed: %v. Retrying in %v...",
@@ -92,6 +98,9 @@ func New(cfg Config) (*Database, error) {
 			// try to close the opened connection, ignore error
 			if conn != nil {
 				_ = conn.Close()
+			}
+			if isSQLiteCGOStubError(runtimeDriver, err) {
+				return nil, fmt.Errorf("sqlite3 requires CGO in this build (driver=%s): %w. Set CGO_ENABLED=1 and install a C compiler (e.g. MinGW-w64 on Windows), or switch DB_TYPE=postgres with a running postgres instance", cfg.Driver, err)
 			}
 			if attempt < maxRetries {
 				log.Printf("⚠️  Database ping attempt %d/%d failed: %v. Retrying in %v...",
@@ -129,7 +138,7 @@ func New(cfg Config) (*Database, error) {
 
 	// Log successful connection with sanitized DSN
 	sanitizedDSN := sanitizeDSN(cfg.DSN)
-	log.Printf("✅ Database connected successfully (%s): %s", cfg.Driver, sanitizedDSN)
+	log.Printf("✅ Database connected successfully (%s): %s", runtimeDriver, sanitizedDSN)
 	if conn != nil {
 		stats := conn.Stats()
 		log.Printf("📊 Connection pool: max_open=%d, max_idle=%d, lifetime=%v, idle_timeout=%v, current_open=%d",
@@ -139,6 +148,32 @@ func New(cfg Config) (*Database, error) {
 	}
 
 	return db, nil
+}
+
+func isSQLiteCGOStubError(driver string, err error) bool {
+	if err == nil {
+		return false
+	}
+	d := strings.ToLower(driver)
+	if !strings.Contains(d, "sqlite") {
+		return false
+	}
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "go-sqlite3 requires cgo") || strings.Contains(errText, "compiled with 'cgo_enabled=0'")
+}
+
+func runtimeSQLDriver(configDriver string) string {
+	d := strings.ToLower(strings.TrimSpace(configDriver))
+	if strings.Contains(d, "sqlite") {
+		return sqliteRuntimeDriver
+	}
+	if d == "postgresql" {
+		return "postgres"
+	}
+	if d == "" {
+		return sqliteRuntimeDriver
+	}
+	return d
 }
 
 // GetConnection returns the raw SQL DB connection (thread-safe)
@@ -330,10 +365,13 @@ func validateConfig(cfg *Config) error {
 		"pgx":      true,
 	}
 
-	if cfg.Driver == "" {
-		cfg.Driver = "sqlite3" // Default
-	} else if !validDrivers[cfg.Driver] {
+	d := strings.ToLower(strings.TrimSpace(cfg.Driver))
+	if d == "" {
+		cfg.Driver = sqliteAliasDriver // Default
+	} else if !validDrivers[d] {
 		return fmt.Errorf("%w: %s (supported: sqlite3, postgres)", ErrInvalidDriver, cfg.Driver)
+	} else {
+		cfg.Driver = d
 	}
 
 	if cfg.MaxOpenConns < 0 || cfg.MaxIdleConns < 0 {
@@ -485,7 +523,7 @@ func BuildMigrateDatabaseURL(cfg Config) (string, error) {
 	if strings.Contains(driver, "sqlite") {
 		// Normalize SQLite path. Support :memory: and relative paths.
 		if dsn == ":memory:" || dsn == "file::memory:?cache=shared" {
-			return "sqlite3://" + dsn, nil
+			return "sqlite://" + dsn, nil
 		}
 
 		// If not absolute, make absolute relative to cwd
@@ -496,8 +534,12 @@ func BuildMigrateDatabaseURL(cfg Config) (string, error) {
 			}
 			dsn = abs
 		}
-		// golang-migrate expects sqlite3://<path> (leading slash already in abs)
-		return "sqlite3://" + dsn, nil
+		dsn = filepath.ToSlash(dsn)
+		if len(dsn) >= 2 && dsn[1] == ':' {
+			dsn = "/" + dsn
+		}
+		// golang-migrate sqlite driver expects sqlite://<absolute_path>
+		return "sqlite://" + dsn, nil
 	}
 
 	if strings.Contains(driver, "postgres") || strings.Contains(driver, "pgx") {

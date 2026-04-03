@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, Lock, LogOut, Shield, User } from 'lucide-react';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
@@ -13,10 +13,21 @@ interface ChangePasswordForm {
 const authTabs = ['profile', 'security', 'sessions'] as const;
 type AuthTab = (typeof authTabs)[number];
 
-export const AuthSettingsComponent: React.FC = () => {
+interface AuthSettingsComponentProps {
+  defaultTab?: AuthTab;
+  visibleTabs?: AuthTab[];
+  showHeader?: boolean;
+}
+
+export const AuthSettingsComponent: React.FC<AuthSettingsComponentProps> = ({
+  defaultTab = 'profile',
+  visibleTabs,
+  showHeader = true,
+}) => {
     const navigate = useNavigate();
     const { user, logout, setup2FA, loading } = useAuthStore();
-    const [activeTab, setActiveTab] = useState<AuthTab>('profile');
+    const availableTabs = useMemo(() => visibleTabs && visibleTabs.length > 0 ? visibleTabs : [...authTabs], [visibleTabs]);
+    const [activeTab, setActiveTab] = useState<AuthTab>(defaultTab);
     const [changePasswordForm, setChangePasswordForm] = useState<ChangePasswordForm>({
         currentPassword: '',
         newPassword: '',
@@ -27,31 +38,45 @@ export const AuthSettingsComponent: React.FC = () => {
     const setupErrorAlertRef = useRef<HTMLDivElement | null>(null);
     const passwordErrorAlertRef = useRef<HTMLDivElement | null>(null);
 
+    useEffect(() => {
+      if (availableTabs.includes(defaultTab)) {
+        setActiveTab(defaultTab);
+      } else {
+        setActiveTab(availableTabs[0] || 'profile');
+      }
+    }, [availableTabs, defaultTab]);
+
+    useEffect(() => {
+      if (!availableTabs.includes(activeTab)) {
+        setActiveTab(availableTabs[0] || 'profile');
+      }
+    }, [activeTab, availableTabs]);
+
     const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-        const currentIndex = authTabs.indexOf(activeTab);
+        const currentIndex = availableTabs.indexOf(activeTab);
         if (currentIndex === -1) return;
 
         if (e.key === 'ArrowRight') {
             e.preventDefault();
-            setActiveTab(authTabs[(currentIndex + 1) % authTabs.length]);
+            setActiveTab(availableTabs[(currentIndex + 1) % availableTabs.length]);
             return;
         }
 
         if (e.key === 'ArrowLeft') {
             e.preventDefault();
-            setActiveTab(authTabs[(currentIndex - 1 + authTabs.length) % authTabs.length]);
+            setActiveTab(availableTabs[(currentIndex - 1 + availableTabs.length) % availableTabs.length]);
             return;
         }
 
         if (e.key === 'Home') {
             e.preventDefault();
-            setActiveTab(authTabs[0]);
+            setActiveTab(availableTabs[0]);
             return;
         }
 
         if (e.key === 'End') {
             e.preventDefault();
-            setActiveTab(authTabs[authTabs.length - 1]);
+            setActiveTab(availableTabs[availableTabs.length - 1]);
         }
     };
 
@@ -115,29 +140,32 @@ export const AuthSettingsComponent: React.FC = () => {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="bg-white rounded-lg shadow p-6">
+            {showHeader && (
+            <div className="bg-slate-800 rounded-lg shadow p-6 border border-slate-700">
                 <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-linear-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
                         <User className="w-8 h-8 text-white" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900">{user?.username}</h1>
-                        <p className="text-slate-600">{user?.email}</p>
-                        <p className="text-xs text-slate-500">
+                        <h1 className="text-2xl font-bold text-white">{user?.username}</h1>
+                        <p className="text-slate-300">{user?.email}</p>
+                        <p className="text-xs text-slate-400">
                             Joined {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
                         </p>
                     </div>
                 </div>
             </div>
+            )}
 
             {/* Tabs */}
-            <div className="bg-white rounded-lg shadow">
+            <div className="bg-slate-800 rounded-lg shadow border border-slate-700">
                 <div
-                    className="flex border-b border-slate-200"
+                    className="flex border-b border-slate-700"
                     role="tablist"
                     aria-label="Auth settings sections"
                     onKeyDown={handleTabKeyDown}
                 >
+                    {availableTabs.includes('profile') && (
                     <button
                         type="button"
                         role="tab"
@@ -148,13 +176,15 @@ export const AuthSettingsComponent: React.FC = () => {
                         onClick={() => setActiveTab('profile')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'profile'
-                                ? 'text-blue-600 border-b-2 border-blue-600'
-                                : 'text-slate-600 hover:text-slate-900'
+                                ? 'text-blue-400 border-b-2 border-blue-500'
+                                : 'text-slate-300 hover:text-white'
                         }`}
                     >
                         <User className="w-4 h-4" />
                         Profile
                     </button>
+                    )}
+                    {availableTabs.includes('security') && (
                     <button
                         type="button"
                         role="tab"
@@ -165,13 +195,15 @@ export const AuthSettingsComponent: React.FC = () => {
                         onClick={() => setActiveTab('security')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'security'
-                                ? 'text-blue-600 border-b-2 border-blue-600'
-                                : 'text-slate-600 hover:text-slate-900'
+                                ? 'text-blue-400 border-b-2 border-blue-500'
+                                : 'text-slate-300 hover:text-white'
                         }`}
                     >
                         <Lock className="w-4 h-4" />
                         Security
                     </button>
+                    )}
+                    {availableTabs.includes('sessions') && (
                     <button
                         type="button"
                         role="tab"
@@ -182,13 +214,14 @@ export const AuthSettingsComponent: React.FC = () => {
                         onClick={() => setActiveTab('sessions')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'sessions'
-                                ? 'text-blue-600 border-b-2 border-blue-600'
-                                : 'text-slate-600 hover:text-slate-900'
+                                ? 'text-blue-400 border-b-2 border-blue-500'
+                                : 'text-slate-300 hover:text-white'
                         }`}
                     >
                         <Shield className="w-4 h-4" />
                         Sessions
                     </button>
+                    )}
                 </div>
 
                 <div className="p-6">
@@ -201,7 +234,7 @@ export const AuthSettingsComponent: React.FC = () => {
                             aria-labelledby="auth-tab-profile"
                         >
                             <div>
-                                <label htmlFor="auth-profile-username" className="block text-sm font-medium text-slate-700 mb-2">
+                                <label htmlFor="auth-profile-username" className="block text-sm font-medium text-slate-300 mb-2">
                                     Username
                                 </label>
                                 <input
@@ -209,13 +242,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                     type="text"
                                     value={user?.username || ''}
                                     disabled
-                                    className="w-full px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-700"
+                                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-300"
                                 />
-                                <p className="text-xs text-slate-500 mt-1">Username cannot be changed</p>
+                                <p className="text-xs text-slate-400 mt-1">Username cannot be changed</p>
                             </div>
 
                             <div>
-                                <label htmlFor="auth-profile-email" className="block text-sm font-medium text-slate-700 mb-2">
+                                <label htmlFor="auth-profile-email" className="block text-sm font-medium text-slate-300 mb-2">
                                     Email Address
                                 </label>
                                 <input
@@ -223,18 +256,18 @@ export const AuthSettingsComponent: React.FC = () => {
                                     type="email"
                                     value={user?.email || ''}
                                     disabled
-                                    className="w-full px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-700"
+                                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-300"
                                 />
-                                <p className="text-xs text-slate-500 mt-1">Contact support to change email</p>
+                                <p className="text-xs text-slate-400 mt-1">Contact support to change email</p>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                <label className="block text-sm font-medium text-slate-300 mb-2">
                                     Account Status
                                 </label>
                                 <div className="flex items-center gap-2">
                                     <CheckCircle className="w-5 h-5 text-green-600" />
-                                    <span className="text-slate-700 font-medium">
+                                    <span className="text-slate-200 font-medium">
                                         {user?.is_active ? 'Active' : 'Inactive'}
                                     </span>
                                 </div>
@@ -251,25 +284,21 @@ export const AuthSettingsComponent: React.FC = () => {
                             aria-labelledby="auth-tab-security"
                         >
                             {/* 2FA Section */}
-                            <div className="border border-slate-200 rounded-lg p-6">
+                            <div className="border border-slate-700 rounded-lg p-6 bg-slate-900/40">
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="flex items-center gap-3">
                                         <Shield className="w-6 h-6 text-blue-600" />
                                         <div>
-                                            <h3 className="font-bold text-slate-900">
+                                            <h3 className="font-bold text-white">
                                                 Two-Factor Authentication
                                             </h3>
-                                            <p className="text-sm text-slate-600">
+                                            <p className="text-sm text-slate-300">
                                                 Protect your account with TOTP codes
                                             </p>
                                         </div>
                                     </div>
-                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                        user?.is_active
-                                            ? 'bg-green-100 text-green-800'
-                                            : 'bg-red-100 text-red-800'
-                                    }`}>
-                                        {user?.is_active ? 'Enabled' : 'Disabled'}
+                                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-200">
+                                        Setup available
                                     </span>
                                 </div>
 
@@ -279,34 +308,30 @@ export const AuthSettingsComponent: React.FC = () => {
                                         tabIndex={-1}
                                         role="alert"
                                         aria-live="assertive"
-                                        className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3"
+                                        className="mb-4 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
                                     >
-                                        <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                                        <div className="text-red-700 text-sm">{setupError}</div>
+                                        <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
+                                        <div className="text-red-200 text-sm">{setupError}</div>
                                     </div>
                                 )}
 
-                                <p className="text-sm text-slate-600 mb-4">
-                                    {user?.is_active
-                                        ? 'Your account is protected with two-factor authentication.'
-                                        : 'Enable TOTP-based two-factor authentication to add an extra layer of security.'}
+                                <p className="text-sm text-slate-300 mb-4">
+                                    Enable or revisit TOTP-based two-factor authentication to add an extra layer of security.
                                 </p>
 
-                                {!user?.is_active && (
-                                    <button
-                                        type="button"
-                                        onClick={handleSetup2FA}
-                                        disabled={loading}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
-                                    >
-                                        {loading ? 'Setting up...' : 'Enable 2FA'}
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    onClick={handleSetup2FA}
+                                    disabled={loading}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+                                >
+                                    {loading ? 'Setting up...' : 'Open 2FA Setup'}
+                                </button>
                             </div>
 
                             {/* Change Password Section */}
-                            <div className="border border-slate-200 rounded-lg p-6">
-                                <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+                            <div className="border border-slate-700 rounded-lg p-6 bg-slate-900/40">
+                                <h3 className="font-bold text-white mb-4 flex items-center gap-2">
                                     <Lock className="w-5 h-5" />
                                     Change Password
                                 </h3>
@@ -317,7 +342,7 @@ export const AuthSettingsComponent: React.FC = () => {
                                         tabIndex={-1}
                                         role="alert"
                                         aria-live="assertive"
-                                        className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+                                        className="mb-4 p-4 bg-red-900 border border-red-700 rounded-lg text-red-200 text-sm"
                                     >
                                         {passwordChangeStatus.error}
                                     </div>
@@ -327,7 +352,7 @@ export const AuthSettingsComponent: React.FC = () => {
                                     <div
                                         role="status"
                                         aria-live="polite"
-                                        className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm"
+                                        className="mb-4 p-4 bg-green-900 border border-green-700 rounded-lg text-green-200 text-sm"
                                     >
                                         {passwordChangeStatus.success}
                                     </div>
@@ -335,7 +360,7 @@ export const AuthSettingsComponent: React.FC = () => {
 
                                 <form onSubmit={handleChangePassword} className="space-y-4">
                                     <div>
-                                        <label htmlFor="auth-current-password" className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-current-password" className="block text-sm font-medium text-slate-300 mb-2">
                                             Current Password
                                         </label>
                                         <input
@@ -349,13 +374,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                                     currentPassword: e.target.value,
                                                 })
                                             }
-                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             required
                                         />
                                     </div>
 
                                     <div>
-                                        <label htmlFor="auth-new-password" className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-new-password" className="block text-sm font-medium text-slate-300 mb-2">
                                             New Password
                                         </label>
                                         <input
@@ -369,13 +394,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                                     newPassword: e.target.value,
                                                 })
                                             }
-                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             required
                                         />
                                     </div>
 
                                     <div>
-                                        <label htmlFor="auth-confirm-password" className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-confirm-password" className="block text-sm font-medium text-slate-300 mb-2">
                                             Confirm New Password
                                         </label>
                                         <input
@@ -389,7 +414,7 @@ export const AuthSettingsComponent: React.FC = () => {
                                                     confirmPassword: e.target.value,
                                                 })
                                             }
-                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             required
                                         />
                                     </div>
@@ -413,8 +438,8 @@ export const AuthSettingsComponent: React.FC = () => {
                             id="auth-panel-sessions"
                             aria-labelledby="auth-tab-sessions"
                         >
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                <p className="text-sm text-blue-800">
+                            <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-4">
+                                <p className="text-sm text-blue-200">
                                     <strong>Current Session:</strong> Active since {new Date().toLocaleDateString()}
                                 </p>
                             </div>

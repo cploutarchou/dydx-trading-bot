@@ -11,8 +11,10 @@
  * NOTE: Bot Settings and Backtesting moved to Strategies page for per-strategy configuration
  */
 
-import { useEffect, useState } from 'react';
+import { Loader } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import apiClient from '../api';
+import { AuthSettingsComponent } from '../components/AuthSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { ProfileSettings } from '../components/ProfileSettings';
 
@@ -68,14 +70,142 @@ interface SavedSettings {
   }>;
 }
 
+type FieldErrors = Record<string, Record<string, string>>;
+
+interface SidebarSectionItem {
+  section: string;
+  title: string;
+  description: string;
+}
+
+const MANUAL_SECTION_IDS = new Set([
+  'profile',
+  'dydx_keys',
+  'security',
+  'botsettings',
+  'backtesting',
+  'bot_settings',
+]);
+
+const parseFieldInputValue = (field: SettingField, rawValue: string): SettingValue => {
+  if (field.value_type === 'float') {
+    if (rawValue.trim() === '') return undefined;
+    const parsed = Number.parseFloat(rawValue);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  if (field.value_type === 'int' || field.value_type === 'integer') {
+    if (rawValue.trim() === '') return undefined;
+    const parsed = Number.parseInt(rawValue, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return rawValue;
+};
+
+const isEmptySettingValue = (value: SettingValue): boolean => {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string') return value.trim().length === 0;
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+};
+
+const normalizeSettingValue = (value: unknown): unknown => {
+  if (value === undefined) return '__undefined__';
+  if (Array.isArray(value)) return value.map((item) => normalizeSettingValue(item));
+  if (typeof value === 'object' && value !== null) {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = normalizeSettingValue((value as Record<string, unknown>)[key]);
+        return acc;
+      }, {});
+  }
+  return value;
+};
+
+const serializeFormValues = (values: Record<string, Record<string, SettingValue>>): string =>
+  JSON.stringify(
+    Object.keys(values)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, sectionKey) => {
+        const fields = values[sectionKey] || {};
+        acc[sectionKey] = Object.keys(fields)
+          .sort()
+          .reduce<Record<string, unknown>>((fieldAcc, fieldKey) => {
+            fieldAcc[fieldKey] = normalizeSettingValue(fields[fieldKey]);
+            return fieldAcc;
+          }, {});
+        return acc;
+      }, {})
+  );
+
+const validateFieldValue = (field: SettingField, value: SettingValue): string | null => {
+  if (field.required && isEmptySettingValue(value)) {
+    return `${field.label} is required.`;
+  }
+
+  if ((field.value_type === 'float' || field.value_type === 'int' || field.value_type === 'integer') &&
+    value !== undefined && value !== null && value !== '') {
+    const numericValue = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return `${field.label} must be a valid number.`;
+    }
+    if (field.min_value !== undefined && numericValue < field.min_value) {
+      return `${field.label} must be at least ${field.min_value}.`;
+    }
+    if (field.max_value !== undefined && numericValue > field.max_value) {
+      return `${field.label} must be at most ${field.max_value}.`;
+    }
+  }
+
+  if (field.options && value !== undefined && value !== null && value !== '') {
+    const optionValue = String(value);
+    if (!field.options.includes(optionValue)) {
+      return `${field.label} must be one of the allowed options.`;
+    }
+  }
+
+  return null;
+};
+
+const buildFieldErrors = (
+  sections: SettingSection[],
+  values: Record<string, Record<string, SettingValue>>
+): FieldErrors => {
+  const nextErrors: FieldErrors = {};
+
+  sections.forEach((section) => {
+    section.fields.forEach((field) => {
+      const value = values[section.section]?.[field.key] ?? field.default_value;
+      const error = validateFieldValue(field, value);
+      if (!error) return;
+
+      if (!nextErrors[section.section]) {
+        nextErrors[section.section] = {};
+      }
+
+      nextErrors[section.section][field.key] = error;
+    });
+  });
+
+  return nextErrors;
+};
+
+const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
+  Object.values(errors).some((sectionErrors) => Object.keys(sectionErrors).length > 0);
+
 export default function Settings() {
   const [schema, setSchema] = useState<SettingsSchema | null>(null);
   const [settings, setSettings] = useState<SavedSettings | null>(null);
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
+  const [initialFormValues, setInitialFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
   const [activeSection, setActiveSection] = useState<string>('profile');
+  const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionResult, setConnectionResult] = useState<{
     connected: boolean;
@@ -84,6 +214,49 @@ export default function Settings() {
     port?: number;
     latency_ms?: number;
   } | null>(null);
+
+  const visibleSchemaSections = useMemo(
+    () =>
+      (schema?.sections || []).filter(
+        (section) => !MANUAL_SECTION_IDS.has(section.section.toLowerCase())
+      ),
+    [schema]
+  );
+
+  const sidebarSections = useMemo<SidebarSectionItem[]>(() => {
+    const manualSections: SidebarSectionItem[] = [
+      { section: 'profile', title: '👤 Profile', description: 'Account & Avatar' },
+      { section: 'dydx_keys', title: '🔑 dYdX Keys', description: 'Testnet & Mainnet' },
+      { section: 'security', title: '🛡️ Security', description: '2FA & Session Controls' },
+    ];
+
+    return [
+      ...manualSections,
+      ...visibleSchemaSections.map((section) => ({
+        section: section.section,
+        title: section.title,
+        description: section.description,
+      })),
+    ];
+  }, [visibleSchemaSections]);
+
+  const filteredSidebarSections = useMemo(() => {
+    const query = sectionSearchQuery.trim().toLowerCase();
+    if (!query) return sidebarSections;
+
+    return sidebarSections.filter((section) =>
+      [section.title, section.description, section.section].some((value) =>
+        value.toLowerCase().includes(query)
+      )
+    );
+  }, [sectionSearchQuery, sidebarSections]);
+
+  const hasUnsavedChanges = useMemo(
+    () => serializeFormValues(formValues) !== serializeFormValues(initialFormValues),
+    [formValues, initialFormValues]
+  );
+
+  const hasValidationErrors = useMemo(() => hasAnyFieldErrors(fieldErrors), [fieldErrors]);
 
   useEffect(() => {
     fetchSettingsData();
@@ -131,7 +304,9 @@ export default function Settings() {
       });
 
       setFormValues(formVals);
-      } catch (error: unknown) {
+      setInitialFormValues(formVals);
+      setFieldErrors(buildFieldErrors(schemaData.sections, formVals));
+    } catch (error: unknown) {
       setMessage({
         type: 'error',
         text: `Failed to load settings: ${getApiErrorMessage(error, 'Unknown error')}`,
@@ -142,16 +317,48 @@ export default function Settings() {
   };
 
   const handleFieldChange = (section: string, key: string, value: SettingValue) => {
-    setFormValues((prev) => ({
-      ...prev,
-      [section]: {
-        ...prev[section],
-        [key]: value,
-      },
-    }));
+    setFormValues((prev) => {
+      const nextValues = {
+        ...prev,
+        [section]: {
+          ...prev[section],
+          [key]: value,
+        },
+      };
+
+      if (schema?.sections) {
+        setFieldErrors(buildFieldErrors(schema.sections, nextValues));
+      }
+
+      return nextValues;
+    });
   };
 
   const handleSave = async () => {
+    if (!schema) return;
+
+    const nextErrors = buildFieldErrors(schema.sections, formValues);
+    setFieldErrors(nextErrors);
+
+    if (hasAnyFieldErrors(nextErrors)) {
+      const firstInvalidSection = schema.sections.find(
+        (section) => nextErrors[section.section] && Object.keys(nextErrors[section.section]).length > 0
+      );
+      if (firstInvalidSection) {
+        setActiveSection(firstInvalidSection.section);
+      }
+      setMessage({
+        type: 'error',
+        text: 'Please fix validation errors before saving your changes.',
+      });
+      return;
+    }
+
+    if (!hasUnsavedChanges) {
+      setMessage({ type: 'success', text: 'No changes to save.' });
+      return;
+    }
+
     try {
       setSaving(true);
       setMessage(null);
@@ -171,6 +378,7 @@ export default function Settings() {
           type: 'success',
           text: 'Settings saved successfully',
         });
+        setInitialFormValues(formValues);
         // Refresh settings to confirm changes
         setTimeout(() => fetchSettingsData(), 1000);
       } else {
@@ -217,36 +425,18 @@ export default function Settings() {
   };
 
   const handleReset = () => {
-    if (!settings) return;
-    const formVals: Record<string, Record<string, SettingValue>> = {};
-    settings.sections.forEach((section) => {
-      formVals[section.section] = {};
-      section.settings.forEach((setting) => {
-        let value =
-          setting.value !== undefined && setting.value !== null
-            ? setting.value
-            : setting.default_value;
-
-        if (typeof value === 'string') {
-          try {
-            value = JSON.parse(value);
-          } catch {
-            // keep string value as-is
-          }
-        }
-
-        formVals[section.section][setting.key] = value;
-      });
-    });
-    setFormValues(formVals);
+    if (!schema) return;
+    setFormValues(initialFormValues);
+    setFieldErrors(buildFieldErrors(schema.sections, initialFormValues));
+    setMessage(null);
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-96 bg-slate-900 rounded-lg border border-slate-700">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading settings...</p>
+          <Loader className="w-12 h-12 animate-spin text-blue-500 mx-auto" />
+          <p className="mt-4 text-slate-300">Loading settings...</p>
         </div>
       </div>
     );
@@ -254,19 +444,22 @@ export default function Settings() {
 
   if (!schema || !settings) {
     return (
-      <div className="p-8">
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+      <div className="p-8 min-h-screen bg-slate-900">
+        <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded">
           Failed to load settings. Please try again.
+          <button
+            type="button"
+            onClick={fetchSettingsData}
+            className="ml-4 text-sm underline underline-offset-2 hover:text-white"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
   }
 
-  const currentSection = schema.sections
-    .filter(
-      (s) => !['botSettings', 'backtesting', 'bot_settings'].includes(s.section.toLowerCase())
-    )
-    .find((s) => s.section === activeSection);
+  const currentSection = visibleSchemaSections.find((s) => s.section === activeSection);
 
   return (
     <div className="bg-linear-to-br from-slate-900 to-slate-800 min-h-screen">
@@ -282,6 +475,8 @@ export default function Settings() {
         {/* Message Display */}
         {message && (
           <div
+            role={message.type === 'success' ? 'status' : 'alert'}
+            aria-live={message.type === 'success' ? 'polite' : 'assertive'}
             className={`mb-6 px-4 py-3 rounded border ${
               message.type === 'success'
                 ? 'bg-green-900 border-green-700 text-green-100'
@@ -296,44 +491,29 @@ export default function Settings() {
           {/* Sidebar Navigation */}
           <div className="lg:col-span-1">
             <div className="bg-slate-800 rounded-lg shadow border border-slate-700">
+              <div className="p-4 border-b border-slate-700">
+                <label htmlFor="settings-section-search" className="sr-only">
+                  Search settings sections
+                </label>
+                <input
+                  id="settings-section-search"
+                  type="search"
+                  value={sectionSearchQuery}
+                  onChange={(e) => setSectionSearchQuery(e.target.value)}
+                  placeholder="Search sections..."
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500"
+                />
+              </div>
               <nav className="space-y-1">
-                {/* Profile Section (Always First) */}
-                <button
-                  onClick={() => setActiveSection('profile')}
-                  className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${
-                    activeSection === 'profile'
-                      ? 'bg-blue-600 text-white border-l-4 border-blue-400'
-                      : 'text-gray-300 hover:bg-slate-700 hover:text-white'
-                  }`}
-                >
-                  <div className="font-semibold">👤 Profile</div>
-                  <div className="text-xs opacity-75">Account & Avatar</div>
-                </button>
-
-                {/* dYdX Key Management Section */}
-                <button
-                  onClick={() => setActiveSection('dydx_keys')}
-                  className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${
-                    activeSection === 'dydx_keys'
-                      ? 'bg-blue-600 text-white border-l-4 border-blue-400'
-                      : 'text-gray-300 hover:bg-slate-700 hover:text-white'
-                  }`}
-                >
-                  <div className="font-semibold">🔑 dYdX Keys</div>
-                  <div className="text-xs opacity-75">Testnet & Mainnet</div>
-                </button>
-
-                {/* System Settings Sections - Exclude Bot & Backtesting (moved to Strategies) */}
-                {schema.sections
-                  .filter(
-                    (section) =>
-                      !['botSettings', 'backtesting', 'bot_settings'].includes(
-                        section.section.toLowerCase()
-                      )
-                  )
-                  .map((section) => (
+                {filteredSidebarSections.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-slate-400">
+                    No settings sections match your search.
+                  </div>
+                ) : (
+                  filteredSidebarSections.map((section) => (
                     <button
                       key={section.section}
+                      type="button"
                       onClick={() => setActiveSection(section.section)}
                       className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${
                         activeSection === section.section
@@ -344,7 +524,8 @@ export default function Settings() {
                       <div className="font-semibold">{section.title}</div>
                       <div className="text-xs opacity-75">{section.description}</div>
                     </button>
-                  ))}
+                  ))
+                )}
               </nav>
             </div>
           </div>
@@ -357,6 +538,15 @@ export default function Settings() {
             {/* dYdX Key Management Panel */}
             {activeSection === 'dydx_keys' && <DYDXKeyManager />}
 
+            {/* Security & Session Management Panel */}
+            {activeSection === 'security' && (
+              <AuthSettingsComponent
+                defaultTab="security"
+                visibleTabs={['security', 'sessions']}
+                showHeader={false}
+              />
+            )}
+
             {/* Bot Settings Panel */}
             {currentSection && (
               <div className="bg-slate-800 rounded-lg shadow p-6 border border-slate-700">
@@ -364,6 +554,22 @@ export default function Settings() {
                 <div className="mb-6">
                   <h2 className="text-2xl font-bold text-white">{currentSection.title}</h2>
                   <p className="text-gray-400 mt-1">{currentSection.description}</p>
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                    <span
+                      className={`px-3 py-1 rounded-full border ${
+                        hasUnsavedChanges
+                          ? 'bg-yellow-900/40 border-yellow-700 text-yellow-200'
+                          : 'bg-slate-700 border-slate-600 text-slate-300'
+                      }`}
+                    >
+                      {hasUnsavedChanges ? 'Unsaved changes' : 'All changes saved'}
+                    </span>
+                    {hasValidationErrors && (
+                      <span className="px-3 py-1 rounded-full border bg-red-900/40 border-red-700 text-red-200">
+                        Validation errors need attention
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Form Fields */}
@@ -405,11 +611,7 @@ export default function Settings() {
                                   handleFieldChange(
                                     activeSection,
                                     field.key,
-                                    field.value_type === 'float'
-                                      ? parseFloat(e.target.value)
-                                      : field.value_type === 'int' || field.value_type === 'integer'
-                                        ? parseInt(e.target.value)
-                                        : e.target.value
+                                    parseFieldInputValue(field, e.target.value)
                                   )
                                 }
                                 step={field.value_type === 'float' ? '0.01' : undefined}
@@ -464,6 +666,12 @@ export default function Settings() {
                               {field.max_value !== undefined && `Max: ${field.max_value}`}
                             </p>
                           ) : null}
+
+                          {fieldErrors[activeSection]?.[field.key] && (
+                            <p className="text-xs text-red-300 mt-2">
+                              {fieldErrors[activeSection][field.key]}
+                            </p>
+                          )}
                         </label>
                       </div>
                     );
@@ -474,21 +682,24 @@ export default function Settings() {
                 <div className="mt-8 flex flex-col gap-4 pt-6 border-t border-slate-700">
                   <div className="flex gap-3">
                     <button
+                      type="button"
                       onClick={handleSave}
-                      disabled={saving}
+                      disabled={saving || !hasUnsavedChanges || hasValidationErrors}
                       className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       {saving ? 'Saving...' : 'Save Changes'}
                     </button>
                     <button
+                      type="button"
                       onClick={handleReset}
-                      disabled={saving}
+                      disabled={saving || !hasUnsavedChanges}
                       className="px-6 py-2 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       Reset
                     </button>
                     {activeSection === 'redis' && (
                       <button
+                        type="button"
                         onClick={handleTestConnection}
                         disabled={testingConnection || saving}
                         className="px-6 py-2 bg-teal-700 text-white font-semibold rounded-lg hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

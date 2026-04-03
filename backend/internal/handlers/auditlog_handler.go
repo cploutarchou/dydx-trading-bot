@@ -36,7 +36,7 @@ func (h *AuditLogHandler) CreateAuditLog(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request: %v", err),
 		})
 		return
@@ -52,7 +52,7 @@ func (h *AuditLogHandler) CreateAuditLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to create audit log: %v", err),
 		})
 		return
@@ -61,7 +61,7 @@ func (h *AuditLogHandler) CreateAuditLog(c *gin.Context) {
 	c.JSON(http.StatusCreated, APIResponse{
 		Success:   true,
 		Data:      auditLog.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -72,7 +72,7 @@ func (h *AuditLogHandler) GetAuditLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid audit log ID",
 		})
 		return
@@ -82,7 +82,7 @@ func (h *AuditLogHandler) GetAuditLog(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get audit log: %v", err),
 		})
 		return
@@ -91,7 +91,7 @@ func (h *AuditLogHandler) GetAuditLog(c *gin.Context) {
 	if auditLog == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Audit log not found",
 		})
 		return
@@ -100,7 +100,7 @@ func (h *AuditLogHandler) GetAuditLog(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      auditLog.ToDict(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -111,7 +111,7 @@ func (h *AuditLogHandler) ListAuditLogsByUser(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid user ID",
 		})
 		return
@@ -121,13 +121,13 @@ func (h *AuditLogHandler) ListAuditLogsByUser(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to list audit logs: %v", err),
 		})
 		return
 	}
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0)
 	for _, al := range auditLogs {
 		result = append(result, al.ToDict())
 	}
@@ -138,7 +138,7 @@ func (h *AuditLogHandler) ListAuditLogsByUser(c *gin.Context) {
 			"audit_logs": result,
 			"count":      len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -148,7 +148,7 @@ func (h *AuditLogHandler) ListAuditLogsByAction(c *gin.Context) {
 	if action == "" {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "action query parameter is required",
 		})
 		return
@@ -164,13 +164,13 @@ func (h *AuditLogHandler) ListAuditLogsByAction(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to list audit logs: %v", err),
 		})
 		return
 	}
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0)
 	for _, al := range auditLogs {
 		result = append(result, al.ToDict())
 	}
@@ -181,7 +181,7 @@ func (h *AuditLogHandler) ListAuditLogsByAction(c *gin.Context) {
 			"audit_logs": result,
 			"count":      len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -204,13 +204,13 @@ func (h *AuditLogHandler) ListAllAuditLogs(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to list audit logs: %v", err),
 		})
 		return
 	}
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0)
 	for _, al := range auditLogs {
 		result = append(result, al.ToDict())
 	}
@@ -221,6 +221,6 @@ func (h *AuditLogHandler) ListAllAuditLogs(c *gin.Context) {
 			"audit_logs": result,
 			"count":      len(result),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

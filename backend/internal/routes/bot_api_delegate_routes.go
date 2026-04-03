@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,23 +22,7 @@ var websocketUpgrader = websocket.Upgrader{
 }
 
 func extractBotAuthToken(c *gin.Context) string {
-	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-	if authHeader != "" {
-		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			return strings.TrimSpace(authHeader[7:])
-		}
-		return authHeader
-	}
-
-	if cookieToken, err := c.Cookie("access_token"); err == nil {
-		return strings.TrimSpace(cookieToken)
-	}
-
-	if queryToken := strings.TrimSpace(c.Query("access_token")); queryToken != "" {
-		return queryToken
-	}
-
-	return ""
+	return middleware.ExtractRequestAccessToken(c)
 }
 
 func getRequestBotAPIClient(c *gin.Context, fallback *services.BotAPIClient) *services.BotAPIClient {
@@ -50,6 +35,119 @@ func getRequestBotAPIClient(c *gin.Context, fallback *services.BotAPIClient) *se
 	return fallback
 }
 
+func respondBotAPIError(c *gin.Context, err error) {
+	// Transport-level failures (connection refused, timeout) carry a pre-classified
+	// status code so callers receive a clean 502/504 without raw Go error messages.
+	var transportErr *services.BotAPITransportError
+	if errors.As(err, &transportErr) {
+		status := transportErr.StatusCode
+		if status <= 0 {
+			status = http.StatusBadGateway
+		}
+		c.JSON(status, gin.H{"error": transportErr.Message})
+		return
+	}
+	if apiErr, ok := err.(*services.BotAPIError); ok {
+		status := apiErr.StatusCode
+		if status <= 0 {
+			status = http.StatusBadGateway
+		}
+		message := strings.TrimSpace(apiErr.Message)
+		if message == "" {
+			message = "upstream bot API request failed"
+		}
+		c.JSON(status, gin.H{"error": message})
+		return
+	}
+	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+}
+
+func delegateJSON(c *gin.Context, fallback *services.BotAPIClient, call func(*services.BotAPIClient) (map[string]interface{}, error)) {
+	requestClient := getRequestBotAPIClient(c, fallback)
+	result, err := call(requestClient)
+	if err != nil {
+		respondBotAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func normalizeBacktestRunPayload(config map[string]interface{}) map[string]interface{} {
+	if config == nil {
+		return nil
+	}
+
+	normalized := make(map[string]interface{}, len(config)+1)
+	for k, v := range config {
+		normalized[k] = v
+	}
+
+	tradingParameters, _ := normalized["trading_parameters"].(map[string]interface{})
+	if tradingParameters == nil {
+		tradingParameters = map[string]interface{}{}
+	}
+
+	legacyTradingParameterFields := []string{
+		"zscore_threshold",
+		"stats_window",
+		"max_half_life",
+		"usd_per_trade",
+		"usd_min_collateral",
+		"close_at_zscore_cross",
+		"find_cointegrated_pairs",
+		"manage_exits",
+		"place_trades",
+		"abort_all_positions",
+		"max_positions",
+		"max_drawdown_pct",
+		"stop_loss_pct",
+		"take_profit_pct",
+		"trailing_stop_pct",
+		"rebalance_interval_hours",
+		"position_timeout_hours",
+		"transaction_fee",
+		"slippage",
+		"risk_free_rate",
+		"resolution",
+		"candle_resolution",
+	}
+
+	for _, field := range legacyTradingParameterFields {
+		if _, exists := tradingParameters[field]; exists {
+			continue
+		}
+		if value, exists := normalized[field]; exists {
+			tradingParameters[field] = value
+			delete(normalized, field)
+		}
+	}
+
+	if value, exists := normalized["num_pairs"]; exists {
+		if _, hasMaxPairs := normalized["max_pairs"]; !hasMaxPairs {
+			normalized["max_pairs"] = value
+		}
+		delete(normalized, "num_pairs")
+	}
+
+	if value, exists := normalized["pair_selection_mode"]; exists {
+		if _, ok := tradingParameters["pair_selection_mode"]; !ok {
+			tradingParameters["pair_selection_mode"] = value
+		}
+	}
+
+	if value, exists := normalized["max_pairs"]; exists {
+		if _, ok := tradingParameters["max_pairs"]; !ok {
+			tradingParameters["max_pairs"] = value
+		}
+	}
+
+	if len(tradingParameters) > 0 {
+		normalized["trading_parameters"] = tradingParameters
+	}
+
+	return normalized
+}
+
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
@@ -58,7 +156,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 		if err != nil {
 			return
 		}
-		defer clientConn.Close()
+		defer func() { _ = clientConn.Close() }()
 
 		upstreamWSURL, err := requestClient.WebSocketURL(upstreamEndpoint)
 		if err != nil {
@@ -82,7 +180,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			)
 			return
 		}
-		defer upstreamConn.Close()
+		defer func() { _ = upstreamConn.Close() }()
 
 		forward := func(src *websocket.Conn, dst *websocket.Conn, done chan<- struct{}) {
 			defer func() { done <- struct{}{} }()
@@ -137,10 +235,19 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			c.JSON(400, gin.H{"error": "Invalid request body"})
 			return
 		}
+		config = normalizeBacktestRunPayload(config)
 
-		result, err := requestClient.CreateBacktest(config)
+		var (
+			result map[string]interface{}
+			err    error
+		)
+		if c.FullPath() == "/api/v1/backtests/run" {
+			result, err = requestClient.CreateBacktestRun(config)
+		} else {
+			result, err = requestClient.CreateBacktest(config)
+		}
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			respondBotAPIError(c, err)
 			return
 		}
 
@@ -185,7 +292,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.ListBacktestsWithFilters(limit, offset, status, parseIntPtr(days))
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -202,7 +309,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.GetBacktestSummaryStats(days)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -218,7 +325,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.CompareBacktests(config)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -230,7 +337,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetBacktestDetails(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -242,7 +349,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.DeleteBacktest(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -254,7 +361,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetBacktestStatus(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -284,7 +391,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.GetBacktestTradesWithFilters(runID, limit, offset, winningOnly)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -296,7 +403,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.CancelBacktest(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -308,7 +415,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetBacktestAnalytics(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -338,7 +445,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.GetPositionSnapshots(runID, limit, offset, marketPair)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -350,7 +457,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.ValidateAgainstdYdXData(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -363,7 +470,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			benchmark := c.DefaultQuery("benchmark", "BTC-USD")
 			result, err := requestClient.GetAdvancedPerformanceMetrics(runID, benchmark)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -375,7 +482,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			runID := c.Param("run_id")
 			result, err := requestClient.GetLiveProgress(runID)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -397,27 +504,19 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 	{
 		// Get current positions
 		botGroup.GET("/:instance_id/positions/current", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
-			result, err := requestClient.GetCurrentPositions(botID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetCurrentPositions(botID)
+			})
 		})
 
 		// Get specific position
 		botGroup.GET("/:instance_id/positions/:position_id", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
 			positionID := c.Param("position_id")
-			result, err := requestClient.GetPosition(botID, positionID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetPosition(botID, positionID)
+			})
 		})
 
 		// Get position history
@@ -433,7 +532,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.GetPositionHistory(botID, positionID, hours)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -441,26 +540,18 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 		// Get market data
 		botGroup.GET("/:instance_id/market-data", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
-			result, err := requestClient.GetMarketData(botID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetMarketData(botID)
+			})
 		})
 
 		// Get realtime stats
 		botGroup.GET("/:instance_id/realtime-stats", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			botID := c.Param("instance_id")
-			result, err := requestClient.GetRealtimeStats(botID)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetRealtimeStats(botID)
+			})
 		})
 
 		// Get alerts
@@ -475,7 +566,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 			}
 			result, err := requestClient.GetAlerts(botID, limit)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -483,7 +574,6 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 		// Get bot history
 		botGroup.GET("/:instance_id/history", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
@@ -491,17 +581,13 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 					days = v
 				}
 			}
-			result, err := requestClient.GetBotHistory(instanceID, days)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetBotHistory(instanceID, days)
+			})
 		})
 
 		// Get bot jobs
 		botGroup.GET("/:instance_id/jobs", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
@@ -509,12 +595,9 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 					days = v
 				}
 			}
-			result, err := requestClient.GetBotJobs(instanceID, days)
-			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(200, result)
+			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetBotJobs(instanceID, days)
+			})
 		})
 
 		// Quick deploy bot
@@ -531,7 +614,7 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 
 			result, err := requestClient.QuickDeployBot(instanceName, autoStart, config)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				respondBotAPIError(c, err)
 				return
 			}
 			c.JSON(200, result)
@@ -566,12 +649,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 		if token := extractBotAuthToken(c); token != "" {
 			requestClient = apiClient.WithToken(token)
 		}
-		result, err := requestClient.SystemStatus()
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, result)
+		c.Set("bot_api_client", requestClient)
+		delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
+			return requestClient.SystemStatus()
+		})
 	})
 
 	// Frontend strategy websocket compatibility endpoint.

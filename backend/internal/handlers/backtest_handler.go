@@ -30,8 +30,7 @@ func (h *BacktestHandler) ListBacktests(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Success:   false, Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "User ID not found in context",
 		})
 		return
@@ -57,7 +56,7 @@ func (h *BacktestHandler) ListBacktests(c *gin.Context) {
 		fmt.Printf("ERROR in GetRunsByUserID: %v\n", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to retrieve backtests: %v", err),
 		})
 		return
@@ -76,7 +75,7 @@ func (h *BacktestHandler) ListBacktests(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      responseData,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -115,7 +114,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid run_id format",
 		})
 		return
@@ -126,7 +125,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	if err != nil || run == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Backtest run %s not found", runID),
 		})
 		return
@@ -139,7 +138,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusBadRequest, APIResponse{
 				Success:   false,
-				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Error:     "start_date must be ISO format (YYYY-MM-DD)",
 			})
 			return
@@ -152,7 +151,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusBadRequest, APIResponse{
 				Success:   false,
-				Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Error:     "end_date must be ISO format (YYYY-MM-DD)",
 			})
 			return
@@ -172,7 +171,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Failed to retrieve candles",
 		})
 		return
@@ -216,7 +215,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      data,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -256,7 +255,7 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid run_id format",
 		})
 		return
@@ -267,7 +266,7 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 	if err != nil || run == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Backtest run %s not found", runID),
 		})
 		return
@@ -285,7 +284,7 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Failed to retrieve positions",
 		})
 		return
@@ -345,7 +344,7 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      data,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -402,7 +401,7 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Invalid run_id format",
 		})
 		return
@@ -413,7 +412,7 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 	if err != nil || run == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Backtest run %s not found", runID),
 		})
 		return
@@ -438,7 +437,7 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "Failed to retrieve trades",
 		})
 		return
@@ -514,7 +513,7 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      data,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -604,7 +603,7 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 			"message":      "Backtest results saved to JSON storage",
 			"storage_path": "app/backtest_results",
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -624,9 +623,9 @@ func (h *BacktestHandler) ExportBacktestResults(c *gin.Context) {
 		Data: map[string]interface{}{
 			"results":   summaries,
 			"count":     len(summaries),
-			"timestamp": time.Now().UTC().Format(time.RFC3339) + "Z",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -657,9 +656,9 @@ func (h *BacktestHandler) GetBestResults(c *gin.Context) {
 		Data: map[string]interface{}{
 			"results":   results,
 			"count":     len(results),
-			"timestamp": time.Now().UTC().Format(time.RFC3339) + "Z",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -669,7 +668,7 @@ func (h *BacktestHandler) GetStorageStats(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get stats: %v", err),
 		})
 		return
@@ -678,7 +677,7 @@ func (h *BacktestHandler) GetStorageStats(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      info,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -694,7 +693,7 @@ func (h *BacktestHandler) CleanupOldResults(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Cleanup failed: %v", err),
 		})
 		return
@@ -705,8 +704,8 @@ func (h *BacktestHandler) CleanupOldResults(c *gin.Context) {
 		Data: map[string]interface{}{
 			"deleted":   deleted,
 			"kept":      keep,
-			"timestamp": time.Now().UTC().Format(time.RFC3339) + "Z",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

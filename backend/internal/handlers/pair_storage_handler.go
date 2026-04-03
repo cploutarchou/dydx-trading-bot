@@ -29,7 +29,7 @@ func (h *PairStorageHandler) SavePairs(c *gin.Context) {
 	if err := c.BindJSON(&pairs); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request body: %v", err),
 		})
 		return
@@ -38,7 +38,7 @@ func (h *PairStorageHandler) SavePairs(c *gin.Context) {
 	if len(pairs) == 0 {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "No pairs provided",
 		})
 		return
@@ -48,7 +48,7 @@ func (h *PairStorageHandler) SavePairs(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to save pairs: %v", err),
 		})
 		return
@@ -62,7 +62,7 @@ func (h *PairStorageHandler) SavePairs(c *gin.Context) {
 			"high_confidence": 0,
 			"message":         "Pairs saved successfully",
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -72,7 +72,7 @@ func (h *PairStorageHandler) LoadPairs(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to load pairs: %v", err),
 		})
 		return
@@ -84,7 +84,7 @@ func (h *PairStorageHandler) LoadPairs(c *gin.Context) {
 			"pairs": pairs,
 			"count": len(pairs),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -103,7 +103,7 @@ func (h *PairStorageHandler) GetBestPairs(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get best pairs: %v", err),
 		})
 		return
@@ -116,7 +116,7 @@ func (h *PairStorageHandler) GetBestPairs(c *gin.Context) {
 			"count": len(pairs),
 			"limit": limit,
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -126,7 +126,7 @@ func (h *PairStorageHandler) GetHighConfidencePairs(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get high confidence pairs: %v", err),
 		})
 		return
@@ -138,7 +138,7 @@ func (h *PairStorageHandler) GetHighConfidencePairs(c *gin.Context) {
 			"pairs": pairs,
 			"count": len(pairs),
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -150,7 +150,7 @@ func (h *PairStorageHandler) GetPairByMarkets(c *gin.Context) {
 	if baseMarket == "" || quoteMarket == "" {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     "base_market and quote_market are required",
 		})
 		return
@@ -160,7 +160,7 @@ func (h *PairStorageHandler) GetPairByMarkets(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Failed to get pair: %v", err),
 		})
 		return
@@ -169,7 +169,7 @@ func (h *PairStorageHandler) GetPairByMarkets(c *gin.Context) {
 	if pair == nil {
 		c.JSON(http.StatusNotFound, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Pair %s/%s not found", baseMarket, quoteMarket),
 		})
 		return
@@ -178,7 +178,7 @@ func (h *PairStorageHandler) GetPairByMarkets(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      pair,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -189,7 +189,7 @@ func (h *PairStorageHandler) GetStorageInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      info,
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -204,7 +204,7 @@ func (h *PairStorageHandler) CalculateConfidence(c *gin.Context) {
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Error:     fmt.Sprintf("Invalid request body: %v", err),
 		})
 		return
@@ -221,6 +221,6 @@ func (h *PairStorageHandler) CalculateConfidence(c *gin.Context) {
 			"half_life":          req.HalfLife,
 			"zero_crossings":     req.ZeroCrossings,
 		},
-		Timestamp: time.Now().UTC().Format(time.RFC3339) + "Z",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

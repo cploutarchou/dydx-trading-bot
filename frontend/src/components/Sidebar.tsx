@@ -3,7 +3,7 @@
  * Persistent left sidebar with navigation links, user info, and logout
  */
 
-import { BarChart3, Home, LogOut, Settings, X, Zap } from 'lucide-react';
+import { BarChart3, Bot, Home, Library, LogOut, PlayCircle, Settings, X } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
@@ -29,35 +29,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       label: 'Dashboard',
       path: '/dashboard',
       icon: <Home className="w-5 h-5" />,
+      exact: true,
     },
     {
       label: 'Strategies',
       path: '/strategies',
-      icon: <Zap className="w-5 h-5" />,
+      icon: <Library className="w-5 h-5" />,
+      exact: true,
     },
     {
       label: 'Strategy Runtime',
       path: '/strategies/manage',
-      icon: <Zap className="w-5 h-5" />,
+      icon: <PlayCircle className="w-5 h-5" />,
+      exact: false,
     },
     {
       label: 'Bot Manager',
       path: '/bots',
-      icon: <Zap className="w-5 h-5" />,
+      icon: <Bot className="w-5 h-5" />,
+      exact: false,
     },
     {
       label: 'Compare Backtests',
       path: '/backtests/compare',
       icon: <BarChart3 className="w-5 h-5" />,
+      exact: false,
     },
     {
       label: 'Settings',
       path: '/settings',
       icon: <Settings className="w-5 h-5" />,
+      exact: false,
     },
   ];
 
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string, exact = true) =>
+    exact ? location.pathname === path : location.pathname.startsWith(path);
 
   return (
     <>
@@ -96,26 +103,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
         {/* Navigation Links */}
         <nav className="flex-1 px-4 py-6">
-          <div className="space-y-2">
-            {navItems.map((item) => (
-              <button
-                key={item.path}
-                type="button"
-                onClick={() => {
-                  navigate(item.path);
-                  onClose?.();
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
-                  isActive(item.path)
-                    ? 'bg-blue-600 text-white shadow-lg'
-                    : 'text-gray-300 hover:bg-slate-800 hover:text-white'
-                }`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-                {isActive(item.path) && <div className="ml-auto w-2 h-2 bg-white rounded-full" />}
-              </button>
-            ))}
+          <div className="space-y-1">
+            {navItems.map((item) => {
+              const active = isActive(item.path, item.exact);
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  onClick={() => {
+                    navigate(item.path);
+                    onClose?.();
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    active
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                      : 'text-gray-400 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <span className={active ? 'text-white' : 'text-slate-400 group-hover:text-white'}>
+                    {item.icon}
+                  </span>
+                  <span>{item.label}</span>
+                  {active && <div className="ml-auto w-1.5 h-1.5 bg-white/70 rounded-full" />}
+                </button>
+              );
+            })}
           </div>
         </nav>
 

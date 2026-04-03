@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
 import { BacktestComparator } from './components/BacktestComparator';
-import BotManager from './components/BotManager';
+import BotDashboard from './pages/BotDashboard';
 import {
   ErrorBoundary as EnhancedErrorBoundary,
   ToastContainer,
@@ -212,7 +212,7 @@ export const App: React.FC = () => {
               path="/bots"
               element={
                 <ProtectedRoute>
-                  <BotManager />
+                  <BotDashboard />
                 </ProtectedRoute>
               }
             />

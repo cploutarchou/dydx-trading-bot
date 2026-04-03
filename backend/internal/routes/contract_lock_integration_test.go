@@ -163,3 +163,72 @@ func TestContractLock_AuthAndDelegatedHighTrafficEndpoints(t *testing.T) {
 		})
 	}
 }
+
+func TestContractLock_BacktestSyncHealthEndpoint(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"username": "smoke-user",
+		"password": "Pass123!",
+	})
+	loginResp, err := http.Post(backendServer.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	defer func() { _ = loginResp.Body.Close() }()
+	if loginResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected login 200, got %d", loginResp.StatusCode)
+	}
+
+	var loginJSON map[string]interface{}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginJSON); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	token, _ := loginJSON["access_token"].(string)
+	if token == "" {
+		t.Fatal("missing access token")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/sync-health", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode sync-health response: %v", err)
+	}
+
+	if _, ok := got["success"].(bool); !ok {
+		t.Fatalf("expected success bool, got %T (%v)", got["success"], got["success"])
+	}
+	if _, ok := got["timestamp"].(string); !ok {
+		t.Fatalf("expected timestamp string, got %T (%v)", got["timestamp"], got["timestamp"])
+	}
+
+	data, ok := got["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T (%v)", got["data"], got["data"])
+	}
+	if _, ok := data["runs"].([]interface{}); !ok {
+		t.Fatalf("expected data.runs array, got %T (%v)", data["runs"], data["runs"])
+	}
+	if _, ok := data["count"].(float64); !ok {
+		t.Fatalf("expected data.count number, got %T (%v)", data["count"], data["count"])
+	}
+}

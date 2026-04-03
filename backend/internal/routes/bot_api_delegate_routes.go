@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -196,6 +197,21 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 	}
 
+	syncChildren := func(c *gin.Context, runID string, payload map[string]interface{}) {
+		if backtestSync == nil || strings.TrimSpace(runID) == "" {
+			return
+		}
+		if err := backtestSync.SyncBacktestTrades(runID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed syncing trades for run %s: %v", runID, err)
+		}
+		if err := backtestSync.SyncBacktestPositions(runID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed syncing positions for run %s: %v", runID, err)
+		}
+		if err := backtestSync.SyncBacktestCandles(runID, payload); err != nil {
+			log.Printf("Backtest sync warning: failed syncing candles for run %s: %v", runID, err)
+		}
+	}
+
 	proxyWebSocket := func(c *gin.Context, requestClient *services.BotAPIClient, upstreamEndpoint string) {
 		clientConn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -305,6 +321,64 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	backtestGroup.Use(middleware.RequireAuth())
 	backtestGroup.Use(withRequestScopedBotClient)
 	{
+		// Local DB sync-health dashboard for delegated backtests.
+		backtestGroup.GET("/sync-health", func(c *gin.Context) {
+			if backtestSync == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"success":   false,
+					"error":     "backtest sync service unavailable",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			userIDValue, exists := c.Get("user_id")
+			if !exists {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"error":     "unauthorized",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+			userID, ok := userIDValue.(int)
+			if !ok || userID <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"error":     "invalid user context",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			runID := strings.TrimSpace(c.Query("run_id"))
+			limit := 20
+			if l := c.Query("limit"); l != "" {
+				if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
+					limit = parsed
+				}
+			}
+
+			health, err := backtestSync.GetSyncHealthByRun(userID, runID, limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data": gin.H{
+					"runs":  health,
+					"count": len(health),
+				},
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
+		})
+
 		// Create backtest
 		backtestGroup.POST("", createBacktestHandler)
 		// Frontend compatibility alias
@@ -388,6 +462,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				return
 			}
 			syncRun(c, result)
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -443,6 +518,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -467,6 +543,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -497,6 +574,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 
@@ -522,6 +600,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
+			syncChildren(c, runID, result)
 			c.JSON(200, result)
 		})
 

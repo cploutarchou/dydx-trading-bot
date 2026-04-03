@@ -364,6 +364,20 @@ export interface BacktestAnalytics {
   correlation_matrix: Record<string, Record<string, number>>;
 }
 
+export interface BacktestSyncHealthRun {
+  run_id: string;
+  status?: string;
+  trades: number;
+  positions: number;
+  candles: number;
+  run_age_seconds?: number;
+  sync_lag_seconds?: number;
+}
+
+export interface BacktestSyncHealth {
+  runs: BacktestSyncHealthRun[];
+}
+
 export interface EquityPoint {
   timestamp: string;
   equity: number;

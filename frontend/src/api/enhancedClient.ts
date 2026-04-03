@@ -7,6 +7,17 @@ import type { User } from './types';
 type Entity = Record<string, unknown>;
 type QueryParams = object;
 type ListResponse = { count: number; data: Entity[] };
+type SyncHealthResponse = {
+  runs: Array<{
+    run_id: string;
+    status?: string;
+    trades?: number;
+    positions?: number;
+    candles?: number;
+    run_age_seconds?: number;
+    sync_lag_seconds?: number;
+  }>;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -549,6 +560,34 @@ class EnhancedAPIClient {
     estimated_completion_seconds?: number;
     progress_source?: 'details' | 'list_fallback' | 'default';
   }> {
+    try {
+      const rawStatus = await this.baseClient.getBacktestStatus(runId);
+      const statusPayload = withDataFallback<Record<string, unknown>>(rawStatus, {});
+      const parsedProgress =
+        typeof statusPayload.progress_pct === 'number'
+          ? statusPayload.progress_pct
+          : typeof statusPayload.progress_percent === 'number'
+            ? statusPayload.progress_percent
+            : typeof statusPayload.progress === 'number'
+              ? statusPayload.progress
+              : 0;
+
+      return {
+        run_id: String(statusPayload.run_id || runId),
+        status: String(statusPayload.status || 'PENDING').toUpperCase(),
+        progress_percent: Math.min(100, Math.max(0, Number(parsedProgress) || 0)),
+        current_pair:
+          typeof statusPayload.current_pair === 'string' ? statusPayload.current_pair : undefined,
+        estimated_completion_seconds:
+          typeof statusPayload.estimated_completion_seconds === 'number'
+            ? statusPayload.estimated_completion_seconds
+            : undefined,
+        progress_source: 'details',
+      };
+    } catch {
+      // Fall back to legacy composition below when /status is unavailable.
+    }
+
     const asRecordOrNull = (value: unknown): Record<string, unknown> | null =>
       value && typeof value === 'object' && !Array.isArray(value)
         ? (value as Record<string, unknown>)
@@ -676,6 +715,31 @@ class EnhancedAPIClient {
       estimated_completion_seconds: etaSeconds,
       progress_source: progressSource,
     };
+  }
+
+  async getBacktestSyncHealth(runId?: string): Promise<SyncHealthResponse> {
+    try {
+      const result = await this.baseClient.getBacktestSyncHealth(runId);
+      const payload = withDataFallback<Record<string, unknown>>(result, {});
+      const rawRuns = Array.isArray(payload.runs) ? payload.runs : [];
+      return {
+        runs: rawRuns
+          .filter((run): run is Record<string, unknown> => isRecord(run))
+          .map((run) => ({
+            run_id: String(run.run_id || ''),
+            status: typeof run.status === 'string' ? run.status : undefined,
+            trades: typeof run.trades === 'number' ? run.trades : 0,
+            positions: typeof run.positions === 'number' ? run.positions : 0,
+            candles: typeof run.candles === 'number' ? run.candles : 0,
+            run_age_seconds: typeof run.run_age_seconds === 'number' ? run.run_age_seconds : undefined,
+            sync_lag_seconds:
+              typeof run.sync_lag_seconds === 'number' ? run.sync_lag_seconds : undefined,
+          })),
+      };
+    } catch (error) {
+      console.warn('📊 enhancedClient.ts: getBacktestSyncHealth fallback to empty response', error);
+      return { runs: [] };
+    }
   }
 
   async getBacktestTrades(

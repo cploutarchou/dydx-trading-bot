@@ -1,7 +1,7 @@
 import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api';
+import api, { classifyApiError } from '../api';
 import {
   devFallback,
   getMockDataMode,
@@ -84,6 +84,7 @@ function calcEta(createdAt: string, progressPct: number): string | null {
 }
 
 const POLL_INTERVAL_MS = 4000;
+const POLL_MAX_INTERVAL_MS = 30000;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -99,6 +100,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   const [usingMockData, setUsingMockData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
+  const [pollDelayMs, setPollDelayMs] = useState(POLL_INTERVAL_MS);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasWarnedMockRef = useRef(false);
 
@@ -126,7 +128,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       if (!pollRef.current) {
         pollRef.current = setInterval(() => {
           loadBacktestsSilent();
-        }, POLL_INTERVAL_MS);
+        }, pollDelayMs);
       }
     } else {
       if (pollRef.current) {
@@ -141,7 +143,19 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         pollRef.current = null;
       }
     };
-  }, [runs, usingMockData]);
+  }, [runs, usingMockData, pollDelayMs]);
+
+  const formatUtcDateTime = (value: string): string => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'Invalid date';
+    return parsed.toISOString().replace('T', ' ').replace('Z', ' UTC');
+  };
+
+  const formatUtcDate = (value: string): string => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'Invalid date';
+    return parsed.toISOString().slice(0, 10);
+  };
 
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
     if (getMockDataMode() === 'on') {
@@ -183,6 +197,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       setRuns(nextRuns);
       setHasLoadedOnce(true);
       setUsingMockData(shouldUseDevMocks() && nextRuns.length > 0 && nextRuns[0].run_id.startsWith('mock-run-'));
+      setPollDelayMs(POLL_INTERVAL_MS);
     } catch (err: unknown) {
       if (shouldUseDevMocks()) {
         if (!hasWarnedMockRef.current) {
@@ -196,7 +211,14 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         return;
       }
       console.error('❌ BacktestList: Error loading backtests:', err);
-      setError(getErrorMessage(err, 'Failed to load backtests'));
+      const classified = classifyApiError(err);
+      const prefix =
+        classified.kind === 'transport'
+          ? 'Network/transport issue'
+          : classified.kind === 'business'
+            ? 'Validation/business error'
+            : 'Unexpected error';
+      setError(`${prefix}: ${classified.message}`);
       if (!hasLoadedOnce && !shouldUseDevMocks()) {
         setRuns([]);
       }
@@ -212,8 +234,12 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     if (usingMockData) return;
     try {
       setRuns(await fetchAllRuns());
+      if (pollDelayMs !== POLL_INTERVAL_MS) {
+        setPollDelayMs(POLL_INTERVAL_MS);
+      }
     } catch {
-      // ignore transient errors during polling
+      // Capped backoff for polling failures.
+      setPollDelayMs((current) => Math.min(current * 2, POLL_MAX_INTERVAL_MS));
     }
   };
 
@@ -344,13 +370,12 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm">
-                        {new Date(run.created_at).toLocaleString()}
+                        {formatUtcDateTime(run.created_at)}
                       </td>
                       <td className="px-4 py-2">
                         {run.start_date && run.end_date ? (
                           <>
-                            {new Date(run.start_date).toLocaleDateString()} –{' '}
-                            {new Date(run.end_date).toLocaleDateString()}
+                            {formatUtcDate(run.start_date)} – {formatUtcDate(run.end_date)}
                           </>
                         ) : (
                           '–'

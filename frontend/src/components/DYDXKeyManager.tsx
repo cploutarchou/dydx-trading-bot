@@ -472,7 +472,7 @@ export const DYDXKeyManager: React.FC = () => {
       </div>
 
       {/* Security Info Card */}
-      <div className="bg-gradient-to-r from-blue-900/30 to-indigo-900/30 rounded-lg border border-blue-700 p-6">
+      <div className="bg-linear-to-r from-blue-900/30 to-indigo-900/30 rounded-lg border border-blue-700 p-6">
         <h3 className="text-white font-bold mb-3 flex items-center gap-2">
           <span className="text-lg">🔒</span>
           Security Information

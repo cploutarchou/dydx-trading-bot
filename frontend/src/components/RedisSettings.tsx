@@ -187,7 +187,7 @@ const RedisSettings: React.FC = () => {
 
       {error && (
         <div className="bg-red-900/20 border border-red-500 rounded-lg p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
           <div className="text-red-200">{error}</div>
         </div>
       )}

@@ -295,7 +295,7 @@ export default function StrategyManager() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-lg border border-slate-700 p-6">
+      <div className="bg-linear-to-r from-slate-900 to-slate-800 rounded-lg border border-slate-700 p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white">🎯 Strategy Manager</h1>
@@ -395,7 +395,7 @@ export default function StrategyManager() {
                 {/* Error Display */}
                 {status.lastError && (
                   <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-lg flex gap-2">
-                    <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                     <div>
                       <p className="text-red-200 text-sm font-medium">Error</p>
                       <p className="text-red-300 text-xs mt-1">{status.lastError}</p>

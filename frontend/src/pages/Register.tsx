@@ -97,9 +97,9 @@ export const RegisterPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
             <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl w-full max-w-md">
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-8 text-white">
+                <div className="bg-linear-to-r from-blue-600 to-blue-700 p-8 text-white">
                     <h1 className="text-3xl font-bold">Create Account</h1>
                     <p className="text-blue-100 mt-2">Join dYdX Backtest Trading</p>
                 </div>
@@ -107,14 +107,14 @@ export const RegisterPage: React.FC = () => {
                 <div className="p-8">
                     {error && (
                         <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-red-300 flex-shrink-0 mt-0.5" />
+                            <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200 text-sm">{error}</div>
                         </div>
                     )}
 
                     {formError && (
                         <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-red-300 flex-shrink-0 mt-0.5" />
+                            <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200 text-sm">{formError}</div>
                         </div>
                     )}

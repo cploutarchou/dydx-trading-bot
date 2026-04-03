@@ -3,6 +3,12 @@
  */
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import {
+  guardBacktestStatusContract,
+  guardListBacktestsContract,
+  guardRunBacktestContract,
+  guardSyncHealthContract,
+} from './api/contractGuards';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
 
@@ -15,6 +21,47 @@ const getErrorMessage = (error: unknown): string => {
     return error.message;
   }
   return String(error);
+};
+
+type ApiFailureKind = 'transport' | 'business' | 'unknown';
+
+export interface ApiFailureInfo {
+  kind: ApiFailureKind;
+  statusCode: number | null;
+  message: string;
+}
+
+export const classifyApiError = (error: unknown): ApiFailureInfo => {
+  if (error instanceof AxiosError) {
+    const statusCode = error.response?.status ?? null;
+    const data = error.response?.data as Record<string, unknown> | undefined;
+    const upstreamMessage =
+      typeof data?.message === 'string'
+        ? data.message
+        : typeof data?.detail === 'string'
+          ? data.detail
+          : typeof data?.error === 'string'
+            ? data.error
+            : null;
+
+    const message = upstreamMessage || error.message || 'Unknown API error';
+
+    if (statusCode === null || statusCode >= 500 || statusCode === 502 || statusCode === 504) {
+      return { kind: 'transport', statusCode, message };
+    }
+
+    if (statusCode >= 400 && statusCode < 500) {
+      return { kind: 'business', statusCode, message };
+    }
+
+    return { kind: 'unknown', statusCode, message };
+  }
+
+  if (error instanceof Error) {
+    return { kind: 'unknown', statusCode: null, message: error.message };
+  }
+
+  return { kind: 'unknown', statusCode: null, message: String(error) };
 };
 
 interface ApiResponse<T extends Record<string, unknown> | Token = Record<string, unknown>> {
@@ -673,6 +720,7 @@ class ApiClient {
     const response = await this.client.get<ApiResponse<BacktestListResponse>>(
       `/api/v1/backtests?skip=${skip}&limit=${limit}`
     );
+    guardListBacktestsContract(response.data);
     return response.data;
   }
 
@@ -688,6 +736,7 @@ class ApiClient {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.post('/api/v1/backtests/run', data);
+      guardRunBacktestContract(response.data);
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
@@ -711,6 +760,33 @@ class ApiClient {
         logs: Array<{ id: number; message: string; level: string; created_at: string }>;
       }>
     >(`/api/v1/backtests/${runId}/logs`);
+
+    // Contract normalize: treat missing logs payload as empty list for resilient polling.
+    if (!response.data.data) {
+      response.data.data = { logs: [] };
+    } else if (!Array.isArray(response.data.data.logs)) {
+      response.data.data.logs = [];
+    }
+
+    return response.data;
+  }
+
+  async getBacktestStatus(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/${runId}/status`
+    );
+    guardBacktestStatusContract(response.data);
+    return response.data;
+  }
+
+  async getBacktestSyncHealth(runId?: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const query = runId ? `?run_id=${encodeURIComponent(runId)}` : '';
+    const response = await this.client.get<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/sync-health${query}`
+    );
+    guardSyncHealthContract(response.data);
     return response.data;
   }
 

@@ -73,14 +73,22 @@ export const TwoFactorAuthPage: React.FC = () => {
                 <div className="p-8">
                     {/* Error Alert */}
                     {error && (
-                        <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
+                        <div
+                            role="alert"
+                            aria-live="assertive"
+                            className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+                        >
                             <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200">{error}</div>
                         </div>
                     )}
 
                     {localError && (
-                        <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
+                        <div
+                            role="alert"
+                            aria-live="assertive"
+                            className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+                        >
                             <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200">{localError}</div>
                         </div>
@@ -118,6 +126,7 @@ export const TwoFactorAuthPage: React.FC = () => {
                             </div>
 
                             <button
+                                type="button"
                                 onClick={handleSetup}
                                 disabled={loading}
                                 className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
@@ -156,23 +165,29 @@ export const TwoFactorAuthPage: React.FC = () => {
 
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                                    <label htmlFor="twofa-token" className="block text-sm font-medium text-slate-300 mb-2">
                                         Enter 6-Digit Code
                                     </label>
                                     <input
+                                        id="twofa-token"
                                         type="text"
                                         maxLength={6}
+                                        inputMode="numeric"
+                                        autoComplete="one-time-code"
+                                        aria-invalid={verifyToken.length > 0 && verifyToken.length !== 6}
+                                        aria-describedby="twofa-token-help"
                                         value={verifyToken}
                                         onChange={(e) => setVerifyToken(e.target.value.replace(/\D/g, ''))}
                                         placeholder="000000"
                                         className="w-full px-4 py-3 border border-slate-600 bg-slate-700 rounded-lg text-center text-2xl tracking-widest font-mono text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
-                                    <p className="text-xs text-slate-400 mt-2">
+                                    <p id="twofa-token-help" className="text-xs text-slate-400 mt-2">
                                         Get a new code every 30 seconds from your authenticator app
                                     </p>
                                 </div>
 
                                 <button
+                                    type="button"
                                     onClick={handleVerify}
                                     disabled={loading || verifyToken.length !== 6}
                                     className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
@@ -211,6 +226,7 @@ export const TwoFactorAuthPage: React.FC = () => {
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="font-mono font-bold text-white">Backup Codes</h3>
                                     <button
+                                        type="button"
                                         onClick={() => setShowBackupCodes(!showBackupCodes)}
                                         className="flex items-center gap-2 text-slate-300 hover:text-white"
                                     >
@@ -238,6 +254,7 @@ export const TwoFactorAuthPage: React.FC = () => {
                                 )}
 
                                 <button
+                                    type="button"
                                     onClick={handleCopyBackupCodes}
                                     className="w-full py-2 px-4 bg-slate-700 hover:bg-slate-600 rounded text-white font-medium flex items-center justify-center gap-2 text-sm"
                                 >
@@ -253,6 +270,7 @@ export const TwoFactorAuthPage: React.FC = () => {
                             </div>
 
                             <button
+                                type="button"
                                 onClick={() => setStep('complete')}
                                 className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 font-medium"
                             >
@@ -286,6 +304,7 @@ export const TwoFactorAuthPage: React.FC = () => {
                             </div>
 
                             <button
+                                type="button"
                                 onClick={handleComplete}
                                 className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-medium"
                             >

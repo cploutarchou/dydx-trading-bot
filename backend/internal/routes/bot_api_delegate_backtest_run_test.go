@@ -27,7 +27,8 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 	t.Setenv("JWT_SECRET_KEY", secret)
 	t.Setenv("APP_ENV", "test")
 
-	dbConn, err := sql.Open("sqlite", ":memory:")
+	dsn := fmt.Sprintf("file:%d?mode=memory&cache=shared", time.Now().UTC().UnixNano())
+	dbConn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite memory db: %v", err)
 	}
@@ -74,6 +75,80 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 		user_id INTEGER
 	);`); err != nil {
 		t.Fatalf("create backtest_runs table: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
+	CREATE TABLE backtest_trades (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		run_id_fk INTEGER NOT NULL,
+		trade_id TEXT NOT NULL UNIQUE,
+		market_1 TEXT NOT NULL,
+		market_2 TEXT NOT NULL,
+		entry_timestamp DATETIME NOT NULL,
+		entry_price_1 REAL NOT NULL,
+		entry_price_2 REAL NOT NULL,
+		entry_z_score REAL NOT NULL,
+		side_1 TEXT NOT NULL,
+		side_2 TEXT NOT NULL,
+		size_1 REAL NOT NULL,
+		size_2 REAL NOT NULL,
+		exit_timestamp DATETIME,
+		exit_price_1 REAL,
+		exit_price_2 REAL,
+		exit_z_score REAL,
+		pnl REAL,
+		pnl_pct REAL,
+		duration_hours REAL,
+		hedge_ratio REAL NOT NULL,
+		transaction_fee REAL NOT NULL,
+		slippage REAL NOT NULL
+	);`); err != nil {
+		t.Fatalf("create backtest_trades table: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
+	CREATE TABLE backtest_positions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		run_id_fk INTEGER NOT NULL,
+		position_id TEXT NOT NULL UNIQUE,
+		market_1 TEXT NOT NULL,
+		market_2 TEXT NOT NULL,
+		status TEXT NOT NULL,
+		entry_timestamp DATETIME NOT NULL,
+		close_timestamp DATETIME,
+		entry_price_1 REAL NOT NULL,
+		entry_price_2 REAL NOT NULL,
+		entry_z_score REAL NOT NULL,
+		current_price_1 REAL,
+		current_price_2 REAL,
+		current_z_score REAL,
+		size_1 REAL NOT NULL,
+		size_2 REAL NOT NULL,
+		side_1 TEXT NOT NULL,
+		side_2 TEXT NOT NULL,
+		hedge_ratio REAL NOT NULL,
+		unrealized_pnl REAL,
+		realized_pnl REAL
+	);`); err != nil {
+		t.Fatalf("create backtest_positions table: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
+	CREATE TABLE backtest_candles (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		run_id_fk INTEGER NOT NULL,
+		market TEXT NOT NULL,
+		timestamp DATETIME NOT NULL,
+		resolution TEXT,
+		open_price REAL NOT NULL,
+		high_price REAL NOT NULL,
+		low_price REAL NOT NULL,
+		close_price REAL NOT NULL,
+		volume REAL NOT NULL,
+		trades_count INTEGER,
+		created_at DATETIME
+	);`); err != nil {
+		t.Fatalf("create backtest_candles table: %v", err)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte("Pass123!"), bcrypt.DefaultCost)
@@ -529,5 +604,210 @@ func TestDelegatedBacktestStatus_UpdatesLocalDBStatus(t *testing.T) {
 	}
 	if !totalPnLUSD.Valid || totalPnLUSD.Float64 != 123.5 {
 		t.Fatalf("expected total_pnl_usd=123.5, got %+v", totalPnLUSD)
+	}
+}
+
+func TestDelegatedBacktestTrades_SyncsChildRowsIntoLocalDB(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"child-sync-run","status":"queued","start_date":"2025-03-01","end_date":"2025-03-31","num_pairs":5,"total_markets":10}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/child-sync-run/trades", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"trades":[{"trade_id":"t-1","market_1":"BTC-USD","market_2":"ETH-USD","entry_timestamp":"2025-03-05T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.2,"side_1":"BUY","side_2":"SELL","size_1":1,"size_2":2,"pnl":12.5,"pnl_pct":0.8,"hedge_ratio":0.5}]}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create run request failed: %v", err)
+	}
+	_ = createResp.Body.Close()
+
+	tradesReq, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/child-sync-run/trades", nil)
+	tradesReq.Header.Set("Authorization", "Bearer "+token)
+	tradesResp, err := http.DefaultClient.Do(tradesReq)
+	if err != nil {
+		t.Fatalf("trades request failed: %v", err)
+	}
+	_ = tradesResp.Body.Close()
+
+	var count int
+	err = dbConn.QueryRow(`SELECT COUNT(*) FROM backtest_trades WHERE trade_id = ?`, "t-1").Scan(&count)
+	if err != nil {
+		t.Fatalf("query trades sync row: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected synced trade row count 1, got %d", count)
+	}
+
+	// Dedupe check: second sync updates existing row instead of inserting duplicate.
+	tradesResp2, err := http.DefaultClient.Do(tradesReq)
+	if err != nil {
+		t.Fatalf("second trades request failed: %v", err)
+	}
+	_ = tradesResp2.Body.Close()
+	err = dbConn.QueryRow(`SELECT COUNT(*) FROM backtest_trades WHERE trade_id = ?`, "t-1").Scan(&count)
+	if err != nil {
+		t.Fatalf("query trades dedupe row: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected deduped trade row count 1, got %d", count)
+	}
+}
+
+func TestDelegatedBacktestPositionSnapshots_SyncsChildRowsIntoLocalDB(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"child-sync-pos","status":"queued","start_date":"2025-04-01","end_date":"2025-04-30","num_pairs":3,"total_markets":8}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/child-sync-pos/position-snapshots", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"position_snapshots":[{"position_id":"p-1","market_1":"BTC-USD","market_2":"ETH-USD","status":"OPEN","entry_timestamp":"2025-04-03T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.1,"size_1":1,"size_2":2,"side_1":"BUY","side_2":"SELL","hedge_ratio":0.6}]}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create run request failed: %v", err)
+	}
+	_ = createResp.Body.Close()
+
+	posReq, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/child-sync-pos/position-snapshots", nil)
+	posReq.Header.Set("Authorization", "Bearer "+token)
+	posResp, err := http.DefaultClient.Do(posReq)
+	if err != nil {
+		t.Fatalf("position snapshots request failed: %v", err)
+	}
+	_ = posResp.Body.Close()
+
+	var count int
+	err = dbConn.QueryRow(`SELECT COUNT(*) FROM backtest_positions WHERE position_id = ?`, "p-1").Scan(&count)
+	if err != nil {
+		t.Fatalf("query position sync row: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected synced position row count 1, got %d", count)
+	}
+}
+
+func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"health-run","status":"queued","start_date":"2025-05-01","end_date":"2025-05-31","num_pairs":2,"total_markets":6}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/health-run/trades", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"trades":[{"trade_id":"h-trade","market_1":"BTC-USD","market_2":"ETH-USD","entry_timestamp":"2025-05-05T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.3,"side_1":"BUY","side_2":"SELL","size_1":1,"size_2":2,"hedge_ratio":0.5}]}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/health-run/position-snapshots", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"position_snapshots":[{"position_id":"h-pos","market_1":"BTC-USD","market_2":"ETH-USD","status":"OPEN","entry_timestamp":"2025-05-05T00:00:00Z","entry_price_1":100,"entry_price_2":200,"entry_z_score":1.2,"size_1":1,"size_2":2,"side_1":"BUY","side_2":"SELL","hedge_ratio":0.6}]}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create run request failed: %v", err)
+	}
+	_ = createResp.Body.Close()
+
+	var runPK int
+	if err := dbConn.QueryRow(`SELECT id FROM backtest_runs WHERE run_id = ?`, "health-run").Scan(&runPK); err != nil {
+		t.Fatalf("resolve run pk: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
+		INSERT INTO backtest_trades (
+			run_id_fk, trade_id, market_1, market_2, entry_timestamp,
+			entry_price_1, entry_price_2, entry_z_score,
+			side_1, side_2, size_1, size_2,
+			hedge_ratio, transaction_fee, slippage
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, runPK, "h-trade", "BTC-USD", "ETH-USD", time.Now().UTC(), 100.0, 200.0, 1.3, "BUY", "SELL", 1.0, 2.0, 0.5, 0.0, 0.0); err != nil {
+		t.Fatalf("seed backtest_trades row: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
+		INSERT INTO backtest_positions (
+			run_id_fk, position_id, market_1, market_2, status,
+			entry_timestamp, entry_price_1, entry_price_2, entry_z_score,
+			size_1, size_2, side_1, side_2, hedge_ratio
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, runPK, "h-pos", "BTC-USD", "ETH-USD", "OPEN", time.Now().UTC(), 100.0, 200.0, 1.2, 1.0, 2.0, "BUY", "SELL", 0.6); err != nil {
+		t.Fatalf("seed backtest_positions row: %v", err)
+	}
+
+	healthReq, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/sync-health?run_id=health-run", nil)
+	healthReq.Header.Set("Authorization", "Bearer "+token)
+	healthResp, err := http.DefaultClient.Do(healthReq)
+	if err != nil {
+		t.Fatalf("sync-health request failed: %v", err)
+	}
+	defer func() { _ = healthResp.Body.Close() }()
+
+	if healthResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", healthResp.StatusCode)
+	}
+
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Runs []struct {
+				RunID     string `json:"run_id"`
+				Trades    int    `json:"trades"`
+				Positions int    `json:"positions"`
+			} `json:"runs"`
+			Count int `json:"count"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(healthResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode sync-health response: %v", err)
+	}
+
+	if !payload.Success {
+		t.Fatal("expected success=true")
+	}
+	if payload.Data.Count < 1 || len(payload.Data.Runs) < 1 {
+		t.Fatalf("expected at least one run in sync-health response: %+v", payload.Data)
+	}
+	if payload.Data.Runs[0].RunID != "health-run" {
+		t.Fatalf("unexpected run id in sync-health: %s", payload.Data.Runs[0].RunID)
+	}
+	if payload.Data.Runs[0].Trades < 1 {
+		t.Fatalf("expected trades count >= 1, got %d", payload.Data.Runs[0].Trades)
+	}
+	if payload.Data.Runs[0].Positions < 1 {
+		t.Fatalf("expected positions count >= 1, got %d", payload.Data.Runs[0].Positions)
 	}
 }

@@ -1,10 +1,10 @@
-# Backend Integration Tasks
+﻿# Backend Integration Tasks
 
 ## Status Summary
 - Completed: `15`
 - Pending: `0`
 - Last updated: `2026-04-04`
-- Note: update these totals whenever any `[x]` or `[ ]` task changes.
+- Note: update these totals whenever any [x] or [ ] task changes.
 
 ## Ongoing Update Protocol
 - [x] Keep this file updated whenever backend or frontend contract-affecting changes are introduced.

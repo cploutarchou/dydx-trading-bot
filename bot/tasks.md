@@ -6,6 +6,21 @@
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
+## Cross-Repo Sync Matrix (Weekly Snapshot)
+| Area | Bot Status | Backend Status | Frontend Status | Owner | ETA |
+| --- | --- | --- | --- | --- | --- |
+| Contract aliases (`progress`, `backtests`, `count`) | complete | pending verification | pending verification | backend + frontend | 2026-04-08 |
+| Run-scoped `run_id` payload consistency | complete | pending verification | pending verification | backend + frontend | 2026-04-08 |
+| `GET /api/v1/backtests/sync-health` | complete | pending delegation/parsing | pending consumption | backend + frontend | 2026-04-09 |
+| Auth token shape lock (`access_token`, `refresh_token`, `token_type`, `expires_in`) | complete (tests added) | pending sync test | pending sync test | backend + frontend | 2026-04-09 |
+| Trace propagation (`trace_id`, `X-Trace-Id`) | complete | pending passthrough/logging | pending display/debug tooling | backend + frontend | 2026-04-10 |
+| Telegram severity/category throttling | complete | n/a | n/a | bot | done |
+
+Use this matrix as the source of truth for cross-repo handoff status; update statuses, owner, and ETA in all three task files in the same change.
+
+Legend: `complete` = shipped/validated in that repo, `pending` = work not started, `pending verification` = implemented but contract validation still required, `n/a` = not applicable.
+Last reviewed by: `bot-team` on `2026-04-04`.
+
 ## Ongoing Update Protocol
 - [x] Keep this file updated whenever backend or frontend contract-affecting changes are introduced.
 - [x] Update all three task files for integration-impacting changes:

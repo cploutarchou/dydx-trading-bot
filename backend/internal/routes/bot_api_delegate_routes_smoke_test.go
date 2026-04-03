@@ -16,7 +16,7 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -55,7 +55,7 @@ func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
 	upstreamServer := httptest.NewServer(upstreamMux)
 	defer upstreamServer.Close()
 
-	dbConn, err := sql.Open("sqlite3", ":memory:")
+	dbConn, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite memory db: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 	upstreamServer := httptest.NewServer(upstreamMux)
 	defer upstreamServer.Close()
 
-	dbConn, err := sql.Open("sqlite3", ":memory:")
+	dbConn, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite memory db: %v", err)
 	}

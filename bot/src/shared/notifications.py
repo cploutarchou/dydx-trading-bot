@@ -1,8 +1,11 @@
 """Telegram messaging system for dYdX Trading Bot."""
 
+import html
 import logging
+import os
+import time
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import requests
 from src.constants import DYDX_ADDRESS, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
@@ -14,6 +17,7 @@ class TelegramMessenger:
     """Professional Telegram messaging system for dYdX Trading Bot."""
 
     _disabled_notice_logged = False
+    _recent_messages: Dict[str, float] = {}
 
     def __init__(self):
         self.bot_token = TELEGRAM_TOKEN
@@ -29,18 +33,79 @@ class TelegramMessenger:
         """Format current timestamp for messages."""
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
+    def _escape_html(self, value: Any) -> str:
+        """Escape dynamic values to keep Telegram HTML parse mode safe."""
+        return html.escape(str(value), quote=True)
+
+    def _instance_prefix(self) -> str:
+        instance_id = os.getenv("BOT_INSTANCE_ID", "").strip()
+        if not instance_id:
+            return ""
+        return f"🧩 <b>Instance:</b> {self._escape_html(instance_id)}\n"
+
+    def _environment_prefix(self) -> str:
+        environment = os.getenv("ENVIRONMENT", "development").strip().lower()
+        return f"🌍 <b>Env:</b> {self._escape_html(environment)}\n"
+
+    def _truncate_text(self, text: str, hard_limit: int = 3900) -> str:
+        """Keep payload under Telegram text limits while preserving parseability."""
+        if len(text) <= hard_limit:
+            return text
+        return text[: hard_limit - 24].rstrip() + "\n\n<i>[message truncated]</i>"
+
+    def _safe_env_int(self, env_name: str, default: int) -> int:
+        raw = os.getenv(env_name, str(default)).strip()
+        try:
+            value = int(raw)
+            return max(0, value)
+        except (TypeError, ValueError):
+            return default
+
+    def _normalize_error_category(self, category: Optional[str], error_type: str) -> str:
+        source = (category or error_type or "general").strip().lower()
+        normalized = [ch if ch.isalnum() else "_" for ch in source]
+        compact = "".join(normalized).strip("_")
+        while "__" in compact:
+            compact = compact.replace("__", "_")
+        return compact or "general"
+
+    def _resolve_error_dedupe_window_seconds(
+        self,
+        category: str,
+        is_critical: bool,
+    ) -> int:
+        if is_critical:
+            return self._safe_env_int("TELEGRAM_ERROR_DEDUPE_SECONDS_CRITICAL", 0)
+
+        category_env = f"TELEGRAM_ERROR_DEDUPE_SECONDS_{category.upper()}"
+        if os.getenv(category_env) is not None:
+            return self._safe_env_int(category_env, 120)
+        return self._safe_env_int("TELEGRAM_ERROR_DEDUPE_SECONDS_DEFAULT", 120)
+
+    def _should_skip_duplicate(self, key: str, window_seconds: int) -> bool:
+        if window_seconds <= 0 or not key:
+            return False
+        now = time.time()
+        last_seen = TelegramMessenger._recent_messages.get(key, 0.0)
+        if now - last_seen < window_seconds:
+            return True
+        TelegramMessenger._recent_messages[key] = now
+        return False
+
     def _send_request(self, method: str, data: Dict[str, Any]) -> bool:
         """Send HTTP request to Telegram API."""
         if not self.enabled:
             return False
 
-        try:
-            url = f"{self.base_url}/{method}"
-            response = requests.post(url, json=data, timeout=15)
+        url = f"{self.base_url}/{method}"
+        attempts = max(1, int(os.getenv("TELEGRAM_SEND_RETRIES", "3") or "3"))
+        for attempt in range(1, attempts + 1):
+            try:
+                response = requests.post(url, json=data, timeout=15)
 
-            if response.status_code == 200:
-                return True
-            else:
+                if response.status_code == 200:
+                    return True
+
                 if (
                     response.status_code == 403
                     and "bots can't send messages to bots" in response.text.lower()
@@ -50,21 +115,69 @@ class TelegramMessenger:
                         "Use a user/group/channel chat id and ensure that chat has started/interacted with this bot.",
                         self.chat_id,
                     )
-                logger.error(f"Telegram API error {response.status_code}: {response.text}")
+                    return False
+
+                transient = response.status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+                if transient and attempt < attempts:
+                    retry_after = 0.0
+                    if response.status_code == 429:
+                        try:
+                            retry_after = float(response.json().get("parameters", {}).get("retry_after", 0))
+                        except Exception:
+                            retry_after = 0.0
+                    backoff = retry_after if retry_after > 0 else min(2.0, 0.5 * attempt)
+                    logger.warning(
+                        "Telegram API transient error %s on attempt %s/%s; retrying in %.2fs",
+                        response.status_code,
+                        attempt,
+                        attempts,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                    continue
+
+                logger.error("Telegram API error %s: %s", response.status_code, response.text)
                 return False
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to send Telegram message: {e}")
-            return False
+            except requests.exceptions.RequestException as e:
+                if attempt < attempts:
+                    backoff = min(2.0, 0.5 * attempt)
+                    logger.warning(
+                        "Telegram request failure on attempt %s/%s: %s; retrying in %.2fs",
+                        attempt,
+                        attempts,
+                        e,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                    continue
+                logger.error("Failed to send Telegram message after retries: %s", e)
+                return False
 
-    def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
+        return False
+
+    def send_message(
+        self,
+        text: str,
+        parse_mode: str = "HTML",
+        dedupe_key: Optional[str] = None,
+        dedupe_window_seconds: Optional[int] = None,
+    ) -> bool:
         """Send a formatted message to Telegram."""
         if not self.enabled:
             return False
 
+        if dedupe_window_seconds is None:
+            dedupe_window_seconds = int(os.getenv("TELEGRAM_DEDUPE_SECONDS", "0") or "0")
+        if dedupe_key and self._should_skip_duplicate(dedupe_key, dedupe_window_seconds):
+            logger.info("Skipping duplicate Telegram notification key=%s", dedupe_key)
+            return False
+
+        safe_text = self._truncate_text(text)
+
         data = {
             "chat_id": self.chat_id,
-            "text": text,
+            "text": safe_text,
             "parse_mode": parse_mode,
             "disable_web_page_preview": True,
         }
@@ -75,7 +188,7 @@ class TelegramMessenger:
         """Send bot startup notification with configuration details."""
         environment = config_info.get("environment", "development")
         is_testnet = config_info.get("is_testnet", True)
-        strategy = config_info.get("strategy", "unknown")
+        strategy = self._escape_html(config_info.get("strategy", "unknown"))
 
         # Smart environment detection
         if environment in ("unknown", "development"):
@@ -99,6 +212,8 @@ class TelegramMessenger:
         message = f"""
 🤖 <b>dYdX Trading Bot Started</b>
 
+{self._instance_prefix()}{self._environment_prefix()}
+
 {env_emoji} <b>Environment:</b> {environment.upper()}
 {network} <b>Network:</b> {network_text}
 📈 <b>Strategy:</b> {strategy.title()}
@@ -112,23 +227,42 @@ class TelegramMessenger:
         return self.send_message(message)
 
     def send_error_message(
-        self, error_type: str, error_details: str, is_critical: bool = False
+        self,
+        error_type: str,
+        error_details: str,
+        is_critical: bool = False,
+        category: Optional[str] = None,
     ) -> bool:
         """Send formatted error notification."""
         emoji = "🚨" if is_critical else "⚠️"
         severity = "CRITICAL ERROR" if is_critical else "ERROR"
+        error_category = self._normalize_error_category(category, error_type)
+        dedupe_window_seconds = self._resolve_error_dedupe_window_seconds(
+            error_category,
+            is_critical,
+        )
 
+        safe_type = self._escape_html(error_type)
+        safe_details = self._escape_html(error_details)
         message = f"""
 {emoji} <b>{severity}</b>
 
-🔍 <b>Type:</b> {error_type}
-📝 <b>Details:</b> {error_details}
+{self._instance_prefix()}{self._environment_prefix()}
+
+🔍 <b>Type:</b> {safe_type}
+📝 <b>Details:</b> {safe_details}
+🏷️ <b>Category:</b> {self._escape_html(error_category)}
 ⏰ <b>Time:</b> {self._format_timestamp()}
 
 <i>{"Bot may have stopped - check immediately!" if is_critical else "Monitoring continues - review when convenient."}</i>
         """.strip()
 
-        return self.send_message(message)
+        dedupe_key = f"error:{'critical' if is_critical else 'normal'}:{error_category}"
+        return self.send_message(
+            message,
+            dedupe_key=dedupe_key,
+            dedupe_window_seconds=dedupe_window_seconds,
+        )
 
     def send_trade_opened_message(self, trade_info: Dict[str, Any]) -> bool:
         """Send notification when new trade is opened."""
@@ -264,10 +398,13 @@ class TelegramMessenger:
 
     def send_shutdown_message(self, reason: str = "Manual stop") -> bool:
         """Send bot shutdown notification."""
+        safe_reason = self._escape_html(reason)
         message = f"""
 🛑 <b>dYdX Trading Bot Stopped</b>
 
-🔍 <b>Reason:</b> {reason}
+{self._instance_prefix()}{self._environment_prefix()}
+
+🔍 <b>Reason:</b> {safe_reason}
 ⏰ <b>Stopped:</b> {self._format_timestamp()}
 
 <i>Bot is no longer monitoring markets. All positions remain as they were.</i>
@@ -293,9 +430,19 @@ def send_startup_notification(config_info: Dict[str, Any]) -> bool:
     return _messenger.send_startup_message(config_info)
 
 
-def send_error_notification(error_type: str, error_details: str, is_critical: bool = False) -> bool:
+def send_error_notification(
+    error_type: str,
+    error_details: str,
+    is_critical: bool = False,
+    category: Optional[str] = None,
+) -> bool:
     """Send formatted error notification."""
-    return _messenger.send_error_message(error_type, error_details, is_critical)
+    return _messenger.send_error_message(
+        error_type,
+        error_details,
+        is_critical,
+        category=category,
+    )
 
 
 def send_trade_notification(action: str, trade_info: Dict[str, Any], **kwargs) -> bool:

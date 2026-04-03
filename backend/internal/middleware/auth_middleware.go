@@ -33,29 +33,15 @@ func RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		authHeader := c.GetHeader("Authorization")
-		authHeader = strings.TrimSpace(authHeader)
+		rawAuthorization := strings.TrimSpace(c.GetHeader("Authorization"))
+		authHeader, source := ResolveRequestAuthHeader(c)
 		// Do not log raw auth header/token values.
-		log.Printf("RequireAuth: has_authorization=%t, RemoteAddr=%s, ClientIP=%s", authHeader != "", c.Request.RemoteAddr, c.ClientIP())
+		log.Printf("RequireAuth: has_authorization=%t, RemoteAddr=%s, ClientIP=%s", rawAuthorization != "", c.Request.RemoteAddr, c.ClientIP())
 
-		// If header is empty, try cookie fallback (common cookie names)
-		if authHeader == "" {
-			cookieNames := []string{"access_token", "token", "jwt"}
-			for _, name := range cookieNames {
-				if cookieVal, err := c.Cookie(name); err == nil && cookieVal != "" {
-					authHeader = "Bearer " + cookieVal
-					log.Printf("RequireAuth: using token from cookie '%s' (masked)", name)
-					break
-				}
-			}
-		}
-
-		// If still empty, look for access_token query parameter (debug only)
-		if authHeader == "" {
-			if q := c.Query("access_token"); q != "" {
-				authHeader = "Bearer " + q
-				log.Printf("RequireAuth: using token from query param access_token (masked)")
-			}
+		if strings.HasPrefix(source, "cookie:") {
+			log.Printf("RequireAuth: using token from cookie '%s' (masked)", strings.TrimPrefix(source, "cookie:"))
+		} else if source == "query:access_token" {
+			log.Printf("RequireAuth: using token from query param access_token (masked)")
 		}
 
 		if authHeader == "" {

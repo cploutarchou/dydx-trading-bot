@@ -1,7 +1,7 @@
 ﻿# Backend Integration Tasks
 
 ## Status Summary
-- Completed: `15`
+- Completed: `19`
 - Pending: `0`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
@@ -41,10 +41,14 @@
 ## Operational / Debug
 - [x] Add bot-side trace IDs to delegated responses/logs for cross-service debugging.
 - [x] Expose lightweight bot health with queue depth/job count for run orchestration visibility.
+- [x] Add Telegram delivery resilience (retry/backoff) and duplicate suppression windows for noisy runtime errors.
+- [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
 - [x] 2026-04-04: Adopted cross-repo task governance format with backend/frontend linkage.
 - [x] 2026-04-04: Added contract aliases (`progress`, `backtests`, `count`), run-scoped `run_id` coverage, `sync-health`, trace-id logging, and runtime queue/job counters.
+- [x] 2026-04-04: Synced with backend governance enforcement and new backend sync capabilities (`resync`, `run_age_seconds`, `sync_lag_seconds`, `quality_issues`).
+- [x] 2026-04-04: Improved Telegram interaction safety/ops signal with HTML-safe escaping, truncation, severity/category-based dedupe policy, and category-tagged runtime alerts.
 
 ## Change Log Template
 - Date:

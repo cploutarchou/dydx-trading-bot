@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -23,8 +24,27 @@ export const RegisterPage: React.FC = () => {
     const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
     const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong'>('weak');
     const [formError, setFormError] = useState<string | null>(null);
+    const usernameInputRef = useRef<HTMLInputElement | null>(null);
+    const emailInputRef = useRef<HTMLInputElement | null>(null);
+    const passwordInputRef = useRef<HTMLInputElement | null>(null);
+    const confirmPasswordInputRef = useRef<HTMLInputElement | null>(null);
+    const termsCheckboxRef = useRef<HTMLInputElement | null>(null);
+    const apiErrorAlertRef = useRef<HTMLDivElement | null>(null);
+    const formErrorAlertRef = useRef<HTMLDivElement | null>(null);
 
-    const validateForm = (): boolean => {
+    useEffect(() => {
+        usernameInputRef.current?.focus();
+    }, []);
+
+    useFocusOnVisibleError(
+        [
+            { when: !!error, ref: apiErrorAlertRef },
+            { when: !error && !!formError, ref: formErrorAlertRef },
+        ],
+        [error, formError]
+    );
+
+    const validateForm = (): ValidationErrors => {
         const errors: ValidationErrors = {};
 
         // Username validation
@@ -58,7 +78,7 @@ export const RegisterPage: React.FC = () => {
         }
 
         setValidationErrors(errors);
-        return Object.keys(errors).length === 0;
+        return errors;
     };
 
     const calculatePasswordStrength = (password: string) => {
@@ -77,12 +97,23 @@ export const RegisterPage: React.FC = () => {
         e.preventDefault();
         setFormError(null);
 
-        if (!validateForm()) {
+        const errors = validateForm();
+        if (Object.keys(errors).length > 0) {
+            if (errors.username) {
+                usernameInputRef.current?.focus();
+            } else if (errors.email) {
+                emailInputRef.current?.focus();
+            } else if (errors.password) {
+                passwordInputRef.current?.focus();
+            } else if (errors.confirmPassword) {
+                confirmPasswordInputRef.current?.focus();
+            }
             return;
         }
 
         if (!formData.agreedToTerms) {
             setFormError('Please agree to the Terms of Service and Privacy Policy');
+            termsCheckboxRef.current?.focus();
             return;
         }
 
@@ -106,14 +137,26 @@ export const RegisterPage: React.FC = () => {
 
                 <div className="p-8">
                     {error && (
-                        <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
+                        <div
+                            ref={apiErrorAlertRef}
+                            tabIndex={-1}
+                            role="alert"
+                            aria-live="assertive"
+                            className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+                        >
                             <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200 text-sm">{error}</div>
                         </div>
                     )}
 
                     {formError && (
-                        <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
+                        <div
+                            ref={formErrorAlertRef}
+                            tabIndex={-1}
+                            role="alert"
+                            aria-live="assertive"
+                            className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+                        >
                             <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200 text-sm">{formError}</div>
                         </div>
@@ -129,6 +172,10 @@ export const RegisterPage: React.FC = () => {
                                 id="username"
                                 name="username"
                                 type="text"
+                                ref={usernameInputRef}
+                                autoComplete="username"
+                                aria-invalid={!!validationErrors.username}
+                                aria-describedby={validationErrors.username ? 'username-error' : undefined}
                                 value={formData.username}
                                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                                 className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
@@ -138,7 +185,7 @@ export const RegisterPage: React.FC = () => {
                                 disabled={loading}
                             />
                             {validationErrors.username && (
-                                <p className="text-xs text-red-300 mt-1">{validationErrors.username}</p>
+                                <p id="username-error" className="text-xs text-red-300 mt-1">{validationErrors.username}</p>
                             )}
                         </div>
 
@@ -151,6 +198,10 @@ export const RegisterPage: React.FC = () => {
                                 id="email"
                                 name="email"
                                 type="email"
+                                ref={emailInputRef}
+                                autoComplete="email"
+                                aria-invalid={!!validationErrors.email}
+                                aria-describedby={validationErrors.email ? 'email-error' : undefined}
                                 value={formData.email}
                                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                 className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
@@ -160,7 +211,7 @@ export const RegisterPage: React.FC = () => {
                                 disabled={loading}
                             />
                             {validationErrors.email && (
-                                <p className="text-xs text-red-300 mt-1">{validationErrors.email}</p>
+                                <p id="email-error" className="text-xs text-red-300 mt-1">{validationErrors.email}</p>
                             )}
                         </div>
 
@@ -173,6 +224,10 @@ export const RegisterPage: React.FC = () => {
                                 id="password"
                                 name="password"
                                 type="password"
+                                ref={passwordInputRef}
+                                autoComplete="new-password"
+                                aria-invalid={!!validationErrors.password}
+                                aria-describedby={validationErrors.password ? 'password-error' : 'password-help'}
                                 value={formData.password}
                                 onChange={handlePasswordChange}
                                 className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
@@ -194,9 +249,9 @@ export const RegisterPage: React.FC = () => {
                                 </div>
                             )}
                             {validationErrors.password && (
-                                <p className="text-xs text-red-300 mt-1">{validationErrors.password}</p>
+                                <p id="password-error" className="text-xs text-red-300 mt-1">{validationErrors.password}</p>
                             )}
-                            <p className="text-xs text-slate-400 mt-2">
+                            <p id="password-help" className="text-xs text-slate-400 mt-2">
                                 At least 8 characters, one uppercase letter, and one number
                             </p>
                         </div>
@@ -210,6 +265,10 @@ export const RegisterPage: React.FC = () => {
                                 id="confirmPassword"
                                 name="confirmPassword"
                                 type="password"
+                                ref={confirmPasswordInputRef}
+                                autoComplete="new-password"
+                                aria-invalid={!!validationErrors.confirmPassword}
+                                aria-describedby={validationErrors.confirmPassword ? 'confirm-password-error' : undefined}
                                 value={formData.confirmPassword}
                                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                                 className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
@@ -225,7 +284,7 @@ export const RegisterPage: React.FC = () => {
                                 </div>
                             )}
                             {validationErrors.confirmPassword && (
-                                <p className="text-xs text-red-300 mt-1">{validationErrors.confirmPassword}</p>
+                                <p id="confirm-password-error" className="text-xs text-red-300 mt-1">{validationErrors.confirmPassword}</p>
                             )}
                         </div>
 
@@ -234,6 +293,7 @@ export const RegisterPage: React.FC = () => {
                             <input
                                 type="checkbox"
                                 id="terms"
+                                ref={termsCheckboxRef}
                                 checked={formData.agreedToTerms}
                                 onChange={(e) => setFormData({ ...formData, agreedToTerms: e.target.checked })}
                                 className="mt-1"
@@ -265,6 +325,7 @@ export const RegisterPage: React.FC = () => {
                     <p className="mt-6 text-center text-sm text-slate-400">
                         Already have an account?{' '}
                         <button
+                            type="button"
                             onClick={() => navigate('/login')}
                             className="text-blue-400 hover:underline font-medium"
                         >

@@ -87,8 +87,13 @@ export const AuthSettingsComponent: React.FC = () => {
 
             {/* Tabs */}
             <div className="bg-white rounded-lg shadow">
-                <div className="flex border-b border-slate-200">
+                <div className="flex border-b border-slate-200" role="tablist" aria-label="Auth settings sections">
                     <button
+                        type="button"
+                        role="tab"
+                        id="auth-tab-profile"
+                        aria-selected={activeTab === 'profile'}
+                        aria-controls="auth-panel-profile"
                         onClick={() => setActiveTab('profile')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'profile'
@@ -100,6 +105,11 @@ export const AuthSettingsComponent: React.FC = () => {
                         Profile
                     </button>
                     <button
+                        type="button"
+                        role="tab"
+                        id="auth-tab-security"
+                        aria-selected={activeTab === 'security'}
+                        aria-controls="auth-panel-security"
                         onClick={() => setActiveTab('security')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'security'
@@ -111,6 +121,11 @@ export const AuthSettingsComponent: React.FC = () => {
                         Security
                     </button>
                     <button
+                        type="button"
+                        role="tab"
+                        id="auth-tab-sessions"
+                        aria-selected={activeTab === 'sessions'}
+                        aria-controls="auth-panel-sessions"
                         onClick={() => setActiveTab('sessions')}
                         className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
                             activeTab === 'sessions'
@@ -126,12 +141,18 @@ export const AuthSettingsComponent: React.FC = () => {
                 <div className="p-6">
                     {/* Profile Tab */}
                     {activeTab === 'profile' && (
-                        <div className="space-y-6">
+                        <div
+                            className="space-y-6"
+                            role="tabpanel"
+                            id="auth-panel-profile"
+                            aria-labelledby="auth-tab-profile"
+                        >
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                <label htmlFor="auth-profile-username" className="block text-sm font-medium text-slate-700 mb-2">
                                     Username
                                 </label>
                                 <input
+                                    id="auth-profile-username"
                                     type="text"
                                     value={user?.username || ''}
                                     disabled
@@ -141,10 +162,11 @@ export const AuthSettingsComponent: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                <label htmlFor="auth-profile-email" className="block text-sm font-medium text-slate-700 mb-2">
                                     Email Address
                                 </label>
                                 <input
+                                    id="auth-profile-email"
                                     type="email"
                                     value={user?.email || ''}
                                     disabled
@@ -169,7 +191,12 @@ export const AuthSettingsComponent: React.FC = () => {
 
                     {/* Security Tab */}
                     {activeTab === 'security' && (
-                        <div className="space-y-6">
+                        <div
+                            className="space-y-6"
+                            role="tabpanel"
+                            id="auth-panel-security"
+                            aria-labelledby="auth-tab-security"
+                        >
                             {/* 2FA Section */}
                             <div className="border border-slate-200 rounded-lg p-6">
                                 <div className="flex items-start justify-between mb-4">
@@ -194,7 +221,11 @@ export const AuthSettingsComponent: React.FC = () => {
                                 </div>
 
                                 {setupError && (
-                                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+                                    <div
+                                        role="alert"
+                                        aria-live="assertive"
+                                        className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3"
+                                    >
                                         <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                                         <div className="text-red-700 text-sm">{setupError}</div>
                                     </div>
@@ -208,6 +239,7 @@ export const AuthSettingsComponent: React.FC = () => {
 
                                 {!user?.is_active && (
                                     <button
+                                        type="button"
                                         onClick={handleSetup2FA}
                                         disabled={loading}
                                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
@@ -225,24 +257,34 @@ export const AuthSettingsComponent: React.FC = () => {
                                 </h3>
 
                                 {passwordChangeStatus.error && (
-                                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                                    <div
+                                        role="alert"
+                                        aria-live="assertive"
+                                        className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+                                    >
                                         {passwordChangeStatus.error}
                                     </div>
                                 )}
 
                                 {passwordChangeStatus.success && (
-                                    <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                                    <div
+                                        role="status"
+                                        aria-live="polite"
+                                        className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm"
+                                    >
                                         {passwordChangeStatus.success}
                                     </div>
                                 )}
 
                                 <form onSubmit={handleChangePassword} className="space-y-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-current-password" className="block text-sm font-medium text-slate-700 mb-2">
                                             Current Password
                                         </label>
                                         <input
+                                            id="auth-current-password"
                                             type="password"
+                                            autoComplete="current-password"
                                             value={changePasswordForm.currentPassword}
                                             onChange={(e) =>
                                                 setChangePasswordForm({
@@ -256,11 +298,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-new-password" className="block text-sm font-medium text-slate-700 mb-2">
                                             New Password
                                         </label>
                                         <input
+                                            id="auth-new-password"
                                             type="password"
+                                            autoComplete="new-password"
                                             value={changePasswordForm.newPassword}
                                             onChange={(e) =>
                                                 setChangePasswordForm({
@@ -274,11 +318,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-confirm-password" className="block text-sm font-medium text-slate-700 mb-2">
                                             Confirm New Password
                                         </label>
                                         <input
+                                            id="auth-confirm-password"
                                             type="password"
+                                            autoComplete="new-password"
                                             value={changePasswordForm.confirmPassword}
                                             onChange={(e) =>
                                                 setChangePasswordForm({
@@ -304,7 +350,12 @@ export const AuthSettingsComponent: React.FC = () => {
 
                     {/* Sessions Tab */}
                     {activeTab === 'sessions' && (
-                        <div className="space-y-4">
+                        <div
+                            className="space-y-4"
+                            role="tabpanel"
+                            id="auth-panel-sessions"
+                            aria-labelledby="auth-tab-sessions"
+                        >
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                 <p className="text-sm text-blue-800">
                                     <strong>Current Session:</strong> Active since {new Date().toLocaleDateString()}
@@ -312,6 +363,7 @@ export const AuthSettingsComponent: React.FC = () => {
                             </div>
 
                             <button
+                                type="button"
                                 onClick={handleLogout}
                                 className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium flex items-center justify-center gap-2"
                             >

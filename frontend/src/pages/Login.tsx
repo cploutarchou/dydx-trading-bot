@@ -27,18 +27,24 @@ export const LoginPage: React.FC = () => {
                 </h1>
 
                 {error && (
-                    <div className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200">
+                    <div
+                        role="alert"
+                        aria-live="assertive"
+                        className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200"
+                    >
                         {error}
                     </div>
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <label htmlFor="login-username" className="block text-sm font-medium text-slate-300 mb-2">
                             Username
                         </label>
                         <input
+                            id="login-username"
                             type="text"
+                            autoComplete="username"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -47,11 +53,13 @@ export const LoginPage: React.FC = () => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                        <label htmlFor="login-password" className="block text-sm font-medium text-slate-300 mb-2">
                             Password
                         </label>
                         <input
+                            id="login-password"
                             type="password"
+                            autoComplete="current-password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -72,6 +80,7 @@ export const LoginPage: React.FC = () => {
                 <p className="mt-4 text-center text-sm text-slate-400">
                     Don&apos;t have an account?{' '}
                     <button
+                        type="button"
                         onClick={() => navigate('/register')}
                         className="text-blue-400 hover:underline font-medium"
                     >

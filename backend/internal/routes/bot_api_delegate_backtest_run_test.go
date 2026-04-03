@@ -12,6 +12,7 @@ import (
 
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -48,6 +49,33 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 		t.Fatalf("create users table: %v", err)
 	}
 
+	if _, err := dbConn.Exec(`
+	CREATE TABLE backtest_runs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		run_id TEXT NOT NULL UNIQUE,
+		status TEXT,
+		created_at DATETIME,
+		started_at DATETIME,
+		completed_at DATETIME,
+		duration_seconds REAL,
+		start_date TEXT NOT NULL,
+		end_date TEXT NOT NULL,
+		num_pairs INTEGER NOT NULL,
+		total_markets INTEGER NOT NULL,
+		resolution TEXT,
+		config TEXT,
+		total_trades INTEGER,
+		profitable_trades INTEGER,
+		losing_trades INTEGER,
+		win_rate REAL,
+		total_pnl REAL,
+		total_pnl_usd REAL,
+		error_message TEXT,
+		user_id INTEGER
+	);`); err != nil {
+		t.Fatalf("create backtest_runs table: %v", err)
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte("Pass123!"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -76,6 +104,24 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 	upstreamServer := httptest.NewServer(upstream)
 	t.Cleanup(upstreamServer.Close)
 	RegisterBotAPIDelegateRoutes(router, services.NewBotAPIClient(upstreamServer.URL, ""))
+
+	return router, dbConn
+}
+
+func setupDelegatedBacktestAuthRouterWithSync(t *testing.T, upstream http.Handler) (*gin.Engine, *sql.DB) {
+	t.Helper()
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstream)
+	upstreamServer := httptest.NewServer(upstream)
+	t.Cleanup(upstreamServer.Close)
+
+	apiClient := services.NewBotAPIClient(upstreamServer.URL, "")
+	backtestSyncRepo := repository.NewBacktestSyncRepository(dbConn)
+	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
+
+	router = gin.New()
+	RegisterAuthRoutes(router, dbConn)
+	RegisterBotAPIDelegateRoutesWithSync(router, apiClient, backtestSyncService)
 
 	return router, dbConn
 }
@@ -313,14 +359,14 @@ func TestDelegatedBacktestRun_NormalizesLegacyFlatPayload(t *testing.T) {
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
 	body, _ := json.Marshal(map[string]interface{}{
-		"start_date":        "2024-01-01",
-		"end_date":          "2024-03-31",
-		"name":              "legacy-run",
-		"num_pairs":         12,
+		"start_date":          "2024-01-01",
+		"end_date":            "2024-03-31",
+		"name":                "legacy-run",
+		"num_pairs":           12,
 		"pair_selection_mode": "cointegration",
-		"zscore_threshold":  1.75,
-		"stats_window":      30,
-		"usd_per_trade":     25,
+		"zscore_threshold":    1.75,
+		"stats_window":        30,
+		"usd_per_trade":       25,
 	})
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
@@ -367,3 +413,121 @@ func TestDelegatedBacktestRun_NormalizesLegacyFlatPayload(t *testing.T) {
 	}
 }
 
+func TestDelegatedBacktestRun_SyncsRunIntoLocalDB(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"db-sync-run","status":"queued","start_date":"2025-01-01","end_date":"2025-01-31","max_pairs":7,"total_markets":20}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var status string
+	var userID int
+	var numPairs int
+	var totalMarkets int
+	err = dbConn.QueryRow(`SELECT status, user_id, num_pairs, total_markets FROM backtest_runs WHERE run_id = ?`, "db-sync-run").
+		Scan(&status, &userID, &numPairs, &totalMarkets)
+	if err != nil {
+		t.Fatalf("query synced row: %v", err)
+	}
+
+	if status != "queued" {
+		t.Fatalf("expected queued status, got %q", status)
+	}
+	if userID <= 0 {
+		t.Fatalf("expected user_id > 0, got %d", userID)
+	}
+	if numPairs != 7 {
+		t.Fatalf("expected num_pairs=7, got %d", numPairs)
+	}
+	if totalMarkets != 20 {
+		t.Fatalf("expected total_markets=20, got %d", totalMarkets)
+	}
+}
+
+func TestDelegatedBacktestStatus_UpdatesLocalDBStatus(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"db-sync-status","status":"queued","start_date":"2025-02-01","end_date":"2025-02-28","num_pairs":5,"total_markets":12}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/db-sync-status/status", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"db-sync-status","status":"completed","total_trades":42,"total_pnl_usd":123.5}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	createReq, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new create request: %v", err)
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create delegated run: %v", err)
+	}
+	_ = createResp.Body.Close()
+
+	statusReq, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/db-sync-status/status", nil)
+	if err != nil {
+		t.Fatalf("new status request: %v", err)
+	}
+	statusReq.Header.Set("Authorization", "Bearer "+token)
+	statusResp, err := http.DefaultClient.Do(statusReq)
+	if err != nil {
+		t.Fatalf("get delegated status: %v", err)
+	}
+	defer func() { _ = statusResp.Body.Close() }()
+
+	if statusResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", statusResp.StatusCode)
+	}
+
+	var status string
+	var totalTrades sql.NullInt64
+	var totalPnLUSD sql.NullFloat64
+	err = dbConn.QueryRow(`SELECT status, total_trades, total_pnl_usd FROM backtest_runs WHERE run_id = ?`, "db-sync-status").
+		Scan(&status, &totalTrades, &totalPnLUSD)
+	if err != nil {
+		t.Fatalf("query synced status row: %v", err)
+	}
+
+	if status != "completed" {
+		t.Fatalf("expected completed status, got %q", status)
+	}
+	if !totalTrades.Valid || totalTrades.Int64 != 42 {
+		t.Fatalf("expected total_trades=42, got %+v", totalTrades)
+	}
+	if !totalPnLUSD.Valid || totalPnLUSD.Float64 != 123.5 {
+		t.Fatalf("expected total_pnl_usd=123.5, got %+v", totalPnLUSD)
+	}
+}

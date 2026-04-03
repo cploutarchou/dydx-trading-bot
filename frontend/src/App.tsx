@@ -8,7 +8,11 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-d
 import { QueryProvider } from './api/QueryProvider';
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
-import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer } from './components/ErrorBoundary';
+import {
+  ErrorBoundary as EnhancedErrorBoundary,
+  ToastContainer,
+  useToastStore,
+} from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
@@ -61,6 +65,7 @@ export const App: React.FC = () => {
   const [authReady, setAuthReady] = useState(false);
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
+  const warningToast = useToastStore((state) => state.warning);
 
   useEffect(() => {
     setMounted(true);
@@ -90,7 +95,8 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handleSessionExpired = () => {
-      console.warn('🔒 Session expired event received, logging out');
+      console.warn('🔐 Session expired event received, logging out');
+      warningToast('Session expired', 'Please sign in again to continue trading.');
       logout();
     };
 
@@ -98,7 +104,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
     };
-  }, [logout]);
+  }, [logout, warningToast]);
 
   if (!mounted || !authReady) {
     return (

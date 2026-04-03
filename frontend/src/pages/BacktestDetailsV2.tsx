@@ -20,6 +20,7 @@ import {
 	YAxis,
 } from 'recharts';
 import api from '../api';
+import { useBacktestProgress } from '../api/hooks';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 
 interface Candle {
@@ -109,8 +110,23 @@ const toStringValue = (value: unknown, fallback: string = ''): string => {
   return fallback;
 };
 
+const normalizePercentValue = (value: unknown): number => {
+  const numeric = toNumber(value, 0);
+  // Some endpoints return 0-1 and others return 0-100.
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+};
+
+const formatDateValue = (value: string | null | undefined): string => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString();
+};
+
+const normalizeStatus = (value: unknown): string => String(value || '').toLowerCase();
+
 export const BacktestDetailsV2: React.FC = () => {
   const { runId } = useParams<{ runId: string }>();
+  const progressQuery = useBacktestProgress(runId || '');
 
   // Main backtest data
   const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
@@ -132,15 +148,25 @@ export const BacktestDetailsV2: React.FC = () => {
   // Fetch backtest metadata
   useEffect(() => {
     const fetchBacktestMetadata = async () => {
+      setLoading(true);
+      setError(null);
+
       try {
-        if (runId) {
-          const response = await api.getBacktest(runId);
-          const data = response?.data || response;
-          setBacktest(data as unknown as BacktestResponse);
+        if (!runId) {
+          setBacktest(null);
+          setError('Missing backtest run id');
+          return;
         }
+
+        const response = await api.getBacktest(runId);
+        const data = response?.data || response;
+        setBacktest(data as unknown as BacktestResponse);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to fetch backtest';
         setError(msg);
+        setBacktest(null);
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -151,7 +177,7 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchAnalytics = async () => {
       if (!runId || !backtest) return;
-      if (backtest.status.toLowerCase() !== 'completed') {
+      if (normalizeStatus(backtest.status) !== 'completed') {
         setCandles([]);
         setMarkets([]);
         return;
@@ -232,7 +258,7 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchPositionSnapshots = async () => {
       if (!runId || !backtest) return;
-      if (backtest.status.toLowerCase() !== 'completed') {
+      if (normalizeStatus(backtest.status) !== 'completed') {
         setPositions([]);
         return;
       }
@@ -304,7 +330,7 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchTrades = async () => {
       if (!runId || !backtest) return;
-      if (backtest.status.toLowerCase() !== 'completed') {
+      if (normalizeStatus(backtest.status) !== 'completed') {
         setTrades([]);
         return;
       }
@@ -348,26 +374,22 @@ export const BacktestDetailsV2: React.FC = () => {
             });
 
           setTrades(normalizedTrades);
+        } else {
+          setTrades([]);
         }
       } catch (err: unknown) {
         console.error('Failed to fetch trades:', err);
+        setTrades([]);
       }
     };
 
     fetchTrades();
   }, [runId, backtest?.status]);
 
-  // Mark loading complete after essential data fetched
-  useEffect(() => {
-    if (backtest) {
-      setLoading(false);
-    }
-  }, [backtest]);
-
   // Auto-refresh status when backtest is still in progress
   useEffect(() => {
     if (!backtest || !runId) return;
-    const sn = backtest.status.toLowerCase();
+    const sn = normalizeStatus(backtest.status);
     if (sn !== 'running' && sn !== 'pending') return;
 
     const intervalId = setInterval(async () => {
@@ -452,11 +474,14 @@ export const BacktestDetailsV2: React.FC = () => {
     );
   }
 
-  const statusNorm = backtest.status.toLowerCase();
+  const liveStatusNorm = normalizeStatus(progressQuery.data?.status);
+  const statusNorm = liveStatusNorm || normalizeStatus(backtest.status);
   const isRunning = statusNorm === 'running' || statusNorm === 'pending';
   const isFailed = statusNorm === 'failed' || statusNorm === 'cancelled';
+  const progressPercent = isRunning ? Math.min(100, Math.max(0, progressQuery.progressPercent || 0)) : 0;
   const totalPnl = backtest.total_pnl_usd ?? backtest.total_pnl ?? 0;
   const maxDrawdown = backtest.max_drawdown ?? backtest.max_drawdown_pct ?? 0;
+  const winRatePercent = normalizePercentValue(backtest.win_rate);
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -497,7 +522,7 @@ export const BacktestDetailsV2: React.FC = () => {
     },
     {
       label: 'Win Rate',
-      value: `${((backtest.win_rate ?? 0) * 100).toFixed(1)}%`,
+      value: `${winRatePercent.toFixed(1)}%`,
       icon: '✅',
     },
     {
@@ -559,12 +584,24 @@ export const BacktestDetailsV2: React.FC = () => {
         {isRunning && (
           <div className="mb-6 p-4 bg-blue-900/40 border border-blue-700 rounded-lg flex items-start gap-3">
             <Loader className="w-5 h-5 animate-spin text-blue-400 shrink-0 mt-0.5" />
-            <div>
+            <div className="w-full">
               <p className="text-blue-300 font-medium">Backtest in progress</p>
               <p className="text-slate-400 text-sm mt-0.5">
                 Tab data is hidden until the backtest completes. This page refreshes automatically
                 every 5 seconds.
               </p>
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-blue-300 mb-1">
+                  <span>Progress</span>
+                  <span>{progressPercent.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-2 bg-blue-500 transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -746,7 +783,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 <tbody>
                   {positions.map((pos, idx) => (
                     <tr
-                      key={idx}
+                      key={`${pos.position_id}-${pos.entry_timestamp}-${idx}`}
                       className={`border-b border-slate-700 ${
                         pos.total_pnl_usd >= 0 ? 'bg-green-900/20' : 'bg-red-900/20'
                       }`}
@@ -755,12 +792,10 @@ export const BacktestDetailsV2: React.FC = () => {
                         {pos.market_1}/{pos.market_2}
                       </td>
                       <td className="px-4 py-2 text-slate-300">
-                        {new Date(pos.entry_timestamp).toLocaleDateString()}
+                        {formatDateValue(pos.entry_timestamp)}
                       </td>
                       <td className="px-4 py-2 text-slate-300">
-                        {pos.exit_timestamp
-                          ? new Date(pos.exit_timestamp).toLocaleDateString()
-                          : '-'}
+                        {formatDateValue(pos.exit_timestamp)}
                       </td>
                       <td className="px-4 py-2 text-right text-slate-300">
                         {pos.entry_zscore !== undefined && pos.entry_zscore !== null
@@ -810,7 +845,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 <tbody>
                   {trades.map((trade, idx) => (
                     <tr
-                      key={idx}
+                      key={trade.trade_id || `${trade.market_1}-${trade.market_2}-${trade.entry_timestamp}-${idx}`}
                       className={`border-b border-slate-700 ${
                         trade.win ? 'bg-green-900/20' : 'bg-red-900/20'
                       }`}
@@ -819,10 +854,10 @@ export const BacktestDetailsV2: React.FC = () => {
                         {trade.market_1}/{trade.market_2}
                       </td>
                       <td className="px-4 py-2 text-slate-300">
-                        {new Date(trade.entry_timestamp).toLocaleDateString()}
+                        {formatDateValue(trade.entry_timestamp)}
                       </td>
                       <td className="px-4 py-2 text-slate-300">
-                        {new Date(trade.exit_timestamp).toLocaleDateString()}
+                        {formatDateValue(trade.exit_timestamp)}
                       </td>
                       <td className="px-4 py-2 text-right text-slate-300">
                         {(trade.duration_hours || 0).toFixed(1)}
@@ -839,7 +874,7 @@ export const BacktestDetailsV2: React.FC = () => {
                           (trade.pnl_pct || 0) >= 0 ? 'text-green-400' : 'text-red-400'
                         }`}
                       >
-                        {((trade.pnl_pct || 0) * 100).toFixed(2)}%
+                        {normalizePercentValue(trade.pnl_pct).toFixed(2)}%
                       </td>
                       <td className="px-4 py-2 text-center">
                         {trade.win ? (

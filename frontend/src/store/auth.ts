@@ -158,6 +158,7 @@ export const useAuthStore = create<AuthStore>()(
           const errorMessage = error instanceof Error ? error.message : 'Failed to setup 2FA';
           console.error('❌ auth.ts: setup2FA failed:', error);
           set({ error: errorMessage });
+          throw error;
         } finally {
           set({ loading: false });
         }
@@ -167,18 +168,21 @@ export const useAuthStore = create<AuthStore>()(
         set({ loading: true, error: null });
         try {
           const response = await api.verify2FA(token);
-          if (response.success) {
-            set({
-              twoFARequired: false,
-              twoFAQRCode: undefined,
-              twoFASecret: undefined,
-            });
+          if (!response.success) {
+            throw new Error(response.message || 'Failed to verify 2FA token');
           }
+
+          set({
+            twoFARequired: false,
+            twoFAQRCode: undefined,
+            twoFASecret: undefined,
+          });
         } catch (error: Error | unknown) {
           const errorMessage =
             error instanceof Error ? error.message : 'Failed to verify 2FA token';
           console.error('❌ auth.ts: verify2FA failed:', error);
           set({ error: errorMessage });
+          throw error;
         } finally {
           set({ loading: false });
         }

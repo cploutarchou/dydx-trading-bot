@@ -20,6 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const handleLogout = () => {
     logout();
+    onClose?.();
     navigate('/login');
   };
 
@@ -73,7 +74,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       >
         {/* Close button for mobile */}
         <div className="lg:hidden flex justify-end p-4">
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-white transition-colors"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -95,6 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             {navItems.map((item) => (
               <button
                 key={item.path}
+                type="button"
                 onClick={() => {
                   navigate(item.path);
                   onClose?.();
@@ -124,6 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
           {/* Logout Button */}
           <button
+            type="button"
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
           >

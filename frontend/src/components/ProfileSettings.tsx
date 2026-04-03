@@ -57,6 +57,12 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
     loadUserData();
   }, []);
 
+  useEffect(() => {
+    setFullName(user?.full_name || '');
+    setEmail(user?.email || '');
+    setAvatar(user?.avatar || null);
+  }, [user?.avatar, user?.email, user?.full_name]);
+
   const handleAvatarClick = () => {
     fileInputRef.current?.click();
   };
@@ -180,6 +186,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
 
             {/* Upload Button Overlay */}
             <button
+              type="button"
               onClick={handleAvatarClick}
               className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
             >
@@ -303,6 +310,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
       {/* Action Buttons */}
       <div className="mt-8 flex gap-3 pt-6 border-t border-slate-700">
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
           className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
@@ -311,6 +319,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           {saving ? 'Saving...' : 'Save Profile'}
         </button>
         <button
+          type="button"
           onClick={handleReset}
           disabled={saving}
           className="px-6 py-2 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"

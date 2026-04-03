@@ -441,7 +441,7 @@ const BotDashboard: React.FC = () => {
                     key={`${alert.timestamp}-${index}`}
                     className="bg-slate-700 rounded p-4 flex items-start gap-3"
                   >
-                    <AlertTriangle size={20} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle size={20} className="text-yellow-400 shrink-0 mt-0.5" />
                     <div className="flex-1">
                       <p className="text-white font-medium">{alert.title || 'Alert'}</p>
                       <p className="text-slate-300 text-sm mt-1">

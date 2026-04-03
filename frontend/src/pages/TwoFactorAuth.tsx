@@ -59,10 +59,10 @@ export const TwoFactorAuthPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
             <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl w-full max-w-2xl">
                 {/* Header */}
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-8 text-white flex items-center gap-4">
+                <div className="bg-linear-to-r from-blue-600 to-blue-700 p-8 text-white flex items-center gap-4">
                     <Shield className="w-8 h-8" />
                     <div>
                         <h1 className="text-3xl font-bold">Two-Factor Authentication</h1>
@@ -74,14 +74,14 @@ export const TwoFactorAuthPage: React.FC = () => {
                     {/* Error Alert */}
                     {error && (
                         <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-red-300 flex-shrink-0 mt-0.5" />
+                            <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200">{error}</div>
                         </div>
                     )}
 
                     {localError && (
                         <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-red-300 flex-shrink-0 mt-0.5" />
+                            <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
                             <div className="text-red-200">{localError}</div>
                         </div>
                     )}

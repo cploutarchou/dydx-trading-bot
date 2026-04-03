@@ -188,7 +188,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
           <div className="max-w-md w-full bg-slate-800 rounded-lg shadow-xl p-6">
             <div className="flex items-center mb-4">
-              <div className="flex-shrink-0">
+              <div className="shrink-0">
                 <svg
                   className="h-8 w-8 text-red-400"
                   fill="none"
@@ -328,7 +328,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
       className={`${bgColor} text-white p-4 rounded-lg shadow-lg animate-in slide-in-from-right duration-200`}
     >
       <div className="flex items-start">
-        <div className="flex-shrink-0">{icon}</div>
+        <div className="shrink-0">{icon}</div>
 
         <div className="ml-3 flex-1">
           <div className="font-medium text-sm">{toast.title}</div>
@@ -346,7 +346,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
 
         <button
           onClick={() => onRemove(toast.id)}
-          className="ml-2 flex-shrink-0 text-white/70 hover:text-white transition-colors"
+          className="ml-2 shrink-0 text-white/70 hover:text-white transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path

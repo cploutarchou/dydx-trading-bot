@@ -8,7 +8,7 @@ This playbook helps you capture the final responsive QA evidence referenced by:
 
 ## What this script does
 
-The PowerShell helper reads `scripts/responsive-screenshot-routes.json` and generates screenshots for these widths:
+The Node helper reads `scripts/responsive-screenshot-routes.json` and generates screenshots for these widths:
 
 - `375`
 - `768`
@@ -23,48 +23,48 @@ It saves files to:
 
 1. Start the frontend dev server.
 2. Make sure the app is reachable at `http://localhost:5173` (or pass another base URL).
-3. For authenticated routes, use an existing logged-in Edge profile.
+3. For authenticated routes, use an existing logged-in Chrome/Chromium/Edge profile.
 4. Prefer mock/dev-safe routes where available (the manifest already uses `/backtest/mock-run-aabb1122`).
 
 ## Dry run (recommended first)
 
-```powershell
-cd "C:\Users\cplou\workspace\dydx-trading-bot\frontend"
-powershell -ExecutionPolicy Bypass -File .\scripts\capture-responsive-screenshots.ps1 -DryRun
+```bash
+cd /path/to/dydx-trading-bot/frontend
+node ./scripts/capture-responsive-screenshots.mjs --dry-run
 ```
 
 ## Real capture
 
-Example using an existing Edge user data dir/profile so protected routes keep session state:
+Example using an existing browser profile so protected routes keep session state:
 
-```powershell
-cd "C:\Users\cplou\workspace\dydx-trading-bot\frontend"
-powershell -ExecutionPolicy Bypass -File .\scripts\capture-responsive-screenshots.ps1 `
-  -UserDataDir "$env:LOCALAPPDATA\Microsoft\Edge\User Data" `
-  -ProfileDirectory "Default"
+```bash
+cd /path/to/dydx-trading-bot/frontend
+node ./scripts/capture-responsive-screenshots.mjs \
+  --user-data-dir "$HOME/.config/google-chrome" \
+  --profile-directory Default
 ```
 
 If needed, target a different frontend URL:
 
-```powershell
-cd "C:\Users\cplou\workspace\dydx-trading-bot\frontend"
-powershell -ExecutionPolicy Bypass -File .\scripts\capture-responsive-screenshots.ps1 `
-  -BaseUrl "http://127.0.0.1:5173" `
-  -UserDataDir "$env:LOCALAPPDATA\Microsoft\Edge\User Data" `
-  -ProfileDirectory "Default"
+```bash
+cd /path/to/dydx-trading-bot/frontend
+node ./scripts/capture-responsive-screenshots.mjs \
+  --base-url "http://127.0.0.1:5173" \
+  --user-data-dir "$HOME/.config/google-chrome" \
+  --profile-directory Default
 ```
 
 ## NPM shortcut
 
-```powershell
-cd "C:\Users\cplou\workspace\dydx-trading-bot\frontend"
+```bash
+cd /path/to/dydx-trading-bot/frontend
 npm run qa:screenshots:plan
 ```
 
 ## Sync the checklist after screenshots are added
 
-```powershell
-cd "C:\Users\cplou\workspace\dydx-trading-bot\frontend"
+```bash
+cd /path/to/dydx-trading-bot/frontend
 npm run qa:screenshots:sync
 ```
 

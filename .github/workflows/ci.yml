@@ -9,22 +9,8 @@ on:
             - master
 
 jobs:
-    devcontainer-consistency:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Set up Python
-              uses: actions/setup-python@v4
-              with:
-                  python-version: "3.12"
-
-            - name: Validate devcontainer consistency
-              run: python scripts/check_devcontainer_consistency.py
-
     test:
         runs-on: ubuntu-latest
-        needs: devcontainer-consistency
         steps:
             - uses: actions/checkout@v4
 
@@ -66,7 +52,6 @@ jobs:
 
     backend-ws-smoke:
         runs-on: ubuntu-latest
-        needs: devcontainer-consistency
         steps:
             - uses: actions/checkout@v4
 

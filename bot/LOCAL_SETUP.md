@@ -21,11 +21,8 @@ python --version
 # Create virtual environment
 python -m venv .venv
 
-# Activate (Linux/Mac)
+# Activate (macOS/Linux)
 source .venv/bin/activate
-
-# Activate (Windows)
-.venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -99,6 +96,7 @@ python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload
 ```
 
 **API will be available at:**
+
 - Dashboard: `http://localhost:8889/docs`
 - ReDoc: `http://localhost:8889/redoc`
 - OpenAPI Schema: `http://localhost:8889/openapi.json`
@@ -124,6 +122,7 @@ Most non-auth HTTP endpoints in this workspace return the standardized envelope 
 ```
 
 Notes:
+
 - `trace_id` is mirrored in the `X-Trace-Id` response header for cross-service debugging.
 - Auth routes under `/auth/*` and `/api/v1/auth/*` keep their auth-specific payloads (token/user schemas) and are documented separately in Swagger.
 
@@ -166,16 +165,16 @@ python main.py
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/api/server.py` | **Canonical API server** (FastAPI app) |
-| `app.py` | Root-level wrapper → calls `src.api.server:app` |
-| `start_api.py` | Root-level launcher → calls `src.api.start_api:main()` |
-| `main.py` | Single-instance bot runtime (for testing) |
-| `src/main_instance.py` | Multi-instance worker runtime (subprocess) |
-| `src/bot_instance_manager.py` | Multi-instance lifecycle manager |
-| `config/config.py` | Configuration loader (env-based + YAML support) |
-| `src/infrastructure/database.py` | Database connection and session factory |
+| File                             | Purpose                                                |
+| -------------------------------- | ------------------------------------------------------ |
+| `src/api/server.py`              | **Canonical API server** (FastAPI app)                 |
+| `app.py`                         | Root-level wrapper → calls `src.api.server:app`        |
+| `start_api.py`                   | Root-level launcher → calls `src.api.start_api:main()` |
+| `main.py`                        | Single-instance bot runtime (for testing)              |
+| `src/main_instance.py`           | Multi-instance worker runtime (subprocess)             |
+| `src/bot_instance_manager.py`    | Multi-instance lifecycle manager                       |
+| `config/config.py`               | Configuration loader (env-based + YAML support)        |
+| `src/infrastructure/database.py` | Database connection and session factory                |
 
 ## API Features
 
@@ -208,14 +207,18 @@ curl -X DELETE http://localhost:8889/api/v1/bots/{instance_id}
 By default, `API_BYPASS_AUTH=true` in `.env` disables auth for local development.
 
 For auth-enabled testing:
+
 1. Set `API_BYPASS_AUTH=false` in `.env`
 2. Log in to get JWT token:
+
    ```bash
    curl -X POST http://localhost:8889/auth/auth/login \
      -H "Content-Type: application/json" \
      -d '{"username": "admin", "password": "changeme"}'
    ```
+
 3. Use returned `access_token` in Bearer header:
+
    ```bash
    curl http://localhost:8889/api/v1/bots \
      -H "Authorization: Bearer <access_token>"
@@ -224,7 +227,7 @@ For auth-enabled testing:
 ## Makefile Shortcuts
 
 ```bash
-# Run local API
+# From bot/
 make local-api
 
 # Run local bot runtime

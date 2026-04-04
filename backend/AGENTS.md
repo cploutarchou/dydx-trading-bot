@@ -31,9 +31,9 @@
 - Keep frontend compatibility routes intact, especially `/api/v1/backtests/run` and `/ws/strategies`.
 
 ## Developer Workflows That Matter
-- Cross-platform task runners exist: `Makefile` (Unix-like) and `make.ps1` (Windows). Prefer `make.ps1` on this repo's Windows setup.
-- First-time local setup on Windows is streamlined with `./make.ps1 first-run -Mode development` (creates `.env`, runs doctor checks, downloads modules).
-- Core verification command is `./make.ps1 test` (or `go test -v -race -coverprofile=coverage.out ./...`).
+- Use the Unix-like `Makefile` targets in `backend/` for local development on macOS/Linux.
+- First-time local setup: `make dev-env MODE=development`, then `make install-tools` and `make deps` as needed.
+- Core verification command is `make test` (or `go test -v -race -coverprofile=coverage.out ./...`).
 - Useful integration confidence tests: `internal/routes/bot_api_delegate_routes_smoke_test.go` and `internal/routes/settings_integration_test.go`.
 
 ## Project-Specific Implementation Patterns

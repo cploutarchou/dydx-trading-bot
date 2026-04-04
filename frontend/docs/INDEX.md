@@ -10,6 +10,10 @@ All dYdX Trading Bot Frontend documentation has been successfully reorganized in
 
 **Problems?** Check here → [`docs/guides/TROUBLESHOOTING.md`](./guides/TROUBLESHOOTING.md)
 
+**Responsive QA evidence:** [`docs/RESPONSIVE_QA_STATUS.md`](./RESPONSIVE_QA_STATUS.md) + [`docs/guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md`](./guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md)
+
+**Exact capture filenames:** [`docs/RESPONSIVE_SCREENSHOT_CHECKLIST.md`](./RESPONSIVE_SCREENSHOT_CHECKLIST.md)
+
 ---
 
 ## 📁 Structure
@@ -19,6 +23,10 @@ docs/
 ├── README.md                      ← START HERE (index of all docs)
 ├── SETUP.md                       ← Development & production setup
 ├── COMPLETION_SUMMARY.md          ← What was reorganized (this dir)
+│
+├── RESPONSIVE_QA_STATUS.md       ← Route-by-route breakpoint QA matrix
+├── RESPONSIVE_SCREENSHOT_SIGNOFF.md ← Reviewer sign-off checklist
+├── RESPONSIVE_SCREENSHOT_CHECKLIST.md ← Exact 12-file capture checklist
 │
 ├── architecture/                  ← System design & patterns
 │   ├── README.md                 ← Architecture overview
@@ -31,7 +39,8 @@ docs/
 │   └── README.md                 ← Full setup guide
 │
 └── guides/                        ← Reference & troubleshooting
-    └── TROUBLESHOOTING.md        ← Common issues & solutions
+    ├── TROUBLESHOOTING.md        ← Common issues & solutions
+    └── RESPONSIVE_SCREENSHOT_PLAYBOOK.md ← Screenshot capture workflow
 ```
 
 ---

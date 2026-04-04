@@ -229,13 +229,13 @@ migrate-create:
 ## tasks-summary: Recompute Completed/Pending summary counts in backend/bot/frontend tasks.md files
 tasks-summary:
 	@echo "$(CYAN)Updating task status summaries...$(NC)"
-	@powershell -ExecutionPolicy Bypass -File scripts/update_task_summary.ps1
+	@python3 scripts/update_task_summary.py
 	@echo "$(GREEN)✓ Task status summaries updated$(NC)"
 
 ## tasks-validate: Validate cross-service task governance consistency
 tasks-validate:
 	@echo "$(CYAN)Validating task governance...$(NC)"
-	@powershell -ExecutionPolicy Bypass -File scripts/validate_task_governance.ps1
+	@python3 scripts/validate_task_governance.py
 	@echo "$(GREEN)✓ Task governance validation passed$(NC)"
 
 ## tasks-governance: Update and validate cross-service task governance

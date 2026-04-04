@@ -1,260 +1,120 @@
 # Setup Guide - Development & Production
 
-Choose your setup path below:
+This frontend is now documented for direct local development on macOS/Linux.
 
-## 🚀 Quick Start (Recommended: DevContainer)
-
-**For development using DevContainer (one-click setup):**
-
-1. Open in VS Code:
-
-   ```bash
-   code frontend/
-   ```
-
-2. Click the "Reopen in Container" popup
-   (Or: `Ctrl+Shift+P` → "Dev Containers: Reopen in Container")
-
-3. Start development:
-
-   ```bash
-   npm run dev
-   ```
-
-4. Visit <http://localhost:5173>
-
-**That's it!** SSH keys and Git config are automatically mounted.
-
-For more details: [docs/devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md)
-
----
-
-## 💻 Local Development (Without DevContainer)
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
-- npm or yarn
-- Docker (optional, for backend services)
+- npm
+- Docker + `make` if you want shared integration services
 
-### Setup
+### Local frontend setup
 
 ```bash
-# Install dependencies
+# From frontend/
 npm install
-
-# Create shared repo-root environment file
-cp ../.env.example ../.env
-
-# Start development server
 npm run dev
 ```
 
 Visit <http://localhost:5173>
 
-### Optional: Start Backend Services
+### Start shared integration services
+
+From the repo root:
 
 ```bash
-docker-compose up -d    # Start PostgreSQL + Redis + Go backend
-docker-compose logs -f  # View logs
+make stack-env
+make infra-up
 ```
 
----
+For full-stack verification:
+
+```bash
+make stack-up-dev
+```
 
 ## 🐳 Production Build
 
-### Build
-
 ```bash
 npm run build
-```
-
-Output in `dist/` directory (ready for deployment)
-
-### Test Production Build Locally
-
-```bash
 npm run preview
 ```
 
-Visit <http://localhost:4173>
-
-### Run in Docker
+### Docker image
 
 ```bash
-# Build image
 docker build -t dydx-frontend .
-
-# Run container
-docker run -p 3000:3000 dydx-frontend
+docker run -p 3000:80 dydx-frontend
 ```
 
 Visit <http://localhost:3000>
 
-### Environment Variables for Production
-
-Set build-time environment variables from your deployment environment, or use the repo-root `.env` for local preview builds:
-
-```bash
-VITE_API_URL=https://api.example.com
-```
-
----
-
 ## 🔧 Available Commands
 
-### Development
-
 ```bash
-npm run dev         # Start dev server (HMR enabled)
-npm run build       # Build for production
-npm run lint        # Check code quality
-npm run preview     # Preview production build
+npm run dev
+npm run build
+npm run lint
+npm run preview
+npm run qa:screenshots:plan
+npm run qa:screenshots:capture
+npm run qa:screenshots:sync
 ```
 
-### Docker Compose (Backend Services)
+Repo-root integration commands:
 
 ```bash
-docker-compose up -d        # Start all services
-docker-compose up -d db redis  # Start only database services
-docker-compose logs -f backend  # View backend logs
-docker-compose down         # Stop all services
-docker-compose ps           # List running services
+make infra-up
+make infra-down
+make stack-up-dev
+make stack-down
+make stack-logs
 ```
-
----
 
 ## 📦 Environment Variables
 
-### Development (repo-root `.env`)
+Keep shared values in the repo-root `.env`:
 
 ```bash
 VITE_API_URL=http://localhost:8888
 NODE_ENV=development
 ```
 
-### Production (build-time environment)
+For production builds:
 
 ```bash
 VITE_API_URL=https://api.example.com
 NODE_ENV=production
 ```
 
-Use `../.env.example` as the template and keep shared values in the repo-root `../.env`.
+## 🔐 Git & SSH Setup
 
----
-
-## 🔐 SSH & Git Setup
-
-### In DevContainer (Automatic ✅)
-
-- SSH keys from `~/.ssh` automatically mounted
-- Git config from `~/.gitconfig` automatically mounted
-- All git operations use your identity
-- **No setup needed!**
-
-### Local Development (Manual Setup)
-
-1. Ensure SSH keys are in `~/.ssh/`
-2. Configure git locally:
-
-   ```bash
-   git config --global user.name "Your Name"
-   git config --global user.email "your.email@example.com"
-   ```
-
----
-
-## 🐳 Docker Services
-
-### Starting Services
+Use your normal local configuration:
 
 ```bash
-docker-compose up -d
-```
-
-### Available Services
-
-| Service               | Port | URL                                                        |
-| --------------------- | ---- | ---------------------------------------------------------- |
-| Frontend (Vite)       | 5173 | <http://localhost:5173>                                    |
-| Go Backend API (UI)   | 8888 | <http://localhost:8888>                                    |
-| Bot API (via backend) | 8889 | <http://localhost:8889>                                    |
-| PostgreSQL            | 5432 | postgresql://postgres:postgres@localhost:5432/dydx_trading |
-| Redis                 | 6379 | redis://localhost:6379                                     |
-
-### View Logs
-
-```bash
-docker-compose logs -f              # All services
-docker-compose logs -f backend      # Specific service
-docker-compose logs -f --tail=100   # Last 100 lines
-```
-
-### Stop Services
-
-```bash
-docker-compose down
-```
-
----
-
-## 🆘 Troubleshooting
-
-### Port Already in Use
-
-```bash
-# Option 1: Stop conflicting service
-docker-compose down
-
-# Option 2: Use different port in devcontainer.json
-"forwardPorts": [5174, 3000, 8888, 8889, 5432, 6379]
-```
-
-### npm Dependencies Not Installing
-
-```bash
-npm cache clean --force
-rm -rf node_modules package-lock.json
-npm install
-```
-
-### DevContainer Build Issues
-
-```bash
-# Rebuild container from scratch
-Ctrl+Shift+P → "Dev Containers: Rebuild Container"
-
-# Or remove and restart
-Ctrl+Shift+P → "Dev Containers: Remove Container"
-```
-
-### SSH Keys Not Working in DevContainer
-
-```bash
-# Check SSH keys are mounted
-ls -la ~/.ssh
-
-# Test connection
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
 ssh -T git@github.com
 ```
 
-For more troubleshooting: [../guides/TROUBLESHOOTING.md](../guides/TROUBLESHOOTING.md)
+## 🐳 Available Services
 
----
+| Service         | Port | URL                                                          |
+| --------------- | ---- | ------------------------------------------------------------ |
+| Frontend (Vite) | 5173 | <http://localhost:5173>                                      |
+| Go Backend API  | 8888 | <http://localhost:8888>                                      |
+| Bot API         | 8889 | <http://localhost:8889>                                      |
+| PostgreSQL      | 5432 | `postgresql://postgres:postgres@localhost:5432/dydx_trading` |
+| Redis           | 6379 | `redis://localhost:6379`                                     |
+
+## 🆘 Troubleshooting
+
+If you hit port conflicts, dependency problems, or backend connectivity issues, use [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md).
 
 ## 🎯 Next Steps
 
-- **New to DevContainer?** → [devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md)
-- **Want to understand the setup?** → [devcontainer/README.md](devcontainer/README.md)
-- **Need architecture info?** → [../architecture/](../architecture/)
-- **Having issues?** → [../guides/TROUBLESHOOTING.md](../guides/TROUBLESHOOTING.md)
-
----
-
-## 📚 Additional Resources
-
-- [DevContainer Setup](devcontainer/README.md)
-- [Architecture Guide](../architecture/)
-- [Troubleshooting Guide](../guides/TROUBLESHOOTING.md)
-- [Codebase Instructions](../../.github/copilot-instructions.md)
+- Need architecture info? → [architecture/README.md](architecture/README.md)
+- Need troubleshooting? → [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)
+- Need project conventions? → [../../.github/copilot-instructions.md](../../.github/copilot-instructions.md)

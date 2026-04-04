@@ -7,9 +7,12 @@ React/TypeScript frontend for the dYdX pairs trading backtest system.
 ### Development
 
 ```bash
-# Open in DevContainer (recommended)
-code frontend/
-# → Click "Reopen in Container" when prompted
+# Install dependencies once
+npm install
+
+# From the repo root, start shared infra if needed
+make stack-env
+make infra-up
 
 # Start dev server
 npm run dev
@@ -33,7 +36,8 @@ docker run -p 3000:80 dydx-frontend
 
 ## 📋 Prerequisites
 
-- **Development:** Docker + VS Code with Remote Containers extension
+- **Development:** Node 20+, npm, and access to the repo-root `.env`
+- **Integration services:** Docker + `make`
 - **Production:** Docker
 
 ## 🛠️ Available Commands
@@ -45,9 +49,11 @@ npm run build       # Build for production
 npm run lint        # Check code quality
 npm run preview     # Preview production build
 
-# Docker
-docker-compose up -d    # Start backend services
-docker-compose down     # Stop backend services
+# Integration (from repo root)
+make infra-up           # Start PostgreSQL + Redis only
+make stack-up-dev       # Start the full integration stack
+make infra-down         # Stop shared infra
+make stack-down         # Stop the full integration stack
 ```
 
 ## Documentation
@@ -57,7 +63,6 @@ See **[docs/README.md](docs/README.md)** for complete documentation index and qu
 Quick access:
 
 - **[Setup Guide](docs/SETUP.md)** - Development and production setup
-- **[DevContainer Quick Start](docs/devcontainer/QUICKSTART.md)** - 30-second setup
 - **[Troubleshooting](docs/guides/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[Code Patterns](/.github/copilot-instructions.md)** - Project conventions and patterns
 
@@ -71,9 +76,7 @@ src/
 ├── api.ts           # API client with interceptors
 └── hooks/           # Custom React hooks
 
-.devcontainer/       # DevContainer configuration
 docs/               # All documentation
-├── devcontainer/   # DevContainer guides
 ├── architecture/   # System design
 └── guides/         # Detailed guides
 ```
@@ -90,20 +93,21 @@ The frontend Vite config reads env vars from `../.env`, so you do not need a sep
 
 ## 🔐 SSH & Git Setup
 
-✅ **Automatic in DevContainer:**
+Use your normal local Git and SSH configuration:
 
-- SSH keys from `~/.ssh` mounted automatically
-- Git config from `~/.gitconfig` mounted automatically
-- All git operations use your identity
+- SSH keys should live in `~/.ssh`
+- Git identity should be configured via `~/.gitconfig`
+- All repo operations run directly from your local shell/editor session
 
 ## 🐳 Docker Services
 
-Start backend services locally:
+For frontend integration testing, use the repo-root stack commands instead of a frontend-local compose file:
 
 ```bash
-docker-compose up -d    # PostgreSQL + Redis + Backend API
-docker-compose logs -f  # View logs
-docker-compose down     # Stop services
+make infra-up        # PostgreSQL + Redis for service-first dev
+make stack-up-dev    # Frontend + bot API + worker + infra
+make stack-logs      # View logs
+make stack-down      # Stop the integration stack
 ```
 
 Services available at:
@@ -148,7 +152,6 @@ See [.github/copilot-instructions.md](.github/copilot-instructions.md) for:
 ## ❓ Help
 
 - **Setup issues?** → [docs/guides/TROUBLESHOOTING.md](docs/guides/TROUBLESHOOTING.md)
-- **DevContainer help?** → [docs/devcontainer/README.md](docs/devcontainer/README.md)
 - **Architecture questions?** → [docs/architecture/](docs/architecture/)
 - **Code patterns?** → [.github/copilot-instructions.md](.github/copilot-instructions.md)
 
@@ -158,4 +161,4 @@ See LICENSE file in root directory
 
 ---
 
-**Ready to get started?** Read [docs/SETUP.md](docs/SETUP.md) or [docs/devcontainer/QUICKSTART.md](docs/devcontainer/QUICKSTART.md)
+**Ready to get started?** Read [docs/SETUP.md](docs/SETUP.md)

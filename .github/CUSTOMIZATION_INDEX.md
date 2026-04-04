@@ -49,7 +49,7 @@ For each new task, review:
 ## Workflow automation
 
 - `.github/workflows/ci.yml`  
-  CI checks for devcontainer consistency, Python lint/tests, Go WS smoke tests, and Docker image smoke validation.
+  CI checks for Python lint/tests, Go WS smoke tests, and Docker image smoke validation.
 
 ## Additional repo guidance
 

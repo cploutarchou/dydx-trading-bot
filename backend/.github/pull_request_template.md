@@ -12,13 +12,13 @@
 - [ ] Updated `backend/tasks.md` status/checklist and change log.
 - [ ] Updated `../bot/tasks.md` when bot integration behavior changed.
 - [ ] Updated `../frontend/tasks.md` when frontend integration behavior changed.
-- [ ] Ran `./make.ps1 tasks-governance` and confirmed summaries/validation pass.
+- [ ] Ran `make tasks-governance` and confirmed summaries/validation pass.
 - [ ] If API contract changed, added/updated contract-lock tests in `internal/routes/contract_lock_integration_test.go`.
 
 ## Validation
 - Commands run:
-```powershell
-./make.ps1 tasks-governance
-./make.ps1 test
+```bash
+make tasks-governance
+make test
 ```
 

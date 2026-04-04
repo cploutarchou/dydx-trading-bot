@@ -12,12 +12,7 @@ PROJECT_NAME := dydx-trading-bot
 DOCKER_REPO := dydx-trading-bot
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "latest")
 VENV_PYTHON_UNIX := .venv/bin/python
-VENV_PYTHON_WIN := .venv/Scripts/python.exe
-ifeq ($(wildcard $(VENV_PYTHON_UNIX)),)
-VENV_PYTHON := $(VENV_PYTHON_WIN)
-else
 VENV_PYTHON := $(VENV_PYTHON_UNIX)
-endif
 MODE ?= development
 
 # Reusable helper for local Python commands that must run via project venv.
@@ -147,8 +142,7 @@ ensure-venv: ## Ensure local virtual environment exists
 		echo "$(GREEN)✅ Using interpreter: $(VENV_PYTHON)$(RESET)"; \
 	else \
 		echo "$(RED)❌ Virtual environment interpreter not found at $(VENV_PYTHON)$(RESET)"; \
-		echo "$(YELLOW)Unix setup:    python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt$(RESET)"; \
-		echo "$(YELLOW)Windows setup: py -3 -m venv .venv && .venv\\Scripts\\python.exe -m pip install -r requirements.txt$(RESET)"; \
+		echo "$(YELLOW)Setup: python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt$(RESET)"; \
 		exit 1; \
 	fi
 

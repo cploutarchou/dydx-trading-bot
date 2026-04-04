@@ -1,8 +1,8 @@
 ﻿# Frontend Integration Tasks
 
 ## Status Summary
-- Completed: `15`
-- Pending: `16`
+- Completed: `27`
+- Pending: `17`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
 

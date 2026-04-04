@@ -80,12 +80,12 @@ func (s *BacktestSyncService) SyncBacktestRun(userID int, upstream map[string]in
 		CompletedAt:     parseTimePtr(payload, "completed_at"),
 		DurationSeconds: parseFloatPtr(payload, "duration_seconds"),
 		ErrorMessage:    nullableString(getString(payload, "error_message", "error")),
-		TotalTrades:     nullableInt(getInt(payload, "total_trades")),
-		WinningTrades:   nullableInt(getInt(payload, "profitable_trades", "winning_trades")),
-		LosingTrades:    nullableInt(getInt(payload, "losing_trades")),
-		WinRate:         nullableFloat(parseFloatField(payload, "win_rate")),
-		TotalPnL:        nullableFloat(parseFloatField(payload, "total_pnl")),
-		TotalPnLUSD:     nullableFloat(parseFloatField(payload, "total_pnl_usd")),
+		TotalTrades:     nullableIntField(payload, "total_trades"),
+		WinningTrades:   nullableIntField(payload, "profitable_trades", "winning_trades"),
+		LosingTrades:    nullableIntField(payload, "losing_trades"),
+		WinRate:         nullableFloatField(payload, "win_rate"),
+		TotalPnL:        nullableFloatField(payload, "total_pnl"),
+		TotalPnLUSD:     nullableFloatField(payload, "total_pnl_usd"),
 	}
 
 	if syncPayload.Status == "" {
@@ -391,16 +391,24 @@ func nullableString(value string) sql.NullString {
 	return sql.NullString{String: value, Valid: true}
 }
 
-func nullableInt(value int) sql.NullInt64 {
-	if value == 0 {
-		return sql.NullInt64{}
+func nullableIntField(source map[string]interface{}, keys ...string) sql.NullInt64 {
+	for _, k := range keys {
+		v, ok := source[k]
+		if !ok || v == nil {
+			continue
+		}
+		return sql.NullInt64{Int64: int64(getInt(source, k)), Valid: true}
 	}
-	return sql.NullInt64{Int64: int64(value), Valid: true}
+	return sql.NullInt64{}
 }
 
-func nullableFloat(value float64) sql.NullFloat64 {
-	if value == 0 {
-		return sql.NullFloat64{}
+func nullableFloatField(source map[string]interface{}, keys ...string) sql.NullFloat64 {
+	for _, k := range keys {
+		v, ok := source[k]
+		if !ok || v == nil {
+			continue
+		}
+		return sql.NullFloat64{Float64: parseFloatField(source, k), Valid: true}
 	}
-	return sql.NullFloat64{Float64: value, Valid: true}
+	return sql.NullFloat64{}
 }

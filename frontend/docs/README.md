@@ -11,6 +11,9 @@ All project documentation organized in one place.
 | **API Coverage Checklist**     | [API_COVERAGE_CHECKLIST.md](./API_COVERAGE_CHECKLIST.md)         | 5 min  |
 | **Integration Summary**        | [INTEGRATION_SUMMARY.md](./INTEGRATION_SUMMARY.md)               | 5 min  |
 | **React Component Examples**   | [REACT_COMPONENT_EXAMPLES.tsx](./REACT_COMPONENT_EXAMPLES.tsx)   | 20 min |
+| **Responsive QA Status**       | [RESPONSIVE_QA_STATUS.md](./RESPONSIVE_QA_STATUS.md)             | 5 min  |
+| **Screenshot Sign-off**        | [RESPONSIVE_SCREENSHOT_SIGNOFF.md](./RESPONSIVE_SCREENSHOT_SIGNOFF.md) | 5 min  |
+| **Screenshot Filename Checklist** | [RESPONSIVE_SCREENSHOT_CHECKLIST.md](./RESPONSIVE_SCREENSHOT_CHECKLIST.md) | 3 min  |
 | **Setup**                      | [SETUP.md](SETUP.md)                                             | 5 min  |
 | **DevContainer quick start**   | [devcontainer/QUICKSTART.md](devcontainer/QUICKSTART.md)         | 2 min  |
 | **Troubleshooting**            | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)           | varies |
@@ -56,6 +59,8 @@ docs/
 | Fix a problem                  | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)                   |
 | Understand architecture        | [architecture/](architecture/)                                           |
 | Learn code patterns            | [../.github/copilot-instructions.md](../.github/copilot-instructions.md) |
+| Capture responsive screenshots | [guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md](guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md) |
+| Verify screenshot filenames    | [RESPONSIVE_SCREENSHOT_CHECKLIST.md](RESPONSIVE_SCREENSHOT_CHECKLIST.md) |
 
 ## Documentation Files
 
@@ -164,6 +169,7 @@ docs/
 npm run dev         # Start dev server
 npm run build       # Production build
 npm run lint        # Check code quality
+npm run qa:screenshots:plan  # Print responsive screenshot capture commands
 npm run lint -- --fix  # Auto-fix issues
 ```
 

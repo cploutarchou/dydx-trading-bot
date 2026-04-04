@@ -295,8 +295,9 @@ func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 		return
 	}
 	service := h.service.WithAuthToken(extractAuthToken(c))
+	force, _ := strconv.ParseBool(c.DefaultQuery("force", "false"))
 
-	if err := service.StopBotInstance(instanceID); err != nil {
+	if err := service.StopBotInstanceWithForce(instanceID, force); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -307,7 +308,7 @@ func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
-		Data:      map[string]string{"status": "stopped"},
+		Data:      map[string]interface{}{"status": "stopped", "force": force},
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -391,28 +392,13 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 		return
 	}
 	service := h.service.WithAuthToken(extractAuthToken(c))
-
-	limit := 100
-	offset := 0
-	winningOnly := false
-
-	if limitStr := c.Query("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-		}
+	statusRaw := strings.TrimSpace(c.Query("status"))
+	var status *string
+	if statusRaw != "" {
+		status = &statusRaw
 	}
 
-	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-			offset = o
-		}
-	}
-
-	if winningStr := c.Query("winning_only"); winningStr == "true" {
-		winningOnly = true
-	}
-
-	trades, err := service.GetBotInstanceTrades(instanceID, limit, offset, winningOnly)
+	trades, err := service.GetBotInstanceTrades(instanceID, status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,

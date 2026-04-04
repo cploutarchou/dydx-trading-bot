@@ -1,38 +1,8 @@
 # Troubleshooting Guide
 
-Common issues and solutions.
+Common local development issues and fixes.
 
-## DevContainer
-
-### Container won't build
-
-**Problem:** DevContainer build fails or hangs.
-
-**Solutions:**
-
-```bash
-# Option 1: Rebuild from scratch
-Ctrl+Shift+P → "Dev Containers: Rebuild Container"
-
-# Option 2: Remove and restart
-Ctrl+Shift+P → "Dev Containers: Remove Container"
-# Then reopen in container
-```
-
-### Port already in use
-
-**Problem:** Port 5173 or other ports already in use.
-
-**Solutions:**
-
-```bash
-# Option 1: Stop conflicting services
-docker-compose down
-
-# Option 2: Use different port
-# Edit: .devcontainer/devcontainer.json
-# Change: "forwardPorts": [5174, 3000, 8888, 8889, 5432, 6379]
-```
+## Git & local environment
 
 ### SSH not working
 
@@ -41,53 +11,19 @@ docker-compose down
 **Solutions:**
 
 ```bash
-# Inside container, check SSH keys
 ls -la ~/.ssh
-
-# Test GitHub connection
 ssh -T git@github.com
-
-# If keys missing, verify host machine:
-# Outside container: ls -la ~/.ssh
-
-# Then rebuild container:
-Ctrl+Shift+P → "Dev Containers: Rebuild Container"
 ```
 
 ### Git commits fail
 
-**Problem:** Cannot commit inside container.
+**Problem:** Git identity is not configured.
 
 **Solutions:**
 
 ```bash
-# Check git config is mounted
-git config --global user.name
-git config --global user.email
-
-# If missing, configure outside container and rebuild:
 git config --global user.name "Your Name"
 git config --global user.email "your.email@example.com"
-
-# Then rebuild container
-Ctrl+Shift+P → "Dev Containers: Rebuild Container"
-```
-
-### Extensions not installing
-
-**Problem:** VSCode extensions not appearing in DevContainer.
-
-**Solutions:**
-
-```bash
-# Option 1: Rebuild container
-Ctrl+Shift+P → "Dev Containers: Rebuild Container"
-
-# Option 2: Check .devcontainer/devcontainer.json
-# Ensure extensions list is present in customizations section
-
-# Option 3: Manually install extension
-# In VS Code: Ctrl+Shift+X → search → Install
 ```
 
 ## npm & Dependencies
@@ -110,25 +46,19 @@ npm install
 npm install --legacy-peer-deps
 ```
 
-### Global npm packages fail in DevContainer build
+### Global npm packages fail during image build
 
-**Problem:** DevContainer build fails with `exit code: 243` during npm global install.
+**Problem:** Docker image build fails with `exit code: 243` during npm global install.
 
 **Error Message:** `npm install -g ... did not complete successfully: exit code: 243`
 
 **Solutions:**
 
 ```bash
-# Option 1: Rebuild without cache (usually fixes it)
-Ctrl+Shift+P → "Dev Containers: Rebuild Container (No Cache)"
+# Option 1: Rebuild without cache
+docker build --no-cache -t dydx-frontend .
 
-# Option 2: Check if fixed in latest Dockerfile
-# The Dockerfile now installs global packages as root before switching users
-
-# Option 3: If still failing, check network/registry
-docker build --no-cache --progress=plain .devcontainer/
-
-# Option 4: Alternative registry
+# Option 2: Check network/registry
 npm config set registry https://registry.npmjs.org/
 ```
 
@@ -155,7 +85,7 @@ npm install
 **Solutions:**
 
 ```bash
-# Already installed in container, but if missing:
+# Install the missing global package if your workflow requires it:
 npm install -g tsx ts-node nodemon
 
 # Check installation
@@ -166,21 +96,17 @@ which tsx
 
 ### Docker command not found
 
-**Problem:** `docker` or `docker-compose` command not found inside container.
+**Problem:** `docker` is not available locally.
 
 **Solutions:**
 
 ```bash
-# Already included in container, restart if needed:
-Ctrl+Shift+P → "Dev Containers: Rebuild Container"
-
-# Outside container, ensure Docker is running:
 docker ps
 ```
 
 ### Services won't start
 
-**Problem:** `docker-compose up -d` fails.
+**Problem:** Integration services fail to start.
 
 **Solutions:**
 
@@ -188,15 +114,12 @@ docker ps
 # Check Docker is running
 docker ps
 
-# Check for conflicting containers
-docker ps -a
-
-# Remove old containers
-docker-compose down -v
-docker-compose up -d
+# Start repo-root infra stack
+make stack-env
+make infra-up
 
 # View error logs
-docker-compose logs -f
+make infra-logs
 ```
 
 ### PostgreSQL connection fails
@@ -207,10 +130,10 @@ docker-compose logs -f
 
 ```bash
 # Check service is running
-docker-compose ps
+make infra-ps
 
 # Check logs
-docker-compose logs postgres  # or 'db'
+make infra-logs
 
 # Verify connection parameters
 # User: postgres
@@ -219,9 +142,8 @@ docker-compose logs postgres  # or 'db'
 # Host: localhost
 # Port: 5432
 
-# Or inside container:
-docker-compose up -d
-# Services should be accessible at localhost
+# Start shared infra if needed
+make infra-up
 ```
 
 ### Redis connection fails
@@ -232,7 +154,7 @@ docker-compose up -d
 
 ```bash
 # Check service is running
-docker-compose ps
+make infra-ps
 
 # Test connection
 redis-cli ping
@@ -251,8 +173,7 @@ telnet localhost 6379
 
 ```bash
 # Check port is available
-lsof -i :5173  # Linux/Mac
-netstat -ano | findstr :5173  # Windows
+lsof -i :5173  # macOS/Linux
 
 # Kill process using port
 kill -9 <PID>
@@ -377,11 +298,6 @@ ls -la dist/
 
 ```bash
 # For Vite, use: import.meta.env.VITE_*
-// Correct:
-const apiUrl = import.meta.env.VITE_API_URL
-
-// Wrong:
-const apiUrl = process.env.VITE_API_URL
 
 # Create repo-root .env
 cp ../.env.example ../.env
@@ -404,14 +320,11 @@ npm run dev
 curl http://localhost:8888/api/v1/health
 
 # Verify API URL in environment
-echo $VITE_API_URL  # Inside container
+echo $VITE_API_URL
 # Should be: http://localhost:8888
 
 # Check backend logs
-docker-compose logs -f backend
-
-# Verify backend connectivity from frontend container
-docker-compose exec frontend curl http://backend:8888/api/v1/health
+make stack-logs
 
 # Check firewall rules
 # Ensure ports 8888 (UI backend), 5432, 6379 are accessible
@@ -436,8 +349,7 @@ npm run dev
 # Check system resources
 docker stats
 
-# For slow Docker, increase resources in Docker Desktop settings
-# Settings → Resources → Memory/CPU
+# If Docker-backed services are slow, increase Docker resources if needed
 ```
 
 ### Permission denied errors
@@ -453,8 +365,7 @@ ls -la src/
 # For socket errors:
 ls -la /var/run/docker.sock
 
-# Rebuild container (usually fixes this)
-Ctrl+Shift+P → "Dev Containers: Rebuild Container"
+# Check workspace ownership and retry
 ```
 
 ### Out of space
@@ -473,13 +384,12 @@ docker rmi $(docker images -q)
 # Clean npm cache
 npm cache clean --force
 
-# Remove old containers
-docker-compose down -v
+# Remove old containers and volumes
+make stack-down
 ```
 
 ## Getting More Help
 
-- **DevContainer documentation:** [../devcontainer/README.md](../devcontainer/README.md)
 - **Setup guide:** [../SETUP.md](../SETUP.md)
 - **Architecture:** [../architecture/](../architecture/)
 - **Code patterns:** [../../.github/copilot-instructions.md](../../.github/copilot-instructions.md)

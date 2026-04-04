@@ -1,6 +1,8 @@
+import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import { devFallback, MOCK_BACKTEST_RUNS } from '../api/mockData';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -77,6 +79,7 @@ function calcEta(createdAt: string, progressPct: number): string | null {
 }
 
 const POLL_INTERVAL_MS = 4000;
+const MAX_POLL_INTERVAL_MS = 30000;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -84,14 +87,33 @@ const toRecord = (value: unknown): Record<string, unknown> =>
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
+const formatUtcDateTime = (value?: string): string => {
+  if (!value) return 'N/A';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return parsed.toISOString().replace('T', ' ').replace('Z', ' UTC');
+};
+
+const formatUtcDate = (value?: string): string => {
+  if (!value) return 'N/A';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return parsed.toISOString().substring(0, 10);
+};
+
 export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger = 0 }) => {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<BacktestRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [usingMockData, setUsingMockData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasWarnedMockRef = useRef(false);
+  const isLoadingRef = useRef(false);
+  const activeRequestIdRef = useRef(0);
+  const pollFailureRef = useRef(0);
 
   useEffect(() => {
     // First load blocks with spinner; subsequent refreshes stay non-blocking
@@ -100,31 +122,52 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   // Auto-poll while any run is active
   useEffect(() => {
+    if (usingMockData) {
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
     const hasActive = runs.some((r) => {
       const s = normalizeStatus(r.status);
       return s === 'RUNNING' || s === 'PENDING';
     });
 
+    const scheduleNextPoll = (delayMs: number) => {
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+      }
+      pollRef.current = setTimeout(async () => {
+        const ok = await loadBacktestsSilent();
+        pollFailureRef.current = ok ? 0 : Math.min(pollFailureRef.current + 1, 4);
+        const nextDelay = ok
+          ? POLL_INTERVAL_MS
+          : Math.min(POLL_INTERVAL_MS * 2 ** pollFailureRef.current, MAX_POLL_INTERVAL_MS);
+        scheduleNextPoll(nextDelay);
+      }, delayMs);
+    };
+
     if (hasActive) {
       if (!pollRef.current) {
-        pollRef.current = setInterval(() => {
-          loadBacktestsSilent();
-        }, POLL_INTERVAL_MS);
+        scheduleNextPoll(POLL_INTERVAL_MS);
       }
     } else {
+      pollFailureRef.current = 0;
       if (pollRef.current) {
-        clearInterval(pollRef.current);
+        clearTimeout(pollRef.current);
         pollRef.current = null;
       }
     }
 
     return () => {
       if (pollRef.current) {
-        clearInterval(pollRef.current);
+        clearTimeout(pollRef.current);
         pollRef.current = null;
       }
     };
-  }, [runs]);
+  }, [runs, usingMockData]);
 
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
     // Keep this fast for dashboard rendering: fetch the newest page only.
@@ -133,20 +176,31 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     const raw = toRecord(response);
     const rawData = toRecord(raw.data);
 
-    const pageRuns: BacktestRun[] = Array.isArray(rawData.backtests)
-      ? (rawData.backtests as BacktestRun[])
-      : Array.isArray(raw?.backtests)
-        ? (raw.backtests as BacktestRun[])
-        : Array.isArray(rawData.runs)
-          ? (rawData.runs as BacktestRun[])
-          : Array.isArray(raw?.runs)
-            ? (raw.runs as BacktestRun[])
-            : [];
-
-    return pageRuns;
+    return devFallback(
+      Array.isArray(rawData.backtests)
+        ? (rawData.backtests as BacktestRun[])
+        : Array.isArray(raw?.backtests)
+          ? (raw.backtests as BacktestRun[])
+          : Array.isArray(rawData.runs)
+            ? (rawData.runs as BacktestRun[])
+            : Array.isArray(raw?.runs)
+              ? (raw.runs as BacktestRun[])
+              : [],
+      MOCK_BACKTEST_RUNS as unknown as BacktestRun[]
+    );
   };
 
   const loadBacktests = async (showBlockingLoader: boolean = true) => {
+    if (isLoadingRef.current) {
+      return;
+    }
+
+    isLoadingRef.current = true;
+    const requestId = activeRequestIdRef.current + 1;
+    activeRequestIdRef.current = requestId;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     if (showBlockingLoader) {
       setLoading(true);
     }
@@ -154,19 +208,43 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     try {
       const runsPromise = fetchAllRuns();
       const timeoutPromise = new Promise<BacktestRun[]>((_, reject) => {
-        setTimeout(() => reject(new Error('Timed out while loading backtest runs')), 15000);
+        timeoutId = setTimeout(() => reject(new Error('Timed out while loading backtest runs')), 15000);
       });
 
       const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
       setRuns(nextRuns);
       setHasLoadedOnce(true);
+      setUsingMockData(import.meta.env.DEV && nextRuns.length > 0 && nextRuns[0].run_id.startsWith('mock-run-'));
     } catch (err: unknown) {
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
+      if (import.meta.env.DEV) {
+        if (!hasWarnedMockRef.current) {
+          console.warn('🔧 BacktestList: API unavailable, using mock runs in development.');
+          hasWarnedMockRef.current = true;
+        }
+        setRuns(MOCK_BACKTEST_RUNS as unknown as BacktestRun[]);
+        setHasLoadedOnce(true);
+        setUsingMockData(true);
+        setError(null);
+        return;
+      }
       console.error('❌ BacktestList: Error loading backtests:', err);
       setError(getErrorMessage(err, 'Failed to load backtests'));
-      if (!hasLoadedOnce) {
+      if (!hasLoadedOnce && !import.meta.env.DEV) {
         setRuns([]);
       }
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (activeRequestIdRef.current === requestId) {
+        isLoadingRef.current = false;
+      }
       if (showBlockingLoader) {
         setLoading(false);
       }
@@ -174,19 +252,22 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   };
 
   /** Silent refresh — keeps existing data visible while updating in background. */
-  const loadBacktestsSilent = async () => {
+  const loadBacktestsSilent = async (): Promise<boolean> => {
+    if (usingMockData || isLoadingRef.current) return true;
     try {
       setRuns(await fetchAllRuns());
+      return true;
     } catch {
       // ignore transient errors during polling
+      return false;
     }
   };
 
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <h3 className="text-xl font-bold text-white mb-4">Backtest Runs</h3>
-        <p className="text-gray-400">Loading...</p>
+      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 flex flex-col items-center justify-center gap-3 min-h-40">
+        <Loader className="w-7 h-7 animate-spin text-blue-400" />
+        <p className="text-slate-400 text-sm">Loading backtest runs…</p>
       </div>
     );
   }
@@ -219,10 +300,21 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       : run.max_drawdown;
 
   return (
-    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-      <h3 className="text-xl font-bold text-white mb-4">Backtest Runs ({runs.length})</h3>
+    <div className="bg-slate-800 rounded-xl border border-slate-700">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+        <div>
+          <h3 className="text-base font-semibold text-white">Backtest Runs</h3>
+          <p className="text-xs text-slate-400 mt-0.5">{runs.length} total run{runs.length !== 1 ? 's' : ''}</p>
+        </div>
+        {usingMockData && (
+          <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded border border-amber-700 bg-amber-900/40 text-amber-300">
+            Dev Mock Data
+          </span>
+        )}
+      </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="px-6 py-3 border-b border-slate-700/60">
+        <div className="flex flex-wrap gap-2">
         {(
           [
             ['ALL', runs.length],
@@ -245,31 +337,35 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
             {status} ({count})
           </button>
         ))}
+        </div>
       </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200">
+        <div className="mx-6 my-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm flex items-center gap-2">
           {error}
         </div>
       )}
 
       {filteredRuns.length === 0 ? (
-        <p className="text-gray-400">No backtest runs yet. Start a new analysis above.</p>
+        <div className="py-16 text-center px-6">
+          <p className="text-slate-400 text-sm">No backtest runs found.</p>
+          <p className="text-slate-500 text-xs mt-1">Start a new analysis from the dashboard to see results here.</p>
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-gray-300">
-            <thead className="border-b border-slate-700">
+            <thead className="border-b border-slate-700 bg-slate-900/30">
               <tr>
-                <th className="px-4 py-2 text-left">Run ID</th>
-                <th className="px-4 py-2 text-left">Start Time</th>
-                <th className="px-4 py-2 text-left">Period</th>
-                <th className="px-4 py-2 text-center">Trades</th>
-                <th className="px-4 py-2 text-right">P&L</th>
-                <th className="px-4 py-2 text-right">Win Rate</th>
-                <th className="px-4 py-2 text-right">Sharpe</th>
-                <th className="px-4 py-2 text-right">Max DD</th>
-                <th className="px-4 py-2 text-center">Status</th>
-                <th className="px-4 py-2 text-center">Action</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Run ID</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Started</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Period</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Trades</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">P&L</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Win Rate</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Sharpe</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Max DD</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -294,13 +390,12 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm">
-                        {new Date(run.created_at).toLocaleString()}
+                        {formatUtcDateTime(run.created_at)}
                       </td>
                       <td className="px-4 py-2">
                         {run.start_date && run.end_date ? (
                           <>
-                            {new Date(run.start_date).toLocaleDateString()} –{' '}
-                            {new Date(run.end_date).toLocaleDateString()}
+                            {formatUtcDate(run.start_date)} - {formatUtcDate(run.end_date)}
                           </>
                         ) : (
                           '–'

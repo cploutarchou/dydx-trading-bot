@@ -1,7 +1,6 @@
 import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 export const LoginPage: React.FC = () => {
@@ -16,7 +15,11 @@ export const LoginPage: React.FC = () => {
         usernameInputRef.current?.focus();
     }, []);
 
-    useFocusOnVisibleError([{ when: !!error, ref: errorAlertRef }], [error]);
+    useEffect(() => {
+        if (error) {
+            errorAlertRef.current?.focus();
+        }
+    }, [error]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

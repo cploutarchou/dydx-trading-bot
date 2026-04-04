@@ -130,23 +130,11 @@ frontend/
 │   ├── main.tsx            # Entry point
 │   └── index.css           # Global styles
 │
-├── .devcontainer/          # Development environment
-├── docker-compose.yml      # Local services
 ├── vite.config.ts          # Vite bundler config
 ├── tailwind.config.js      # Tailwind configuration
 ├── tsconfig.json           # TypeScript config
-└── package.json            # Dependencies
-
-docs/                       # Documentation (you are here)
-├── README.md              # Documentation index
-├── SETUP.md               # Setup guide
-├── architecture/
-│   ├── README.md          # Architecture overview (this file)
-│   ├── DATA_FLOW.md       # Component interactions
-│   ├── PATTERNS.md        # Code patterns
-│   └── API_INTEGRATION.md # API patterns
-└── guides/
-    └── TROUBLESHOOTING.md # Common issues
+├── package.json            # Dependencies
+└── docs/                   # Frontend documentation
 ```
 
 ## Core Concepts

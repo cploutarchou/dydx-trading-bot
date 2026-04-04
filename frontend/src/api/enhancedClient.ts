@@ -541,34 +541,103 @@ class EnhancedAPIClient {
 
   async getBacktestStatus(
     runId: string
-  ): Promise<{ run_id: string; status: string; progress_percent: number }> {
-    const result = await this.baseClient.getBacktest(runId);
-    const data = (result.data ?? {}) as Record<string, unknown>;
+  ): Promise<{
+    run_id: string;
+    status: string;
+    progress_percent: number;
+    current_pair?: string;
+    estimated_completion_seconds?: number;
+  }> {
+    const parseProgress = (value: unknown): number | null => {
+      if (typeof value !== 'number' && typeof value !== 'string') {
+        return null;
+      }
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) {
+        return null;
+      }
+      return Math.min(100, Math.max(0, parsed));
+    };
 
-    const rawStatus = typeof data.status === 'string' ? data.status : 'PENDING';
-    const normalizedStatus = rawStatus.toUpperCase();
+    const extractFromRunRecord = (
+      run: Record<string, unknown>
+    ): {
+      status?: string;
+      progress?: number;
+      currentPair?: string;
+      etaSeconds?: number;
+    } => {
+      const status = typeof run.status === 'string' ? run.status.toUpperCase() : undefined;
+      const progress =
+        parseProgress(run.progress_percent) ??
+        parseProgress(run.progress_pct) ??
+        parseProgress(run.progress) ??
+        parseProgress(run.percent_complete);
 
-    const progressSources = [
-      data.progress_percent,
-      data.progress_pct,
-      data.progress,
-      data.percent_complete,
-    ];
+      const currentPairRaw = run.current_pair ?? run.current_market ?? run.market;
+      const currentPair =
+        typeof currentPairRaw === 'string' && currentPairRaw.trim().length > 0
+          ? currentPairRaw
+          : undefined;
 
-    const parsedProgress = progressSources
-      .map((value) => (typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN))
-      .find((value) => Number.isFinite(value));
+      const etaRaw =
+        run.estimated_completion_seconds ?? run.eta_seconds ?? run.remaining_seconds;
+      const etaParsed =
+        typeof etaRaw === 'number' || typeof etaRaw === 'string' ? Number(etaRaw) : Number.NaN;
+      const etaSeconds = Number.isFinite(etaParsed) && etaParsed >= 0 ? etaParsed : undefined;
 
-    const computedProgress = Number.isFinite(parsedProgress)
-      ? Math.min(100, Math.max(0, parsedProgress as number))
-      : normalizedStatus === 'COMPLETED'
-        ? 100
-        : 0;
+      return {
+        status,
+        progress: progress ?? undefined,
+        currentPair,
+        etaSeconds,
+      };
+    };
+
+    const detailsResult = await this.baseClient.getBacktest(runId);
+    const detailsData = (detailsResult.data ?? {}) as Record<string, unknown>;
+    const detailsStatusProgress = extractFromRunRecord(detailsData);
+
+    let status = detailsStatusProgress.status ?? 'PENDING';
+    let progress = detailsStatusProgress.progress;
+    let currentPair = detailsStatusProgress.currentPair;
+    let etaSeconds = detailsStatusProgress.etaSeconds;
+
+    // Fallback: list endpoint carries live progress_pct in this backend integration.
+    if (progress === undefined || (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))) {
+      try {
+        const listResult = await this.baseClient.listBacktests(0, 200);
+        const listData = (listResult.data ?? {}) as { backtests?: unknown[] };
+        const matchedRun = Array.isArray(listData.backtests)
+          ? listData.backtests.find((item) => {
+              if (!isRecord(item)) return false;
+              return item.run_id === runId;
+            })
+          : undefined;
+
+        if (isRecord(matchedRun)) {
+          const fallbackStatusProgress = extractFromRunRecord(matchedRun);
+          status = fallbackStatusProgress.status ?? status;
+          if (fallbackStatusProgress.progress !== undefined) {
+            progress = fallbackStatusProgress.progress;
+          }
+          currentPair = fallbackStatusProgress.currentPair ?? currentPair;
+          etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
+        }
+      } catch (error) {
+        console.warn('📊 enhancedClient.ts: failed to fetch list fallback for backtest status', error);
+      }
+    }
+
+    const computedProgress =
+      progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;
 
     return {
       run_id: runId,
-      status: normalizedStatus,
+      status,
       progress_percent: computedProgress,
+      current_pair: currentPair,
+      estimated_completion_seconds: etaSeconds,
     };
   }
 

@@ -11,6 +11,7 @@
 		"@tanstack/react-query-devtools": "^5.90.2",
 		"axios": "^1.6.2",
 		"date-fns": "^4.1.0",
+		"lightweight-charts": "^5.1.0",
 		"lucide-react": "^0.546.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
@@ -25,6 +26,7 @@
 		"@eslint/eslintrc": "^3.3.1",
 		"@eslint/js": "^9.38.0",
 		"@tailwindcss/postcss": "^4.1.14",
+		"@types/node": "^25.5.2",
 		"@types/react": "^19.2.2",
 		"@types/react-dom": "^19.2.2",
 		"@typescript-eslint/eslint-plugin": "^8.46.2",
@@ -37,12 +39,17 @@
 		"eslint-plugin-react": "^7.22.0",
 		"eslint-plugin-react-hooks": "^7.0.1",
 		"postcss": "^8.4.31",
-		"typescript": "^5.3.2"
+		"typescript": "^5.3.2",
+		"vitest": "^3.2.4"
 	},
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"lint": "eslint src --ext .ts,.tsx"
+		"lint": "eslint src --ext .ts,.tsx",
+		"test:contracts": "vitest run src/api/contractGuards.test.ts",
+		"qa:screenshots:plan": "node ./scripts/capture-responsive-screenshots.mjs --dry-run",
+		"qa:screenshots:capture": "node ./scripts/capture-responsive-screenshots.mjs",
+		"qa:screenshots:sync": "node ./scripts/update-responsive-screenshot-checklist.mjs"
 	}
 }

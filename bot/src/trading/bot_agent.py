@@ -230,6 +230,7 @@ class BotAgent:
                         "CRITICAL: Position Closure Failed",
                         f"Failed to close hedged position for {self.market_1}. Status: {order_status_close_order}. Emergency intervention required!",
                         is_critical=True,
+                        category="execution_emergency_cleanup",
                     )
 
                     raise RuntimeError(
@@ -247,6 +248,7 @@ class BotAgent:
                     "CRITICAL: Unexpected Closure Error",
                     f"Unexpected error closing {self.market_1}. Exception: {str(e)}. Status: {status_snapshot}. Emergency intervention required!",
                     is_critical=True,
+                    category="execution_emergency_cleanup",
                 )
 
                 raise RuntimeError(

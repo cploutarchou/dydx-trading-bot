@@ -131,6 +131,7 @@ async def main():
             "Connection Failed",
             f"Failed to connect to dYdX client: {str(e)}",
             is_critical=True,
+            category="connectivity_client",
         )
         exit(1)
 
@@ -146,6 +147,7 @@ async def main():
                 "Position Closure Failed",
                 f"Error closing all positions: {str(e)}",
                 is_critical=True,
+                category="risk_abort_positions",
             )
             exit(1)
 
@@ -163,6 +165,7 @@ async def main():
                 "Market Data Error",
                 f"Error constructing market prices: {str(e)}",
                 is_critical=True,
+                category="market_data",
             )
             exit(1)
 
@@ -180,6 +183,7 @@ async def main():
                 "Cointegration Analysis Failed",
                 f"Error saving cointegrated pairs: {str(e)}",
                 is_critical=True,
+                category="analysis_cointegration",
             )
             exit(1)
 
@@ -199,6 +203,7 @@ async def main():
                         "Exit Management Error",
                         f"Error managing exiting positions: {str(e)}",
                         is_critical=False,
+                        category="execution_exit",
                     )
                     exit(1)
 
@@ -214,6 +219,7 @@ async def main():
                         "Trade Entry Error",
                         f"Error opening trades: {str(e)}",
                         is_critical=False,
+                        category="execution_entry",
                     )
                     exit(1)
 

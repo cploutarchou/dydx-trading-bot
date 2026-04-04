@@ -4,11 +4,11 @@ This playbook is a practical checklist to harden the bot for production while va
 
 Related runbooks and references:
 
-- `docs/OPERATIONS_RUNBOOK.md`
-- `docs/FAILURE_MODES.md`
-- `docs/MULTI_INSTANCE_ARCHITECTURE.md`
-- `docs/FEATURE_STATUS.md`
-- `docs/CONFIG_MATRIX.md`
+- `API_CONTRACT.md`
+- `LOCAL_SETUP.md`
+- `openapi.json`
+- `tasks.md`
+- `../README.md`
 
 ## 1) Immediate gate (before every deployment)
 

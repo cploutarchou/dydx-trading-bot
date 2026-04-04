@@ -236,6 +236,9 @@ func (r *BotInstanceRepository) ListBotInstancesByUserID(userID int, limit int, 
 	rows, err := r.db.Query(query, userID, limit, offset)
 	if err != nil {
 		if isUndefinedColumnError(err) {
+			// NOTE: the compat schema pre-dates the user_id column, so this
+			// fallback cannot filter by user and returns all instances.
+			// Migrate to the current schema to enforce per-user isolation.
 			fallbackQuery := selectBotInstancesCompatColumns + `
 				ORDER BY created_at DESC
 				LIMIT $1 OFFSET $2

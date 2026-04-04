@@ -2,9 +2,13 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +20,92 @@ type BotAPIClient struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+}
+
+// BotAPIError preserves upstream HTTP status and message for delegated routes.
+type BotAPIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *BotAPIError) Error() string {
+	if e == nil {
+		return "bot API error"
+	}
+	if strings.TrimSpace(e.Message) == "" {
+		return fmt.Sprintf("API error (status %d)", e.StatusCode)
+	}
+	return fmt.Sprintf("API error (status %d): %s", e.StatusCode, e.Message)
+}
+
+// BotAPITransportError represents a transport-level failure when communicating
+// with the upstream bot API (e.g. connection refused, timeout).
+// StatusCode is 502 (Bad Gateway) for connectivity failures and 504 (Gateway
+// Timeout) for deadline/timeout failures, so callers can propagate the correct
+// HTTP status to the client without further inspection.
+type BotAPITransportError struct {
+	StatusCode int    // 502 or 504
+	Message    string // human-readable, safe to surface to API clients
+	Endpoint   string // full request URL — for log context only
+	Cause      error  // original transport error
+}
+
+func (e *BotAPITransportError) Error() string {
+	if e == nil {
+		return "bot API transport error"
+	}
+	return fmt.Sprintf("%s [upstream: %s]", e.Message, e.Endpoint)
+}
+
+// Unwrap allows errors.Is / errors.As to inspect the underlying transport error.
+func (e *BotAPITransportError) Unwrap() error {
+	return e.Cause
+}
+
+// classifyTransportError maps a raw HTTP-transport error to a BotAPITransportError
+// with an actionable status code and message:
+//   - context.DeadlineExceeded or net.Error.Timeout() → 504 Gateway Timeout
+//   - connection refused (any OS phrasing)              → 502 Bad Gateway
+//   - all other transport failures                      → 502 Bad Gateway
+func classifyTransportError(method, requestURL string, err error) *BotAPITransportError {
+	// --- timeout ---
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &BotAPITransportError{
+			StatusCode: http.StatusGatewayTimeout,
+			Message:    "upstream bot API request timed out",
+			Endpoint:   requestURL,
+			Cause:      err,
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return &BotAPITransportError{
+			StatusCode: http.StatusGatewayTimeout,
+			Message:    "upstream bot API request timed out",
+			Endpoint:   requestURL,
+			Cause:      err,
+		}
+	}
+
+	// --- connection refused (cross-platform string match covers common OS-specific phrasing) ---
+	lowerMsg := strings.ToLower(err.Error())
+	if strings.Contains(lowerMsg, "connection refused") ||
+		strings.Contains(lowerMsg, "actively refused") {
+		return &BotAPITransportError{
+			StatusCode: http.StatusBadGateway,
+			Message:    "upstream bot API is not reachable (connection refused) – ensure the bot service is running",
+			Endpoint:   requestURL,
+			Cause:      err,
+		}
+	}
+
+	// --- generic transport failure (DNS, TLS, etc.) ---
+	return &BotAPITransportError{
+		StatusCode: http.StatusBadGateway,
+		Message:    "upstream bot API transport failure",
+		Endpoint:   requestURL,
+		Cause:      err,
+	}
 }
 
 // NewBotAPIClient creates a new bot API client
@@ -76,6 +166,16 @@ func (c *BotAPIClient) WebSocketURL(endpoint string) (string, error) {
 	return base.String(), nil
 }
 
+// WithHTTPClient returns a new BotAPIClient that uses the provided http.Client.
+// Primarily intended for testing and custom transport configuration.
+func (c *BotAPIClient) WithHTTPClient(httpClient *http.Client) *BotAPIClient {
+	return &BotAPIClient{
+		baseURL:    c.baseURL,
+		token:      c.token,
+		httpClient: httpClient,
+	}
+}
+
 // WithToken returns a new client instance that shares transport settings
 // but uses a request-scoped token. This avoids mutating shared client state
 // across concurrent requests.
@@ -97,7 +197,7 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 
 // makeRequest makes an HTTP request to the bot API
 func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (map[string]interface{}, error) {
-	url := fmt.Sprintf("%s%s", c.baseURL, endpoint)
+	requestURL := fmt.Sprintf("%s%s", c.baseURL, endpoint)
 
 	var requestBody io.Reader
 	if body != nil {
@@ -108,7 +208,17 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 		requestBody = bytes.NewBuffer(bodyBytes)
 	}
 
-	req, err := http.NewRequest(method, url, requestBody)
+	// Build a per-request context whose deadline mirrors the http.Client timeout.
+	// This lets classifyTransportError detect context.DeadlineExceeded cleanly for
+	// 504 classification while the client-level timeout remains a safety net.
+	timeout := c.httpClient.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -120,31 +230,48 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		transportErr := classifyTransportError(method, requestURL, err)
+		log.Printf("⚠️  Bot API transport error: %s %s → HTTP %d (%s) | cause: %v",
+			method, requestURL, transportErr.StatusCode, transportErr.Message, err)
+		return nil, transportErr
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	if resp.StatusCode >= 400 {
+		return nil, parseBotAPIError(resp.StatusCode, respBytes)
+	}
+
 	var result map[string]interface{}
+	if len(respBytes) == 0 {
+		return map[string]interface{}{}, nil
+	}
 	if err := json.Unmarshal(respBytes, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	if resp.StatusCode >= 400 {
-		errorMsg := "Unknown error"
+	return result, nil
+}
+
+func parseBotAPIError(statusCode int, respBytes []byte) error {
+	errorMsg := "Unknown error"
+
+	var result map[string]interface{}
+	if len(respBytes) > 0 && json.Unmarshal(respBytes, &result) == nil {
 		if errField, ok := result["message"]; ok {
 			errorMsg = fmt.Sprintf("%v", errField)
 		} else if errField, ok := result["error"]; ok {
 			errorMsg = fmt.Sprintf("%v", errField)
 		}
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, errorMsg)
+	} else if trimmed := strings.TrimSpace(string(respBytes)); trimmed != "" {
+		errorMsg = trimmed
 	}
 
-	return result, nil
+	return &BotAPIError{StatusCode: statusCode, Message: errorMsg}
 }
 
 // CreateBotInstance creates a new bot instance via the bot API
@@ -187,15 +314,12 @@ func (c *BotAPIClient) DeleteBotInstance(instanceID string) (map[string]interfac
 	return c.makeRequest("DELETE", endpoint, nil)
 }
 
-// GetBotInstanceHistory gets the history for a bot instance
-func (c *BotAPIClient) GetBotInstanceHistory(instanceID string, limit int, offset int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/history?limit=%d&offset=%d", instanceID, limit, offset)
-	return c.makeRequest("GET", endpoint, nil)
-}
-
-// GetBotInstanceTrades gets trades for a bot instance
-func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, limit int, offset int, winningOnly bool) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades?limit=%d&offset=%d&winning_only=%v", instanceID, limit, offset, winningOnly)
+// GetBotInstanceTrades gets trades for a bot instance using the upstream status filter contract.
+func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades", instanceID)
+	if status != nil && strings.TrimSpace(*status) != "" {
+		endpoint += fmt.Sprintf("?status=%s", strings.TrimSpace(*status))
+	}
 	return c.makeRequest("GET", endpoint, nil)
 }
 
@@ -208,6 +332,11 @@ func (c *BotAPIClient) GetBotInstanceStats(instanceID string) (map[string]interf
 // CreateBacktest creates a new backtest via the bot API
 func (c *BotAPIClient) CreateBacktest(config map[string]interface{}) (map[string]interface{}, error) {
 	return c.makeRequest("POST", "/api/v1/backtests", config)
+}
+
+// CreateBacktestRun creates a new backtest via the compatibility /run upstream path.
+func (c *BotAPIClient) CreateBacktestRun(config map[string]interface{}) (map[string]interface{}, error) {
+	return c.makeRequest("POST", "/api/v1/backtests/run", config)
 }
 
 // ListBacktests lists all backtests

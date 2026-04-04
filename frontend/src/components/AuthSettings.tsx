@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle, Lock, LogOut, Shield, User } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
+import { useFocusOnError } from '../hooks/useFocusOnError';
 import { useAuthStore } from '../store/auth';
 
 interface ChangePasswordForm {
@@ -55,7 +55,7 @@ export const AuthSettingsComponent: React.FC = () => {
         }
     };
 
-    useFocusOnVisibleError(
+    useFocusOnError(
         [
             { when: activeTab === 'security' && !!setupError, ref: setupErrorAlertRef },
             {

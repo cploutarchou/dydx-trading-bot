@@ -9,6 +9,39 @@ import api from '../api';
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
+const requireAccessToken = (accessToken?: string): string => {
+  if (accessToken) {
+    return accessToken;
+  }
+
+  throw new Error('Login did not return an access token');
+};
+
+const getVerifiedTwoFAMessage = (response: { success: boolean; message?: string }): string | null => {
+  if (response.success) {
+    return null;
+  }
+
+  return response.message || 'Failed to verify 2FA token';
+};
+
 interface User {
   id: number;
   username: string;
@@ -54,26 +87,23 @@ export const useAuthStore = create<AuthStore>()(
         set({ loading: true, error: null });
         try {
           const loginResult = await api.login({ username, password });
+          const accessToken = requireAccessToken(loginResult?.access_token);
 
           // Ensure token is set in api client (api.login already does this but be explicit)
-          if (loginResult?.access_token) {
-            api.setToken(loginResult.access_token, true);
-            if (loginResult.refresh_token) {
-              try {
-                localStorage.setItem('refresh_token', loginResult.refresh_token);
-              } catch (e) {
-                console.warn('❌ auth.ts: Failed to persist refresh_token', e);
-              }
+          api.setToken(accessToken, true);
+          if (loginResult.refresh_token) {
+            try {
+              localStorage.setItem('refresh_token', loginResult.refresh_token);
+            } catch (e) {
+              console.warn('❌ auth.ts: Failed to persist refresh_token', e);
             }
-          } else {
-            throw new Error('Login did not return an access token');
           }
 
           await get().getCurrentUser();
         } catch (error: unknown) {
           console.error('❌ auth.ts: Login error:', error);
           set({ error: getErrorMessage(error, 'Login failed'), user: null });
-          throw error;
+          return Promise.reject(error);
         } finally {
           set({ loading: false });
         }
@@ -99,14 +129,22 @@ export const useAuthStore = create<AuthStore>()(
 
       logout: () => {
         api.logout();
-        set({ user: null });
+        set({
+          user: null,
+          loading: false,
+          error: null,
+          twoFARequired: false,
+          twoFASecret: undefined,
+          twoFAQRCode: undefined,
+          backupCodes: undefined,
+        });
       },
 
       getCurrentUser: async () => {
         try {
           const response = await api.getCurrentUser();
           const userData = response.data;
-          set({ user: userData || null });
+          set({ user: userData || null, error: null });
         } catch (error) {
           console.error('❌ auth.ts: getCurrentUser failed:', error);
           set({ user: null });
@@ -117,13 +155,21 @@ export const useAuthStore = create<AuthStore>()(
         set({ loading: true, error: null });
 
         try {
-          const restored = await api.restoreSession();
+          const restored = await withTimeout(api.restoreSession(), 10000, 'restoreSession');
           if (!restored) {
-            set({ user: null, loading: false });
+            set({
+              user: null,
+              loading: false,
+              error: null,
+              twoFARequired: false,
+              twoFASecret: undefined,
+              twoFAQRCode: undefined,
+              backupCodes: undefined,
+            });
             return;
           }
 
-          await get().getCurrentUser();
+          await withTimeout(get().getCurrentUser(), 10000, 'getCurrentUser');
         } catch (error: unknown) {
           console.error('❌ auth.ts: initializeSession failed:', error);
           api.logout();
@@ -158,7 +204,7 @@ export const useAuthStore = create<AuthStore>()(
           const errorMessage = error instanceof Error ? error.message : 'Failed to setup 2FA';
           console.error('❌ auth.ts: setup2FA failed:', error);
           set({ error: errorMessage });
-          throw error;
+          return Promise.reject(error);
         } finally {
           set({ loading: false });
         }
@@ -168,8 +214,10 @@ export const useAuthStore = create<AuthStore>()(
         set({ loading: true, error: null });
         try {
           const response = await api.verify2FA(token);
-          if (!response.success) {
-            throw new Error(response.message || 'Failed to verify 2FA token');
+          const verifyMessage = getVerifiedTwoFAMessage(response);
+          if (verifyMessage) {
+            set({ error: verifyMessage });
+            return Promise.reject(new Error(verifyMessage));
           }
 
           set({
@@ -182,7 +230,7 @@ export const useAuthStore = create<AuthStore>()(
             error instanceof Error ? error.message : 'Failed to verify 2FA token';
           console.error('❌ auth.ts: verify2FA failed:', error);
           set({ error: errorMessage });
-          throw error;
+          return Promise.reject(error);
         } finally {
           set({ loading: false });
         }

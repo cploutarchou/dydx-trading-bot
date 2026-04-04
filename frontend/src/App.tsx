@@ -9,6 +9,7 @@ import { QueryProvider } from './api/QueryProvider';
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
 import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer } from './components/ErrorBoundary';
+import { useToastStore } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
@@ -22,6 +23,25 @@ import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
 import { useAuthStore } from './store/auth';
 
 // Legacy error boundary removed - using enhanced version from components/ErrorBoundary
+
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 12000;
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
@@ -37,8 +57,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 export const App: React.FC = () => {
   const [mounted, setMounted] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [authBootstrapTimedOut, setAuthBootstrapTimedOut] = useState(false);
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
+  const toastWarning = useToastStore((state) => state.warning);
 
   useEffect(() => {
     setMounted(true);
@@ -49,9 +71,18 @@ export const App: React.FC = () => {
 
     const bootstrapAuth = async () => {
       try {
-        await initializeSession();
+        setAuthBootstrapTimedOut(false);
+        await withTimeout(initializeSession(), AUTH_BOOTSTRAP_TIMEOUT_MS, 'Auth bootstrap');
       } catch (error) {
         console.warn('⚠️ App.tsx: auth bootstrap failed', error);
+        if (error instanceof Error && error.message.includes('timed out')) {
+          setAuthBootstrapTimedOut(true);
+          toastWarning(
+            'Session restore timed out',
+            'Continuing to login. You can sign in again if needed.',
+            { duration: 5000 }
+          );
+        }
       } finally {
         if (!cancelled) {
           setAuthReady(true);
@@ -61,9 +92,7 @@ export const App: React.FC = () => {
 
     void bootstrapAuth();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [initializeSession]);
 
   useEffect(() => {
@@ -81,7 +110,21 @@ export const App: React.FC = () => {
   if (!mounted || !authReady) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <p className="text-white">Restoring session...</p>
+        <div className="text-center space-y-3 px-4">
+          <p className="text-white">Restoring session...</p>
+          {authBootstrapTimedOut && (
+            <button
+              type="button"
+              onClick={() => {
+                logout();
+                setAuthReady(true);
+              }}
+              className="px-4 py-2 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm"
+            >
+              Continue to Login
+            </button>
+          )}
+        </div>
       </div>
     );
   }

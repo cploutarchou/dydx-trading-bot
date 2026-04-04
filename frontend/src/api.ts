@@ -755,20 +755,32 @@ class ApiClient {
   > {
     // Ensure token is loaded before making the request
     this.ensureTokenLoaded();
-    const response = await this.client.get<
-      ApiResponse<{
-        logs: Array<{ id: number; message: string; level: string; created_at: string }>;
-      }>
-    >(`/api/v1/backtests/${runId}/logs`);
+    try {
+      const response = await this.client.get<
+        ApiResponse<{
+          logs: Array<{ id: number; message: string; level: string; created_at: string }>;
+        }>
+      >(`/api/v1/backtests/${runId}/logs`);
 
-    // Contract normalize: treat missing logs payload as empty list for resilient polling.
-    if (!response.data.data) {
-      response.data.data = { logs: [] };
-    } else if (!Array.isArray(response.data.data.logs)) {
-      response.data.data.logs = [];
+      // Contract normalize: treat missing logs payload as empty list for resilient polling.
+      if (!response.data.data) {
+        response.data.data = { logs: [] };
+      } else if (!Array.isArray(response.data.data.logs)) {
+        response.data.data.logs = [];
+      }
+
+      return response.data;
+    } catch (error: unknown) {
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        return {
+          success: true,
+          message: 'Backtest logs endpoint unavailable',
+          data: { logs: [] },
+          timestamp: new Date().toISOString(),
+        };
+      }
+      throw new Error(getErrorMessage(error));
     }
-
-    return response.data;
   }
 
   async getBacktestStatus(runId: string): Promise<ApiResponse<Record<string, unknown>>> {

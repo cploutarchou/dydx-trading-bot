@@ -1,7 +1,6 @@
 import { AlertCircle, CheckCircle, Copy, Eye, EyeOff, Loader, Shield } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 type TwoFAStep = 'setup' | 'verify' | 'backup-codes' | 'complete';
@@ -28,13 +27,15 @@ export const TwoFactorAuthPage: React.FC = () => {
         }
     }, [step, twoFAQRCode]);
 
-    useFocusOnVisibleError(
-        [
-            { when: !!error, ref: apiErrorAlertRef },
-            { when: !error && !!localError, ref: localErrorAlertRef },
-        ],
-        [error, localError]
-    );
+    useEffect(() => {
+        if (error) {
+            apiErrorAlertRef.current?.focus();
+            return;
+        }
+        if (localError) {
+            localErrorAlertRef.current?.focus();
+        }
+    }, [error, localError]);
 
     const handleSetup = async () => {
         setLocalError(null);

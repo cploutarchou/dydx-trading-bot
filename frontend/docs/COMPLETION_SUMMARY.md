@@ -1,12 +1,22 @@
-# Documentation Summary
+# Documentation Cleanup Summary
 
-Frontend documentation has been trimmed to match the repository’s active workflow.
+This file records the current documentation shape after cleanup and reordering.
+
+## Primary entry points
+
+Use these docs in this order:
+
+1. [`docs/README.md`](./README.md)
+2. [`docs/SETUP.md`](./SETUP.md)
+3. [`docs/guides/TROUBLESHOOTING.md`](./guides/TROUBLESHOOTING.md)
+4. [`docs/architecture/README.md`](./architecture/README.md)
 
 ## Current structure
 
 ```text
 docs/
 ├── README.md
+├── INDEX.md
 ├── SETUP.md
 ├── COMPLETION_SUMMARY.md
 ├── RESPONSIVE_QA_STATUS.md
@@ -16,20 +26,14 @@ docs/
 └── guides/
 ```
 
-## What changed
+## Cleanup decisions
 
-- kept setup guidance focused on direct local development
-- kept architecture and troubleshooting docs as the primary references
-- removed obsolete container-specific setup guides
-
-## Recommended reading order
-
-1. [`docs/README.md`](./README.md)
-2. [`docs/SETUP.md`](./SETUP.md)
-3. [`docs/architecture/README.md`](./architecture/README.md)
-4. [`docs/guides/TROUBLESHOOTING.md`](./guides/TROUBLESHOOTING.md)
+- kept `docs/README.md` as the canonical entry point
+- kept `docs/INDEX.md` as a lightweight quick index
+- kept `docs/SETUP.md` focused on supported local setup
+- kept troubleshooting and architecture docs as the main references after setup
+- removed older container-oriented guidance and overlapping navigation noise
 
 ## Status
 
-✅ Current and aligned with the repository.
-Maintained for the current local macOS/Linux workflow.
+✅ Current and aligned with the repository’s local macOS/Linux workflow.

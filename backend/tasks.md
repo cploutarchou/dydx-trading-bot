@@ -1,8 +1,8 @@
 ﻿# Backend Tasks
 
 ## Status Summary
-- Completed: `40`
-- Pending: `1`
+- Completed: `42`
+- Pending: `0`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
@@ -50,13 +50,14 @@
 
 ### Error Semantics + Contract-Lock
 - [x] Preserve response envelope `{ success, message, data, timestamp }` across all non-stream `/api/v1/backtests/*` routes.
-- [ ] Preserve upstream passthrough status/message for delegated bot/strategy endpoints where safe.
+- [x] Preserve upstream passthrough status/message for delegated bot/strategy endpoints where safe.
 - [x] Add contract-lock tests for the standardized empty-state shapes above (logs/analytics/snapshots/trades-detailed).
 - [x] Add CI failure conditions for required-key omissions on high-traffic payloads consumed by frontend.
 
 ## Change Log
 
 - [x] 2026-04-04: Extended `POST /api/v1/backtests/:run_id/resync` response with deterministic run/job state (`run_id`, `status`, progress aliases, `current_task`, `current_pair`, `sync_state`) and added contract tests.
+- [x] 2026-04-04: Preserved delegated bot/strategy upstream error passthrough semantics by keeping upstream status and surfacing message via both `error` and `message` keys.
 - [x] 2026-04-04: Standardized delegated non-stream `/api/v1/backtests/*` responses on `{ success, message, data, timestamp }` while preserving legacy top-level aliases for compatibility.
 - [x] 2026-04-04: Hardened `GET /api/v1/backtests/:run_id` normalization for nested envelopes, explicit `null` metrics, progress aliases, and expanded contract-lock CI coverage.
 - [x] 2026-04-04: Added strict contract-lock tests for delegated high-traffic backtest endpoints.

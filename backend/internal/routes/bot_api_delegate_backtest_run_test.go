@@ -1047,3 +1047,51 @@ func TestDelegatedBacktestDetails_NormalizesNestedEnvelopeAndSyncsRun(t *testing
 		t.Fatalf("expected synced total_pnl=88.4, got %+v", totalPnL)
 	}
 }
+
+func TestDelegatedBacktestDetails_PreservesZeroMetricsInSync(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/zero-metrics-run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"zero-metrics-run","status":"completed","start_date":"2025-09-01","end_date":"2025-09-30","num_pairs":1,"total_markets":2,"total_trades":0,"winning_trades":0,"losing_trades":0,"win_rate":0,"total_pnl":0,"total_pnl_usd":0}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/zero-metrics-run", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("zero metrics details request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var totalTrades sql.NullInt64
+	var winRate sql.NullFloat64
+	var totalPnL sql.NullFloat64
+	var totalPnLUSD sql.NullFloat64
+	err = dbConn.QueryRow(`SELECT total_trades, win_rate, total_pnl, total_pnl_usd FROM backtest_runs WHERE run_id = ?`, "zero-metrics-run").
+		Scan(&totalTrades, &winRate, &totalPnL, &totalPnLUSD)
+	if err != nil {
+		t.Fatalf("query synced zero metrics row: %v", err)
+	}
+	if !totalTrades.Valid || totalTrades.Int64 != 0 {
+		t.Fatalf("expected total_trades valid zero, got %+v", totalTrades)
+	}
+	if !winRate.Valid || winRate.Float64 != 0 {
+		t.Fatalf("expected win_rate valid zero, got %+v", winRate)
+	}
+	if !totalPnL.Valid || totalPnL.Float64 != 0 {
+		t.Fatalf("expected total_pnl valid zero, got %+v", totalPnL)
+	}
+	if !totalPnLUSD.Valid || totalPnLUSD.Float64 != 0 {
+		t.Fatalf("expected total_pnl_usd valid zero, got %+v", totalPnLUSD)
+	}
+}

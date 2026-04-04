@@ -186,18 +186,21 @@ func getNumberField(payload map[string]interface{}, keys ...string) (float64, bo
 	return 0, false
 }
 
-func normalizeBacktestDetailsPayload(payload map[string]interface{}) map[string]interface{} {
+func normalizeBacktestDetailsFields(payload map[string]interface{}) map[string]interface{} {
 	if payload == nil {
 		payload = map[string]interface{}{}
 	}
 	if _, ok := payload["status"]; !ok {
 		payload["status"] = "unknown"
 	}
-	if progress, ok := getNumberField(payload, "progress_percent", "progress_pct", "progress"); ok {
-		payload["progress_pct"] = progress
-	} else {
-		payload["progress_pct"] = 0.0
+
+	progress := 0.0
+	if value, ok := getNumberField(payload, "progress_percent", "progress_pct", "progress"); ok {
+		progress = value
 	}
+	payload["progress_percent"] = progress
+	payload["progress_pct"] = progress
+	payload["progress"] = progress
 
 	for _, key := range []string{"total_pnl", "win_rate", "sharpe_ratio", "max_drawdown_pct", "total_trades"} {
 		if _, ok := payload[key]; !ok {
@@ -209,8 +212,24 @@ func normalizeBacktestDetailsPayload(payload map[string]interface{}) map[string]
 			payload["max_drawdown_pct"] = drawdown
 		}
 	}
+	if _, ok := payload["max_drawdown"]; !ok {
+		if drawdown, ok := getNumberField(payload, "max_drawdown_pct"); ok {
+			payload["max_drawdown"] = drawdown
+		}
+	}
 
 	return payload
+}
+
+func normalizeBacktestDetailsPayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	if data := asMap(payload["data"]); data != nil {
+		payload["data"] = normalizeBacktestDetailsFields(data)
+		return payload
+	}
+	return normalizeBacktestDetailsFields(payload)
 }
 
 func normalizeBacktestStatusPayload(payload map[string]interface{}) map[string]interface{} {

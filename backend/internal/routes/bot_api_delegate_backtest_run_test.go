@@ -990,3 +990,60 @@ func TestDelegatedBacktestStatus_DefaultProgressFields(t *testing.T) {
 		t.Fatalf("expected current_pair key in status payload")
 	}
 }
+
+func TestDelegatedBacktestDetails_NormalizesNestedEnvelopeAndSyncsRun(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/details-run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"run_id":"details-run","status":"running","start_date":"2025-08-01","end_date":"2025-08-31","num_pairs":4,"total_markets":11,"progress_percent":37,"total_pnl":88.4,"max_drawdown":4.6},"timestamp":"2026-04-04T00:00:00Z"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/details-run", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("details request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode details payload: %v", err)
+	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected nested data payload, got %T (%v)", payload["data"], payload["data"])
+	}
+	if data["progress_percent"] != float64(37) || data["progress_pct"] != float64(37) || data["progress"] != float64(37) {
+		t.Fatalf("expected normalized progress aliases = 37, got %+v", data)
+	}
+	if value, exists := data["win_rate"]; !exists || value != nil {
+		t.Fatalf("expected explicit null win_rate, got exists=%v value=%v", exists, value)
+	}
+	if data["max_drawdown_pct"] != float64(4.6) {
+		t.Fatalf("expected max_drawdown_pct=4.6, got %v", data["max_drawdown_pct"])
+	}
+
+	var status string
+	var totalPnL sql.NullFloat64
+	err = dbConn.QueryRow(`SELECT status, total_pnl FROM backtest_runs WHERE run_id = ?`, "details-run").Scan(&status, &totalPnL)
+	if err != nil {
+		t.Fatalf("query synced details row: %v", err)
+	}
+	if status != "running" {
+		t.Fatalf("expected synced status running, got %q", status)
+	}
+	if !totalPnL.Valid || totalPnL.Float64 != 88.4 {
+		t.Fatalf("expected synced total_pnl=88.4, got %+v", totalPnL)
+	}
+}

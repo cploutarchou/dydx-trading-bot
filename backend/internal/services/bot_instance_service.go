@@ -119,17 +119,22 @@ func (s *BotInstanceService) StartBotInstance(instanceID string) error {
 
 // StopBotInstance stops a bot instance via the bot API
 func (s *BotInstanceService) StopBotInstance(instanceID string) error {
+	return s.StopBotInstanceWithForce(instanceID, false)
+}
+
+// StopBotInstanceWithForce stops a bot instance via the bot API with optional force flag.
+func (s *BotInstanceService) StopBotInstanceWithForce(instanceID string, force bool) error {
 	if s.apiClient == nil {
 		return fmt.Errorf("bot API client not configured")
 	}
 
-	_, err := s.apiClient.StopBotInstance(instanceID)
+	_, err := s.apiClient.StopBotInstanceWithForce(instanceID, force)
 	if err != nil {
 		log.Printf("Failed to stop bot via API: %v", err)
 		return err
 	}
 
-	log.Printf("Bot instance stopped via API: %s", instanceID)
+	log.Printf("Bot instance stopped via API: %s (force=%t)", instanceID, force)
 
 	// Update status in database
 	return s.repo.UpdateBotInstanceStatus(instanceID, "stopped")
@@ -162,13 +167,13 @@ func (s *BotInstanceService) GetBotInstanceStats(instanceID string) (map[string]
 	return s.apiClient.GetBotInstanceStats(instanceID)
 }
 
-// GetBotInstanceTrades gets trades for a bot instance
-func (s *BotInstanceService) GetBotInstanceTrades(instanceID string, limit int, offset int, winningOnly bool) (map[string]interface{}, error) {
+// GetBotInstanceTrades gets trades for a bot instance using upstream status filtering.
+func (s *BotInstanceService) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {
 	if s.apiClient == nil {
 		return nil, fmt.Errorf("bot API client not configured")
 	}
 
-	return s.apiClient.GetBotInstanceTrades(instanceID, limit, offset, winningOnly)
+	return s.apiClient.GetBotInstanceTrades(instanceID, status)
 }
 
 // SyncBotInstanceFromAPI syncs bot instance data from the bot API

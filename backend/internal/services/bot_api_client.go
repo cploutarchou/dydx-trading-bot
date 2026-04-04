@@ -315,15 +315,13 @@ func (c *BotAPIClient) DeleteBotInstance(instanceID string) (map[string]interfac
 	return c.makeRequest("DELETE", endpoint, nil)
 }
 
-// GetBotInstanceHistory gets the history for a bot instance
-func (c *BotAPIClient) GetBotInstanceHistory(instanceID string, limit int, offset int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/history?limit=%d&offset=%d", instanceID, limit, offset)
-	return c.makeRequest("GET", endpoint, nil)
-}
 
-// GetBotInstanceTrades gets trades for a bot instance
-func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, limit int, offset int, winningOnly bool) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades?limit=%d&offset=%d&winning_only=%v", instanceID, limit, offset, winningOnly)
+// GetBotInstanceTrades gets trades for a bot instance using the upstream status filter contract.
+func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades", instanceID)
+	if status != nil && strings.TrimSpace(*status) != "" {
+		endpoint += fmt.Sprintf("?status=%s", strings.TrimSpace(*status))
+	}
 	return c.makeRequest("GET", endpoint, nil)
 }
 

@@ -88,6 +88,7 @@ logger = logging.getLogger(__name__)
 trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
     "trace_id", default=""
 )
+INTERNAL_ERROR_MESSAGE = "Internal server error"
 
 DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 
@@ -465,9 +466,28 @@ def custom_openapi():
     openapi_schema = get_openapi(
         title="dYdX Trading Bot API",
         version="1.0.0",
-        description="API for managing multiple dYdX trading bot instances with JWT Authentication",
+        description=(
+            "API for managing multiple dYdX trading bot instances with JWT Authentication. "
+            "Most non-auth HTTP endpoints return a standardized envelope: "
+            "{success, message, data, timestamp, trace_id}."
+        ),
         routes=app.routes,
     )
+
+    components = openapi_schema.setdefault("components", {})
+    schemas = components.setdefault("schemas", {})
+    schemas["StandardApiResponse"] = {
+        "type": "object",
+        "required": ["success", "message", "data", "timestamp", "trace_id"],
+        "properties": {
+            "success": {"type": "boolean"},
+            "message": {"type": "string"},
+            "data": {"type": ["object", "array", "string", "number", "boolean", "null"]},
+            "timestamp": {"type": "string", "format": "date-time"},
+            "trace_id": {"type": "string"},
+        },
+        "description": "Standard API response envelope used by bot/runtime HTTP endpoints.",
+    }
 
     # Add Bearer authentication scheme
     openapi_schema["components"]["securitySchemes"] = {
@@ -491,6 +511,54 @@ def custom_openapi():
                     openapi_schema["paths"][path][method]["security"] = [
                         {"BearerAuth": []}
                     ]
+
+    # Document the standardized response envelope used by non-auth HTTP endpoints.
+    for path, path_item in openapi_schema.get("paths", {}).items():
+        if path.startswith("/auth/") or path.startswith("/api/v1/auth"):
+            continue
+
+        if not (path == "/health" or path.startswith("/api/v1/")):
+            continue
+
+        for method, operation in path_item.items():
+            if method.lower() not in ["get", "post", "put", "delete", "patch"]:
+                continue
+
+            responses = operation.get("responses", {})
+            success_response = responses.get("200")
+            if not isinstance(success_response, dict):
+                continue
+
+            content = success_response.get("content", {})
+            json_content = content.get("application/json", {})
+            schema = json_content.get("schema")
+            if schema is None:
+                continue
+
+            if isinstance(schema, dict):
+                all_of = schema.get("allOf")
+                if isinstance(all_of, list) and any(
+                    isinstance(item, dict)
+                    and item.get("$ref") == "#/components/schemas/StandardApiResponse"
+                    for item in all_of
+                ):
+                    continue
+
+            json_content["schema"] = {
+                "allOf": [
+                    {"$ref": "#/components/schemas/StandardApiResponse"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "data": schema,
+                        },
+                    },
+                ]
+            }
+            content["application/json"] = json_content
+            success_response["content"] = content
+            operation["responses"]["200"] = success_response
+            operation["x-response-envelope"] = "StandardApiResponse"
 
     app.openapi_schema = openapi_schema
     return app.openapi_schema
@@ -532,6 +600,9 @@ app.include_router(
 
 def api_response(success: bool, data=None, message: str = "", status_code: int = 200):
     """Standardized API response format"""
+    if status_code >= 500:
+        # Never expose raw exceptions/DB internals in client-facing 5xx responses.
+        message = INTERNAL_ERROR_MESSAGE
     trace_id = trace_id_ctx.get()
     response_data = {
         "success": success,
@@ -1859,7 +1930,16 @@ async def create_backtest(
                 request.max_pairs,
             )
             if request.strategy_id is not None:
-                strategy = InMemoryStrategyStore.get(request.strategy_id)
+                try:
+                    strategy = InMemoryStrategyStore.get(request.strategy_id)
+                except Exception as lookup_error:
+                    # Keep backtest execution available even if strategy persistence is temporarily unavailable.
+                    logger.warning(
+                        "Strategy lookup failed for id=%s during backtest creation; using manual fallback payload: %s",
+                        request.strategy_id,
+                        lookup_error,
+                    )
+                    strategy = None
                 if strategy:
                     normalized_request = _strategy_to_backtest_request(
                         strategy,
@@ -1951,7 +2031,7 @@ async def create_backtest(
     except Exception as e:
         logger.error(f"Error creating backtest: {e}")
         return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
+            success=False, message="Internal server error", status_code=500
         )
 
 
@@ -1967,7 +2047,16 @@ async def run_backtest_compat(
         )
 
         if request.strategy_id is not None:
-            strategy = InMemoryStrategyStore.get(request.strategy_id)
+            try:
+                strategy = InMemoryStrategyStore.get(request.strategy_id)
+            except Exception as lookup_error:
+                # Strategy store outages should not block backtest execution from compatibility clients.
+                logger.warning(
+                    "Strategy lookup failed for id=%s in /api/v1/backtests/run; using manual fallback payload: %s",
+                    request.strategy_id,
+                    lookup_error,
+                )
+                strategy = None
             if strategy:
                 backtest_request = _strategy_to_backtest_request(
                     strategy,
@@ -2037,7 +2126,7 @@ async def run_backtest_compat(
         logger.error(f"Error running compatibility backtest: {e}")
         return api_response(
             success=False,
-            message=f"Internal server error: {str(e)}",
+            message="Internal server error",
             status_code=500,
         )
 

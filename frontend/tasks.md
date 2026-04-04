@@ -1,7 +1,7 @@
 ﻿# Frontend Integration Tasks
 
 ## Status Summary
-- Completed: `33`
+- Completed: `35`
 - Pending: `13`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
@@ -92,6 +92,7 @@
   - Fallback behavior: keep envelope `{ success, message, data, timestamp }` for all non-stream endpoints.
   - Owner: Backend
 - [ ] Date: 2026-04-04 | Endpoint(s): all delegated bot/strategy passthrough routes
+- [x] Date: 2026-04-04 | Endpoint(s): all delegated bot/strategy passthrough routes
   - UI impact: show upstream message where safe for operator debugging.
   - Fallback behavior: preserve upstream status code when possible.
   - Owner: Backend
@@ -122,6 +123,7 @@
 
 ## Change Log
 - [x] 2026-04-04: Backend updated `POST /api/v1/backtests/:run_id/resync` to include deterministic run/job state fields for stable manual-resync UI handling.
+- [x] 2026-04-04: Backend passthrough routes now preserve upstream status and expose upstream-safe message in both `error` and `message` response keys.
 - [x] 2026-04-04: Backend standardized non-stream `/api/v1/backtests/*` success responses on a canonical envelope and locked status/sync-health fields for UI polling.
 - [x] 2026-04-04: Backend stabilized `GET /api/v1/backtests/:run_id` keys/nullability and expanded CI-backed contract locks for details and empty-state backtest payloads.
 - [x] 2026-04-04: Added cross-repo task governance process and endpoint backlog alignment.

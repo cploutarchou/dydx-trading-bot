@@ -1,18 +1,28 @@
 ﻿# Backend Integration Tasks
 
 ## Status Summary
-- Completed: `23`
+- Completed: `26`
 - Pending: `0`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
+## Cross-Repo Status Snapshot
+
+| Repo | Completed | Pending | Focus |
+| --- | --- | --- | --- |
+| backend | 54 | 0 | Delegated contract parity and contract-lock coverage shipped |
+| bot | 26 | 0 | Canonical API contract and runtime envelope/documentation stability |
+| frontend | 56 | 5 | Remaining responsive evidence + medium-priority backend integration asks |
+
+Snapshot date: `2026-04-04`.
+
 ## Cross-Repo Sync Matrix (Weekly Snapshot)
 | Area | Bot Status | Backend Status | Frontend Status | Owner | ETA |
 | --- | --- | --- | --- | --- | --- |
-| Contract aliases (`progress`, `backtests`, `count`) | complete | pending verification | pending verification | backend + frontend | 2026-04-08 |
-| Run-scoped `run_id` payload consistency | complete | pending verification | pending verification | backend + frontend | 2026-04-08 |
-| `GET /api/v1/backtests/sync-health` | complete | pending delegation/parsing | pending consumption | backend + frontend | 2026-04-09 |
-| Auth token shape lock (`access_token`, `refresh_token`, `token_type`, `expires_in`) | complete (tests added) | pending sync test | pending sync test | backend + frontend | 2026-04-09 |
+| Contract aliases (`progress`, `backtests`, `count`) | complete | complete | pending verification | backend + frontend | 2026-04-08 |
+| Run-scoped `run_id` payload consistency | complete | complete | pending verification | backend + frontend | 2026-04-08 |
+| `GET /api/v1/backtests/sync-health` | complete | complete | pending consumption | backend + frontend | 2026-04-09 |
+| Auth token shape lock (`access_token`, `refresh_token`, `token_type`, `expires_in`) | complete (tests added) | complete | pending sync test | backend + frontend | 2026-04-09 |
 | Trace propagation (`trace_id`, `X-Trace-Id`) | complete | pending passthrough/logging | pending display/debug tooling | backend + frontend | 2026-04-10 |
 | Telegram severity/category throttling | complete | n/a | n/a | bot | done |
 
@@ -60,6 +70,9 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
+- [x] 2026-04-04: Centralized 5xx response sanitization in `api_response(...)` so all internal errors return a safe generic message and never leak raw exception/SQL details to clients.
+- [x] 2026-04-04: Hardened `/api/v1/backtests` + `/api/v1/backtests/run` strategy-lookup path to fall back to manual payload when strategy persistence is temporarily unavailable; removed raw DB error leakage from these internal-error responses.
+- [x] 2026-04-04: Backend completed delegated bot-instance parity follow-ups (stop `force` passthrough, trades `status` query alignment, realtime numeric ID guardrails) and added bot contract-lock integration coverage; backend task backlog now reports pending `0`.
 - [x] 2026-04-04: Backend delegated passthrough routes now preserve upstream status and include upstream-safe message in both `error` and `message` fields for operator debugging consistency.
 - [x] 2026-04-04: Backend resync endpoint now returns deterministic run/job state fields to stabilize cross-service retry and UI manual-resync flows.
 - [x] 2026-04-04: Backend unified delegated non-stream backtest success envelopes and now preserves status/sync-health compatibility aliases within the canonical response shape.

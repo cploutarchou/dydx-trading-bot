@@ -39,6 +39,24 @@ func assertFieldTypes(t *testing.T, body map[string]interface{}, fields []fieldE
 	}
 }
 
+func assertSuccessEnvelope(t *testing.T, payload map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	if _, ok := payload["success"].(bool); !ok {
+		t.Fatalf("expected success bool, got %T (%v)", payload["success"], payload["success"])
+	}
+	if _, ok := payload["message"].(string); !ok {
+		t.Fatalf("expected message string, got %T (%v)", payload["message"], payload["message"])
+	}
+	if _, ok := payload["timestamp"].(string); !ok {
+		t.Fatalf("expected timestamp string, got %T (%v)", payload["timestamp"], payload["timestamp"])
+	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T (%v)", payload["data"], payload["data"])
+	}
+	return data
+}
+
 func TestContractLock_AuthAndDelegatedHighTrafficEndpoints(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
@@ -159,7 +177,9 @@ func TestContractLock_AuthAndDelegatedHighTrafficEndpoints(t *testing.T) {
 			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 				t.Fatalf("decode response %s: %v", tc.path, err)
 			}
+			data := assertSuccessEnvelope(t, got)
 			assertFieldTypes(t, got, tc.keys)
+			assertFieldTypes(t, data, tc.keys)
 		})
 	}
 }
@@ -214,17 +234,7 @@ func TestContractLock_BacktestSyncHealthEndpoint(t *testing.T) {
 		t.Fatalf("decode sync-health response: %v", err)
 	}
 
-	if _, ok := got["success"].(bool); !ok {
-		t.Fatalf("expected success bool, got %T (%v)", got["success"], got["success"])
-	}
-	if _, ok := got["timestamp"].(string); !ok {
-		t.Fatalf("expected timestamp string, got %T (%v)", got["timestamp"], got["timestamp"])
-	}
-
-	data, ok := got["data"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected data object, got %T (%v)", got["data"], got["data"])
-	}
+	data := assertSuccessEnvelope(t, got)
 	if _, ok := data["runs"].([]interface{}); !ok {
 		t.Fatalf("expected data.runs array, got %T (%v)", data["runs"], data["runs"])
 	}
@@ -297,22 +307,26 @@ func TestContractLock_BacktestResyncEndpointResponseShape(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if _, ok := got["success"].(bool); !ok {
-		t.Fatalf("expected success bool, got %T (%v)", got["success"], got["success"])
-	}
-	if _, ok := got["timestamp"].(string); !ok {
-		t.Fatalf("expected timestamp string, got %T (%v)", got["timestamp"], got["timestamp"])
-	}
-
-	data, ok := got["data"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected data object, got %T (%v)", got["data"], got["data"])
-	}
+	data := assertSuccessEnvelope(t, got)
 
 	for _, key := range []string{"run_synced", "trades_synced", "positions_synced", "candles_synced"} {
 		if _, ok := data[key].(bool); !ok {
 			t.Fatalf("expected data.%s bool, got %T (%v)", key, data[key], data[key])
 		}
+	}
+	assertFieldTypes(t, data, []fieldExpectation{
+		{key: "run_id", typeName: "string"},
+		{key: "status", typeName: "string"},
+		{key: "progress_percent", typeName: "number"},
+		{key: "progress_pct", typeName: "number"},
+		{key: "progress", typeName: "number"},
+		{key: "sync_state", typeName: "string"},
+	})
+	if _, ok := data["current_task"]; !ok {
+		t.Fatalf("expected data.current_task key, got %v", data)
+	}
+	if _, ok := data["current_pair"]; !ok {
+		t.Fatalf("expected data.current_pair key, got %v", data)
 	}
 }
 
@@ -357,10 +371,7 @@ func TestContractLock_BacktestDetailsStableKeys(t *testing.T) {
 		t.Fatalf("decode details response: %v", err)
 	}
 
-	data, ok := got["data"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected data object, got %T (%v)", got["data"], got["data"])
-	}
+	data := assertSuccessEnvelope(t, got)
 	assertFieldTypes(t, data, []fieldExpectation{
 		{key: "run_id", typeName: "string"},
 		{key: "status", typeName: "string"},
@@ -451,13 +462,7 @@ func TestContractLock_BacktestEmptyStateShapes(t *testing.T) {
 			t.Fatalf("decode %s payload: %v", check.path, err)
 		}
 		_ = resp.Body.Close()
-		if _, ok := payload["success"].(bool); !ok {
-			t.Fatalf("expected success bool for %s", check.path)
-		}
-		data, ok := payload["data"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected data object for %s", check.path)
-		}
+		data := assertSuccessEnvelope(t, payload)
 		if _, ok := data[check.field].([]interface{}); !ok {
 			t.Fatalf("expected data.%s array for %s", check.field, check.path)
 		}

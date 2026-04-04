@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
+import { classifyApiError } from '../api';
 
 interface BotInstance {
   instance_id: string;
@@ -84,6 +85,17 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
   };
 };
 
+const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
+  const failure = classifyApiError(error);
+  if (failure.kind === 'transport') {
+    return `Network/transport issue${failure.statusCode ? ` (${failure.statusCode})` : ''}: ${failure.message}`;
+  }
+  if (failure.kind === 'business') {
+    return `Request rejected${failure.statusCode ? ` (${failure.statusCode})` : ''}: ${failure.message}`;
+  }
+  return error instanceof Error ? error.message : fallback;
+};
+
 const BotManager: React.FC = () => {
   const [bots, setBots] = useState<BotInstance[]>([]);
   const [botStats, setBotStats] = useState<Record<string, BotStats>>({});
@@ -124,7 +136,7 @@ const BotManager: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to load bots:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load bot instances');
+      setError(toOperatorErrorMessage(err, 'Failed to load bot instances'));
     } finally {
       setLoading(false);
     }
@@ -211,7 +223,7 @@ const BotManager: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to create bot:', err);
-      const message = err instanceof Error ? err.message : 'Failed to create bot instance';
+      const message = toOperatorErrorMessage(err, 'Failed to create bot instance');
       setError(message);
     } finally {
       setLoading(false);
@@ -229,7 +241,7 @@ const BotManager: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to start bot:', err);
-      const message = err instanceof Error ? err.message : 'Failed to start bot';
+      const message = toOperatorErrorMessage(err, 'Failed to start bot');
       setError(message);
     } finally {
       setActionLoading(null);
@@ -247,7 +259,7 @@ const BotManager: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to stop bot:', err);
-      const message = err instanceof Error ? err.message : 'Failed to stop bot';
+      const message = toOperatorErrorMessage(err, 'Failed to stop bot');
       setError(message);
     } finally {
       setActionLoading(null);
@@ -265,7 +277,7 @@ const BotManager: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to restart bot:', err);
-      const message = err instanceof Error ? err.message : 'Failed to restart bot';
+      const message = toOperatorErrorMessage(err, 'Failed to restart bot');
       setError(message);
     } finally {
       setActionLoading(null);
@@ -287,7 +299,7 @@ const BotManager: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to delete bot:', err);
-      const message = err instanceof Error ? err.message : 'Failed to delete bot';
+      const message = toOperatorErrorMessage(err, 'Failed to delete bot');
       setError(message);
     } finally {
       setActionLoading(null);

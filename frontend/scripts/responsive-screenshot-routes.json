@@ -1,0 +1,21 @@
+[
+  {
+    "routeKey": "dashboard",
+    "path": "/dashboard",
+    "requiresAuth": true,
+    "notes": "Use an authenticated browser profile with seeded or dev mock data visible."
+  },
+  {
+    "routeKey": "backtest-details",
+    "path": "/backtest/mock-run-aabb1122",
+    "requiresAuth": true,
+    "notes": "Uses the mock backtest detail route for deterministic responsive capture."
+  },
+  {
+    "routeKey": "settings",
+    "path": "/settings",
+    "requiresAuth": true,
+    "notes": "Capture with the default settings section loaded."
+  }
+]
+

@@ -9,6 +9,23 @@ import api from '../api';
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
 const requireAccessToken = (accessToken?: string): string => {
   if (accessToken) {
     return accessToken;
@@ -138,7 +155,7 @@ export const useAuthStore = create<AuthStore>()(
         set({ loading: true, error: null });
 
         try {
-          const restored = await api.restoreSession();
+          const restored = await withTimeout(api.restoreSession(), 10000, 'restoreSession');
           if (!restored) {
             set({
               user: null,
@@ -152,7 +169,7 @@ export const useAuthStore = create<AuthStore>()(
             return;
           }
 
-          await get().getCurrentUser();
+          await withTimeout(get().getCurrentUser(), 10000, 'getCurrentUser');
         } catch (error: unknown) {
           console.error('❌ auth.ts: initializeSession failed:', error);
           api.logout();

@@ -1,13 +1,8 @@
 import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api, { classifyApiError } from '../api';
-import {
-  devFallback,
-  getMockDataMode,
-  MOCK_BACKTEST_RUNS,
-  shouldUseDevMocks,
-} from '../api/mockData';
+import api from '../api';
+import { devFallback, MOCK_BACKTEST_RUNS } from '../api/mockData';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -84,7 +79,7 @@ function calcEta(createdAt: string, progressPct: number): string | null {
 }
 
 const POLL_INTERVAL_MS = 4000;
-const POLL_MAX_INTERVAL_MS = 30000;
+const MAX_POLL_INTERVAL_MS = 30000;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -100,9 +95,11 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   const [usingMockData, setUsingMockData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
-  const [pollDelayMs, setPollDelayMs] = useState(POLL_INTERVAL_MS);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasWarnedMockRef = useRef(false);
+  const isLoadingRef = useRef(false);
+  const activeRequestIdRef = useRef(0);
+  const pollFailureRef = useRef(0);
 
   useEffect(() => {
     // First load blocks with spinner; subsequent refreshes stay non-blocking
@@ -113,7 +110,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   useEffect(() => {
     if (usingMockData) {
       if (pollRef.current) {
-        clearInterval(pollRef.current);
+        clearTimeout(pollRef.current);
         pollRef.current = null;
       }
       return;
@@ -124,44 +121,41 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       return s === 'RUNNING' || s === 'PENDING';
     });
 
+    const scheduleNextPoll = (delayMs: number) => {
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+      }
+      pollRef.current = setTimeout(async () => {
+        const ok = await loadBacktestsSilent();
+        pollFailureRef.current = ok ? 0 : Math.min(pollFailureRef.current + 1, 4);
+        const nextDelay = ok
+          ? POLL_INTERVAL_MS
+          : Math.min(POLL_INTERVAL_MS * 2 ** pollFailureRef.current, MAX_POLL_INTERVAL_MS);
+        scheduleNextPoll(nextDelay);
+      }, delayMs);
+    };
+
     if (hasActive) {
       if (!pollRef.current) {
-        pollRef.current = setInterval(() => {
-          loadBacktestsSilent();
-        }, pollDelayMs);
+        scheduleNextPoll(POLL_INTERVAL_MS);
       }
     } else {
+      pollFailureRef.current = 0;
       if (pollRef.current) {
-        clearInterval(pollRef.current);
+        clearTimeout(pollRef.current);
         pollRef.current = null;
       }
     }
 
     return () => {
       if (pollRef.current) {
-        clearInterval(pollRef.current);
+        clearTimeout(pollRef.current);
         pollRef.current = null;
       }
     };
-  }, [runs, usingMockData, pollDelayMs]);
-
-  const formatUtcDateTime = (value: string): string => {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return 'Invalid date';
-    return parsed.toISOString().replace('T', ' ').replace('Z', ' UTC');
-  };
-
-  const formatUtcDate = (value: string): string => {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return 'Invalid date';
-    return parsed.toISOString().slice(0, 10);
-  };
+  }, [runs, usingMockData]);
 
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
-    if (getMockDataMode() === 'on') {
-      return MOCK_BACKTEST_RUNS as unknown as BacktestRun[];
-    }
-
     // Keep this fast for dashboard rendering: fetch the newest page only.
     // If needed later, we can add cursor-based pagination without blocking initial paint.
     const response = await api.listBacktests(0, 200);
@@ -183,6 +177,16 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   };
 
   const loadBacktests = async (showBlockingLoader: boolean = true) => {
+    if (isLoadingRef.current) {
+      return;
+    }
+
+    isLoadingRef.current = true;
+    const requestId = activeRequestIdRef.current + 1;
+    activeRequestIdRef.current = requestId;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     if (showBlockingLoader) {
       setLoading(true);
     }
@@ -190,16 +194,21 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     try {
       const runsPromise = fetchAllRuns();
       const timeoutPromise = new Promise<BacktestRun[]>((_, reject) => {
-        setTimeout(() => reject(new Error('Timed out while loading backtest runs')), 15000);
+        timeoutId = setTimeout(() => reject(new Error('Timed out while loading backtest runs')), 15000);
       });
 
       const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
       setRuns(nextRuns);
       setHasLoadedOnce(true);
-      setUsingMockData(shouldUseDevMocks() && nextRuns.length > 0 && nextRuns[0].run_id.startsWith('mock-run-'));
-      setPollDelayMs(POLL_INTERVAL_MS);
+      setUsingMockData(import.meta.env.DEV && nextRuns.length > 0 && nextRuns[0].run_id.startsWith('mock-run-'));
     } catch (err: unknown) {
-      if (shouldUseDevMocks()) {
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
+      if (import.meta.env.DEV) {
         if (!hasWarnedMockRef.current) {
           console.warn('🔧 BacktestList: API unavailable, using mock runs in development.');
           hasWarnedMockRef.current = true;
@@ -211,18 +220,17 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         return;
       }
       console.error('❌ BacktestList: Error loading backtests:', err);
-      const classified = classifyApiError(err);
-      const prefix =
-        classified.kind === 'transport'
-          ? 'Network/transport issue'
-          : classified.kind === 'business'
-            ? 'Validation/business error'
-            : 'Unexpected error';
-      setError(`${prefix}: ${classified.message}`);
-      if (!hasLoadedOnce && !shouldUseDevMocks()) {
+      setError(getErrorMessage(err, 'Failed to load backtests'));
+      if (!hasLoadedOnce && !import.meta.env.DEV) {
         setRuns([]);
       }
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (activeRequestIdRef.current === requestId) {
+        isLoadingRef.current = false;
+      }
       if (showBlockingLoader) {
         setLoading(false);
       }
@@ -230,16 +238,14 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   };
 
   /** Silent refresh — keeps existing data visible while updating in background. */
-  const loadBacktestsSilent = async () => {
-    if (usingMockData) return;
+  const loadBacktestsSilent = async (): Promise<boolean> => {
+    if (usingMockData || isLoadingRef.current) return true;
     try {
       setRuns(await fetchAllRuns());
-      if (pollDelayMs !== POLL_INTERVAL_MS) {
-        setPollDelayMs(POLL_INTERVAL_MS);
-      }
+      return true;
     } catch {
-      // Capped backoff for polling failures.
-      setPollDelayMs((current) => Math.min(current * 2, POLL_MAX_INTERVAL_MS));
+      // ignore transient errors during polling
+      return false;
     }
   };
 
@@ -370,12 +376,13 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm">
-                        {formatUtcDateTime(run.created_at)}
+                        {new Date(run.created_at).toLocaleString()}
                       </td>
                       <td className="px-4 py-2">
                         {run.start_date && run.end_date ? (
                           <>
-                            {formatUtcDate(run.start_date)} – {formatUtcDate(run.end_date)}
+                            {new Date(run.start_date).toLocaleDateString()} –{' '}
+                            {new Date(run.end_date).toLocaleDateString()}
                           </>
                         ) : (
                           '–'

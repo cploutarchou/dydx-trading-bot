@@ -1,10 +1,15 @@
 ﻿# Frontend Integration Tasks
 
 ## Status Summary
-- Completed: `7`
-- Pending: `27`
+- Completed: `15`
+- Pending: `16`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
+
+## Responsive QA
+- [x] Deliver route-by-route responsive QA matrix (375/768/1024/1440) in `docs/RESPONSIVE_QA_STATUS.md`.
+- [x] Add screenshot review helper/checklist doc: `docs/RESPONSIVE_SCREENSHOT_SIGNOFF.md`.
+- [ ] Capture screenshot sign-off evidence for key routes at 375/768/1024/1440 and attach file paths in `docs/RESPONSIVE_QA_STATUS.md`.
 
 ## Ongoing Update Protocol
 - [x] Keep this file updated whenever backend/bot contract changes affect frontend behavior.
@@ -23,19 +28,20 @@
 - [ ] Treat missing required keys as hard failures and log payload for diagnostics.
 
 ## Sync Health Dashboard
-- [ ] Add a small run sync status panel using:
+- [x] Add a small run sync status panel using:
   - `GET /api/v1/backtests/sync-health`
   - optional `run_id` filter query
-- [ ] Display counts per run:
+- [x] Display counts per run:
   - `trades`
   - `positions`
   - `candles`
-- [ ] Add warning badges when expected counts are zero while run is active/completed.
+- [x] Add warning badges when expected counts are zero while run is active/completed.
 
 ## UX / Error Handling
 - [ ] Preserve backend passthrough errors for delegated endpoints (show upstream message where safe).
 - [ ] Distinguish transport failures (`502/504`) from validation/business failures (`4xx`).
-- [ ] Retry polling endpoints with capped backoff.
+- [x] Retry polling endpoints with capped backoff.
+- [x] Prevent app lock on auth bootstrap by adding timeout fallback and a recover-to-login action from `Restoring session...`.
 
 ## Data Consistency
 - [ ] Prefer server-run IDs as source of truth.
@@ -45,23 +51,23 @@
 ## Backend Team Task Pack (copy to ../backend/tasks.md)
 
 ### A) Backtest Detail Reliability (high priority)
-- [ ] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id`
+- [x] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id`
   - UI impact: `src/pages/BacktestDetailsV2.tsx` requires stable fields (`status`, `progress_percent|progress_pct|progress`, `total_pnl`, `win_rate`, `sharpe_ratio`, `max_drawdown_pct`, `total_trades`).
   - Fallback behavior: if optional fields are missing, return `null` consistently instead of omitting keys.
   - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/logs`
+- [x] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/logs`
   - UI impact: live task feed and progress task line for active runs.
   - Fallback behavior: if logs are unsupported, return `200` with `data.logs: []` (avoid repeated `404`).
   - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/analytics`
+- [x] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/analytics`
   - UI impact: equity and summary charts require `daily_pnl[]` with timestamp/date and pnl/cumulative values.
   - Fallback behavior: return empty array with success envelope, never mixed object/array shape.
   - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/positions/snapshots`
+- [x] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/positions/snapshots`
   - UI impact: positions tab and PnL-by-pair cards.
   - Fallback behavior: stable `data.snapshots: []` when no records.
   - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/trades/detailed`
+- [x] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/trades/detailed`
   - UI impact: trades tab table and aggregate metrics.
   - Fallback behavior: stable `data.trades: []` and `data.total`.
   - Owner: Backend
@@ -89,7 +95,7 @@
   - UI impact: show upstream message where safe for operator debugging.
   - Fallback behavior: preserve upstream status code when possible.
   - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint(s): contract-lock tests
+- [x] Date: 2026-04-04 | Endpoint(s): contract-lock tests
   - UI impact: prevents silent UI regressions on payload shape changes.
   - Fallback behavior: CI should fail on missing required keys and shape drift.
   - Owner: Backend
@@ -115,11 +121,17 @@
   - Owner: Backend
 
 ## Change Log
+- [x] 2026-04-04: Backend stabilized `GET /api/v1/backtests/:run_id` keys/nullability and expanded CI-backed contract locks for details and empty-state backtest payloads.
 - [x] 2026-04-04: Added cross-repo task governance process and endpoint backlog alignment.
 - [x] 2026-04-04: Backend added `POST /api/v1/backtests/:run_id/resync` and sync-health metrics fields (`run_age_seconds`, `sync_lag_seconds`, `quality_issues`) for dashboard consumption.
 - [x] 2026-04-04: Backend added contract-lock test coverage for `POST /api/v1/backtests/:run_id/resync` response shape.
 - [x] 2026-04-04: Frontend added responsive container standardization and mock backtest detail fallback for `/backtest/mock-run-*` in `BacktestDetailsV2`.
-- [ ] Add first frontend implementation entry after sync-health panel and contract checks are implemented.
+- [x] 2026-04-04: Frontend added dashboard `SyncHealthPanel` with run-level counters and warning badges using `GET /api/v1/backtests/sync-health`.
+- [x] 2026-04-04: Frontend added capped backoff polling in `BacktestList`, `useBacktestProgress`, and `BacktestDetailsV2` status/log polling.
+- [x] 2026-04-04: Added route-by-route responsive QA checklist artifact in `docs/RESPONSIVE_QA_STATUS.md`.
+- [x] 2026-04-04: Added screenshot reviewer helper `docs/RESPONSIVE_SCREENSHOT_SIGNOFF.md` and linked it from responsive QA status.
+- [x] 2026-04-04: Hardened auth bootstrap (`App.tsx`, `store/auth.ts`) with timeout fallback so session restore cannot block indefinitely.
+- [x] Added first frontend implementation entries for sync-health panel and polling backoff updates.
 
 ## Change Log Template
 - Date:

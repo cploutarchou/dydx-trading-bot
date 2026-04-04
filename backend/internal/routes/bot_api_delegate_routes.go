@@ -186,6 +186,45 @@ func getNumberField(payload map[string]interface{}, keys ...string) (float64, bo
 	return 0, false
 }
 
+func unwrapEnvelopePayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return map[string]interface{}{}
+	}
+	if data := asMap(payload["data"]); data != nil {
+		return data
+	}
+	return payload
+}
+
+func getEnvelopeMessage(payload map[string]interface{}, fallback string) string {
+	if payload != nil {
+		if message, ok := payload["message"].(string); ok && strings.TrimSpace(message) != "" {
+			return message
+		}
+	}
+	return fallback
+}
+
+func respondBacktestEnvelope(c *gin.Context, statusCode int, fallbackMessage string, payload map[string]interface{}) {
+	data := unwrapEnvelopePayload(payload)
+	message := getEnvelopeMessage(payload, fallbackMessage)
+	response := gin.H{
+		"success":   statusCode >= 200 && statusCode < 300,
+		"message":   message,
+		"data":      data,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	for key, value := range data {
+		switch key {
+		case "success", "message", "data", "timestamp":
+			continue
+		default:
+			response[key] = value
+		}
+	}
+	c.JSON(statusCode, response)
+}
+
 func normalizeBacktestDetailsFields(payload map[string]interface{}) map[string]interface{} {
 	if payload == nil {
 		payload = map[string]interface{}{}
@@ -232,20 +271,22 @@ func normalizeBacktestDetailsPayload(payload map[string]interface{}) map[string]
 	return normalizeBacktestDetailsFields(payload)
 }
 
-func normalizeBacktestStatusPayload(payload map[string]interface{}) map[string]interface{} {
+func normalizeBacktestStatusFields(payload map[string]interface{}) map[string]interface{} {
 	if payload == nil {
 		payload = map[string]interface{}{}
 	}
 	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", payload["status"])))
-	if progress, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
-		payload["progress_pct"] = progress
-	} else {
-		payload["progress_pct"] = 0.0
+	progress := 0.0
+	if value, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
+		progress = value
 	}
 	if status == "pending" || status == "queued" {
-		payload["progress_pct"] = 0.0
+		progress = 0.0
 		payload["current_task"] = nil
 	}
+	payload["progress_percent"] = progress
+	payload["progress_pct"] = progress
+	payload["progress"] = progress
 	if _, ok := payload["current_task"]; !ok {
 		payload["current_task"] = nil
 	}
@@ -253,6 +294,17 @@ func normalizeBacktestStatusPayload(payload map[string]interface{}) map[string]i
 		payload["current_pair"] = nil
 	}
 	return payload
+}
+
+func normalizeBacktestStatusPayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	if data := asMap(payload["data"]); data != nil {
+		payload["data"] = normalizeBacktestStatusFields(data)
+		return payload
+	}
+	return normalizeBacktestStatusFields(payload)
 }
 
 func isUpstreamNotFound(err error) bool {
@@ -422,8 +474,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			return
 		}
 		syncRun(c, result)
-
-		c.JSON(200, result)
+		respondBacktestEnvelope(c, http.StatusOK, "Backtest created successfully", result)
 	}
 
 	// Backtest proxy endpoints
@@ -479,13 +530,9 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				return
 			}
 
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data": gin.H{
-					"runs":  health,
-					"count": len(health),
-				},
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest sync health fetched successfully", map[string]interface{}{
+				"runs":  health,
+				"count": len(health),
 			})
 		})
 
@@ -526,7 +573,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				return
 			}
 			syncRunList(c, result)
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtests fetched successfully", result)
 		})
 
 		// Get backtest summary stats
@@ -543,7 +590,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest summary stats fetched successfully", result)
 		})
 
 		// Compare backtests
@@ -559,7 +606,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest comparison completed successfully", result)
 		})
 
 		// Get backtest by ID
@@ -574,7 +621,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result = normalizeBacktestDetailsPayload(result)
 			syncRun(c, result)
 			syncChildren(c, runID, result)
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest fetched successfully", result)
 		})
 
 		// Delete backtest
@@ -586,7 +633,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest deleted successfully", result)
 		})
 
 		// Get backtest status
@@ -600,7 +647,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			}
 			result = normalizeBacktestStatusPayload(result)
 			syncRun(c, result)
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest status fetched successfully", result)
 		})
 
 		backtestGroup.GET("/:run_id/logs", func(c *gin.Context) {
@@ -615,7 +662,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result, err := requestClient.GetBacktestLogs(runID, limit)
 			if err != nil {
 				if isUpstreamNotFound(err) {
-					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"logs": []interface{}{}, "total": 0}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					respondBacktestEnvelope(c, http.StatusOK, "Backtest logs fetched successfully", map[string]interface{}{"logs": []interface{}{}, "total": 0})
 					return
 				}
 				respondBotAPIError(c, err)
@@ -637,7 +684,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			if !hasTotal {
 				total = float64(len(logs))
 			}
-			c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"logs": logs, "total": total}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest logs fetched successfully", map[string]interface{}{"logs": logs, "total": total})
 		})
 
 		// Force re-sync run + child artifacts from upstream bot API into local DB.
@@ -667,12 +714,33 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				"trades_synced":    false,
 				"positions_synced": false,
 				"candles_synced":   false,
+				"run_id":           runID,
+				"status":           "unknown",
+				"progress_percent": 0.0,
+				"progress_pct":     0.0,
+				"progress":         0.0,
+				"current_task":     nil,
+				"current_pair":     nil,
+				"sync_state":       "partial",
 			}
 
 			details, err := requestClient.GetBacktestDetails(runID)
 			if err != nil {
 				respondBotAPIError(c, err)
 				return
+			}
+			details = normalizeBacktestDetailsPayload(details)
+			state := normalizeBacktestStatusFields(unwrapEnvelopePayload(details))
+			if v, ok := state["run_id"]; ok && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
+				result["run_id"] = v
+			}
+			if v, ok := state["status"]; ok {
+				result["status"] = v
+			}
+			for _, key := range []string{"progress_percent", "progress_pct", "progress", "current_task", "current_pair"} {
+				if v, ok := state[key]; ok {
+					result[key] = v
+				}
 			}
 			syncRun(c, details)
 			syncChildren(c, runID, details)
@@ -696,11 +764,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				result["candles_synced"] = true
 			}
 
-			c.JSON(http.StatusOK, gin.H{
-				"success":   true,
-				"data":      result,
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-			})
+			if result["run_synced"] == true && result["trades_synced"] == true && result["positions_synced"] == true && result["candles_synced"] == true {
+				result["sync_state"] = "completed"
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest re-sync completed successfully", result)
 		})
 
 		// Get backtest trades
@@ -731,7 +799,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				return
 			}
 			syncChildren(c, runID, result)
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest trades fetched successfully", result)
 		})
 
 		backtestGroup.GET("/:run_id/trades/detailed", func(c *gin.Context) {
@@ -753,7 +821,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result, err := requestClient.GetBacktestDetailedTrades(runID, limit, offset)
 			if err != nil {
 				if isUpstreamNotFound(err) {
-					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"trades": []interface{}{}, "total": 0}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					respondBacktestEnvelope(c, http.StatusOK, "Backtest detailed trades fetched successfully", map[string]interface{}{"trades": []interface{}{}, "total": 0})
 					return
 				}
 				respondBotAPIError(c, err)
@@ -775,7 +843,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			if !hasTotal {
 				total = float64(len(trades))
 			}
-			c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"trades": trades, "total": total}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest detailed trades fetched successfully", map[string]interface{}{"trades": trades, "total": total})
 		})
 
 		// Cancel backtest
@@ -787,7 +855,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest cancelled successfully", result)
 		})
 
 		// Get backtest analytics
@@ -797,7 +865,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result, err := requestClient.GetBacktestAnalytics(runID)
 			if err != nil {
 				if isUpstreamNotFound(err) {
-					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"daily_pnl": []interface{}{}}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					respondBacktestEnvelope(c, http.StatusOK, "Backtest analytics fetched successfully", map[string]interface{}{"daily_pnl": []interface{}{}})
 					return
 				}
 				respondBotAPIError(c, err)
@@ -816,7 +884,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				daily = []interface{}{}
 			}
 			data["daily_pnl"] = daily
-			c.JSON(http.StatusOK, gin.H{"success": true, "data": data, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest analytics fetched successfully", data)
 		})
 
 		// Get position snapshots
@@ -844,7 +912,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result, err := requestClient.GetPositionSnapshots(runID, limit, offset, marketPair)
 			if err != nil {
 				if isUpstreamNotFound(err) {
-					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"snapshots": []interface{}{}}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					respondBacktestEnvelope(c, http.StatusOK, "Backtest position snapshots fetched successfully", map[string]interface{}{"snapshots": []interface{}{}})
 					return
 				}
 				respondBotAPIError(c, err)
@@ -866,7 +934,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				snapshots = []interface{}{}
 			}
 			data["snapshots"] = snapshots
-			c.JSON(http.StatusOK, gin.H{"success": true, "data": data, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest position snapshots fetched successfully", data)
 		})
 
 		// Frontend compatibility alias for snapshots endpoint.
@@ -878,7 +946,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result, err := requestClient.GetPositionSnapshots(runID, 100, 0, nil)
 			if err != nil {
 				if isUpstreamNotFound(err) {
-					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"snapshots": []interface{}{}}, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+					respondBacktestEnvelope(c, http.StatusOK, "Backtest position snapshots fetched successfully", map[string]interface{}{"snapshots": []interface{}{}})
 					return
 				}
 				respondBotAPIError(c, err)
@@ -897,7 +965,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				snapshots = []interface{}{}
 			}
 			data["snapshots"] = snapshots
-			c.JSON(http.StatusOK, gin.H{"success": true, "data": data, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest position snapshots fetched successfully", data)
 		})
 
 		// Get dYdX validation
@@ -909,7 +977,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "dYdX validation fetched successfully", result)
 		})
 
 		// Get performance metrics
@@ -923,7 +991,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				return
 			}
 			syncChildren(c, runID, result)
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest performance metrics fetched successfully", result)
 		})
 
 		// Get live progress
@@ -935,7 +1003,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
-			c.JSON(200, result)
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest live progress fetched successfully", result)
 		})
 
 		// WebSocket proxy for backtest live updates

@@ -402,6 +402,9 @@ func TestDelegatedBotMarketData_ForwardsJWTCookieAliasAndPassthroughsStatus(t *t
 	if got["error"] != "upstream unauthorized" {
 		t.Fatalf("unexpected response body: %v", got)
 	}
+	if got["message"] != "upstream unauthorized" {
+		t.Fatalf("expected passthrough message in response body: %v", got)
+	}
 
 	select {
 	case authHeader := <-upstreamAuthHeaderCh:

@@ -153,6 +153,10 @@ func TestDelegatedRoute_ConnectionRefused_Returns502(t *testing.T) {
 	if errorMsg == "" {
 		t.Fatalf("expected non-empty 'error' field in 502 response, got: %v", body)
 	}
+	message, _ := body["message"].(string)
+	if message == "" {
+		t.Fatalf("expected non-empty 'message' field in 502 response, got: %v", body)
+	}
 }
 
 // TestDelegatedRoute_UpstreamTimeout_Returns504 verifies that when the upstream
@@ -200,6 +204,10 @@ func TestDelegatedRoute_UpstreamTimeout_Returns504(t *testing.T) {
 	if errorMsg == "" {
 		t.Fatalf("expected non-empty 'error' field in 504 response, got: %v", body)
 	}
+	message, _ := body["message"].(string)
+	if message == "" {
+		t.Fatalf("expected non-empty 'message' field in 504 response, got: %v", body)
+	}
 }
 
 // TestDelegatedRoute_UpstreamStatus_StillPassedThrough ensures that real upstream
@@ -241,5 +249,46 @@ func TestDelegatedRoute_UpstreamStatus_StillPassedThrough(t *testing.T) {
 	if body["error"] != "upstream forbidden" {
 		t.Fatalf("unexpected response body: %v", body)
 	}
+	if body["message"] != "upstream forbidden" {
+		t.Fatalf("unexpected passthrough message: %v", body)
+	}
 }
 
+func TestDelegatedRoute_UpstreamMessageField_StillPassedThrough(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"message":"upstream rate limited"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	router, dbConn := setupTransportRouter(t, upstream.URL, nil)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginTransportTestUser(t, backendServer.URL)
+
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/system/status", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("execute request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 passthrough, got %d", resp.StatusCode)
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	if body["error"] != "upstream rate limited" || body["message"] != "upstream rate limited" {
+		t.Fatalf("unexpected response body: %v", body)
+	}
+}

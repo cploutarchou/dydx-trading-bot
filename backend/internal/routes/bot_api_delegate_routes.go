@@ -46,7 +46,7 @@ func respondBotAPIError(c *gin.Context, err error) {
 		if status <= 0 {
 			status = http.StatusBadGateway
 		}
-		c.JSON(status, gin.H{"error": transportErr.Message})
+		c.JSON(status, gin.H{"error": transportErr.Message, "message": transportErr.Message})
 		return
 	}
 	if apiErr, ok := err.(*services.BotAPIError); ok {
@@ -58,10 +58,10 @@ func respondBotAPIError(c *gin.Context, err error) {
 		if message == "" {
 			message = "upstream bot API request failed"
 		}
-		c.JSON(status, gin.H{"error": message})
+		c.JSON(status, gin.H{"error": message, "message": message})
 		return
 	}
-	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "message": err.Error()})
 }
 
 func delegateJSON(c *gin.Context, fallback *services.BotAPIClient, call func(*services.BotAPIClient) (map[string]interface{}, error)) {

@@ -1,7 +1,7 @@
 ﻿# Backend Integration Tasks
 
 ## Status Summary
-- Completed: `20`
+- Completed: `23`
 - Pending: `0`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
@@ -60,6 +60,9 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
+- [x] 2026-04-04: Backend delegated passthrough routes now preserve upstream status and include upstream-safe message in both `error` and `message` fields for operator debugging consistency.
+- [x] 2026-04-04: Backend resync endpoint now returns deterministic run/job state fields to stabilize cross-service retry and UI manual-resync flows.
+- [x] 2026-04-04: Backend unified delegated non-stream backtest success envelopes and now preserves status/sync-health compatibility aliases within the canonical response shape.
 - [x] 2026-04-04: Backend standardized delegated backtest details/empty-state payloads and enabled broader CI contract-lock enforcement for frontend-facing backtest routes.
 - [x] 2026-04-04: Adopted cross-repo task governance format with backend/frontend linkage.
 - [x] 2026-04-04: Added contract aliases (`progress`, `backtests`, `count`), run-scoped `run_id` coverage, `sync-health`, trace-id logging, and runtime queue/job counters.

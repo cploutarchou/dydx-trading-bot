@@ -402,6 +402,9 @@ func TestDelegatedBotMarketData_ForwardsJWTCookieAliasAndPassthroughsStatus(t *t
 	if got["error"] != "upstream unauthorized" {
 		t.Fatalf("unexpected response body: %v", got)
 	}
+	if got["message"] != "upstream unauthorized" {
+		t.Fatalf("expected passthrough message in response body: %v", got)
+	}
 
 	select {
 	case authHeader := <-upstreamAuthHeaderCh:
@@ -784,9 +787,13 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 		Success bool `json:"success"`
 		Data    struct {
 			Runs []struct {
-				RunID     string `json:"run_id"`
-				Trades    int    `json:"trades"`
-				Positions int    `json:"positions"`
+				RunID         string `json:"run_id"`
+				Trades        int    `json:"trades"`
+				Positions     int    `json:"positions"`
+				Candles       int    `json:"candles"`
+				RunAgeSec     int64  `json:"run_age_seconds"`
+				SyncLagSec    int64  `json:"sync_lag_seconds"`
+				QualityIssues int    `json:"quality_issues"`
 			} `json:"runs"`
 			Count int `json:"count"`
 		} `json:"data"`
@@ -809,6 +816,18 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 	}
 	if payload.Data.Runs[0].Positions < 1 {
 		t.Fatalf("expected positions count >= 1, got %d", payload.Data.Runs[0].Positions)
+	}
+	if payload.Data.Runs[0].Candles != 0 {
+		t.Fatalf("expected candles count 0 in seeded test, got %d", payload.Data.Runs[0].Candles)
+	}
+	if payload.Data.Runs[0].RunAgeSec < 0 {
+		t.Fatalf("expected run_age_seconds >= 0, got %d", payload.Data.Runs[0].RunAgeSec)
+	}
+	if payload.Data.Runs[0].SyncLagSec < 0 {
+		t.Fatalf("expected sync_lag_seconds >= 0, got %d", payload.Data.Runs[0].SyncLagSec)
+	}
+	if payload.Data.Runs[0].QualityIssues < 0 {
+		t.Fatalf("expected quality_issues >= 0, got %d", payload.Data.Runs[0].QualityIssues)
 	}
 }
 
@@ -847,6 +866,33 @@ func TestDelegatedBacktestResync_RefreshesRunAndChildren(t *testing.T) {
 
 	if resyncResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resyncResp.StatusCode)
+	}
+
+	var resyncPayload map[string]interface{}
+	if err := json.NewDecoder(resyncResp.Body).Decode(&resyncPayload); err != nil {
+		t.Fatalf("decode resync payload: %v", err)
+	}
+	data, ok := resyncPayload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected resync data object, got %T (%v)", resyncPayload["data"], resyncPayload["data"])
+	}
+	if data["run_id"] != "resync-run" {
+		t.Fatalf("expected run_id=resync-run in resync response, got %v", data["run_id"])
+	}
+	if data["status"] != "completed" {
+		t.Fatalf("expected status=completed in resync response, got %v", data["status"])
+	}
+	if data["progress_percent"] != float64(0) || data["progress_pct"] != float64(0) || data["progress"] != float64(0) {
+		t.Fatalf("expected progress aliases to default to 0 in resync response, got %+v", data)
+	}
+	if data["sync_state"] != "completed" {
+		t.Fatalf("expected sync_state=completed, got %v", data["sync_state"])
+	}
+	if _, ok := data["current_task"]; !ok {
+		t.Fatalf("expected current_task key in resync response data")
+	}
+	if _, ok := data["current_pair"]; !ok {
+		t.Fatalf("expected current_pair key in resync response data")
 	}
 
 	var runCount int
@@ -980,14 +1026,74 @@ func TestDelegatedBacktestStatus_DefaultProgressFields(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode status payload: %v", err)
 	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object in status payload, got %T (%v)", payload["data"], payload["data"])
+	}
 	if payload["progress_pct"] != float64(0) {
 		t.Fatalf("expected progress_pct=0, got %v", payload["progress_pct"])
+	}
+	if data["progress_pct"] != float64(0) || data["progress_percent"] != float64(0) || data["progress"] != float64(0) {
+		t.Fatalf("expected zero progress aliases in status data, got %+v", data)
 	}
 	if _, ok := payload["current_task"]; !ok {
 		t.Fatalf("expected current_task key in status payload")
 	}
 	if _, ok := payload["current_pair"]; !ok {
 		t.Fatalf("expected current_pair key in status payload")
+	}
+	if _, ok := data["current_task"]; !ok {
+		t.Fatalf("expected current_task key in status data")
+	}
+	if _, ok := data["current_pair"]; !ok {
+		t.Fatalf("expected current_pair key in status data")
+	}
+}
+
+func TestDelegatedBacktestStatus_PreservesRunningProgressAndTaskFields(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/running-run/status", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"run_id":"running-run","status":"running","progress_percent":61,"current_task":"scanning pairs","current_pair":"BTC-USD/ETH-USD"},"message":"ok"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/running-run/status", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("running status request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode running status payload: %v", err)
+	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object in running status payload, got %T (%v)", payload["data"], payload["data"])
+	}
+	if payload["progress_pct"] != float64(61) || payload["progress_percent"] != float64(61) || payload["progress"] != float64(61) {
+		t.Fatalf("expected root progress aliases=61, got %+v", payload)
+	}
+	if data["progress_pct"] != float64(61) || data["progress_percent"] != float64(61) || data["progress"] != float64(61) {
+		t.Fatalf("expected data progress aliases=61, got %+v", data)
+	}
+	if payload["current_task"] != "scanning pairs" || payload["current_pair"] != "BTC-USD/ETH-USD" {
+		t.Fatalf("expected root running task fields, got %+v", payload)
+	}
+	if data["current_task"] != "scanning pairs" || data["current_pair"] != "BTC-USD/ETH-USD" {
+		t.Fatalf("expected data running task fields, got %+v", data)
 	}
 }
 
@@ -1045,5 +1151,53 @@ func TestDelegatedBacktestDetails_NormalizesNestedEnvelopeAndSyncsRun(t *testing
 	}
 	if !totalPnL.Valid || totalPnL.Float64 != 88.4 {
 		t.Fatalf("expected synced total_pnl=88.4, got %+v", totalPnL)
+	}
+}
+
+func TestDelegatedBacktestDetails_PreservesZeroMetricsInSync(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/zero-metrics-run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"zero-metrics-run","status":"completed","start_date":"2025-09-01","end_date":"2025-09-30","num_pairs":1,"total_markets":2,"total_trades":0,"winning_trades":0,"losing_trades":0,"win_rate":0,"total_pnl":0,"total_pnl_usd":0}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/zero-metrics-run", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("zero metrics details request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var totalTrades sql.NullInt64
+	var winRate sql.NullFloat64
+	var totalPnL sql.NullFloat64
+	var totalPnLUSD sql.NullFloat64
+	err = dbConn.QueryRow(`SELECT total_trades, win_rate, total_pnl, total_pnl_usd FROM backtest_runs WHERE run_id = ?`, "zero-metrics-run").
+		Scan(&totalTrades, &winRate, &totalPnL, &totalPnLUSD)
+	if err != nil {
+		t.Fatalf("query synced zero metrics row: %v", err)
+	}
+	if !totalTrades.Valid || totalTrades.Int64 != 0 {
+		t.Fatalf("expected total_trades valid zero, got %+v", totalTrades)
+	}
+	if !winRate.Valid || winRate.Float64 != 0 {
+		t.Fatalf("expected win_rate valid zero, got %+v", winRate)
+	}
+	if !totalPnL.Valid || totalPnL.Float64 != 0 {
+		t.Fatalf("expected total_pnl valid zero, got %+v", totalPnL)
+	}
+	if !totalPnLUSD.Valid || totalPnLUSD.Float64 != 0 {
+		t.Fatalf("expected total_pnl_usd valid zero, got %+v", totalPnLUSD)
 	}
 }

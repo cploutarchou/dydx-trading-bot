@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -406,4 +405,3 @@ func TestContractLock_DelegatedBotPayloadRequiredKeys(t *testing.T) {
 		}
 	}
 }
-

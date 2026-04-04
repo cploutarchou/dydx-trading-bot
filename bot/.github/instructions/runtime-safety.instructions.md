@@ -33,11 +33,10 @@ Apply these rules for runtime and lifecycle changes.
 When behavior changes, update relevant docs in the same PR:
 
 - `PRODUCTION_READINESS.md`
-- `docs/OPERATIONS_RUNBOOK.md`
-- `docs/FAILURE_MODES.md`
-- `docs/MULTI_INSTANCE_ARCHITECTURE.md`
-- `docs/FEATURE_STATUS.md`
-- `docs/CONFIG_MATRIX.md`
+- `LOCAL_SETUP.md`
+- `API_CONTRACT.md`
+- `openapi.json`
+- `tasks.md`
 
 ## Validation expectations
 

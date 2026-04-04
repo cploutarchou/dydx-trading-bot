@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Common local-development issues and solutions.
+Common local development issues and fixes.
 
 ## Git & local environment
 
@@ -85,7 +85,7 @@ npm install
 **Solutions:**
 
 ```bash
-# Already installed in container, but if missing:
+# Install the missing global package if your workflow requires it:
 npm install -g tsx ts-node nodemon
 
 # Check installation
@@ -106,7 +106,7 @@ docker ps
 
 ### Services won't start
 
-**Problem:** integration services fail to start.
+**Problem:** Integration services fail to start.
 
 **Solutions:**
 
@@ -320,7 +320,7 @@ npm run dev
 curl http://localhost:8888/api/v1/health
 
 # Verify API URL in environment
-echo $VITE_API_URL  # Inside container
+echo $VITE_API_URL
 # Should be: http://localhost:8888
 
 # Check backend logs
@@ -349,7 +349,7 @@ npm run dev
 # Check system resources
 docker stats
 
-# For slow Docker, increase Docker resources if needed
+# If Docker-backed services are slow, increase Docker resources if needed
 ```
 
 ### Permission denied errors

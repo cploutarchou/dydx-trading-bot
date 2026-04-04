@@ -7,17 +7,6 @@ import type { User } from './types';
 type Entity = Record<string, unknown>;
 type QueryParams = object;
 type ListResponse = { count: number; data: Entity[] };
-type SyncHealthResponse = {
-  runs: Array<{
-    run_id: string;
-    status?: string;
-    trades?: number;
-    positions?: number;
-    candles?: number;
-    run_age_seconds?: number;
-    sync_lag_seconds?: number;
-  }>;
-};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -558,53 +547,7 @@ class EnhancedAPIClient {
     progress_percent: number;
     current_pair?: string;
     estimated_completion_seconds?: number;
-    progress_source?: 'details' | 'list_fallback' | 'default';
   }> {
-    try {
-      const rawStatus = await this.baseClient.getBacktestStatus(runId);
-      const statusPayload = withDataFallback<Record<string, unknown>>(rawStatus, {});
-      const parsedProgress =
-        typeof statusPayload.progress_pct === 'number'
-          ? statusPayload.progress_pct
-          : typeof statusPayload.progress_percent === 'number'
-            ? statusPayload.progress_percent
-            : typeof statusPayload.progress === 'number'
-              ? statusPayload.progress
-              : 0;
-
-      return {
-        run_id: String(statusPayload.run_id || runId),
-        status: String(statusPayload.status || 'PENDING').toUpperCase(),
-        progress_percent: Math.min(100, Math.max(0, Number(parsedProgress) || 0)),
-        current_pair:
-          typeof statusPayload.current_pair === 'string' ? statusPayload.current_pair : undefined,
-        estimated_completion_seconds:
-          typeof statusPayload.estimated_completion_seconds === 'number'
-            ? statusPayload.estimated_completion_seconds
-            : undefined,
-        progress_source: 'details',
-      };
-    } catch {
-      // Fall back to legacy composition below when /status is unavailable.
-    }
-
-    const asRecordOrNull = (value: unknown): Record<string, unknown> | null =>
-      value && typeof value === 'object' && !Array.isArray(value)
-        ? (value as Record<string, unknown>)
-        : null;
-
-    const unwrapPayload = (value: unknown): Record<string, unknown> => {
-      const root = asRecordOrNull(value) ?? {};
-      const directData = asRecordOrNull(root.data);
-      const nestedData = asRecordOrNull(directData?.data);
-
-      if (nestedData) return nestedData;
-      if (directData) return directData;
-      return root;
-    };
-
-    const normalizeRunId = (value: unknown): string => String(value ?? '').trim();
-
     const parseProgress = (value: unknown): number | null => {
       if (typeof value !== 'number' && typeof value !== 'string') {
         return null;
@@ -652,52 +595,34 @@ class EnhancedAPIClient {
     };
 
     const detailsResult = await this.baseClient.getBacktest(runId);
-    const detailsData = unwrapPayload(detailsResult);
+    const detailsData = (detailsResult.data ?? {}) as Record<string, unknown>;
     const detailsStatusProgress = extractFromRunRecord(detailsData);
 
     let status = detailsStatusProgress.status ?? 'PENDING';
     let progress = detailsStatusProgress.progress;
     let currentPair = detailsStatusProgress.currentPair;
     let etaSeconds = detailsStatusProgress.etaSeconds;
-    let progressSource: 'details' | 'list_fallback' | 'default' =
-      detailsStatusProgress.progress !== undefined ||
-      detailsStatusProgress.currentPair !== undefined ||
-      detailsStatusProgress.etaSeconds !== undefined
-        ? 'details'
-        : 'default';
 
     // Fallback: list endpoint carries live progress_pct in this backend integration.
     if (progress === undefined || (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))) {
       try {
         const listResult = await this.baseClient.listBacktests(0, 200);
-        const listPayload = unwrapPayload(listResult);
-        const rawRuns = Array.isArray(listPayload.backtests)
-          ? listPayload.backtests
-          : Array.isArray(listPayload.runs)
-            ? listPayload.runs
-            : [];
-
-        const matchedRun = rawRuns.find((item) => {
+        const listData = (listResult.data ?? {}) as { backtests?: unknown[] };
+        const matchedRun = Array.isArray(listData.backtests)
+          ? listData.backtests.find((item) => {
               if (!isRecord(item)) return false;
-              return normalizeRunId(item.run_id) === normalizeRunId(runId);
-            });
+              return item.run_id === runId;
+            })
+          : undefined;
 
         if (isRecord(matchedRun)) {
           const fallbackStatusProgress = extractFromRunRecord(matchedRun);
-          const hadFallbackValue =
-            fallbackStatusProgress.status !== undefined ||
-            fallbackStatusProgress.progress !== undefined ||
-            fallbackStatusProgress.currentPair !== undefined ||
-            fallbackStatusProgress.etaSeconds !== undefined;
           status = fallbackStatusProgress.status ?? status;
           if (fallbackStatusProgress.progress !== undefined) {
             progress = fallbackStatusProgress.progress;
           }
           currentPair = fallbackStatusProgress.currentPair ?? currentPair;
           etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
-          if (hadFallbackValue) {
-            progressSource = 'list_fallback';
-          }
         }
       } catch (error) {
         console.warn('📊 enhancedClient.ts: failed to fetch list fallback for backtest status', error);
@@ -713,33 +638,7 @@ class EnhancedAPIClient {
       progress_percent: computedProgress,
       current_pair: currentPair,
       estimated_completion_seconds: etaSeconds,
-      progress_source: progressSource,
     };
-  }
-
-  async getBacktestSyncHealth(runId?: string): Promise<SyncHealthResponse> {
-    try {
-      const result = await this.baseClient.getBacktestSyncHealth(runId);
-      const payload = withDataFallback<Record<string, unknown>>(result, {});
-      const rawRuns = Array.isArray(payload.runs) ? payload.runs : [];
-      return {
-        runs: rawRuns
-          .filter((run): run is Record<string, unknown> => isRecord(run))
-          .map((run) => ({
-            run_id: String(run.run_id || ''),
-            status: typeof run.status === 'string' ? run.status : undefined,
-            trades: typeof run.trades === 'number' ? run.trades : 0,
-            positions: typeof run.positions === 'number' ? run.positions : 0,
-            candles: typeof run.candles === 'number' ? run.candles : 0,
-            run_age_seconds: typeof run.run_age_seconds === 'number' ? run.run_age_seconds : undefined,
-            sync_lag_seconds:
-              typeof run.sync_lag_seconds === 'number' ? run.sync_lag_seconds : undefined,
-          })),
-      };
-    } catch (error) {
-      console.warn('📊 enhancedClient.ts: getBacktestSyncHealth fallback to empty response', error);
-      return { runs: [] };
-    }
   }
 
   async getBacktestTrades(

@@ -4,6 +4,7 @@ This playbook is a practical checklist to harden the bot for production while va
 
 Related runbooks and references:
 
+- `API_CONTRACT.md`
 - `docs/OPERATIONS_RUNBOOK.md`
 - `docs/FAILURE_MODES.md`
 - `docs/MULTI_INSTANCE_ARCHITECTURE.md`

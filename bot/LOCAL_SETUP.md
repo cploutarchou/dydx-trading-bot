@@ -100,8 +100,32 @@ python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload
 
 **API will be available at:**
 - Dashboard: `http://localhost:8889/docs`
+- ReDoc: `http://localhost:8889/redoc`
 - OpenAPI Schema: `http://localhost:8889/openapi.json`
 - Health check: `http://localhost:8889/health`
+
+### Swagger / OpenAPI Reference
+
+- Runtime Swagger UI: `/docs`
+- Runtime OpenAPI JSON: `/openapi.json`
+- Workspace schema snapshot: `openapi.json` (project root)
+- Canonical API implementation: `src/api/server.py`
+
+Most non-auth HTTP endpoints in this workspace return the standardized envelope below:
+
+```json
+{
+  "success": true,
+  "message": "Retrieved status for backtest 'run-abc'",
+  "data": {},
+  "timestamp": "2026-04-04T10:22:33.123456",
+  "trace_id": "req-abc123def456"
+}
+```
+
+Notes:
+- `trace_id` is mirrored in the `X-Trace-Id` response header for cross-service debugging.
+- Auth routes under `/auth/*` and `/api/v1/auth/*` keep their auth-specific payloads (token/user schemas) and are documented separately in Swagger.
 
 ### Start Bot Instance
 
@@ -267,6 +291,7 @@ See `PRODUCTION_READINESS.md` for full production checklist.
 
 ## Next Steps
 
+- API contract details: `API_CONTRACT.md`
 - Run backtests: See `docs/FEATURE_STATUS.md`
 - Configure strategies: See `docs/CONFIG_MATRIX.md`
 - Monitor bot: Use `/api/v1/bots/{instance_id}/realtime-stats`

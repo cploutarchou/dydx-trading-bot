@@ -100,7 +100,7 @@ func New(cfg Config) (*Database, error) {
 				_ = conn.Close()
 			}
 			if isSQLiteCGOStubError(runtimeDriver, err) {
-				return nil, fmt.Errorf("sqlite3 requires CGO in this build (driver=%s): %w. Set CGO_ENABLED=1 and install a C compiler (e.g. MinGW-w64 on Windows), or switch DB_TYPE=postgres with a running postgres instance", cfg.Driver, err)
+				return nil, fmt.Errorf("sqlite3 requires CGO in this build (driver=%s): %w. Set CGO_ENABLED=1 and install a local C compiler toolchain, or switch DB_TYPE=postgres with a running postgres instance", cfg.Driver, err)
 			}
 			if attempt < maxRetries {
 				log.Printf("⚠️  Database ping attempt %d/%d failed: %v. Retrying in %v...",

@@ -48,7 +48,8 @@
 		"preview": "vite preview",
 		"lint": "eslint src --ext .ts,.tsx",
 		"test:contracts": "vitest run src/api/contractGuards.test.ts",
-		"qa:screenshots:plan": "powershell -ExecutionPolicy Bypass -File .\\scripts\\capture-responsive-screenshots.ps1 -DryRun",
-		"qa:screenshots:sync": "node .\\scripts\\update-responsive-screenshot-checklist.mjs"
+		"qa:screenshots:plan": "node ./scripts/capture-responsive-screenshots.mjs --dry-run",
+		"qa:screenshots:capture": "node ./scripts/capture-responsive-screenshots.mjs",
+		"qa:screenshots:sync": "node ./scripts/update-responsive-screenshot-checklist.mjs"
 	}
 }

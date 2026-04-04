@@ -1,16 +1,7 @@
 import { Activity, AlertTriangle, Bot, RefreshCw, TrendingUp, Zap } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api';
-import {
-  devFallback,
-  MOCK_ALERTS,
-  MOCK_BOT_INSTANCES,
-  MOCK_BOT_STATS,
-  MOCK_POSITIONS,
-  shouldUseDevMocks,
-} from '../api/mockData';
 import BotManager from '../components/BotManager';
-import { PageContainer } from '../components/PageContainer';
 
 type TabType = 'overview' | 'manager' | 'positions' | 'alerts';
 
@@ -103,53 +94,31 @@ const BotDashboard: React.FC = () => {
       setLoading(true);
       const response = await api.listBotInstances(0, 100);
       const rawBotData = response.data as { bots?: unknown } | unknown;
-      const rawInstances = asArray<BotListItem>(
+      const instances = asArray<BotListItem>(
         (rawBotData as { bots?: unknown })?.bots ?? rawBotData
       );
-      const instances = devFallback(
-        rawInstances,
-        MOCK_BOT_INSTANCES as unknown as BotListItem[]
+
+      const statsResponses = await Promise.all(
+        instances.map(async (bot) => {
+          try { return await api.getBotStats(bot.instance_id); } catch { return null; }
+        })
       );
 
-      // When using mock instances skip the API stats calls and use mock stats directly
-      const isMock = shouldUseDevMocks() && rawInstances.length === 0 && instances.length > 0;
-
-      let statsData: BotStatsData[];
-      if (isMock) {
-        statsData = instances.map((bot) => {
-          const s = MOCK_BOT_STATS[bot.instance_id];
-          return s
-            ? { ...s }
-            : {
-                instance_id: bot.instance_id,
-                status: bot.status,
-                total_pnl: 0, realized_pnl: 0, unrealized_pnl: 0,
-                total_positions: 0, open_positions: 0, total_trades: 0,
-                win_rate: 0, last_update: new Date().toISOString(),
-              };
-        });
-      } else {
-        const statsResponses = await Promise.all(
-          instances.map(async (bot) => {
-            try { return await api.getBotStats(bot.instance_id); } catch { return null; }
-          })
-        );
-        statsData = instances.map((bot, index) => {
-          const rawStats = statsResponses[index]?.data as Record<string, unknown> | undefined;
-          return {
-            instance_id: bot.instance_id,
-            status: bot.status || String(rawStats?.status || 'UNKNOWN'),
-            total_pnl: Number(rawStats?.total_pnl || 0),
-            realized_pnl: Number(rawStats?.realized_pnl || 0),
-            unrealized_pnl: Number(rawStats?.unrealized_pnl || 0),
-            total_positions: Number(rawStats?.total_positions || 0),
-            open_positions: Number(rawStats?.open_positions || 0),
-            total_trades: Number(rawStats?.total_trades || 0),
-            win_rate: Number(rawStats?.win_rate || 0),
-            last_update: String(rawStats?.last_update || new Date().toISOString()),
-          };
-        });
-      }
+      const statsData: BotStatsData[] = instances.map((bot, index) => {
+        const rawStats = statsResponses[index]?.data as Record<string, unknown> | undefined;
+        return {
+          instance_id: bot.instance_id,
+          status: bot.status || String(rawStats?.status || 'UNKNOWN'),
+          total_pnl: Number(rawStats?.total_pnl || 0),
+          realized_pnl: Number(rawStats?.realized_pnl || 0),
+          unrealized_pnl: Number(rawStats?.unrealized_pnl || 0),
+          total_positions: Number(rawStats?.total_positions || 0),
+          open_positions: Number(rawStats?.open_positions || 0),
+          total_trades: Number(rawStats?.total_trades || 0),
+          win_rate: Number(rawStats?.win_rate || 0),
+          last_update: String(rawStats?.last_update || new Date().toISOString()),
+        };
+      });
 
       setBotList(statsData);
       setLastUpdated(new Date());
@@ -168,8 +137,7 @@ const BotDashboard: React.FC = () => {
     try {
       const response = await api.getBotCurrentPositions(selectedBot);
       const rawData = response.data as { positions?: unknown } | unknown;
-      const live = asArray<PositionData>((rawData as { positions?: unknown })?.positions ?? rawData);
-      setBotPositions(devFallback(live, MOCK_POSITIONS as unknown as PositionData[]));
+      setBotPositions(asArray<PositionData>((rawData as { positions?: unknown })?.positions ?? rawData));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load positions');
     }
@@ -180,8 +148,7 @@ const BotDashboard: React.FC = () => {
     try {
       const response = await api.getBotAlerts(selectedBot, 0, 50);
       const rawData = response.data as { alerts?: unknown } | unknown;
-      const live = asArray<AlertDataType>((rawData as { alerts?: unknown })?.alerts ?? rawData);
-      setBotAlerts(devFallback(live, MOCK_ALERTS as unknown as AlertDataType[]));
+      setBotAlerts(asArray<AlertDataType>((rawData as { alerts?: unknown })?.alerts ?? rawData));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load alerts');
     }
@@ -205,11 +172,10 @@ const BotDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-slate-900">
       {/* Tab Bar */}
       <div className="border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm sticky top-0 z-30">
-        <PageContainer size="wide" className="!px-4 !py-0 sm:!px-6 lg:!px-8">
-          <div className="flex gap-1 overflow-x-auto">
+        <div className="max-w-7xl mx-auto flex gap-1 px-4 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -224,14 +190,13 @@ const BotDashboard: React.FC = () => {
               {tab.label}
             </button>
           ))}
-          </div>
-        </PageContainer>
+        </div>
       </div>
 
-      <PageContainer size="wide">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         {/* Page header */}
         {activeTab !== 'manager' && (
-          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-2xl font-bold text-white flex items-center gap-3">
                 <div className="p-2 bg-blue-500/15 rounded-lg">
@@ -353,7 +318,7 @@ const BotDashboard: React.FC = () => {
                     </span>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                   {[
                     { label: 'Total P&L', value: formatCurrency(selectedBotStats.total_pnl), colored: true, positive: selectedBotStats.total_pnl >= 0 },
                     { label: 'Realized P&L', value: formatCurrency(selectedBotStats.realized_pnl), colored: false, positive: false },
@@ -471,7 +436,7 @@ const BotDashboard: React.FC = () => {
             )}
           </div>
         )}
-      </PageContainer>
+      </div>
     </div>
   );
 };

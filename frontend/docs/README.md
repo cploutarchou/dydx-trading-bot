@@ -1,52 +1,53 @@
-# Documentation Index
+# Frontend Documentation
 
-Frontend documentation organized around the current local workflow.
+This is the main entry point for frontend docs. Use it to find the right guide quickly and follow the docs in a clear order.
 
-## Quick Links
+## Start here
 
-| Purpose                        | Link                                                                                 | Time   |
-| ------------------------------ | ------------------------------------------------------------------------------------ | ------ |
-| Setup                          | [SETUP.md](SETUP.md)                                                                 | 5 min  |
-| Troubleshooting                | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)                               | varies |
-| Architecture overview          | [architecture/README.md](architecture/README.md)                                     | 10 min |
-| Responsive screenshot playbook | [guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md](guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md) | 5 min  |
-| Screenshot checklist           | [RESPONSIVE_SCREENSHOT_CHECKLIST.md](RESPONSIVE_SCREENSHOT_CHECKLIST.md)             | 3 min  |
-| Responsive QA status           | [RESPONSIVE_QA_STATUS.md](RESPONSIVE_QA_STATUS.md)                                   | 5 min  |
+1. [SETUP.md](SETUP.md) — local setup, build, preview, and shared service commands
+2. [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) — common local environment and runtime issues
+3. [architecture/README.md](architecture/README.md) — architecture map and deeper technical references
+4. [../.github/copilot-instructions.md](../.github/copilot-instructions.md) — project conventions and implementation patterns
 
-## Directory Structure
+## Recommended reading order
 
-```text
-docs/
-├── README.md                         # This file
-├── SETUP.md                          # Local dev + production setup
-├── RESPONSIVE_QA_STATUS.md           # Breakpoint QA matrix
-├── RESPONSIVE_SCREENSHOT_CHECKLIST.md # Expected evidence filenames
-├── RESPONSIVE_SCREENSHOT_SIGNOFF.md  # Reviewer sign-off checklist
-├── architecture/                     # Architecture & design docs
-└── guides/                           # Troubleshooting and workflows
-```
+| If you want to...                     | Read this                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------ |
+| run the frontend locally              | [SETUP.md](SETUP.md)                                                                 |
+| connect to backend and infra services | [SETUP.md](SETUP.md)                                                                 |
+| debug a broken local setup            | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)                               |
+| understand data flow and UI structure | [architecture/README.md](architecture/README.md)                                     |
+| capture responsive screenshots        | [guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md](guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md) |
 
-## Getting Started
+## Docs map
 
-1. Read [SETUP.md](SETUP.md) for the supported local setup.
-2. Start frontend dev with `npm install` then `npm run dev`.
-3. For integration services, use the repo-root commands: `make stack-env` and `make infra-up`.
-4. If something breaks, use [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md).
+### Core docs
 
-## Common Tasks
+| Document                                               | Purpose                                                     |
+| ------------------------------------------------------ | ----------------------------------------------------------- |
+| [SETUP.md](SETUP.md)                                   | Supported local workflow on macOS/Linux                     |
+| [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) | Fix common environment, dependency, and service issues      |
+| [architecture/README.md](architecture/README.md)       | Architecture index for flows, patterns, and API integration |
 
-| Task                           | Link                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------ |
-| Set up development environment | [SETUP.md](SETUP.md)                                                                 |
-| Fix a problem                  | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)                               |
-| Understand architecture        | [architecture/README.md](architecture/README.md)                                     |
-| Learn project patterns         | [../.github/copilot-instructions.md](../.github/copilot-instructions.md)             |
-| Capture responsive screenshots | [guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md](guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md) |
-| Verify screenshot filenames    | [RESPONSIVE_SCREENSHOT_CHECKLIST.md](RESPONSIVE_SCREENSHOT_CHECKLIST.md)             |
+### QA and operational docs
 
-## Quick Reference
+| Document                                                                             | Purpose                      |
+| ------------------------------------------------------------------------------------ | ---------------------------- |
+| [guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md](guides/RESPONSIVE_SCREENSHOT_PLAYBOOK.md) | Screenshot capture workflow  |
+| [RESPONSIVE_SCREENSHOT_CHECKLIST.md](RESPONSIVE_SCREENSHOT_CHECKLIST.md)             | Expected screenshot outputs  |
+| [RESPONSIVE_SCREENSHOT_SIGNOFF.md](RESPONSIVE_SCREENSHOT_SIGNOFF.md)                 | Review sign-off checklist    |
+| [RESPONSIVE_QA_STATUS.md](RESPONSIVE_QA_STATUS.md)                                   | Current responsive QA status |
 
-### Commands
+### Summary docs
+
+| Document                                       | Purpose                                       |
+| ---------------------------------------------- | --------------------------------------------- |
+| [INDEX.md](INDEX.md)                           | Short navigation summary                      |
+| [COMPLETION_SUMMARY.md](COMPLETION_SUMMARY.md) | Maintenance note about the current docs shape |
+
+## Quick reference
+
+### Frontend commands
 
 ```bash
 npm run dev
@@ -57,7 +58,7 @@ npm run qa:screenshots:capture
 npm run qa:screenshots:sync
 ```
 
-Integration services from the repo root:
+### Repo-root integration commands
 
 ```bash
 make stack-env
@@ -67,25 +68,32 @@ make infra-down
 make stack-down
 ```
 
-### Environment Variables
+### Shared ports
 
-Use the repo-root `.env`:
+| Port | Service                               |
+| ---- | ------------------------------------- |
+| 5173 | Frontend dev server                   |
+| 3000 | Frontend production preview/container |
+| 8888 | Go backend                            |
+| 8889 | Bot API                               |
+| 5432 | PostgreSQL                            |
+| 6379 | Redis                                 |
 
-```bash
-VITE_API_URL=http://localhost:8888
+## Directory layout
+
+```text
+docs/
+├── README.md
+├── INDEX.md
+├── SETUP.md
+├── COMPLETION_SUMMARY.md
+├── RESPONSIVE_QA_STATUS.md
+├── RESPONSIVE_SCREENSHOT_CHECKLIST.md
+├── RESPONSIVE_SCREENSHOT_SIGNOFF.md
+├── architecture/
+└── guides/
 ```
 
-### Ports
+## Need help?
 
-| Port | Service              |
-| ---- | -------------------- |
-| 5173 | Frontend dev server  |
-| 3000 | Production container |
-| 8888 | Go backend           |
-| 8889 | Bot API              |
-| 5432 | PostgreSQL           |
-| 6379 | Redis                |
-
-## Need Help?
-
-Start with [SETUP.md](SETUP.md), then fall back to [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) if needed.
+If you are not sure where to start, read [SETUP.md](SETUP.md) first and then use [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) when something misbehaves.

@@ -1,8 +1,8 @@
-# Setup Guide - Development & Production
+# Frontend Setup Guide
 
-This frontend is now documented for direct local development on macOS/Linux.
+This guide covers the supported frontend workflow for local development on macOS/Linux.
 
-## 🚀 Quick Start
+## Quick start
 
 ### Prerequisites
 
@@ -13,7 +13,6 @@ This frontend is now documented for direct local development on macOS/Linux.
 ### Local frontend setup
 
 ```bash
-# From frontend/
 npm install
 npm run dev
 ```
@@ -35,7 +34,14 @@ For full-stack verification:
 make stack-up-dev
 ```
 
-## 🐳 Production Build
+To stop shared services later:
+
+```bash
+make infra-down
+make stack-down
+```
+
+## Production build
 
 ```bash
 npm run build
@@ -51,7 +57,7 @@ docker run -p 3000:80 dydx-frontend
 
 Visit <http://localhost:3000>
 
-## 🔧 Available Commands
+## Common commands
 
 ```bash
 npm run dev
@@ -66,6 +72,7 @@ npm run qa:screenshots:sync
 Repo-root integration commands:
 
 ```bash
+make stack-env
 make infra-up
 make infra-down
 make stack-up-dev
@@ -73,7 +80,7 @@ make stack-down
 make stack-logs
 ```
 
-## 📦 Environment Variables
+## Environment variables
 
 Keep shared values in the repo-root `.env`:
 
@@ -89,7 +96,7 @@ VITE_API_URL=https://api.example.com
 NODE_ENV=production
 ```
 
-## 🔐 Git & SSH Setup
+## Git and SSH setup
 
 Use your normal local configuration:
 
@@ -99,7 +106,7 @@ git config --global user.email "your.email@example.com"
 ssh -T git@github.com
 ```
 
-## 🐳 Available Services
+## Available services
 
 | Service         | Port | URL                                                          |
 | --------------- | ---- | ------------------------------------------------------------ |
@@ -109,12 +116,12 @@ ssh -T git@github.com
 | PostgreSQL      | 5432 | `postgresql://postgres:postgres@localhost:5432/dydx_trading` |
 | Redis           | 6379 | `redis://localhost:6379`                                     |
 
-## 🆘 Troubleshooting
+## Troubleshooting
 
 If you hit port conflicts, dependency problems, or backend connectivity issues, use [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md).
 
-## 🎯 Next Steps
+## Next steps
 
 - Need architecture info? → [architecture/README.md](architecture/README.md)
-- Need troubleshooting? → [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)
+- Need troubleshooting help? → [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)
 - Need project conventions? → [../../.github/copilot-instructions.md](../../.github/copilot-instructions.md)

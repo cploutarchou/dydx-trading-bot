@@ -23,12 +23,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api';
-import {
-  devFallback,
-  getMockDataMode,
-  MOCK_BACKTEST_RUNS,
-  shouldUseDevMocks,
-} from '../api/mockData';
+import { devFallback, MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
@@ -300,18 +295,29 @@ export const DashboardPage: React.FC = () => {
   const [usingMockData, setUsingMockData] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasWarnedMockRef = useRef(false);
+  const isComputingRef = useRef(false);
+  const activeComputeIdRef = useRef(0);
 
   const computeStats = useCallback(async () => {
-    if (getMockDataMode() === 'on') {
-      const mockRuns = MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[];
-      setUsingMockData(true);
-      setStats(buildDashboardStats(mockRuns));
-      setStatsLoading(false);
+    if (isComputingRef.current) {
       return;
     }
 
+    isComputingRef.current = true;
+    const computeId = activeComputeIdRef.current + 1;
+    activeComputeIdRef.current = computeId;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     try {
-      const response = await api.listBacktests(0, 500);
+      const statsPromise = api.listBacktests(0, 500);
+      const timeoutPromise = new Promise<Awaited<ReturnType<typeof api.listBacktests>>>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Timed out while loading dashboard stats')), 15000);
+      });
+
+      const response = await Promise.race([statsPromise, timeoutPromise]);
+      if (activeComputeIdRef.current !== computeId) {
+        return;
+      }
       const raw = toRecord(response);
       const rawData = toRecord(raw.data);
 
@@ -329,6 +335,9 @@ export const DashboardPage: React.FC = () => {
       setUsingMockData(shouldUseDevMocks() && rawRuns.length === 0 && runs.length > 0);
       setStats(buildDashboardStats(runs));
     } catch (error) {
+      if (activeComputeIdRef.current !== computeId) {
+        return;
+      }
       if (shouldUseDevMocks()) {
         if (!hasWarnedMockRef.current) {
           console.warn('🔧 Dashboard: API unavailable, using mock stats in development.', error);
@@ -336,8 +345,16 @@ export const DashboardPage: React.FC = () => {
         }
         setUsingMockData(true);
         setStats(buildDashboardStats(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]));
+      } else {
+        console.error('❌ Dashboard: failed to load stats', error);
       }
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (activeComputeIdRef.current === computeId) {
+        isComputingRef.current = false;
+      }
       setStatsLoading(false);
     }
   }, []);
@@ -383,7 +400,7 @@ export const DashboardPage: React.FC = () => {
   const pnlColor = stats.totalPnl >= 0 ? '#22c55e' : '#ef4444';
 
   return (
-    <PageContainer size="wide" className="space-y-4 sm:space-y-6">
+    <PageContainer size="wide" className="space-y-6">
 
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <div
@@ -393,7 +410,7 @@ export const DashboardPage: React.FC = () => {
         <div className="absolute -top-20 -right-20 w-72 h-72 bg-blue-600/8 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-purple-600/8 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative flex flex-col gap-3 px-4 py-4 sm:px-6 sm:py-5 md:flex-row md:items-center md:justify-between">
+        <div className="relative px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <p className="text-slate-400 text-sm">{greeting},</p>
             <h1 className="text-2xl font-bold text-white mt-0.5">
@@ -433,7 +450,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── KPI row 1 ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard label="Total Runs" icon={<BarChart2 className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countTotal)}
           subtitle={`${stats.completed} completed`} color="blue" animDelay={0} />
@@ -453,7 +470,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── KPI row 2 ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard label="Lifetime P&L" icon={<TrendingUp className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtPnl(stats.totalPnl)}
           subtitle={`avg ${fmtPnl(stats.avgPnlPerRun)}/run`}
@@ -475,7 +492,7 @@ export const DashboardPage: React.FC = () => {
         className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 animate-fade-slide-up"
         style={{ animationDelay: '200ms' }}
       >
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <TrendingUp className="w-4 h-4" style={{ color: pnlColor }} />
@@ -495,7 +512,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── Quick Launch + Active Runs ──────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Quick Launch accordion */}
         <div
@@ -592,7 +609,10 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <SyncHealthPanel activeRunIds={stats.activeRuns.map((run) => run.run_id)} />
+      {/* ── Sync Health ──────────────────────────────────────────────── */}
+      <div className="animate-fade-slide-up" style={{ animationDelay: '390ms' }}>
+        <SyncHealthPanel />
+      </div>
 
       {/* ── Full Backtest List ──────────────────────────────────────── */}
       <div className="animate-fade-slide-up" style={{ animationDelay: '420ms' }}>

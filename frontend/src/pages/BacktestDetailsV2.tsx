@@ -595,16 +595,39 @@ export const BacktestDetailsV2: React.FC = () => {
     const sn = normalizeStatus(backtest.status);
     if (sn !== 'running' && sn !== 'pending') return;
 
-    const intervalId = setInterval(async () => {
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let failureCount = 0;
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return;
+      timerId = setTimeout(() => {
+        void pollStatus();
+      }, delayMs);
+    };
+
+    const pollStatus = async () => {
       try {
         const res = await api.getBacktest(runId);
+        if (cancelled) return;
         setBacktest((res?.data || res) as unknown as BacktestResponse);
+        failureCount = 0;
+        scheduleNext(5000);
       } catch {
-        // ignore polling errors
+        if (cancelled) return;
+        failureCount = Math.min(failureCount + 1, 4);
+        scheduleNext(Math.min(5000 * 2 ** failureCount, 30000));
       }
-    }, 5000);
+    };
 
-    return () => clearInterval(intervalId);
+    void pollStatus();
+
+    return () => {
+      cancelled = true;
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    };
   }, [backtest?.status, runId]);
 
   // Poll live logs while the backtest is active to surface current scan/task activity.
@@ -616,15 +639,21 @@ export const BacktestDetailsV2: React.FC = () => {
     if (!isActive) return;
 
     let cancelled = false;
-    let logsSupported = true;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let failureCount = 0;
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return;
+      timerId = setTimeout(() => {
+        void fetchLogs();
+      }, delayMs);
+    };
 
     const fetchLogs = async () => {
-      if (!logsSupported) return;
-
       try {
         const response = await api.getBacktestLogs(runId);
         if (cancelled || !response.success || !response.data?.logs) {
+          scheduleNext(5000);
           return;
         }
 
@@ -639,29 +668,25 @@ export const BacktestDetailsV2: React.FC = () => {
           .reverse();
 
         setLiveLogs(normalized);
+        failureCount = 0;
+        scheduleNext(5000);
       } catch (error) {
-        const statusCode = asRecord(asRecord(error)?.response)?.status;
-        if (statusCode === 404) {
-          logsSupported = false;
-          setLiveLogs([]);
-          if (intervalId) {
-            clearInterval(intervalId);
-            intervalId = null;
-          }
+        if (cancelled) {
           return;
         }
         console.warn('📊 BacktestDetailsV2: failed to fetch live backtest logs', error);
+        failureCount = Math.min(failureCount + 1, 4);
+        scheduleNext(Math.min(5000 * 2 ** failureCount, 30000));
       }
     };
 
     void fetchLogs();
-    intervalId = setInterval(() => {
-      void fetchLogs();
-    }, 5000);
 
     return () => {
       cancelled = true;
-      clearInterval(intervalId);
+      if (timerId) {
+        clearTimeout(timerId);
+      }
     };
   }, [runId, backtest?.status]);
 

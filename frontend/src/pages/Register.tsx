@@ -1,7 +1,6 @@
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFocusOnVisibleError } from '../hooks/useFocusOnVisibleError';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -36,13 +35,15 @@ export const RegisterPage: React.FC = () => {
         usernameInputRef.current?.focus();
     }, []);
 
-    useFocusOnVisibleError(
-        [
-            { when: !!error, ref: apiErrorAlertRef },
-            { when: !error && !!formError, ref: formErrorAlertRef },
-        ],
-        [error, formError]
-    );
+    useEffect(() => {
+        if (error) {
+            apiErrorAlertRef.current?.focus();
+            return;
+        }
+        if (formError) {
+            formErrorAlertRef.current?.focus();
+        }
+    }, [error, formError]);
 
     const validateForm = (): ValidationErrors => {
         const errors: ValidationErrors = {};

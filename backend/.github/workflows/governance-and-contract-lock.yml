@@ -27,5 +27,5 @@ jobs:
       - name: Run contract lock tests
         shell: pwsh
         run: |
-          go test -count=1 ./internal/routes -run "TestContractLock_AuthAndDelegatedHighTrafficEndpoints|TestContractLock_BacktestSyncHealthEndpoint"
+          go test -count=1 ./internal/routes -run "TestContractLock_"
 

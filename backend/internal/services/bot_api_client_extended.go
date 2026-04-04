@@ -145,7 +145,7 @@ func (c *BotAPIClient) GetBacktestDetails(runID string) (map[string]interface{},
 	return c.makeRequest("GET", endpoint, nil)
 }
 
-// GetBacktestTrades retrieves trades for a specific backtest run
+// GetBacktestTradesWithFilters GetBacktestTrades retrieves trades for a specific backtest run
 func (c *BotAPIClient) GetBacktestTradesWithFilters(runID string, limit, offset int, winningOnly bool) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/backtests/%s/trades?limit=%d&offset=%d&winning_only=%v", runID, limit, offset, winningOnly)
 	return c.makeRequest("GET", endpoint, nil)

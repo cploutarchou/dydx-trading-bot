@@ -316,6 +316,72 @@ func TestContractLock_BacktestResyncEndpointResponseShape(t *testing.T) {
 	}
 }
 
+func TestContractLock_BacktestDetailsStableKeys(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/lock-details", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"run_id":"lock-details","status":"running","progress_percent":42,"total_pnl":12.5,"max_drawdown":7.25},"timestamp":"2026-04-04T00:00:00Z"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	loginBody, _ := json.Marshal(map[string]string{"username": "smoke-user", "password": "Pass123!"})
+	loginResp, err := http.Post(backendServer.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	defer func() { _ = loginResp.Body.Close() }()
+	var loginJSON map[string]interface{}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginJSON); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	token, _ := loginJSON["access_token"].(string)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/lock-details", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("details request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode details response: %v", err)
+	}
+
+	data, ok := got["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T (%v)", got["data"], got["data"])
+	}
+	assertFieldTypes(t, data, []fieldExpectation{
+		{key: "run_id", typeName: "string"},
+		{key: "status", typeName: "string"},
+		{key: "progress_percent", typeName: "number"},
+		{key: "progress_pct", typeName: "number"},
+		{key: "progress", typeName: "number"},
+		{key: "total_pnl", typeName: "number"},
+		{key: "max_drawdown_pct", typeName: "number"},
+	})
+
+	for _, key := range []string{"win_rate", "sharpe_ratio", "total_trades"} {
+		value, exists := data[key]
+		if !exists {
+			t.Fatalf("missing key %q in details data: %v", key, data)
+		}
+		if value != nil {
+			t.Fatalf("expected key %q to be explicit null, got %T (%v)", key, value, value)
+		}
+	}
+}
+
 func TestContractLock_BacktestEmptyStateShapes(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/backtests/lock-empty/logs", func(w http.ResponseWriter, _ *http.Request) {

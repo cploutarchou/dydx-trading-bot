@@ -267,15 +267,6 @@ export function useBacktestStatus(runId: string, enabled: boolean = true) {
   });
 }
 
-export function useBacktestSyncHealth(runId?: string, enabled: boolean = true) {
-  return useQuery({
-    queryKey: queryKeys.backtestSyncHealth(runId),
-    queryFn: () => apiClient.getBacktestSyncHealth(runId),
-    ...queryConfigs.realtime,
-    enabled,
-  });
-}
-
 export function useBacktestTrades(runId: string, limit: number = 50, offset: number = 0) {
   return useQuery({
     queryKey: queryKeys.backtestTrades(runId, { limit, offset }),
@@ -426,8 +417,8 @@ export function useBacktestProgress(runId: string) {
       return 0;
     }
 
-    // Backtest endpoints already report percentage values (including decimals like 0.5%).
-    return Math.min(100, Math.max(0, parsed));
+    const normalized = Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
+    return Math.min(100, Math.max(0, normalized));
   };
 
   const extractCurrentPair = (data: unknown): string | null => {
@@ -446,15 +437,6 @@ export function useBacktestProgress(runId: string) {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
   };
 
-  const extractProgressSource = (data: unknown): 'details' | 'list_fallback' | 'default' => {
-    const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
-    const source = record.progress_source;
-    if (source === 'details' || source === 'list_fallback' || source === 'default') {
-      return source;
-    }
-    return 'default';
-  };
-
   const query = useQuery({
     queryKey: queryKeys.backtestStatus(runId),
     queryFn: () => apiClient.getBacktestStatus(runId),
@@ -464,7 +446,8 @@ export function useBacktestProgress(runId: string) {
       if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED') {
         return false;
       }
-      return 2000; // Poll every 2 seconds
+      const failures = Math.min(query.state.fetchFailureCount ?? 0, 4);
+      return Math.min(2000 * 2 ** failures, 15000);
     },
     enabled: !!runId,
   });
@@ -478,7 +461,6 @@ export function useBacktestProgress(runId: string) {
     progressPercent: normalizeProgressPercent(query.data),
     currentPair: extractCurrentPair(query.data),
     etaSeconds: extractEtaSeconds(query.data),
-    progressSource: extractProgressSource(query.data),
   };
 }
 

@@ -60,6 +60,7 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
+- [x] 2026-04-04: Backend standardized delegated backtest details/empty-state payloads and enabled broader CI contract-lock enforcement for frontend-facing backtest routes.
 - [x] 2026-04-04: Adopted cross-repo task governance format with backend/frontend linkage.
 - [x] 2026-04-04: Added contract aliases (`progress`, `backtests`, `count`), run-scoped `run_id` coverage, `sync-health`, trace-id logging, and runtime queue/job counters.
 - [x] 2026-04-04: Synced with backend governance enforcement and new backend sync capabilities (`resync`, `run_age_seconds`, `sync_lag_seconds`, `quality_issues`).

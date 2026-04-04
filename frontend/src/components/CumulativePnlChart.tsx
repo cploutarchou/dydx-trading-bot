@@ -58,7 +58,7 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   const valuePadding = Math.max((maxValue - minValue) * 0.15, 100);
   const yDomain: [number, number] = [minValue - valuePadding, maxValue + valuePadding];
 
-  if (data.length === 0) {
+  if (normalizedData.length === 0) {
     return (
       <div
         className="flex items-center justify-center text-slate-500 text-sm italic"
@@ -107,12 +107,15 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
               color: '#e2e8f0',
             }}
             labelStyle={{ color: '#cbd5e1', marginBottom: '0.25rem' }}
-            formatter={(value: number) => [
-              `${value >= 0 ? '+' : '-'}$${Math.abs(value).toLocaleString('en-US', {
-                maximumFractionDigits: 2,
-              })}`,
-              'Cumulative P&L',
-            ]}
+            formatter={(value: unknown) => {
+              const numericValue = Number(value ?? 0);
+              return [
+                `${numericValue >= 0 ? '+' : '-'}$${Math.abs(numericValue).toLocaleString('en-US', {
+                  maximumFractionDigits: 2,
+                })}`,
+                'Cumulative P&L',
+              ];
+            }}
           />
           <Area
             type="monotone"

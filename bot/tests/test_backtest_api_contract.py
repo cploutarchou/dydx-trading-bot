@@ -48,6 +48,27 @@ class _StubService:
         return {"queue_depth": 2, "active_jobs": 1, "total_runs": 5}
 
 
+class _RunResult:
+    def __init__(self, payload):
+        self._payload = payload
+        self.name = payload.get("name", "manual-backtest")
+
+    def model_dump(self):
+        return dict(self._payload)
+
+
+class _RunStubService:
+    async def create_and_run_backtest(self, request):
+        return _RunResult(
+            {
+                "run_id": "fallback-run",
+                "name": request.name,
+                "status": "queued",
+                "progress_pct": 0.0,
+            }
+        )
+
+
 async def _call(awaitable):
     return await awaitable
 
@@ -109,4 +130,63 @@ def test_sync_health_endpoint_returns_runtime_counters(monkeypatch):
     assert payload["data"]["queue_depth"] == 2
     assert payload["data"]["active_jobs"] == 1
     assert payload["data"]["total_runs"] == 5
+
+
+def test_openapi_documents_standard_response_envelope():
+    server = _load_server_module()
+    schema = server.app.openapi()
+
+    status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"]["responses"][
+        "200"
+    ]["content"]["application/json"]["schema"]
+    all_of = status_schema.get("allOf", [])
+
+    assert any(
+        isinstance(item, dict)
+        and item.get("$ref") == "#/components/schemas/StandardApiResponse"
+        for item in all_of
+    )
+
+
+def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _RunStubService())
+
+    async def _stub_markets(_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+
+    def _raise_lookup(_strategy_id):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", _raise_lookup)
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=1,
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["run_id"] == "fallback-run"
+    assert payload["data"]["progress"] == 0.0
+
+
+def test_api_response_sanitizes_internal_error_details():
+    server = _load_server_module()
+
+    response = server.api_response(
+        success=False,
+        message="Internal server error: (psycopg2.OperationalError) db exploded",
+        status_code=500,
+    )
+    payload = json.loads(response.body)
+
+    assert payload["message"] == "Internal server error"
+    assert "psycopg2" not in payload["message"]
+
 

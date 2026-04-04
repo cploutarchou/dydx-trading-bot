@@ -15,7 +15,16 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
 // Type-safe error message extractor
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof AxiosError) {
-    return error.response?.data?.message || error.message || 'Unknown error';
+    const data = error.response?.data as Record<string, unknown> | undefined;
+    const upstreamMessage =
+      typeof data?.message === 'string'
+        ? data.message
+        : typeof data?.detail === 'string'
+          ? data.detail
+          : typeof data?.error === 'string'
+            ? data.error
+            : null;
+    return upstreamMessage || error.message || 'Unknown error';
   }
   if (error instanceof Error) {
     return error.message;

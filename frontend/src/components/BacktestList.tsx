@@ -87,6 +87,20 @@ const toRecord = (value: unknown): Record<string, unknown> =>
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
+const formatUtcDateTime = (value?: string): string => {
+  if (!value) return 'N/A';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return parsed.toISOString().replace('T', ' ').replace('Z', ' UTC');
+};
+
+const formatUtcDate = (value?: string): string => {
+  if (!value) return 'N/A';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return parsed.toISOString().substring(0, 10);
+};
+
 export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger = 0 }) => {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<BacktestRun[]>([]);
@@ -376,13 +390,12 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm">
-                        {new Date(run.created_at).toLocaleString()}
+                        {formatUtcDateTime(run.created_at)}
                       </td>
                       <td className="px-4 py-2">
                         {run.start_date && run.end_date ? (
                           <>
-                            {new Date(run.start_date).toLocaleDateString()} –{' '}
-                            {new Date(run.end_date).toLocaleDateString()}
+                            {formatUtcDate(run.start_date)} - {formatUtcDate(run.end_date)}
                           </>
                         ) : (
                           '–'

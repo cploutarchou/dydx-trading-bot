@@ -131,7 +131,9 @@ const normalizePercentValue = (value: unknown): number => {
 const formatDateValue = (value: string | null | undefined): string => {
   if (!value) return '-';
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString();
+  return Number.isNaN(parsed.getTime())
+    ? '-'
+    : parsed.toISOString().replace('T', ' ').replace('Z', ' UTC');
 };
 
 const normalizeStatus = (value: unknown): string => String(value || '').toLowerCase();
@@ -478,7 +480,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
         const flattened: Position[] = [];
 
-        snapshots.forEach((snapshot, snapshotIndex) => {
+        snapshots.forEach((snapshot) => {
           const snapshotRecord = asRecord(snapshot);
           if (!snapshotRecord) return;
 
@@ -488,14 +490,14 @@ export const BacktestDetailsV2: React.FC = () => {
 
           if (!Array.isArray(snapshotPositions)) return;
 
-          snapshotPositions.forEach((rawPos, posIndex) => {
+          snapshotPositions.forEach((rawPos) => {
             const pos = asRecord(rawPos);
             if (!pos) return;
 
             const pnl = toNumber(pos.total_pnl_usd, Number.NaN) || toNumber(pos.unrealized_pnl, 0);
 
             flattened.push({
-              position_id: Number(toStringValue(pos.position_id, `${snapshotIndex}-${posIndex}`)),
+              position_id: toNumber(pos.position_id, 0),
               market_1: toStringValue(pos.market_1, '-'),
               market_2: toStringValue(pos.market_2, '-'),
               entry_timestamp:
@@ -551,8 +553,9 @@ export const BacktestDetailsV2: React.FC = () => {
             .filter((item): item is Record<string, unknown> => item !== null)
             .map((trade) => {
               const pnlUsd = toNumber(trade.pnl_usd, toNumber(trade.pnl, 0));
+              const serverTradeId = toStringValue(trade.trade_id);
               return {
-                trade_id: toStringValue(trade.trade_id, crypto.randomUUID()),
+                trade_id: serverTradeId,
                 market_1: toStringValue(trade.market_1, toStringValue(trade.base_market, '-')),
                 market_2: toStringValue(trade.market_2, toStringValue(trade.quote_market, '-')),
                 entry_timestamp:

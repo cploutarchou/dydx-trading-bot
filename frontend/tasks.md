@@ -1,8 +1,8 @@
 ﻿# Frontend Integration Tasks
 
 ## Status Summary
-- Completed: `27`
-- Pending: `17`
+- Completed: `33`
+- Pending: `13`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
@@ -73,21 +73,21 @@
   - Owner: Backend
 
 ### B) Progress + Sync Health (high priority)
-- [ ] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/status`
+- [x] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/:run_id/status`
   - UI impact: dashboard + details progress bar needs near-real-time `progress_pct` and `current_pair/current_task`.
   - Fallback behavior: include `progress_pct: 0` and `current_task: null` for pending runs.
   - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/sync-health`
+- [x] Date: 2026-04-04 | Endpoint: `GET /api/v1/backtests/sync-health`
   - UI impact: upcoming sync panel and stale-data warning badges.
   - Fallback behavior: always include run-level counters (`trades`, `positions`, `candles`) and lag fields.
   - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint: `POST /api/v1/backtests/:run_id/resync`
+- [x] Date: 2026-04-04 | Endpoint: `POST /api/v1/backtests/:run_id/resync`
   - UI impact: manual resync action for stale runs.
   - Fallback behavior: idempotent response with job/run state.
   - Owner: Backend
 
 ### C) Error Semantics + Contracts (high priority)
-- [ ] Date: 2026-04-04 | Endpoint(s): all `/api/v1/backtests/*`
+- [x] Date: 2026-04-04 | Endpoint(s): all `/api/v1/backtests/*`
   - UI impact: toasts and inline errors should distinguish transport vs business errors.
   - Fallback behavior: keep envelope `{ success, message, data, timestamp }` for all non-stream endpoints.
   - Owner: Backend
@@ -121,6 +121,8 @@
   - Owner: Backend
 
 ## Change Log
+- [x] 2026-04-04: Backend updated `POST /api/v1/backtests/:run_id/resync` to include deterministic run/job state fields for stable manual-resync UI handling.
+- [x] 2026-04-04: Backend standardized non-stream `/api/v1/backtests/*` success responses on a canonical envelope and locked status/sync-health fields for UI polling.
 - [x] 2026-04-04: Backend stabilized `GET /api/v1/backtests/:run_id` keys/nullability and expanded CI-backed contract locks for details and empty-state backtest payloads.
 - [x] 2026-04-04: Added cross-repo task governance process and endpoint backlog alignment.
 - [x] 2026-04-04: Backend added `POST /api/v1/backtests/:run_id/resync` and sync-health metrics fields (`run_age_seconds`, `sync_lag_seconds`, `quality_issues`) for dashboard consumption.

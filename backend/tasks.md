@@ -1,10 +1,20 @@
 ﻿# Backend Tasks
 
 ## Status Summary
-- Completed: `42`
+- Completed: `54`
 - Pending: `0`
 - Last updated: `2026-04-04`
 - Note: update these totals whenever any [x] or [ ] task changes.
+
+## Cross-Repo Status Snapshot
+
+| Repo | Completed | Pending | Focus |
+| --- | --- | --- | --- |
+| backend | 54 | 0 | Delegated contract parity and contract-lock coverage shipped |
+| bot | 26 | 0 | Canonical API contract and runtime envelope/documentation stability |
+| frontend | 56 | 5 | Remaining responsive evidence + medium-priority backend integration asks |
+
+Snapshot date: `2026-04-04`.
 
 ## Ongoing Update Protocol
 - [x] Mirror backend API/auth contract changes into `../bot/tasks.md` and `../frontend/tasks.md`.
@@ -54,8 +64,22 @@
 - [x] Add contract-lock tests for the standardized empty-state shapes above (logs/analytics/snapshots/trades-detailed).
 - [x] Add CI failure conditions for required-key omissions on high-traffic payloads consumed by frontend.
 
+### Bot Instance Delegation + Payload Parity (Audit Follow-up)
+- [x] Align `/api/v1/bots/:instance_id/trades` query contract with bot upstream (`status` filter) and remove/rework legacy `limit/offset/winning_only` passthrough in `internal/services/bot_api_client.go` + `internal/services/bot_instance_service.go`.
+- [x] Pass through `force` on `POST /api/v1/bots/:instance_id/stop` by wiring handler query parsing to `StopBotInstanceWithForce(...)`.
+- [x] Resolve bot identifier type mismatch for delegated realtime routes that upstream defines with integer `bot_instance_id` (`/positions/{position_id}`, `/market-data`, `/realtime-stats`, `/alerts`, `/position-history/{position_id}`), including deterministic mapping from external `instance_id` where required.
+- [x] Add contract-lock tests for bot lifecycle endpoints (`GET/POST /api/v1/bots`, `GET/DELETE /api/v1/bots/:instance_id`, start/stop/restart) to verify upstream payload parity and stable envelope fields.
+- [x] Add contract-lock tests for bot trade/stat/history delegated payloads to ensure required keys and query semantics stay aligned with `src/api/server.py` and `openapi.json`.
+- [x] Deprecate or refactor unused legacy client methods with stale query semantics (`GetBotInstanceHistory`, `GetBotInstanceTrades`) to prevent accidental contract regression.
+- [x] Add one backend integration test suite that compares delegated route responses against bot OpenAPI-required payload keys for high-traffic bot endpoints.
+
 ## Change Log
 
+- [x] 2026-04-04: Validated delegated backend compatibility after bot-wide 5xx message sanitization (`api_response`) to ensure backend passthrough contracts remain stable while upstream internal details stay redacted.
+- [x] 2026-04-04: Validated delegated backend contract compatibility after bot backtest strategy-lookup fallback hardening; no backend route contract changes required for this bot-side resilience fix.
+- [x] 2026-04-04: Added bot contract-lock coverage in `internal/routes/bot_instance_contract_lock_test.go` for lifecycle envelope stability, stop-force passthrough, trades `status` query forwarding, and required-key checks on delegated high-traffic bot endpoints; removed stale legacy client history method.
+- [x] 2026-04-04: Implemented bot-instance parity fixes in backend routes/services for stop-force passthrough, trades `status` query contract alignment, and numeric `instance_id` validation on delegated realtime endpoints requiring upstream integer path params.
+- [x] 2026-04-04: Audited backend delegated bot endpoint parity vs bot OpenAPI/server contract; added pending follow-ups for stop-force passthrough, trades query semantics, bot ID mapping on realtime routes, and bot-route contract-lock coverage.
 - [x] 2026-04-04: Extended `POST /api/v1/backtests/:run_id/resync` response with deterministic run/job state (`run_id`, `status`, progress aliases, `current_task`, `current_pair`, `sync_state`) and added contract tests.
 - [x] 2026-04-04: Preserved delegated bot/strategy upstream error passthrough semantics by keeping upstream status and surfacing message via both `error` and `message` keys.
 - [x] 2026-04-04: Standardized delegated non-stream `/api/v1/backtests/*` responses on `{ success, message, data, timestamp }` while preserving legacy top-level aliases for compatibility.

@@ -1030,7 +1030,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 
 		// Get specific position
 		botGroup.GET("/:instance_id/positions/:position_id", func(c *gin.Context) {
-			botID := c.Param("instance_id")
+			botID, err := normalizeRealtimeBotInstanceID(c.Param("instance_id"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 			positionID := c.Param("position_id")
 			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
 				return requestClient.GetPosition(botID, positionID)
@@ -1040,7 +1044,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		// Get position history
 		botGroup.GET("/:instance_id/position-history/:position_id", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
-			botID := c.Param("instance_id")
+			botID, err := normalizeRealtimeBotInstanceID(c.Param("instance_id"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 			positionID := c.Param("position_id")
 			hours := 24
 			if h := c.Query("hours"); h != "" {
@@ -1058,7 +1066,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 
 		// Get market data
 		botGroup.GET("/:instance_id/market-data", func(c *gin.Context) {
-			botID := c.Param("instance_id")
+			botID, err := normalizeRealtimeBotInstanceID(c.Param("instance_id"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
 				return requestClient.GetMarketData(botID)
 			})
@@ -1066,7 +1078,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 
 		// Get realtime stats
 		botGroup.GET("/:instance_id/realtime-stats", func(c *gin.Context) {
-			botID := c.Param("instance_id")
+			botID, err := normalizeRealtimeBotInstanceID(c.Param("instance_id"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
 				return requestClient.GetRealtimeStats(botID)
 			})
@@ -1075,7 +1091,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		// Get alerts
 		botGroup.GET("/:instance_id/alerts", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
-			botID := c.Param("instance_id")
+			botID, err := normalizeRealtimeBotInstanceID(c.Param("instance_id"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 			limit := 50
 			if l := c.Query("limit"); l != "" {
 				if v, err := parseIntQuery(l, &limit); err == nil {
@@ -1205,3 +1225,15 @@ func parseIntPtr(s *string) *int {
 	}
 	return nil
 }
+
+func normalizeRealtimeBotInstanceID(instanceID string) (string, error) {
+	trimmed := strings.TrimSpace(instanceID)
+	if trimmed == "" {
+		return "", fmt.Errorf("instance_id is required")
+	}
+	if _, err := strconv.Atoi(trimmed); err != nil {
+		return "", fmt.Errorf("instance_id '%s' must be numeric for this realtime delegated endpoint", trimmed)
+	}
+	return trimmed, nil
+}
+

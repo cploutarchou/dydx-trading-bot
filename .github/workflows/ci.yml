@@ -56,7 +56,7 @@ jobs:
 
             - name: Run linting
               run: |
-                  flake8 bot/src scripts tests --max-line-length=120 --exclude=__pycache__ || echo "⚠️ flake8 issues found; continuing"
+                  flake8 bot/src bot/tests scripts --max-line-length=120 --exclude=__pycache__ || echo "⚠️ flake8 issues found; continuing"
                   pylint bot/src --disable=C0111,W0212 || true
 
             - name: Run regression tests
@@ -79,11 +79,30 @@ jobs:
               working-directory: backend
               run: go test -v ./internal/routes -run '^TestSmoke_.*WS$'
 
+    docker-prereqs:
+        runs-on: ubuntu-latest
+        outputs:
+            root_dockerfile: ${{ steps.check.outputs.root_dockerfile }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Detect root Dockerfile
+              id: check
+              shell: bash
+              run: |
+                  if [[ -f Dockerfile ]]; then
+                      echo "root_dockerfile=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "root_dockerfile=false" >> "$GITHUB_OUTPUT"
+                  fi
+
     docker:
         runs-on: ubuntu-latest
         needs:
             - test
             - backend-ws-smoke
+            - docker-prereqs
+        if: needs.docker-prereqs.outputs.root_dockerfile == 'true'
         steps:
             - uses: actions/checkout@v4
 

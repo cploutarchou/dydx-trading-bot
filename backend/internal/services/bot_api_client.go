@@ -87,8 +87,7 @@ func classifyTransportError(method, requestURL string, err error) *BotAPITranspo
 		}
 	}
 
-	// --- connection refused (cross-platform string match covers both Unix ECONNREFUSED
-	//     and Windows WSAECONNREFUSED "actively refused") ---
+	// --- connection refused (cross-platform string match covers common OS-specific phrasing) ---
 	lowerMsg := strings.ToLower(err.Error())
 	if strings.Contains(lowerMsg, "connection refused") ||
 		strings.Contains(lowerMsg, "actively refused") {
@@ -314,7 +313,6 @@ func (c *BotAPIClient) DeleteBotInstance(instanceID string) (map[string]interfac
 	endpoint := fmt.Sprintf("/api/v1/bots/%s", instanceID)
 	return c.makeRequest("DELETE", endpoint, nil)
 }
-
 
 // GetBotInstanceTrades gets trades for a bot instance using the upstream status filter contract.
 func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {

@@ -34,7 +34,7 @@
 ## Developer workflows (verified from repo files)
 - Local dev: `npm run dev` (Vite on `5173`), build: `npm run build`, preview: `npm run preview`, lint: `npm run lint` (`package.json`).
 - API proxy in dev server maps `/api` to `VITE_API_URL` (`vite.config.ts`).
-- Docker Compose workflow is documented in `README.md` (`docker-compose up -d` / `docker-compose down`); expected local service ports are backend `8888`, Postgres `5432`, Redis `6379`.
+- Root Makefile workflows are documented in `README.md` (`make infra-up`, `make stack-up-dev`, `make stack-down`); expected local service ports are backend `8888`, Postgres `5432`, Redis `6379`.
 - TypeScript is strict (`strict`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`) in `tsconfig.json`.
 
 ## High-value files to read before major edits

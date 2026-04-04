@@ -32,7 +32,7 @@ npm run preview      # Test production build locally
 npm run lint         # ESLint check
 ```
 
-**DevContainer preferred**: `code frontend/` → click "Reopen in Container" (includes all deps + Docker).
+Preferred local workflow: `npm install`, `npm run dev`, and use the repo-root infra/stack commands when integration services are needed.
 
 ## Core Architecture: Five Layers
 

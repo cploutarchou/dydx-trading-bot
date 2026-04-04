@@ -8,18 +8,18 @@
 
 ## Cross-Repo Status Snapshot
 
-| Repo | Completed | Pending | Focus |
-| --- | --- | --- | --- |
-| backend | 54 | 0 | Delegated contract parity and contract-lock coverage shipped |
-| bot | 26 | 0 | Canonical API contract and runtime envelope/documentation stability |
-| frontend | 56 | 5 | Remaining responsive evidence + medium-priority backend integration asks |
+| Repo     | Completed | Pending | Focus                                                                    |
+| -------- | --------- | ------- | ------------------------------------------------------------------------ |
+| backend  | 54        | 0       | Delegated contract parity and contract-lock coverage shipped             |
+| bot      | 26        | 0       | Canonical API contract and runtime envelope/documentation stability      |
+| frontend | 56        | 5       | Remaining responsive evidence + medium-priority backend integration asks |
 
 Snapshot date: `2026-04-04`.
 
 ## Responsive QA
 - [x] Deliver route-by-route responsive QA matrix (375/768/1024/1440) in `docs/RESPONSIVE_QA_STATUS.md`.
 - [x] Add screenshot review helper/checklist doc: `docs/RESPONSIVE_SCREENSHOT_SIGNOFF.md`.
-- [x] Add PowerShell screenshot capture helper + route manifest (`scripts/capture-responsive-screenshots.ps1`, `scripts/responsive-screenshot-routes.json`).
+- [x] Add Unix-friendly screenshot capture helper + route manifest (`scripts/capture-responsive-screenshots.mjs`, `scripts/responsive-screenshot-routes.json`).
 - [x] Add one-page exact filename checklist for the 12 expected responsive PNGs: `docs/RESPONSIVE_SCREENSHOT_CHECKLIST.md`.
 - [x] Add checklist sync helper to auto-check existing PNG evidence: `scripts/update-responsive-screenshot-checklist.mjs`.
 - [ ] Capture screenshot sign-off evidence for key routes at 375/768/1024/1440 and attach file paths in `docs/RESPONSIVE_QA_STATUS.md`.
@@ -153,7 +153,7 @@ Snapshot date: `2026-04-04`.
 - [x] 2026-04-04: Added frontend contract guard tests in `src/api/contractGuards.test.ts` and wired `npm run test:contracts`.
 - [x] 2026-04-04: Improved frontend error semantics by preserving upstream `message/detail/error` and classifying transport vs business failures in bot UX.
 - [x] 2026-04-04: Enforced data consistency by avoiding client-generated persisted IDs and rendering operational timestamps in UTC/RFC3339-friendly format.
-- [x] 2026-04-04: Added responsive screenshot capture automation/playbook (`scripts/capture-responsive-screenshots.ps1`, route manifest, docs playbook, output scaffold).
+- [x] 2026-04-04: Added responsive screenshot capture automation/playbook (`scripts/capture-responsive-screenshots.mjs`, route manifest, docs playbook, output scaffold).
 - [x] 2026-04-04: Audited `tasks.md` against current workspace artifacts; no additional pending items could be honestly marked complete.
 - [x] 2026-04-04: Attempted real responsive screenshot capture; task remains pending because Edge authenticated profile capture failed before producing PNG evidence.
 - [x] 2026-04-04: Added one-page exact screenshot filename checklist in `docs/RESPONSIVE_SCREENSHOT_CHECKLIST.md` to speed up manual evidence capture.

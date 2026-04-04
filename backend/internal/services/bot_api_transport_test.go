@@ -53,7 +53,7 @@ func TestClassifyTransportError_ConnectionRefused_Returns502(t *testing.T) {
 	}
 }
 
-func TestClassifyTransportError_WindowsActivelyRefused_Returns502(t *testing.T) {
+func TestClassifyTransportError_ActivelyRefused_Returns502(t *testing.T) {
 	err := errors.New("No connection could be made because the target machine actively refused it")
 	got := classifyTransportError("POST", "http://127.0.0.1:8889/api/v1/backtests/run", err)
 
@@ -192,4 +192,3 @@ func TestMakeRequest_UpstreamHTTPError_ReturnsBotAPIError(t *testing.T) {
 		t.Fatalf("want 401, got %d", apiErr.StatusCode)
 	}
 }
-

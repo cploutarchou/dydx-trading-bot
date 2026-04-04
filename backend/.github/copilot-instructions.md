@@ -56,7 +56,7 @@ make migrate-create NAME=your_migration_name
 
 - Copy the repo-root `.env.example` → `.env` and configure shared database settings
 - **SQLite**: Set `DB_TYPE=sqlite3` for local development
-- **PostgreSQL**: Use Docker Compose with `docker-compose up -d postgres redis`
+- **PostgreSQL**: Prefer the repo-root infra workflow: `make stack-env` then `make infra-up`
 
 ## Project-Specific Conventions
 

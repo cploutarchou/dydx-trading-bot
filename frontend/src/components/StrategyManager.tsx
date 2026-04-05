@@ -10,14 +10,7 @@
  * - Thread-safe execution
  */
 
-import {
-    AlertCircle,
-    AlertTriangle,
-    BarChart3,
-    Copy,
-    Settings,
-    Trash2,
-} from 'lucide-react';
+import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api';
@@ -65,9 +58,12 @@ const RESOLUTION_OPTIONS = [
 
 export default function StrategyManager() {
   const navigate = useNavigate();
-  const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } = useStrategyStore();
+  const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } =
+    useStrategyStore();
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
-  const [runtimePending, setRuntimePending] = useState<Record<number, 'start' | 'stop' | undefined>>({});
+  const [runtimePending, setRuntimePending] = useState<
+    Record<number, 'start' | 'stop' | undefined>
+  >({});
   const [editingConfig, setEditingConfig] = useState<Partial<Strategy> | null>(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configErrors, setConfigErrors] = useState<Record<string, string>>({});
@@ -101,14 +97,20 @@ export default function StrategyManager() {
     setStrategyStatuses((prev) => {
       const nextMap = new Map(prev);
       nextMap.set(nextStatus.strategyId, nextStatus);
-      const running = Array.from(nextMap.values()).filter((status) => status.status === 'running').length;
+      const running = Array.from(nextMap.values()).filter(
+        (status) => status.status === 'running'
+      ).length;
       setRunningCount(running);
       return nextMap;
     });
   };
 
-  const toStrategyStatus = (strategyId: number, runtimeData: Record<string, unknown> | undefined): StrategyStatus => {
-    const normalizedStatus = typeof runtimeData?.status === 'string' ? runtimeData.status.toLowerCase() : 'stopped';
+  const toStrategyStatus = (
+    strategyId: number,
+    runtimeData: Record<string, unknown> | undefined
+  ): StrategyStatus => {
+    const normalizedStatus =
+      typeof runtimeData?.status === 'string' ? runtimeData.status.toLowerCase() : 'stopped';
     const status =
       normalizedStatus === 'running' ||
       normalizedStatus === 'starting' ||
@@ -129,7 +131,8 @@ export default function StrategyManager() {
             ? runtimeData.updated_at
             : new Date().toISOString(),
       botStatus: typeof runtimeData?.bot_status === 'string' ? runtimeData.bot_status : undefined,
-      instanceId: typeof runtimeData?.instance_id === 'string' ? runtimeData.instance_id : undefined,
+      instanceId:
+        typeof runtimeData?.instance_id === 'string' ? runtimeData.instance_id : undefined,
       network: typeof runtimeData?.network === 'string' ? runtimeData.network : undefined,
     };
   };
@@ -184,8 +187,13 @@ export default function StrategyManager() {
   // Setup WebSocket for real-time strategy status
   useEffect(() => {
     let ws: WebSocket | null = null;
+    let disposed = false;
+    let connectTimer: number | null = null;
+    let reconnectTimer: number | null = null;
 
     const connectWebSocket = () => {
+      if (disposed) return;
+
       try {
         const token = localStorage.getItem('access_token');
         if (!token) return;
@@ -223,7 +231,9 @@ export default function StrategyManager() {
             }
 
             if (typeof payload.strategyId === 'number' && typeof payload.status === 'string') {
-              mergeStrategyStatus(toStrategyStatus(payload.strategyId, payload as Record<string, unknown>));
+              mergeStrategyStatus(
+                toStrategyStatus(payload.strategyId, payload as Record<string, unknown>)
+              );
             }
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
@@ -236,21 +246,40 @@ export default function StrategyManager() {
 
         ws.onclose = () => {
           setWebSocketConnected(false);
-          setTimeout(() => connectWebSocket(), 5000);
+          if (disposed) return;
+          reconnectTimer = window.setTimeout(() => connectWebSocket(), 5000);
         };
       } catch (error) {
         console.error('Failed to connect WebSocket:', error);
       }
     };
 
-    connectWebSocket();
+    // Delay the initial connect by one tick so React StrictMode's dev-only
+    // mount/unmount cycle doesn't immediately create-and-close a socket.
+    connectTimer = window.setTimeout(() => connectWebSocket(), 0);
 
     return () => {
-      if (ws) ws.close();
+      disposed = true;
+      if (connectTimer !== null) {
+        window.clearTimeout(connectTimer);
+      }
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+      }
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+      }
     };
   }, []);
 
-  const showTransientMessage = (nextMessage: { type: 'success' | 'error'; text: string }, timeoutMs: number) => {
+  const showTransientMessage = (
+    nextMessage: { type: 'success' | 'error'; text: string },
+    timeoutMs: number
+  ) => {
     setMessage(nextMessage);
     setTimeout(() => setMessage(null), timeoutMs);
   };
@@ -567,8 +596,14 @@ export default function StrategyManager() {
             />
             <div>
               <p className="text-sm font-semibold text-white">Realtime status</p>
-              <p className={webSocketConnected ? 'text-sm text-emerald-300' : 'text-sm text-amber-300'}>
-                {webSocketConnected ? 'WebSocket connected and streaming updates' : 'Connecting to live runtime events'}
+              <p
+                className={
+                  webSocketConnected ? 'text-sm text-emerald-300' : 'text-sm text-amber-300'
+                }
+              >
+                {webSocketConnected
+                  ? 'WebSocket connected and streaming updates'
+                  : 'Connecting to live runtime events'}
               </p>
             </div>
           </div>
@@ -577,8 +612,8 @@ export default function StrategyManager() {
         <div className="premium-panel">
           <p className="text-sm leading-6 text-slate-300">
             Runtime control is live through the backend strategy execution service. An active dYdX
-            key is still required before a strategy can start, and statuses are reconciled every
-            15 seconds for safety.
+            key is still required before a strategy can start, and statuses are reconciled every 15
+            seconds for safety.
           </p>
         </div>
       </section>
@@ -648,9 +683,9 @@ export default function StrategyManager() {
                           ? 'bg-green-400 animate-pulse'
                           : status.status === 'starting' || status.status === 'stopping'
                             ? 'bg-yellow-400 animate-pulse'
-                          : status.status === 'error'
-                            ? 'bg-red-400'
-                            : 'bg-gray-400'
+                            : status.status === 'error'
+                              ? 'bg-red-400'
+                              : 'bg-gray-400'
                       }`}
                     />
                     <span className={`text-sm font-medium ${getStatusColor(status.status)}`}>
@@ -673,19 +708,27 @@ export default function StrategyManager() {
                 {/* Key Parameters */}
                 <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">Z-Score Threshold</p>
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                      Z-Score Threshold
+                    </p>
                     <p className="text-white font-semibold">{strategy.zscore_threshold}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">USD Per Trade</p>
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                      USD Per Trade
+                    </p>
                     <p className="text-white font-semibold">${strategy.usd_per_trade}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">Max Positions</p>
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                      Max Positions
+                    </p>
                     <p className="text-white font-semibold">{strategy.max_positions}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">Max Drawdown</p>
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                      Max Drawdown
+                    </p>
                     <p className="text-white font-semibold">{strategy.max_drawdown_pct}%</p>
                   </div>
                 </div>
@@ -947,7 +990,9 @@ export default function StrategyManager() {
                       min="5"
                       max="365"
                       value={editingConfig.stats_window ?? 21}
-                      onChange={(e) => updateEditingConfig({ stats_window: parseInt(e.target.value, 10) })}
+                      onChange={(e) =>
+                        updateEditingConfig({ stats_window: parseInt(e.target.value, 10) })
+                      }
                       className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -957,7 +1002,9 @@ export default function StrategyManager() {
                       type="number"
                       min="1"
                       value={editingConfig.max_half_life ?? 24}
-                      onChange={(e) => updateEditingConfig({ max_half_life: parseFloat(e.target.value) })}
+                      onChange={(e) =>
+                        updateEditingConfig({ max_half_life: parseFloat(e.target.value) })
+                      }
                       className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -965,7 +1012,9 @@ export default function StrategyManager() {
                     <label className="mb-2 block text-white font-medium">
                       USD per trade
                       {configErrors.usd_per_trade && (
-                        <span className="ml-2 text-sm text-red-400">• {configErrors.usd_per_trade}</span>
+                        <span className="ml-2 text-sm text-red-400">
+                          • {configErrors.usd_per_trade}
+                        </span>
                       )}
                     </label>
                     <input
@@ -973,7 +1022,9 @@ export default function StrategyManager() {
                       step="1"
                       min="1"
                       value={editingConfig.usd_per_trade ?? 10}
-                      onChange={(e) => updateEditingConfig({ usd_per_trade: parseFloat(e.target.value) })}
+                      onChange={(e) =>
+                        updateEditingConfig({ usd_per_trade: parseFloat(e.target.value) })
+                      }
                       className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1032,7 +1083,9 @@ export default function StrategyManager() {
                       min="1"
                       max="100"
                       value={editingConfig.max_positions ?? 5}
-                      onChange={(e) => updateEditingConfig({ max_positions: parseInt(e.target.value, 10) })}
+                      onChange={(e) =>
+                        updateEditingConfig({ max_positions: parseInt(e.target.value, 10) })
+                      }
                       className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1040,7 +1093,9 @@ export default function StrategyManager() {
                     <label className="mb-2 block text-white font-medium">
                       Max drawdown %
                       {configErrors.max_drawdown_pct && (
-                        <span className="ml-2 text-sm text-red-400">• {configErrors.max_drawdown_pct}</span>
+                        <span className="ml-2 text-sm text-red-400">
+                          • {configErrors.max_drawdown_pct}
+                        </span>
                       )}
                     </label>
                     <input
@@ -1062,7 +1117,9 @@ export default function StrategyManager() {
                       step="0.1"
                       min="0"
                       value={editingConfig.stop_loss_pct ?? 2}
-                      onChange={(e) => updateEditingConfig({ stop_loss_pct: parseFloat(e.target.value) })}
+                      onChange={(e) =>
+                        updateEditingConfig({ stop_loss_pct: parseFloat(e.target.value) })
+                      }
                       className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1093,7 +1150,9 @@ export default function StrategyManager() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-white font-medium">Rebalance interval (hours)</label>
+                    <label className="mb-2 block text-white font-medium">
+                      Rebalance interval (hours)
+                    </label>
                     <input
                       type="number"
                       min="1"
@@ -1107,7 +1166,9 @@ export default function StrategyManager() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-white font-medium">Position timeout (hours)</label>
+                    <label className="mb-2 block text-white font-medium">
+                      Position timeout (hours)
+                    </label>
                     <input
                       type="number"
                       min="1"
@@ -1133,7 +1194,9 @@ export default function StrategyManager() {
                     <label className="mb-2 block text-white font-medium">
                       Starting balance
                       {configErrors.starting_balance && (
-                        <span className="ml-2 text-sm text-red-400">• {configErrors.starting_balance}</span>
+                        <span className="ml-2 text-sm text-red-400">
+                          • {configErrors.starting_balance}
+                        </span>
                       )}
                     </label>
                     <input
@@ -1154,7 +1217,9 @@ export default function StrategyManager() {
                     <label className="mb-2 block text-white font-medium">
                       Transaction fee
                       {configErrors.transaction_fee && (
-                        <span className="ml-2 text-sm text-red-400">• {configErrors.transaction_fee}</span>
+                        <span className="ml-2 text-sm text-red-400">
+                          • {configErrors.transaction_fee}
+                        </span>
                       )}
                     </label>
                     <input
@@ -1180,7 +1245,9 @@ export default function StrategyManager() {
                       step="0.0001"
                       min="0"
                       value={editingConfig.slippage ?? 0.001}
-                      onChange={(e) => updateEditingConfig({ slippage: parseFloat(e.target.value) })}
+                      onChange={(e) =>
+                        updateEditingConfig({ slippage: parseFloat(e.target.value) })
+                      }
                       className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1213,7 +1280,9 @@ export default function StrategyManager() {
                       step="0.001"
                       min="0"
                       value={editingConfig.risk_free_rate ?? 0.02}
-                      onChange={(e) => updateEditingConfig({ risk_free_rate: parseFloat(e.target.value) })}
+                      onChange={(e) =>
+                        updateEditingConfig({ risk_free_rate: parseFloat(e.target.value) })
+                      }
                       className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                     />
                   </div>

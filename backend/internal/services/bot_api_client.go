@@ -11,8 +11,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/dydx-trading-bot/backend-go/config"
 )
 
 // BotAPIClient handles communication with the Python bot API
@@ -110,9 +113,45 @@ func classifyTransportError(method, requestURL string, err error) *BotAPITranspo
 	}
 }
 
+func ensureStructuredBotAPIEnvLoaded() {
+	if strings.TrimSpace(os.Getenv("BOT_API_TOKEN")) != "" && strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN")) != "" {
+		return
+	}
+	_, _ = config.AutoLoadStructuredConfigEnv(false)
+}
+
+// ResolveConfiguredBotAPIServiceToken returns the configured shared token used
+// for backend→bot API delegation, best-effort loading structured config first
+// when the current process environment was not preloaded.
+func ResolveConfiguredBotAPIServiceToken() string {
+	ensureStructuredBotAPIEnvLoaded()
+	return strings.TrimSpace(os.Getenv("BOT_API_TOKEN"))
+}
+
+// UseConfiguredBotAPIServiceToken reports whether downstream bot API requests
+// should prefer the configured shared service token instead of forwarding the
+// caller JWT. A configured token defaults to enabled unless explicitly set to
+// false via BOT_API_USE_SERVICE_TOKEN=false.
+func UseConfiguredBotAPIServiceToken() bool {
+	ensureStructuredBotAPIEnvLoaded()
+	if ResolveConfiguredBotAPIServiceToken() == "" {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN"))) {
+	case "", "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 // NewBotAPIClient creates a new bot API client
 func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 	token = strings.TrimSpace(token)
+	if token == "" {
+		token = ResolveConfiguredBotAPIServiceToken()
+	}
 	return &BotAPIClient{
 		baseURL:       baseURL,
 		token:         token,
@@ -137,7 +176,19 @@ func (c *BotAPIClient) BaseURL() string {
 
 // AuthToken returns the configured token (if any).
 func (c *BotAPIClient) AuthToken() string {
-	return strings.TrimSpace(c.token)
+	token := strings.TrimSpace(c.token)
+	if token != "" {
+		return token
+	}
+	return c.effectiveFallbackToken()
+}
+
+func (c *BotAPIClient) effectiveFallbackToken() string {
+	fallbackToken := strings.TrimSpace(c.fallbackToken)
+	if fallbackToken != "" {
+		return fallbackToken
+	}
+	return ResolveConfiguredBotAPIServiceToken()
 }
 
 // WebSocketURL builds a websocket URL from the configured base URL and endpoint.
@@ -236,8 +287,9 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 	}
 
 	if statusCode == http.StatusUnauthorized && c.shouldRetryWithFallback(c.token) {
+		fallbackToken := c.effectiveFallbackToken()
 		log.Printf("⚠️  Bot API auth rejected request token; retrying with configured service token: %s %s", method, requestURL)
-		result, statusCode, respBytes, err = c.doRequest(method, requestURL, requestBytes, c.fallbackToken)
+		result, statusCode, respBytes, err = c.doRequest(method, requestURL, requestBytes, fallbackToken)
 		if err != nil {
 			return nil, err
 		}
@@ -252,7 +304,7 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 
 func (c *BotAPIClient) shouldRetryWithFallback(currentToken string) bool {
 	currentToken = strings.TrimSpace(currentToken)
-	fallbackToken := strings.TrimSpace(c.fallbackToken)
+	fallbackToken := c.effectiveFallbackToken()
 	if fallbackToken == "" {
 		return false
 	}

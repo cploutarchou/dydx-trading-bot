@@ -33,6 +33,16 @@ type BotInstanceHandler struct {
 	repo    *repository.BotInstanceRepository
 }
 
+func unwrapBotAPIEnvelope(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return map[string]interface{}{}
+	}
+	if data, ok := payload["data"].(map[string]interface{}); ok {
+		return data
+	}
+	return payload
+}
+
 func NewBotInstanceHandler(service *services.BotInstanceService, repo *repository.BotInstanceRepository) *BotInstanceHandler {
 	return &BotInstanceHandler{
 		service: service,
@@ -411,7 +421,7 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
-		Data:      trades,
+		Data:      unwrapBotAPIEnvelope(trades),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

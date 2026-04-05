@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -88,7 +89,11 @@ func (r *KeyRepository) GetActiveKeysByUser(userID int) ([]models.DYDXKey, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query keys: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close key rows: %v", closeErr)
+		}
+	}()
 
 	var keys []models.DYDXKey
 	for rows.Next() {

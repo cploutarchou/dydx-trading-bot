@@ -72,7 +72,11 @@ func setupRegistrationRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 
 func TestRegistrationStatus_DefaultsEnabled(t *testing.T) {
 	router, dbConn := setupRegistrationRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/registration-status", nil)
 	res := httptest.NewRecorder()
@@ -97,7 +101,11 @@ func TestRegistrationStatus_DefaultsEnabled(t *testing.T) {
 
 func TestRegister_ForbiddenWhenPublicRegistrationDisabled(t *testing.T) {
 	router, dbConn := setupRegistrationRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	if _, err := dbConn.Exec(
 		`INSERT INTO bot_settings (section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at)

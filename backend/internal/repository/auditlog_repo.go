@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -97,7 +98,11 @@ func (r *AuditLogRepository) GetAuditLogsByUser(userID int) ([]models.AuditLog, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close audit log rows: %v", closeErr)
+		}
+	}()
 
 	var auditLogs []models.AuditLog
 	for rows.Next() {
@@ -140,7 +145,11 @@ func (r *AuditLogRepository) GetAuditLogsByAction(action string, limit int) ([]m
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close audit log rows: %v", closeErr)
+		}
+	}()
 
 	var auditLogs []models.AuditLog
 	for rows.Next() {
@@ -182,7 +191,11 @@ func (r *AuditLogRepository) ListAllAuditLogs(limit int, offset int) ([]models.A
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close audit log rows: %v", closeErr)
+		}
+	}()
 
 	var auditLogs []models.AuditLog
 	for rows.Next() {

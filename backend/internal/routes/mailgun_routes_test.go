@@ -125,7 +125,11 @@ func seedMailgunAdmin(t *testing.T, dbConn *sql.DB) string {
 
 func TestMailgunRoutes_SaveAndStatus(t *testing.T) {
 	router, dbConn := setupMailgunRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	authHeader := seedMailgunAdmin(t, dbConn)
 

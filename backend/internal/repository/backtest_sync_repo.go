@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -608,16 +609,23 @@ func (r *BacktestSyncRepository) getRunPrimaryKey(runID string) (int, error) {
 	return id, nil
 }
 
-func (r *BacktestSyncRepository) detectFKColumn(tableName string) (string, error) {
+func (r *BacktestSyncRepository) detectFKColumn(tableName string) (_ string, err error) {
 	rows, err := r.db.Query(fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName))
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect table %s: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close inspection rows for %s: %w", tableName, closeErr)
+		}
+	}()
 
 	columns, err := rows.Columns()
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect columns for %s: %w", tableName, err)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("failed to inspect rows for %s: %w", tableName, err)
 	}
 	for _, column := range columns {
 		if strings.EqualFold(column, "run_id_fk") {
@@ -657,7 +665,11 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 	if err != nil {
 		return nil, fmt.Errorf("failed to query backtest runs for sync health: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close sync health rows: %v", closeErr)
+		}
+	}()
 
 	health := make([]BacktestSyncHealth, 0)
 	for rows.Next() {
@@ -726,29 +738,6 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 	}
 
 	return health, nil
-}
-
-func (r *BacktestSyncRepository) countRowsForRun(tableName string, runPK int) (int, error) {
-	columns := []string{"run_id_fk", "run_id"}
-	var lastErr error
-	for _, fkColumn := range columns {
-		query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s = $1", tableName, fkColumn)
-		var count int
-		err := r.db.QueryRow(query, runPK).Scan(&count)
-		if err == nil {
-			return count, nil
-		}
-		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") {
-			lastErr = err
-			continue
-		}
-		return 0, fmt.Errorf("failed counting rows for %s: %w", tableName, err)
-	}
-	if lastErr != nil {
-		return 0, fmt.Errorf("failed counting rows for %s: %w", tableName, lastErr)
-	}
-	return 0, fmt.Errorf("failed counting rows for %s", tableName)
 }
 
 func (r *BacktestSyncRepository) countRowsForRunByRunID(tableName string, runID string, userID int) (int, error) {

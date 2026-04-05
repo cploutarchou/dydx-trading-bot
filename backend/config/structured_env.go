@@ -49,7 +49,9 @@ func LoadStructuredConfigEnv(repoRoot string, override bool) (string, error) {
 	}
 
 	if strings.TrimSpace(os.Getenv("APP_CONFIG_ENV")) == "" || override {
-		_ = os.Setenv("APP_CONFIG_ENV", environment)
+		if err := os.Setenv("APP_CONFIG_ENV", environment); err != nil {
+			return "", fmt.Errorf("set env APP_CONFIG_ENV: %w", err)
+		}
 	}
 
 	return profilePath, nil
@@ -231,7 +233,10 @@ func normalizeStructuredScalar(value any) string {
 	case float64:
 		return strconv.FormatFloat(typed, 'f', -1, 64)
 	case []any, map[string]any:
-		raw, _ := json.Marshal(typed)
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprintf("%v", typed)
+		}
 		return string(raw)
 	default:
 		return fmt.Sprintf("%v", typed)

@@ -130,6 +130,9 @@ celerybeat.pid
 # Environments
 .env
 .venv
+config/secrets/*.secrets.json
+config/secrets/*.secrets.sops.json
+!config/secrets/*.example.json
 env/
 venv/
 ENV/

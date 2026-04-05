@@ -108,23 +108,23 @@ init-env: ## Initialize environment file from template
 	fi
 
 .PHONY: dev-env
-dev-env: ## Create or overwrite .env for development|production (usage: make dev-env MODE=development)
+dev-env: ## Update repo-root .env bot settings for development|production (usage: make dev-env MODE=development)
 	@MODE_VALUE="$(MODE)"; \
 	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
 		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(RESET)"; \
 		exit 1; \
 	fi; \
-	if [ -f .env ]; then \
-		printf "$(YELLOW).env already exists. Overwrite for %s? [y/N] $(RESET)" "$$MODE_VALUE"; \
+	if [ -f ../.env ]; then \
+		printf "$(YELLOW)../.env already exists. Update bot values for %s? [y/N] $(RESET)" "$$MODE_VALUE"; \
 		read answer; \
 		case "$$answer" in \
 			y|Y|yes|YES) ;; \
 			*) echo "$(YELLOW)Operation cancelled$(RESET)"; exit 1;; \
 		esac; \
 	fi; \
-	cp .env.example .env; \
-	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('.env'); lines=p.read_text().splitlines(); updates={'SECRET_KEY':'your-super-secret-key-change-in-production-min-32-chars','FRONTEND_URL':'http://localhost:5173','BOT_API_HOST':'0.0.0.0','BOT_API_PORT':'8889','API_BYPASS_AUTH':'false'}; updates.update({'BOT_API_TOKEN':'dev-local-service-token','ENVIRONMENT':'development','IS_TESTNET':'true'} if mode=='development' else {'BOT_API_TOKEN':'change-me-service-token','ENVIRONMENT':'production','IS_TESTNET':'false'}); out=[]; [out.append(line if (not line or line.lstrip().startswith('#') or '=' not in line or line.split('=',1)[0] not in updates) else f\"{line.split('=',1)[0]}={updates[line.split('=',1)[0]]}\") for line in lines]; keys_present={line.split('=',1)[0] for line in out if '=' in line and not line.lstrip().startswith('#')}; [out.append(f'{k}=') for k in ('BOT_API_TOKEN','BOT_API_TOKEN_PREVIOUS','BOT_API_TOKENS') if k not in keys_present]; p.write_text('\\n'.join(out)+'\\n'); print(f'Created {p} for {mode}')";
-	@echo "$(GREEN)✅ .env generated for $(MODE)$(RESET)"
+	if [ ! -f ../.env ]; then cp ../example.env ../.env 2>/dev/null || cp ../.env.example ../.env; fi; \
+	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('../.env'); lines=p.read_text().splitlines() if p.exists() else []; updates={'SECRET_KEY':'change-me-dev-secret-key-min-32-characters','JWT_SECRET_KEY':'change-me-dev-secret-key-min-32-characters','FRONTEND_URL':'http://localhost:5173','BOT_API_HOST':'0.0.0.0','BOT_API_PORT':'8889','BOT_API_RELOAD':'true','API_BYPASS_AUTH':'false'}; updates.update({'BOT_API_TOKEN':'dev-local-service-token','ENVIRONMENT':'development','APP_ENV':'development','IS_TESTNET':'true'} if mode=='development' else {'BOT_API_TOKEN':'change-me-service-token','ENVIRONMENT':'production','APP_ENV':'production','IS_TESTNET':'false'}); out=[]; keys_done=set();\nfor line in lines:\n    if not line or line.lstrip().startswith('#') or '=' not in line:\n        out.append(line);\n        continue\n    key=line.split('=',1)[0]\n    if key in updates:\n        out.append(f'{key}={updates[key]}'); keys_done.add(key)\n    else:\n        out.append(line)\nfor key, value in updates.items():\n    if key not in keys_done and not any(existing.startswith(f'{key}=') for existing in out):\n        out.append(f'{key}={value}')\nfor key in ('BOT_API_TOKEN_PREVIOUS','BOT_API_TOKENS'):\n    if key not in keys_done and not any(existing.startswith(f'{key}=') for existing in out):\n        out.append(f'{key}=')\np.write_text('\\n'.join(out).rstrip() + '\\n'); print(f'Updated {p} for {mode}')";
+	@echo "$(GREEN)✅ Repo-root .env updated for $(MODE)$(RESET)"
 
 .PHONY: init-ssl
 init-ssl: ## Generate SSL certificates for development

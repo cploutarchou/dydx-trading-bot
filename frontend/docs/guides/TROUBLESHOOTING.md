@@ -300,7 +300,7 @@ ls -la dist/
 # For Vite, use: import.meta.env.VITE_*
 
 # Create repo-root .env
-cp ../.env.example ../.env
+cp ../example.env ../.env
 
 # Add variables
 VITE_API_URL=http://localhost:8888

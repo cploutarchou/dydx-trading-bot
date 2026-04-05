@@ -38,13 +38,13 @@ config: ## Deprecated legacy config target (bot uses runtime config under bot/)
 	@echo "⚠️  'make config' is deprecated for this monorepo layout."
 	@echo "Use stack/dev workflows and bot runtime config under bot/ instead."
 
-env-setup: ## Set up environment variables from .env.example
+env-setup: ## Set up the repo-root .env from the shared template
 	@if [ -f .env ]; then \
 		echo "⚠️  .env already exists. Backing up to .env.bak"; \
 		cp .env .env.bak; \
 	fi
 	@echo "Creating .env from template..."
-	@cp .env.example.new .env 2>/dev/null || cp .env.example .env
+	@cp example.env .env 2>/dev/null || cp .env.example .env
 	@echo "✅ Environment file created at .env"
 	@echo "📌 Edit .env with your specific settings (keys, addresses, etc.)"
 	@echo ""
@@ -437,7 +437,7 @@ stack-env: ## Create .env from template (safe; won't overwrite existing)
 	@if [ -f .env ]; then \
 		echo "ℹ️ .env already exists"; \
 	else \
-		cp .env.example .env; \
+		cp example.env .env 2>/dev/null || cp .env.example .env; \
 		echo "✅ Created .env (edit secrets before production use)"; \
 	fi
 

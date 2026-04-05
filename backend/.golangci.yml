@@ -7,22 +7,14 @@ run:
   tests: true
   build-tags:
     - integration
-  skip-dirs:
-    - vendor
-    - .idea
-    - migrations
-  skip-files:
-    - ".*\\.pb\\.go$"
-    - ".*_generated\\.go$"
   modules-download-mode: readonly
-  go: "1.23"
+  go: "1.25"
 
 output:
   formats:
     - format: colored-line-number
   print-issued-lines: true
   print-linter-name: true
-  uniq-by-line: true
   sort-results: true
   show-stats: true
 
@@ -70,7 +62,6 @@ linters-settings:
   unused:
     check-exported: false
     field-writes-are-uses: true
-    exported-is-used: true
 
   unparam:
     check-exported: false
@@ -223,7 +214,6 @@ linters:
     - unparam
     - nakedret
     - prealloc
-    - exportloopref
     - nolintlint
     - gocritic
     - godox
@@ -258,6 +248,14 @@ linters:
 
 issues:
   exclude-use-default: false
+  uniq-by-line: true
+  exclude-dirs:
+    - vendor
+    - .idea
+    - migrations
+  exclude-files:
+    - ".*\\.pb\\.go$"
+    - ".*_generated\\.go$"
   max-issues-per-linter: 0
   max-same-issues: 0
   new: false

@@ -94,6 +94,9 @@ func main() {
 
 	config.LoadConfig()
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
+	if err := services.ValidateEncryptionKeyConfiguration(); err != nil {
+		log.Fatalf("Invalid encryption configuration: %v", err)
+	}
 
 	if config.ConfigInstance.Database.Type == "postgresql" {
 		config.ConfigInstance.Database.Type = "postgres"

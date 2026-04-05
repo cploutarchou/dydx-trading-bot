@@ -2,7 +2,7 @@
 Password 2FA router
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -12,6 +12,7 @@ from src.api.auth_utils import TwoFactorUtils
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User, UserToken
 from src.middleware.auth_middleware import get_current_active_user
+from src.shared.time_utils import utc_now
 
 router = APIRouter()
 
@@ -59,7 +60,7 @@ async def setup_2fa(
         secret = secret_record.token
     else:
         secret = TwoFactorUtils.generate_totp_secret()
-        expires_at = datetime.utcnow() + timedelta(days=3650)
+        expires_at = utc_now() + timedelta(days=3650)
         secret_record = UserToken(
             user_id=int(current_user.id),
             token=secret,
@@ -113,7 +114,7 @@ async def verify_2fa(
 
     enabled_record = _get_enabled_record(session, int(current_user.id))
     if not enabled_record:
-        expires_at = datetime.utcnow() + timedelta(days=3650)
+        expires_at = utc_now() + timedelta(days=3650)
         enabled_record = UserToken(
             user_id=int(current_user.id),
             token=f"enabled:{current_user.id}",

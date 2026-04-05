@@ -1237,8 +1237,5 @@ func normalizeRealtimeBotInstanceID(instanceID string) (string, error) {
 	if trimmed == "" {
 		return "", fmt.Errorf("instance_id is required")
 	}
-	if _, err := strconv.Atoi(trimmed); err != nil {
-		return "", fmt.Errorf("instance_id '%s' must be numeric for this realtime delegated endpoint", trimmed)
-	}
 	return trimmed, nil
 }

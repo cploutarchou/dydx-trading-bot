@@ -1,7 +1,6 @@
 """Authentication router."""
 
 import os
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 from src.api.auth_utils import JWTUtils, PasswordUtils, SecurityUtils
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User
+from src.shared.time_utils import utc_now
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -124,8 +124,8 @@ async def register(
         full_name=full_name or None,
         is_active=True,
         is_admin=False,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=utc_now(),
+        updated_at=utc_now(),
     )
 
     session.add(user)

@@ -44,7 +44,7 @@ make stack-env
 If you need to create the file manually instead:
 
 ```bash
-cp ../example.env ../.env
+python3 scripts/render_env.py --environment development --output .env
 ```
 
 Typical local settings include:

@@ -17,6 +17,7 @@ func (b *BacktestStrategy) ToDict() map[string]interface{} {
 		"category":                 b.Category,
 		"is_public":                b.IsPublic,
 		"is_default":               b.IsDefault,
+		"runtime_strategy":         b.RuntimeStrategy,
 		"zscore_threshold":         b.ZscoreThreshold,
 		"stats_window":             b.StatsWindow,
 		"max_half_life":            b.MaxHalfLife,
@@ -74,6 +75,9 @@ func (b *BacktestStrategy) FromDict(data map[string]interface{}) {
 	if isDefault, ok := data["is_default"].(bool); ok {
 		b.IsDefault = isDefault
 	}
+	if runtimeStrategy, ok := data["runtime_strategy"].(string); ok {
+		b.RuntimeStrategy = runtimeStrategy
+	}
 	if zscore, ok := data["zscore_threshold"].(float64); ok {
 		b.ZscoreThreshold = zscore
 	}
@@ -83,11 +87,74 @@ func (b *BacktestStrategy) FromDict(data map[string]interface{}) {
 	if maxHalfLife, ok := data["max_half_life"].(float64); ok {
 		b.MaxHalfLife = maxHalfLife
 	}
+	if usdPerTrade, ok := data["usd_per_trade"].(float64); ok {
+		b.UsdPerTrade = usdPerTrade
+	}
+	if usdMinCollateral, ok := data["usd_min_collateral"].(float64); ok {
+		b.UsdMinCollateral = usdMinCollateral
+	}
+	if closeAtZscoreCross, ok := data["close_at_zscore_cross"].(bool); ok {
+		b.CloseAtZscoreCross = closeAtZscoreCross
+	}
+	if findCointegratedPairs, ok := data["find_cointegrated_pairs"].(bool); ok {
+		b.FindCointegratedPairs = findCointegratedPairs
+	}
+	if manageExits, ok := data["manage_exits"].(bool); ok {
+		b.ManageExits = manageExits
+	}
+	if placeTrades, ok := data["place_trades"].(bool); ok {
+		b.PlaceTrades = placeTrades
+	}
+	if abortAllPositions, ok := data["abort_all_positions"].(bool); ok {
+		b.AbortAllPositions = abortAllPositions
+	}
+	if maxPositions, ok := data["max_positions"].(float64); ok {
+		b.MaxPositions = int(maxPositions)
+	}
+	if maxDrawdownPct, ok := data["max_drawdown_pct"].(float64); ok {
+		b.MaxDrawdownPct = maxDrawdownPct
+	}
+	if stopLossPct, ok := data["stop_loss_pct"].(float64); ok {
+		b.StopLossPct = stopLossPct
+	}
+	if takeProfitPct, ok := data["take_profit_pct"].(float64); ok {
+		b.TakeProfitPct = takeProfitPct
+	}
+	if trailingStopPct, ok := data["trailing_stop_pct"].(float64); ok {
+		b.TrailingStopPct = trailingStopPct
+	}
+	if rebalanceIntervalHours, ok := data["rebalance_interval_hours"].(float64); ok {
+		b.RebalanceIntervalHours = int(rebalanceIntervalHours)
+	}
+	if positionTimeoutHours, ok := data["position_timeout_hours"].(float64); ok {
+		b.PositionTimeoutHours = int(positionTimeoutHours)
+	}
+	if transactionFee, ok := data["transaction_fee"].(float64); ok {
+		b.TransactionFee = transactionFee
+	}
+	if slippage, ok := data["slippage"].(float64); ok {
+		b.Slippage = slippage
+	}
+	if startingBalance, ok := data["starting_balance"].(float64); ok {
+		b.StartingBalance = startingBalance
+	}
 	if resolution, ok := data["resolution"].(string); ok {
 		b.CandleResolution = resolution
 	}
 	if candleResolution, ok := data["candle_resolution"].(string); ok {
 		b.CandleResolution = candleResolution
+	}
+	if maxHistoryDays, ok := data["max_history_days"].(float64); ok {
+		b.MaxHistoryDays = int(maxHistoryDays)
+	}
+	if benchmarkSymbol, ok := data["benchmark_symbol"].(string); ok {
+		b.BenchmarkSymbol = benchmarkSymbol
+	}
+	if riskFreeRate, ok := data["risk_free_rate"].(float64); ok {
+		b.RiskFreeRate = riskFreeRate
+	}
+	if initialAmount, ok := data["initial_amount"].(float64); ok {
+		b.InitialAmount = initialAmount
 	}
 	if usageCount, ok := data["usage_count"].(float64); ok {
 		b.UsageCount = int(usageCount)

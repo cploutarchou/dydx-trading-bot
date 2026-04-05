@@ -25,6 +25,7 @@ type strategyPayload struct {
 	Category               string  `json:"category"`
 	IsPublic               bool    `json:"is_public"`
 	IsDefault              bool    `json:"is_default"`
+	RuntimeStrategy        string  `json:"runtime_strategy"`
 	Resolution             string  `json:"resolution"`
 	CandleResolution       string  `json:"candle_resolution"`
 	ZscoreThreshold        float64 `json:"zscore_threshold"`
@@ -44,6 +45,7 @@ type strategyPayload struct {
 	MaxPositions           int     `json:"max_positions"`
 	RebalanceIntervalHours int     `json:"rebalance_interval_hours"`
 	PositionTimeoutHours   int     `json:"position_timeout_hours"`
+	StartingBalance        float64 `json:"starting_balance"`
 	InitialAmount          float64 `json:"initial_amount"`
 	TransactionFee         float64 `json:"transaction_fee"`
 	Slippage               float64 `json:"slippage"`
@@ -64,6 +66,9 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	}
 	strategy.IsPublic = req.IsPublic
 	strategy.IsDefault = req.IsDefault
+	if strings.TrimSpace(req.RuntimeStrategy) != "" {
+		strategy.RuntimeStrategy = strings.TrimSpace(req.RuntimeStrategy)
+	}
 
 	if req.CandleResolution != "" {
 		strategy.CandleResolution = req.CandleResolution
@@ -121,6 +126,12 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if req.PositionTimeoutHours > 0 {
 		strategy.PositionTimeoutHours = req.PositionTimeoutHours
 	}
+	if req.StartingBalance > 0 {
+		strategy.StartingBalance = req.StartingBalance
+		if strategy.InitialAmount <= 0 {
+			strategy.InitialAmount = req.StartingBalance
+		}
+	}
 	if req.InitialAmount > 0 {
 		strategy.InitialAmount = req.InitialAmount
 		// Keep create/edit UI budget aligned with runtime collateral defaults.
@@ -142,6 +153,9 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	}
 	if req.RiskFreeRate > 0 {
 		strategy.RiskFreeRate = req.RiskFreeRate
+	}
+	if strategy.RuntimeStrategy == "" {
+		strategy.RuntimeStrategy = "cointegration"
 	}
 }
 

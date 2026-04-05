@@ -117,6 +117,7 @@ interface UserProfile extends Record<string, unknown> {
   role: string;
   is_active: boolean;
   is_admin: boolean;
+  password_change_required: boolean;
   created_at: string;
   avatar?: string;
   full_name?: string;
@@ -145,6 +146,34 @@ export interface UpdateAdminUserPayload extends Record<string, unknown> {
   full_name?: string;
   role?: string;
   is_active?: boolean;
+}
+
+export interface ChangePasswordPayload extends Record<string, unknown> {
+  current_password: string;
+  new_password: string;
+}
+
+export interface MailgunStatusResponse extends Record<string, unknown> {
+  provider: string;
+  configured: boolean;
+  shared_key_present: boolean;
+  shared_key_masked?: string;
+  shared_key_label?: string;
+  domain?: string;
+  from_email?: string;
+  from_name?: string;
+  region?: 'us' | 'eu' | string;
+  base_url?: string;
+  pending_password_change_count: number;
+}
+
+export interface MailgunConfigPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+  domain: string;
+  from_email: string;
+  from_name?: string;
+  region?: 'us' | 'eu' | string;
 }
 
 interface BacktestRequest extends Record<string, unknown> {
@@ -928,6 +957,14 @@ class ApiClient {
     return response.data;
   }
 
+  async changePassword(data: ChangePasswordPayload): Promise<ApiResponse<{ user: UserProfile }>> {
+    const response = await this.client.put<ApiResponse<{ user: UserProfile }>>(
+      '/api/v1/auth/change-password',
+      data
+    );
+    return response.data;
+  }
+
   // 2FA (TOTP) endpoints
   async setup2FA(): Promise<ApiResponse> {
     this.ensureTokenLoaded();
@@ -1069,8 +1106,8 @@ class ApiClient {
 
   async createAdminUser(
     data: CreateAdminUserPayload
-  ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
-    const response = await this.client.post<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>> {
+    const response = await this.client.post<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>>(
       '/api/v1/admin/users',
       data
     );
@@ -1849,6 +1886,24 @@ class ApiClient {
   async deleteCoinDeskNewsConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config');
+    return response.data;
+  }
+
+  async getMailgunStatus(): Promise<ApiResponse<MailgunStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
+    return response.data;
+  }
+
+  async saveMailgunConfig(data: MailgunConfigPayload): Promise<ApiResponse<MailgunStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/config', data);
+    return response.data;
+  }
+
+  async deleteMailgunConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
     return response.data;
   }
 }

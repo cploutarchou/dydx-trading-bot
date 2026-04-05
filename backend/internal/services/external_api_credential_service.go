@@ -10,6 +10,7 @@ import (
 )
 
 const ExternalAPIProviderCodexIO = "codex_io"
+const SharedCredentialUserID = 0
 
 type ExternalAPICredentialInfo struct {
 	Provider  string    `json:"provider"`
@@ -32,7 +33,7 @@ func NewExternalAPICredentialService(repo *repository.ExternalAPICredentialRepos
 }
 
 func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey string, label string) (*ExternalAPICredentialInfo, error) {
-	if userID <= 0 {
+	if userID < 0 {
 		return nil, fmt.Errorf("user id is required")
 	}
 	provider = strings.TrimSpace(strings.ToLower(provider))
@@ -69,8 +70,12 @@ func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey 
 	}, nil
 }
 
+func (s *ExternalAPICredentialService) SaveShared(provider string, apiKey string, label string) (*ExternalAPICredentialInfo, error) {
+	return s.Save(SharedCredentialUserID, provider, apiKey, label)
+}
+
 func (s *ExternalAPICredentialService) Delete(userID int, provider string) error {
-	if userID <= 0 {
+	if userID < 0 {
 		return fmt.Errorf("user id is required")
 	}
 	provider = strings.TrimSpace(strings.ToLower(provider))
@@ -78,6 +83,10 @@ func (s *ExternalAPICredentialService) Delete(userID int, provider string) error
 		return fmt.Errorf("provider is required")
 	}
 	return s.repo.Deactivate(userID, provider)
+}
+
+func (s *ExternalAPICredentialService) DeleteShared(provider string) error {
+	return s.Delete(SharedCredentialUserID, provider)
 }
 
 func (s *ExternalAPICredentialService) Get(userID int, provider string) (*ExternalAPICredentialInfo, error) {
@@ -98,6 +107,10 @@ func (s *ExternalAPICredentialService) Get(userID int, provider string) (*Extern
 	}, nil
 }
 
+func (s *ExternalAPICredentialService) GetShared(provider string) (*ExternalAPICredentialInfo, error) {
+	return s.Get(SharedCredentialUserID, provider)
+}
+
 func (s *ExternalAPICredentialService) ResolveKey(userID int, provider string) (string, bool, error) {
 	credential, err := s.repo.GetByUserAndProvider(userID, strings.TrimSpace(strings.ToLower(provider)))
 	if err != nil {
@@ -113,4 +126,8 @@ func (s *ExternalAPICredentialService) ResolveKey(userID int, provider string) (
 	}
 
 	return strings.TrimSpace(key), true, nil
+}
+
+func (s *ExternalAPICredentialService) ResolveSharedKey(provider string) (string, bool, error) {
+	return s.ResolveKey(SharedCredentialUserID, provider)
 }

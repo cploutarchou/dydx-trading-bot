@@ -1,6 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../api';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -30,6 +32,14 @@ export const RegisterPage: React.FC = () => {
     const termsCheckboxRef = useRef<HTMLInputElement | null>(null);
     const apiErrorAlertRef = useRef<HTMLDivElement | null>(null);
     const formErrorAlertRef = useRef<HTMLDivElement | null>(null);
+    const registrationStatusQuery = useQuery({
+        queryKey: ['auth', 'registration-status'],
+        queryFn: async () => {
+            const response = await api.getRegistrationStatus();
+            return response.data;
+        },
+        staleTime: 60_000,
+    });
 
     useEffect(() => {
         usernameInputRef.current?.focus();
@@ -98,6 +108,11 @@ export const RegisterPage: React.FC = () => {
         e.preventDefault();
         setFormError(null);
 
+        if (registrationStatusQuery.data?.enabled === false) {
+            setFormError(registrationStatusQuery.data.reason || 'Public registration is currently disabled.');
+            return;
+        }
+
         const errors = validateForm();
         if (Object.keys(errors).length > 0) {
             if (errors.username) {
@@ -129,14 +144,41 @@ export const RegisterPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl w-full max-w-md">
-                <div className="bg-linear-to-r from-blue-600 to-blue-700 p-8 text-white">
-                    <h1 className="text-3xl font-bold">Create Account</h1>
-                    <p className="text-blue-100 mt-2">Join dYdX Backtest Trading</p>
+        <div className="auth-stage flex items-center justify-center p-4">
+            <div className="premium-orb left-[10%] top-[14%] h-52 w-52 bg-cyan-500/12" />
+            <div className="premium-orb right-[10%] bottom-[8%] h-64 w-64 bg-emerald-500/10" />
+            <div className="auth-panel w-full max-w-xl">
+                <div className="rounded-t-[2rem] border-b border-slate-700/60 bg-gradient-to-r from-cyan-600/90 to-blue-600/90 p-8 text-white">
+                    <div className="premium-kicker border-white/20 bg-white/10 text-cyan-50">Create your operator account</div>
+                    <h1 className="mt-4 text-3xl font-bold">Build your trading command center</h1>
+                    <p className="mt-2 text-cyan-50/90">Join dYdX Bot and unlock premium backtesting, runtime control, and market intelligence.</p>
+                    <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">Runtime</p>
+                            <p className="mt-1 text-sm font-semibold text-white">Live strategy control</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">Research</p>
+                            <p className="mt-1 text-sm font-semibold text-white">Backtest intelligence</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">Market Pulse</p>
+                            <p className="mt-1 text-sm font-semibold text-white">News and token intel</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="p-8">
+                    {registrationStatusQuery.data?.enabled === false && (
+                        <div
+                            role="alert"
+                            aria-live="polite"
+                            className="mb-6 rounded-2xl border border-amber-600/50 bg-amber-950/30 p-4 text-sm text-amber-200"
+                        >
+                            {registrationStatusQuery.data.reason}
+                        </div>
+                    )}
+
                     {error && (
                         <div
                             ref={apiErrorAlertRef}
@@ -179,8 +221,8 @@ export const RegisterPage: React.FC = () => {
                                 aria-describedby={validationErrors.username ? 'username-error' : undefined}
                                 value={formData.username}
                                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.username ? 'border-red-500' : 'border-slate-600'
+                                className={`premium-input ${
+                                    validationErrors.username ? 'border-red-500' : ''
                                 }`}
                                 placeholder="john_doe"
                                 disabled={loading}
@@ -205,8 +247,8 @@ export const RegisterPage: React.FC = () => {
                                 aria-describedby={validationErrors.email ? 'email-error' : undefined}
                                 value={formData.email}
                                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.email ? 'border-red-500' : 'border-slate-600'
+                                className={`premium-input ${
+                                    validationErrors.email ? 'border-red-500' : ''
                                 }`}
                                 placeholder="john@example.com"
                                 disabled={loading}
@@ -231,8 +273,8 @@ export const RegisterPage: React.FC = () => {
                                 aria-describedby={validationErrors.password ? 'password-error' : 'password-help'}
                                 value={formData.password}
                                 onChange={handlePasswordChange}
-                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.password ? 'border-red-500' : 'border-slate-600'
+                                className={`premium-input ${
+                                    validationErrors.password ? 'border-red-500' : ''
                                 }`}
                                 placeholder="••••••••"
                                 disabled={loading}
@@ -272,9 +314,7 @@ export const RegisterPage: React.FC = () => {
                                 aria-describedby={validationErrors.confirmPassword ? 'confirm-password-error' : undefined}
                                 value={formData.confirmPassword}
                                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                                className={`w-full px-4 py-2 border rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    validationErrors.confirmPassword ? 'border-red-500' : 'border-slate-600'
-                                }`}
+                                className={`premium-input ${validationErrors.confirmPassword ? 'border-red-500' : ''}`}
                                 placeholder="••••••••"
                                 disabled={loading}
                             />
@@ -290,33 +330,35 @@ export const RegisterPage: React.FC = () => {
                         </div>
 
                         {/* Terms Agreement */}
-                        <div className="flex items-start gap-3 pt-2">
+                        <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4">
+                          <div className="flex items-start gap-3">
                             <input
                                 type="checkbox"
                                 id="terms"
                                 ref={termsCheckboxRef}
                                 checked={formData.agreedToTerms}
                                 onChange={(e) => setFormData({ ...formData, agreedToTerms: e.target.checked })}
-                                className="mt-1"
+                                className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500"
                                 disabled={loading}
                             />
                             <label htmlFor="terms" className="text-xs text-slate-400">
                                 I agree to the{' '}
-                                <a href="#" className="text-blue-400 hover:underline">
+                                <a href="#" className="text-cyan-300 hover:text-cyan-200 hover:underline">
                                     Terms of Service
                                 </a>
                                 {' '}and{' '}
-                                <a href="#" className="text-blue-400 hover:underline">
+                                <a href="#" className="text-cyan-300 hover:text-cyan-200 hover:underline">
                                     Privacy Policy
                                 </a>
                             </label>
+                          </div>
                         </div>
 
                         {/* Submit Button */}
                         <button
                             type="submit"
-                            disabled={loading}
-                            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2 mt-6"
+                            disabled={loading || registrationStatusQuery.data?.enabled === false}
+                            className="premium-button premium-button-primary mt-6 w-full disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {loading && <Loader className="w-4 h-4 animate-spin" />}
                             {loading ? 'Creating Account...' : 'Create Account'}
@@ -328,7 +370,7 @@ export const RegisterPage: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => navigate('/login')}
-                            className="text-blue-400 hover:underline font-medium"
+                            className="font-medium text-cyan-300 hover:text-cyan-200 hover:underline"
                         >
                             Login
                         </button>

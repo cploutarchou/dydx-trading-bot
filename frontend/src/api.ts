@@ -105,6 +105,11 @@ interface RegisterRequest {
   password: string;
 }
 
+export interface RegistrationStatusResponse extends Record<string, unknown> {
+  enabled: boolean;
+  reason: string;
+}
+
 interface UserProfile extends Record<string, unknown> {
   id: number;
   username: string;
@@ -282,6 +287,40 @@ export interface CodexAssetContextResponse extends Record<string, unknown> {
 }
 
 export interface CodexKeyPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+}
+
+export interface CoinDeskArticle extends Record<string, unknown> {
+  id: string;
+  title: string;
+  url: string;
+  summary: string;
+  author: string;
+  category: string;
+  published_at: string;
+  image_url: string;
+  tags: string[];
+}
+
+export interface CoinDeskNewsResponse extends Record<string, unknown> {
+  provider: string;
+  source: string;
+  feed_url: string;
+  last_build_at: string;
+  generated_at: string;
+  articles: CoinDeskArticle[];
+}
+
+export interface CoinDeskNewsConfigStatus extends Record<string, unknown> {
+  provider: string;
+  shared_key_present: boolean;
+  feed_url: string;
+  source: string;
+  configured_by_admin: boolean;
+}
+
+export interface CoinDeskNewsConfigPayload extends Record<string, unknown> {
   api_key: string;
   label?: string;
 }
@@ -791,6 +830,11 @@ class ApiClient {
   // Auth endpoints
   async register(data: RegisterRequest): Promise<ApiResponse> {
     const response = await this.client.post<ApiResponse>('/api/v1/auth/register', data);
+    return response.data;
+  }
+
+  async getRegistrationStatus(): Promise<ApiResponse<RegistrationStatusResponse>> {
+    const response = await this.client.get<ApiResponse<RegistrationStatusResponse>>('/api/v1/auth/registration-status');
     return response.data;
   }
 
@@ -1722,6 +1766,32 @@ class ApiClient {
   async resolveCodexAssetContext(data: CodexAssetContextRequest): Promise<ApiResponse<CodexAssetContextResponse>> {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<CodexAssetContextResponse>>('/api/v1/codex/assets/context', data);
+    return response.data;
+  }
+
+  async getCoinDeskNews(limit = 8): Promise<ApiResponse<CoinDeskNewsResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CoinDeskNewsResponse>>('/api/v1/news/coindesk', {
+      params: { limit },
+    });
+    return response.data;
+  }
+
+  async getCoinDeskNewsConfig(): Promise<ApiResponse<CoinDeskNewsConfigStatus>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CoinDeskNewsConfigStatus>>('/api/v1/news/coindesk/config');
+    return response.data;
+  }
+
+  async saveCoinDeskNewsConfig(data: CoinDeskNewsConfigPayload): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config', data);
+    return response.data;
+  }
+
+  async deleteCoinDeskNewsConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config');
     return response.data;
   }
 }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,25 +37,62 @@ func probeJSONEndpoint(url string, timeout time.Duration) (int, map[string]inter
 	return resp.StatusCode, payload, ""
 }
 
-func loadRootEnv() {
-	// Prefer backend-local .env first, then fallback to parent locations.
-	candidates := []string{".env", "../.env", "../../.env"}
+func findRepoRoot(start string) string {
+	current := filepath.Clean(start)
 
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err != nil {
+	for {
+		githubPath := filepath.Join(current, ".github")
+		agentsPath := filepath.Join(current, "AGENTS.md")
+		if info, err := os.Stat(githubPath); err == nil && info.IsDir() {
+			if _, err := os.Stat(agentsPath); err == nil {
+				return current
+			}
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+}
+
+func loadRootEnv() {
+	lookupStarts := make([]string, 0, 2)
+	if wd, err := os.Getwd(); err == nil && strings.TrimSpace(wd) != "" {
+		lookupStarts = append(lookupStarts, wd)
+	}
+	if execPath, err := os.Executable(); err == nil && strings.TrimSpace(execPath) != "" {
+		lookupStarts = append(lookupStarts, filepath.Dir(execPath))
+	}
+
+	seen := make(map[string]struct{}, len(lookupStarts))
+	for _, start := range lookupStarts {
+		repoRoot := findRepoRoot(start)
+		if repoRoot == "" {
+			continue
+		}
+		if _, exists := seen[repoRoot]; exists {
+			continue
+		}
+		seen[repoRoot] = struct{}{}
+
+		envPath := filepath.Join(repoRoot, ".env")
+		if _, err := os.Stat(envPath); err != nil {
+			log.Printf("Warning: repo root detected at %s but %s was not found", repoRoot, envPath)
 			continue
 		}
 
-		if err := godotenv.Load(candidate); err != nil {
-			log.Printf("Warning: failed to load env file %s: %v", candidate, err)
+		if err := godotenv.Load(envPath); err != nil {
+			log.Printf("Warning: failed to load env file %s: %v", envPath, err)
 			return
 		}
 
-		log.Printf("Loaded environment from %s", candidate)
+		log.Printf("Loaded environment from %s", envPath)
 		return
 	}
 
-	log.Printf("Warning: repo-root .env not found in expected locations; using process environment variables")
+	log.Printf("Warning: repo-root .env not found; using process environment variables")
 }
 
 func main() {

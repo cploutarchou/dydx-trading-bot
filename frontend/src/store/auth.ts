@@ -42,6 +42,18 @@ const getVerifiedTwoFAMessage = (response: { success: boolean; message?: string 
   return response.message || 'Failed to verify 2FA token';
 };
 
+const buildLoggedOutState = () => ({
+  user: null,
+  loading: false,
+  error: null,
+  twoFARequired: false,
+  twoFASecret: undefined,
+  twoFAQRCode: undefined,
+  backupCodes: undefined,
+});
+
+const hasActiveSession = (): boolean => api.hasToken();
+
 interface User {
   id: number;
   username: string;
@@ -129,25 +141,21 @@ export const useAuthStore = create<AuthStore>()(
 
       logout: () => {
         api.logout();
-        set({
-          user: null,
-          loading: false,
-          error: null,
-          twoFARequired: false,
-          twoFASecret: undefined,
-          twoFAQRCode: undefined,
-          backupCodes: undefined,
-        });
+        set(buildLoggedOutState());
       },
 
       getCurrentUser: async () => {
         try {
           const response = await api.getCurrentUser();
           const userData = response.data;
-          set({ user: userData || null, error: null });
+          if (!userData) {
+            throw new Error('Current user response did not include a user payload');
+          }
+          set({ user: userData, error: null });
         } catch (error) {
           console.error('❌ auth.ts: getCurrentUser failed:', error);
-          set({ user: null });
+          api.logout();
+          set(buildLoggedOutState());
         }
       },
 
@@ -157,15 +165,7 @@ export const useAuthStore = create<AuthStore>()(
         try {
           const restored = await withTimeout(api.restoreSession(), 10000, 'restoreSession');
           if (!restored) {
-            set({
-              user: null,
-              loading: false,
-              error: null,
-              twoFARequired: false,
-              twoFASecret: undefined,
-              twoFAQRCode: undefined,
-              backupCodes: undefined,
-            });
+            set(buildLoggedOutState());
             return;
           }
 
@@ -174,7 +174,7 @@ export const useAuthStore = create<AuthStore>()(
           console.error('❌ auth.ts: initializeSession failed:', error);
           api.logout();
           set({
-            user: null,
+            ...buildLoggedOutState(),
             error: error instanceof Error ? error.message : 'Session restore failed',
           });
         } finally {
@@ -183,7 +183,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       isAuthenticated: () => {
-        return get().user !== null;
+        return get().user !== null && hasActiveSession();
       },
 
       setup2FA: async () => {
@@ -245,6 +245,21 @@ export const useAuthStore = create<AuthStore>()(
       partialize: (state) => ({
         user: state.user, // Only persist user, not loading/error
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) {
+          return;
+        }
+
+        if (!hasActiveSession()) {
+          state.user = null;
+          state.error = null;
+          state.loading = false;
+          state.twoFARequired = false;
+          state.twoFASecret = undefined;
+          state.twoFAQRCode = undefined;
+          state.backupCodes = undefined;
+        }
+      },
     }
   )
 );

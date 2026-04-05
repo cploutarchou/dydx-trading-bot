@@ -78,6 +78,7 @@ Snapshot date: `2026-04-04`.
 - [x] 2026-04-04: Validated delegated backend compatibility after bot-wide 5xx message sanitization (`api_response`) to ensure backend passthrough contracts remain stable while upstream internal details stay redacted.
 - [x] 2026-04-04: Validated delegated backend contract compatibility after bot backtest strategy-lookup fallback hardening; no backend route contract changes required for this bot-side resilience fix.
 - [x] 2026-04-04: Added bot contract-lock coverage in `internal/routes/bot_instance_contract_lock_test.go` for lifecycle envelope stability, stop-force passthrough, trades `status` query forwarding, and required-key checks on delegated high-traffic bot endpoints; removed stale legacy client history method.
+- [x] 2026-04-05: Added request-trace middleware (`X-Trace-Id`) with passthrough to delegated bot HTTP/websocket calls, response echoing for operators, and a strict `/ready` endpoint for deploy/readiness checks.
 - [x] 2026-04-04: Implemented bot-instance parity fixes in backend routes/services for stop-force passthrough, trades `status` query contract alignment, and numeric `instance_id` validation on delegated realtime endpoints requiring upstream integer path params.
 - [x] 2026-04-04: Audited backend delegated bot endpoint parity vs bot OpenAPI/server contract; added pending follow-ups for stop-force passthrough, trades query semantics, bot ID mapping on realtime routes, and bot-route contract-lock coverage.
 - [x] 2026-04-04: Extended `POST /api/v1/backtests/:run_id/resync` response with deterministic run/job state (`run_id`, `status`, progress aliases, `current_task`, `current_pair`, `sync_state`) and added contract tests.
@@ -93,6 +94,7 @@ Snapshot date: `2026-04-04`.
 - [x] 2026-04-04: Added force-resync endpoint and sync health metrics (`run_age_seconds`, `sync_lag_seconds`, `quality_issues`).
 - [x] 2026-04-04: Added strict contract-lock response-shape test for `POST /api/v1/backtests/:run_id/resync`.
 - [x] 2026-04-04: Added frontend-driven backend backlog section for backtest details contracts, progress guarantees, and empty-state response normalization.
+- 2026-04-05: Added real strategy runtime control endpoints (`GET /api/v1/strategies/:id/runtime`, `POST /api/v1/strategies/:id/start`, `POST /api/v1/strategies/:id/stop`) backed by deterministic bot-instance orchestration and verified route coverage.
 
 ## Change Log Template
 - Date:

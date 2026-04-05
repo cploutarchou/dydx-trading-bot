@@ -70,9 +70,11 @@ Then run backtesting/API flows and compare:
 3. **Observability**
    - standardized structured events for open/close/failure/cleanup
    - alerting for repeated cleanup events and loop stalls
+   - verify `/ws/strategies` emits startup/stop/crash transitions and that per-instance log files are collected by operators
 
 4. **Reliability testing**
    - chaos-style tests for API timeouts, partial failures, and restart recovery
+   - validate dead-process monitor catches crashed workers without requiring manual status polling
 
 ## 5) Go/No-Go criteria
 
@@ -82,3 +84,14 @@ Deploy only when all are true:
 - no unresolved execution-safety blockers
 - testnet behavior stable for agreed burn-in window
 - rollback and emergency-close procedures are verified
+
+## 6) Runtime visibility baseline
+
+For API-controlled strategy runtimes, require all of the following before calling an environment production-ready:
+
+- per-instance subprocess logs are persisted under `bot_states/bot_<instance_id>.log`
+- dead-process cleanup runs continuously, not only on startup or manual status requests
+- `/ws/strategies` provides a snapshot on connect and lifecycle updates on create/start/stop/error paths
+- backend and frontend can both recover from missed websocket events by reconciling against HTTP runtime state
+- `/ready` returns `200` only when the bot manager is initialized, so orchestration can distinguish liveness from actual traffic readiness
+- request-scoped `X-Trace-Id` values survive backend delegation and websocket proxying for operator triage

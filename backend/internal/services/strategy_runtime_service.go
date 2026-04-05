@@ -58,6 +58,19 @@ func (s *StrategyRuntimeService) WithAuthToken(token string) *StrategyRuntimeSer
 	}
 }
 
+func (s *StrategyRuntimeService) WithTraceID(traceID string) *StrategyRuntimeService {
+	if s == nil {
+		return nil
+	}
+
+	return &StrategyRuntimeService{
+		strategyService: s.strategyService,
+		keyService:      s.keyService,
+		botService:      s.botService.WithTraceID(traceID),
+		botRepo:         s.botRepo,
+	}
+}
+
 func (s *StrategyRuntimeService) GetRuntimeStatus(strategy *models.BacktestStrategy) (map[string]interface{}, error) {
 	executionState, err := s.getOrCreateExecutionState(strategy.ID)
 	if err != nil {

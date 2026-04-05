@@ -9,6 +9,7 @@ import {
   guardRunBacktestContract,
   guardSyncHealthContract,
 } from './api/contractGuards';
+import { attachTraceHeader, traceHeaderName } from './api/trace';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
 
@@ -38,12 +39,17 @@ export interface ApiFailureInfo {
   kind: ApiFailureKind;
   statusCode: number | null;
   message: string;
+  traceId?: string | null;
 }
 
 export const classifyApiError = (error: unknown): ApiFailureInfo => {
   if (error instanceof AxiosError) {
     const statusCode = error.response?.status ?? null;
     const data = error.response?.data as Record<string, unknown> | undefined;
+    const traceId =
+      typeof data?.trace_id === 'string'
+        ? data.trace_id
+        : error.response?.headers?.[traceHeaderName.toLowerCase()] || null;
     const upstreamMessage =
       typeof data?.message === 'string'
         ? data.message
@@ -56,14 +62,14 @@ export const classifyApiError = (error: unknown): ApiFailureInfo => {
     const message = upstreamMessage || error.message || 'Unknown API error';
 
     if (statusCode === null || statusCode >= 500 || statusCode === 502 || statusCode === 504) {
-      return { kind: 'transport', statusCode, message };
+      return { kind: 'transport', statusCode, message, traceId };
     }
 
     if (statusCode >= 400 && statusCode < 500) {
-      return { kind: 'business', statusCode, message };
+      return { kind: 'business', statusCode, message, traceId };
     }
 
-    return { kind: 'unknown', statusCode, message };
+    return { kind: 'unknown', statusCode, message, traceId };
   }
 
   if (error instanceof Error) {
@@ -78,6 +84,7 @@ interface ApiResponse<T extends Record<string, unknown> | Token = Record<string,
   message: string;
   data?: T;
   timestamp: string;
+  trace_id?: string;
 }
 
 interface Token extends Record<string, unknown> {
@@ -397,13 +404,14 @@ class ApiClient {
 
     // Request interceptor to add an auth token
     this.client.interceptors.request.use((config) => {
+      const headers = (config.headers ??= {});
+      attachTraceHeader(headers as Record<string, string>);
+
       // Prefer in-memory accessToken, but fall back to storage (localStorage or cookie)
       const token = this.accessToken || this.getTokenFromStorage();
       if (token) {
         // Ensure the headers object exists
-        if (config.headers) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
+        headers.Authorization = `Bearer ${token}`;
       } else {
         const url = config.url || '';
         const isPublicAuthRoute =
@@ -426,7 +434,11 @@ class ApiClient {
         // Log all errors for debugging
         const url = error.config?.url || '';
         const status = error.response?.status;
-        console.warn('🚨 API Error:', { url, status, message: error.message });
+        const traceId =
+          error.response?.headers?.[traceHeaderName.toLowerCase()] ||
+          (error.response?.data as { trace_id?: string } | undefined)?.trace_id ||
+          null;
+        console.warn('🚨 API Error:', { url, status, message: error.message, traceId });
 
         // Handle 401 Unauthorized - attempt silent refresh
         if (
@@ -584,6 +596,7 @@ class ApiClient {
         withCredentials: true,
         headers: {
           'Content-Type': 'application/json',
+          [traceHeaderName]: attachTraceHeader({}),
         },
       }
     );

@@ -221,7 +221,7 @@ func main() {
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)
-	routes.RegisterCodexRoutes(router)
+	routes.RegisterCodexRoutes(router, database)
 	routes.RegisterStrategyRoutes(router, database)
 	routes.RegisterTradeLogRoutes(router, database)
 	routes.RegisterAuditLogRoutes(router, database)

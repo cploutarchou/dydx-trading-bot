@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
+	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
@@ -109,12 +111,13 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		user := &models.User{
-			Username: strings.TrimSpace(req.Username),
-			Email:    strings.TrimSpace(req.Email),
-			Role:     normalizedRole,
-			FullName: strings.TrimSpace(req.FullName),
-			IsActive: isActive,
-			IsAdmin:  isAdmin,
+			Username:               strings.TrimSpace(req.Username),
+			Email:                  strings.TrimSpace(req.Email),
+			Role:                   normalizedRole,
+			FullName:               strings.TrimSpace(req.FullName),
+			IsActive:               isActive,
+			IsAdmin:                isAdmin,
+			PasswordChangeRequired: true,
 		}
 
 		if user.Username == "" || user.Email == "" {
@@ -142,12 +145,23 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		mailgunService := services.NewMailgunService(
+			services.NewExternalAPICredentialService(repository.NewExternalAPICredentialRepository(database)),
+			repository.NewSettingsRepository(database),
+			userRepo,
+		)
+		onboardingNotice := "User created. Share the temporary password through a secure channel."
+		if result, err := mailgunService.SendPasswordRotationNotice(context.Background(), user); err == nil && result != nil {
+			onboardingNotice = result.Message
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"success": true,
 			"message": "User created successfully",
 			"data": gin.H{
-				"user":  toUserResponse(user),
-				"roles": models.AvailableUserRoles(),
+				"user":              toUserResponse(user),
+				"roles":             models.AvailableUserRoles(),
+				"onboarding_notice": onboardingNotice,
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})

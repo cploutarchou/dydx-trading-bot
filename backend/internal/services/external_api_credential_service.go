@@ -10,6 +10,7 @@ import (
 )
 
 const ExternalAPIProviderCodexIO = "codex_io"
+const ExternalAPIProviderMailgun = "mailgun"
 const SharedCredentialUserID = 0
 
 type ExternalAPICredentialInfo struct {

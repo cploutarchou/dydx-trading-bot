@@ -86,6 +86,15 @@ export function AdminAccessControlSettings() {
     staleTime: 30_000,
   });
 
+  const mailgunStatusQuery = useQuery({
+    queryKey: ['mailgun', 'status', 'access-control'],
+    queryFn: async () => {
+      const response = await api.getMailgunStatus();
+      return response.data;
+    },
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     if (!usersQuery.data?.users) {
       return;
@@ -118,7 +127,7 @@ export function AdminAccessControlSettings() {
 
   const createUserMutation = useMutation({
     mutationFn: async (payload: CreateAdminUserPayload) => api.createAdminUser(payload),
-    onSuccess: () => {
+    onSuccess: (response) => {
       setCreateForm({
         username: '',
         email: '',
@@ -129,6 +138,15 @@ export function AdminAccessControlSettings() {
       });
       successToast('User created', 'The new platform account is ready and assigned to the selected role.');
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      void queryClient.invalidateQueries({ queryKey: ['mailgun'] });
+      const notice = response.data?.onboarding_notice;
+      if (typeof notice === 'string' && notice.trim().length > 0) {
+        if (notice.toLowerCase().includes('skipped') || notice.toLowerCase().includes('not configured')) {
+          errorToast('Onboarding email skipped', notice);
+        } else {
+          successToast('Onboarding notice', notice);
+        }
+      }
     },
     onError: (error: unknown) => {
       errorToast('Failed to create user', getErrorMessage(error));
@@ -159,6 +177,7 @@ export function AdminAccessControlSettings() {
       )
     );
   }, [searchQuery, users]);
+  const pendingPasswordChanges = users.filter((user) => user.password_change_required && user.is_active).length;
 
   const handleDraftChange = (userId: number, field: keyof UserDraft, value: string | boolean) => {
     setDrafts((prev) => ({
@@ -251,6 +270,12 @@ export function AdminAccessControlSettings() {
             <p className="mt-1 text-xs text-slate-500">Predefined for the DeFi operating model.</p>
           </div>
         </div>
+
+        {!mailgunStatusQuery.data?.configured && pendingPasswordChanges > 0 && (
+          <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-4 text-sm text-amber-100">
+            Mailgun is still not configured, and {pendingPasswordChanges} user account{pendingPasswordChanges === 1 ? '' : 's'} still require a first-login password change. The platform will enforce password rotation, but onboarding emails are currently skipped.
+          </div>
+        )}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.92fr,1.08fr]">
@@ -415,6 +440,11 @@ export function AdminAccessControlSettings() {
                           {isSelf && (
                             <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-cyan-200">
                               Your account
+                            </span>
+                          )}
+                          {user.password_change_required && (
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-amber-200">
+                              Password reset pending
                             </span>
                           )}
                         </div>

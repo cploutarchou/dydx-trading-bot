@@ -20,6 +20,7 @@ import { CodexSettings } from '../components/CodexSettings';
 import { CoinDeskNewsSettings } from '../components/CoinDeskNewsSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { useToastStore } from '../components/ErrorBoundary';
+import { MailgunSettings } from '../components/MailgunSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { useAuthStore } from '../store/auth';
@@ -99,6 +100,7 @@ const getSettingsFieldRefKey = (section: string, fieldKey: string): string => `$
 const MANUAL_SECTION_IDS = new Set([
   'codex_io',
   'market_news',
+  'mailgun',
   'profile',
   'dydx_keys',
   'security',
@@ -252,6 +254,7 @@ export default function Settings() {
       ...(user?.is_admin
         ? [
             { section: 'access_control', title: '🧭 Access Control', description: 'Roles & Registration' },
+            { section: 'mailgun', title: '✉️ Mailgun', description: 'Onboarding Email' },
             { section: 'market_news', title: '📰 Market News', description: 'CoinDesk Feed' },
           ]
         : []),
@@ -621,6 +624,9 @@ export default function Settings() {
 
             {/* Access Control Panel */}
             {activeSection === 'access_control' && user?.is_admin && <AdminAccessControlSettings />}
+
+            {/* Mailgun Panel */}
+            {activeSection === 'mailgun' && user?.is_admin && <MailgunSettings />}
 
             {/* CoinDesk News Panel */}
             {activeSection === 'market_news' && user?.is_admin && <CoinDeskNewsSettings />}

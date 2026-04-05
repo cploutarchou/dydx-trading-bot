@@ -61,6 +61,7 @@ interface User {
   role: string;
   is_active: boolean;
   is_admin: boolean;
+  password_change_required: boolean;
   created_at: string;
   avatar?: string; // Base64 or URL to avatar image
   full_name?: string;

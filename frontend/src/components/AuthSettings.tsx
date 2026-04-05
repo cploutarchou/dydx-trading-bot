@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle, Lock, LogOut, Shield, User } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../api';
 import { useFocusOnError } from '../hooks/useFocusOnError';
 import { useAuthStore } from '../store/auth';
 
@@ -97,13 +98,14 @@ export const AuthSettingsComponent: React.FC = () => {
         }
 
         try {
-            // This would require a backend endpoint like PUT /api/v1/auth/change-password
-            // const response = await api.changePassword({
-            //     current_password: changePasswordForm.currentPassword,
-            //     new_password: changePasswordForm.newPassword,
-            // });
-            // setPasswordChangeStatus({ success: 'Password changed successfully' });
-            setPasswordChangeStatus({ success: 'Password change endpoint not yet implemented' });
+            const response = await api.changePassword({
+                current_password: changePasswordForm.currentPassword,
+                new_password: changePasswordForm.newPassword,
+            });
+            if (response.data?.user) {
+                useAuthStore.setState({ user: response.data.user, error: null });
+            }
+            setPasswordChangeStatus({ success: 'Password changed successfully' });
             setChangePasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : 'Failed to change password';

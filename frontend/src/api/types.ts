@@ -45,6 +45,7 @@ export interface User {
   avatar?: string;
   is_active: boolean;
   is_admin: boolean;
+  password_change_required: boolean;
   created_at: string;
   updated_at?: string;
   profile?: UserProfile;

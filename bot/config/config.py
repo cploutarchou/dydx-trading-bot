@@ -242,7 +242,7 @@ class ConfigurationManager:
         """Load configuration from environment variables with optional YAML fallback."""
         import os
 
-        # Load environment variables from the repo-root .env file.
+        # Load environment variables from config/profiles.
         load_repo_env(__file__)
 
         try:
@@ -262,15 +262,16 @@ class ConfigurationManager:
                 chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
             )
 
-            # Load dYdX credentials from environment
+            # dYdX credentials are managed through encrypted app settings and
+            # per-instance bot payloads, not through the shared runtime config.
             dydx_testnet = DYDXTestnetSettings(
-                dydx_chain_address=os.getenv("DYDX_TESTNET_ADDRESS", ""),
-                dydx_chain_secret=os.getenv("DYDX_TESTNET_MNEMONIC", ""),
+                dydx_chain_address="",
+                dydx_chain_secret="",
             )
 
             dydx_mainnet = DYDXMainnetSettings(
-                dydx_chain_address=os.getenv("DYDX_MAINNET_ADDRESS", ""),
-                dydx_chain_secret=os.getenv("DYDX_MAINNET_MNEMONIC", ""),
+                dydx_chain_address="",
+                dydx_chain_secret="",
             )
 
             # Load other settings from environment

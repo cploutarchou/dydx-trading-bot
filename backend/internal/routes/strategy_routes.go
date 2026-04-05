@@ -16,8 +16,12 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 	strategyRepo := repository.NewStrategyRepository(database.DB)
 	keyRepo := repository.NewKeyRepository(database.DB)
 	botInstanceRepo := repository.NewBotInstanceRepository(database.DB)
+	settingsRepo := repository.NewSettingsRepository(database.DB)
+	credentialRepo := repository.NewExternalAPICredentialRepository(database.DB)
 	strategyService := services.NewStrategyService(strategyRepo)
 	keyService := services.NewKeyManagementService(keyRepo)
+	credentialService := services.NewExternalAPICredentialService(credentialRepo)
+	telegramService := services.NewTelegramService(credentialService, settingsRepo)
 
 	botAPIURL := os.Getenv("BOT_API_URL")
 	if botAPIURL == "" {
@@ -25,7 +29,7 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 	}
 	botAPIClient := services.NewBotAPIClient(botAPIURL, os.Getenv("BOT_API_TOKEN"))
 	botInstanceService := services.NewBotInstanceService(botInstanceRepo, botAPIClient)
-	runtimeService := services.NewStrategyRuntimeService(strategyService, keyService, botInstanceService, botInstanceRepo)
+	runtimeService := services.NewStrategyRuntimeService(strategyService, keyService, telegramService, botInstanceService, botInstanceRepo)
 	strategyHandler := handlers.NewStrategyHandler(strategyService, runtimeService)
 
 	v1 := router.Group("/api/v1")

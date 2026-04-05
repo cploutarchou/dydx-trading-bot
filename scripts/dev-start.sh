@@ -92,47 +92,31 @@ setup_python_env() {
     echo ""
 }
 
-# Setup environment files
+# Validate structured config files
 setup_env_files() {
-    echo "${BLUE}[3/6] Setting up environment files...${NC}"
-    
-    # Shared repo-root .env
-    if [ ! -f "$PROJECT_ROOT/.env" ]; then
-        echo "  Creating repo-root .env..."
-        cat > "$PROJECT_ROOT/.env" << 'EOF'
-# Shared monorepo environment
-ENVIRONMENT=development
-POSTGRES_PORT=5432
-REDIS_PORT=6379
-API_PORT=8888
-POSTGRES_USER=dydx_bot
-POSTGRES_PASSWORD=change-me-db-password
-POSTGRES_DB=dydx_bot
-SECRET_KEY=change-me-jwt-secret-min-32-chars
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-DB_TYPE=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=dydx_bot
-DB_USER=dydx_bot
-DB_PASSWORD=change-me-db-password
-REDIS_ENABLED=true
-REDIS_HOST=localhost
-REDIS_DB=0
-BOT_API_URL=http://localhost:8889
-BOT_API_HOST=0.0.0.0
-BOT_API_PORT=8889
-VITE_API_URL=http://localhost:8888
-EOF
-        echo "  ✓ Repo-root .env created"
-    else
-        echo "  ✓ Repo-root .env already exists"
+    echo "${BLUE}[3/6] Checking structured config...${NC}"
+
+    if [ ! -f "$PROJECT_ROOT/run.json" ]; then
+        echo "${YELLOW}  run.json not found. Generating it with 'make dev'...${NC}"
+        (cd "$PROJECT_ROOT" && PATH="$HOME/.local/bin:$PATH" make dev) || {
+            echo "${RED}  ✗ Failed to generate run.json${NC}"
+            exit 1
+        }
     fi
 
-    echo "  ✓ Backend, bot, and frontend now source values from $PROJECT_ROOT/.env"
-    
+    if [ ! -f "$PROJECT_ROOT/run.json" ]; then
+        echo "${RED}  ✗ Missing $PROJECT_ROOT/run.json${NC}"
+        exit 1
+    fi
+
+    if ! python3 "$PROJECT_ROOT/scripts/validate_stack_env.py" --environment development >/dev/null; then
+        echo "${RED}  ✗ Structured config validation failed${NC}"
+        echo "${YELLOW}  Run 'make dev-config' and then 'make dev' from the repo root.${NC}"
+        exit 1
+    fi
+
+    echo "  ✓ Structured config is valid"
+    echo "  ✓ Backend, bot, and frontend will load from run.json"
     echo ""
 }
 

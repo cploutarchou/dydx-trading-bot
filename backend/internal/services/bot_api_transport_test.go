@@ -216,3 +216,34 @@ func TestMakeRequest_PropagatesTraceHeader(t *testing.T) {
 		t.Fatal("timeout waiting for propagated trace header")
 	}
 }
+
+func TestMakeRequest_401RetriesWithConfiguredServiceToken(t *testing.T) {
+	authHeaders := make(chan string, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeaders <- r.Header.Get("Authorization")
+		if r.Header.Get("Authorization") != "Bearer shared-service-token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"detail":"Invalid token"}`))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	client := NewBotAPIClient(upstream.URL, "shared-service-token").WithToken("user-jwt-token")
+	if _, err := client.HealthCheck(); err != nil {
+		t.Fatalf("expected fallback retry to succeed, got %v", err)
+	}
+
+	first := <-authHeaders
+	second := <-authHeaders
+	if first != "Bearer user-jwt-token" {
+		t.Fatalf("expected first request to use caller token, got %q", first)
+	}
+	if second != "Bearer shared-service-token" {
+		t.Fatalf("expected retry to use service token, got %q", second)
+	}
+}

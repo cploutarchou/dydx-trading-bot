@@ -61,7 +61,7 @@ npm run qa:screenshots:sync
 ### Repo-root integration commands
 
 ```bash
-make stack-env
+make dev-config
 make infra-up
 make stack-up-dev
 make infra-down

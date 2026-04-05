@@ -108,14 +108,8 @@ init-env: ## Initialize environment file from template
 	fi
 
 .PHONY: dev-env
-dev-env: ## Render the shared repo-root .env from config profiles (usage: make dev-env MODE=development)
-	@MODE_VALUE="$(MODE)"; \
-	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
-		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(RESET)"; \
-		exit 1; \
-	fi; \
-	@python3 ../scripts/render_env.py --environment $(MODE) --output ../.env
-	@echo "$(GREEN)✅ Repo-root .env rendered for $(MODE)$(RESET)"
+dev-env: ## Deprecated: bot now reads config/profiles directly
+	@echo "$(YELLOW)⚠ dev-env is deprecated. Use make dev-config or make prod-config from the repo root.$(RESET)"
 
 .PHONY: init-ssl
 init-ssl: ## Generate SSL certificates for development

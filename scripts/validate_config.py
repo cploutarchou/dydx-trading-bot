@@ -110,7 +110,8 @@ def main():
                 "/backend/app/config.yaml", "config.yaml"
             ),
             check_file_exists(
-                "/home/chris/workspace/dydx-trading-bot/.env.example", ".env.example"
+                "/home/chris/workspace/dydx-trading-bot/config/environments/development.env.json",
+                "development.env.json",
             ),
             check_file_exists(
                 "/home/chris/workspace/dydx-trading-bot/docs/DATABASE_REDIS_CONFIG.md",

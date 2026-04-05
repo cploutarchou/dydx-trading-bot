@@ -1,4 +1,5 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps
+.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config install-sops install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps
+MODE ?= development
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -38,15 +39,29 @@ config: ## Deprecated legacy config target (bot uses runtime config under bot/)
 	@echo "⚠️  'make config' is deprecated for this monorepo layout."
 	@echo "Use stack/dev workflows and bot runtime config under bot/ instead."
 
-env-setup: ## Set up environment variables from .env.example
+edit-config: ## Open MODE config files in your editor, then re-render repo-root .env on close
+	@python3 scripts/edit_config.py --environment $(MODE)
+
+dev-config: ## Open development config/secrets, then re-render repo-root .env
+	@$(MAKE) edit-config MODE=development
+
+prod-config: ## Open production config/secrets, then re-render repo-root .env
+	@$(MAKE) edit-config MODE=production
+
+install-sops: ## Install sops and age into ~/.local/bin when supported
+	@bash scripts/install_security_tools.sh
+
+install-security-tools: install-sops ## Alias for install-sops
+
+env-setup: ## Render the repo-root .env from config/environments/<MODE>.env.json
 	@if [ -f .env ]; then \
 		echo "⚠️  .env already exists. Backing up to .env.bak"; \
 		cp .env .env.bak; \
 	fi
-	@echo "Creating .env from template..."
-	@cp .env.example.new .env 2>/dev/null || cp .env.example .env
+	@echo "Rendering .env from structured config for MODE=$(MODE)..."
+	@python3 scripts/render_env.py --environment $(MODE) --output .env
 	@echo "✅ Environment file created at .env"
-	@echo "📌 Edit .env with your specific settings (keys, addresses, etc.)"
+	@echo "📌 Edit config/environments and config/secrets, then re-render .env as needed"
 	@echo ""
 	@echo "🔐 Generate encryption key with:"
 	@echo "  python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
@@ -433,11 +448,11 @@ stack-ps: ## Show status for split app stack services
 		exit 0; \
 	fi
 
-stack-env: ## Create .env from template (safe; won't overwrite existing)
+stack-env: ## Create .env from the structured config (safe; won't overwrite existing)
 	@if [ -f .env ]; then \
 		echo "ℹ️ .env already exists"; \
 	else \
-		cp .env.example .env; \
+		python3 scripts/render_env.py --environment $(MODE) --output .env; \
 		echo "✅ Created .env (edit secrets before production use)"; \
 	fi
 

@@ -126,7 +126,10 @@ def main() -> int:
             print(f"   Missing keys: {', '.join(missing)}", file=sys.stderr)
         if empty:
             print(f"   Empty keys: {', '.join(empty)}", file=sys.stderr)
-        print("   Tip: copy defaults from .env.example", file=sys.stderr)
+        print(
+            "   Tip: run python3 scripts/render_env.py --environment development --output .env",
+            file=sys.stderr,
+        )
         return 1
 
     optional_empty = [k for k in OPTIONAL_KEYS if env.get(k, "") == ""]

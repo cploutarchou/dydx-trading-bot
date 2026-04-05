@@ -16,13 +16,19 @@ PostgreSQL and Redis provide shared persistence, state, and caching.
 
 ## Shared environment
 
-Use the repo-root `.env` for all three services.
+Use the repo-root `.env` for all three services, rendered from the structured profiles under `config/`.
 
 - `frontend` reads `VITE_*` values from the repo root
 - `backend` loads the repo-root `.env`
 - `bot` entrypoints and config load the repo-root `.env`
 
 You generally should not need `backend/.env`, `bot/.env`, or `frontend/.env.local` for normal local development.
+
+Preferred workflow:
+
+- base config in `config/environments/development.env.json` or `config/environments/production.env.json`
+- optional secrets in `config/secrets/<environment>.secrets.sops.json`
+- rendered runtime file at repo-root `.env`
 
 ## Quick start
 

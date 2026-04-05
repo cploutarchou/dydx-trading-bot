@@ -442,6 +442,8 @@ def _strategy_to_backtest_request(
             "transaction_fee": strategy.get("transaction_fee", 0.0005),
             "slippage": strategy.get("slippage", 0.001),
             "risk_free_rate": strategy.get("risk_free_rate", 0.02),
+            "benchmark_symbol": strategy.get("benchmark_symbol", "BTC-USD"),
+            "max_history_days": strategy.get("max_history_days", 90),
             "resolution": strategy.get(
                 "resolution",
                 strategy.get("candle_resolution", "1HOUR"),
@@ -457,7 +459,12 @@ def _strategy_to_backtest_request(
         description=request.description or strategy.get("description", ""),
         start_date=request.start_date,
         end_date=request.end_date,
-        initial_balance=float(strategy.get("initial_amount", request.initial_balance)),
+        initial_balance=float(
+            strategy.get(
+                "starting_balance",
+                strategy.get("initial_amount", request.initial_balance),
+            )
+        ),
         trading_parameters=trading_parameters,
         pairs=pairs,
     )
@@ -709,6 +716,11 @@ async def create_bot_instance(
                         "trading_params": (
                             config.trading_params.model_dump()
                             if config.trading_params
+                            else {}
+                        ),
+                        "backtesting_params": (
+                            config.backtesting_params.model_dump()
+                            if config.backtesting_params
                             else {}
                         ),
                     },

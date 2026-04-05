@@ -221,7 +221,7 @@ def main():
         print("  Swagger UI: http://localhost:8889/docs")
         print()
         print("📧 Email Configuration:")
-        print("  1. Copy .env.example to .env")
+        print("  1. Render .env from config/environments with scripts/render_env.py")
         print("  2. Configure MAILGUN_API_KEY and MAILGUN_DOMAIN")
         print("  3. Or set up SMTP with your email provider")
         print("  4. Test with: POST /auth/test-email")

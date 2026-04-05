@@ -12,14 +12,37 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/dydx-trading-bot/backend-go/config"
 )
 
+const insecureDefaultEncryptionKey = "default-secret-key-change-in-production"
+
+func ValidateEncryptionKeyConfiguration() error {
+	if config.ResolveAppConfigEnvironment() != "production" {
+		return nil
+	}
+
+	secret := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY"))
+	switch secret {
+	case "":
+		return fmt.Errorf("ENCRYPTION_KEY must be set in production")
+	case insecureDefaultEncryptionKey:
+		return fmt.Errorf("ENCRYPTION_KEY must not use the insecure default value in production")
+	default:
+		return nil
+	}
+}
+
 func loadEncryptionSecret() string {
-	secret := os.Getenv("ENCRYPTION_KEY")
+	secret := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY"))
 	if secret == "" {
+		if config.ResolveAppConfigEnvironment() == "production" {
+			log.Panic("ENCRYPTION_KEY must be set in production")
+		}
 		log.Printf("WARNING: ENCRYPTION_KEY is not set. Using insecure default key. " +
 			"Set ENCRYPTION_KEY in config/profiles before storing real credentials.")
-		secret = "default-secret-key-change-in-production"
+		secret = insecureDefaultEncryptionKey
 	}
 	if len(secret) < 32 {
 		return fmt.Sprintf("%-32s", secret)

@@ -1,33 +1,8 @@
 """Regression tests for BotAgent emergency cleanup behavior."""
 
 import asyncio
-import sys
-import types
 
 from src.trading.bot_agent import BotAgent
-
-notifications_stub = types.ModuleType("src.shared.notifications")
-
-
-class _StubMessenger:
-    def send_error_message(self, *args, **kwargs):
-        return None
-
-
-notifications_stub.TelegramMessenger = _StubMessenger
-sys.modules["src.shared.notifications"] = notifications_stub
-
-account_manager_stub = types.ModuleType("src.trading.account_manager")
-
-
-async def _noop(*args, **kwargs):
-    return None
-
-
-account_manager_stub.cancel_order = _noop
-account_manager_stub.check_order_status = _noop
-account_manager_stub.place_market_order = _noop
-sys.modules["src.trading.account_manager"] = account_manager_stub
 
 
 def test_open_trades_returns_error_dict_after_second_leg_failure(monkeypatch):

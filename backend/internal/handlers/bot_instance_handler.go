@@ -247,7 +247,7 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 		createPayload["config"] = req.Config
 	}
 
-	service := h.service.WithAuthToken(extractAuthToken(c))
+	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 	if err := service.CreateBotInstanceWithConfig(instance, createPayload); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -270,7 +270,7 @@ func (h *BotInstanceHandler) StartBotInstance(c *gin.Context) {
 	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
 		return
 	}
-	service := h.service.WithAuthToken(extractAuthToken(c))
+	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 
 	if err := service.StartBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
@@ -294,7 +294,7 @@ func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
 		return
 	}
-	service := h.service.WithAuthToken(extractAuthToken(c))
+	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 	force, _ := strconv.ParseBool(c.DefaultQuery("force", "false"))
 
 	if err := service.StopBotInstanceWithForce(instanceID, force); err != nil {
@@ -319,7 +319,7 @@ func (h *BotInstanceHandler) RestartBotInstance(c *gin.Context) {
 	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
 		return
 	}
-	service := h.service.WithAuthToken(extractAuthToken(c))
+	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 
 	if err := service.RestartBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
@@ -344,7 +344,8 @@ func (h *BotInstanceHandler) DeleteBotInstance(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteBotInstance(instanceID); err != nil {
+	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
+	if err := service.DeleteBotInstance(instanceID); err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -366,7 +367,7 @@ func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
 		return
 	}
-	service := h.service.WithAuthToken(extractAuthToken(c))
+	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 
 	stats, err := service.GetBotInstanceStats(instanceID)
 	if err != nil {
@@ -391,7 +392,7 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
 		return
 	}
-	service := h.service.WithAuthToken(extractAuthToken(c))
+	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 	statusRaw := strings.TrimSpace(c.Query("status"))
 	var status *string
 	if statusRaw != "" {

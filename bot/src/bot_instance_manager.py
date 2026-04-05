@@ -2,14 +2,15 @@
 Bot Instance Manager - Handles multiple bot instances with API control
 """
 
+import asyncio
 import json
 import logging
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional, TextIO
 
 import psutil
 
@@ -35,9 +36,20 @@ class BotInstanceManager:
         # In-memory instance tracking
         self.instances: Dict[str, BotInstanceState] = {}
         self.processes: Dict[str, subprocess.Popen] = {}
+        self.log_handles: Dict[str, TextIO] = {}
+        self.status_event_publisher: Optional[
+            Callable[[Dict[str, object]], Awaitable[None]]
+        ] = None
 
         # Load existing instances from disk
         self._load_existing_instances()
+
+    def set_status_event_publisher(
+        self,
+        publisher: Optional[Callable[[Dict[str, object]], Awaitable[None]]],
+    ):
+        """Register async publisher for strategy runtime status events."""
+        self.status_event_publisher = publisher
 
     def _load_existing_instances(self):
         """Load bot instances from state directory"""
@@ -84,6 +96,88 @@ class BotInstanceManager:
         except Exception as e:
             logger.error(f"Error saving instances state: {e}")
 
+    def _strategy_id_from_instance_id(self, instance_id: str) -> Optional[int]:
+        """Extract strategy id from deterministic strategy runtime instance ids."""
+        parts = instance_id.split("-")
+        if len(parts) == 3 and parts[0] == "strategy" and parts[1].isdigit() and parts[2].isdigit():
+            return int(parts[2])
+        return None
+
+    def _build_strategy_status_payload(
+        self,
+        instance_id: str,
+        event: str = "status",
+        last_error: Optional[str] = None,
+    ) -> Optional[Dict[str, object]]:
+        """Build websocket/frontend-compatible strategy runtime payload."""
+        instance = self.instances.get(instance_id)
+        if instance is None:
+            return None
+
+        strategy_id = self._strategy_id_from_instance_id(instance_id)
+        if strategy_id is None:
+            return None
+
+        status = instance.status.value if isinstance(instance.status, BotStatus) else str(instance.status)
+        network = (
+            "testnet"
+            if instance.config.trading_params.is_testnet
+            else "mainnet"
+        )
+        updated_at = datetime.now(timezone.utc).isoformat()
+        resolved_error = last_error or instance.process_info.get("last_error")
+
+        payload: Dict[str, object] = {
+            "type": "strategy_status",
+            "event": event,
+            "strategyId": strategy_id,
+            "strategy_id": strategy_id,
+            "instance_id": instance_id,
+            "status": status,
+            "bot_status": status,
+            "updatedAt": updated_at,
+            "updated_at": updated_at,
+            "network": network,
+            "process_id": instance.process_info.get("pid"),
+        }
+        if resolved_error:
+            payload["lastError"] = str(resolved_error)
+            payload["last_error"] = str(resolved_error)
+
+        return payload
+
+    async def _publish_strategy_status(
+        self,
+        instance_id: str,
+        event: str = "status",
+        last_error: Optional[str] = None,
+    ):
+        """Publish status update for strategy-managed instances when configured."""
+        if self.status_event_publisher is None:
+            return
+
+        payload = self._build_strategy_status_payload(
+            instance_id,
+            event=event,
+            last_error=last_error,
+        )
+        if payload is None:
+            return
+
+        try:
+            await self.status_event_publisher(payload)
+        except Exception as exc:
+            logger.warning("Failed to publish strategy status for %s: %s", instance_id, exc)
+
+    def get_strategy_status_snapshot(self) -> List[Dict[str, object]]:
+        """Return current strategy runtime snapshot for websocket subscribers."""
+        snapshot: List[Dict[str, object]] = []
+        for instance_id in sorted(self.instances.keys()):
+            payload = self._build_strategy_status_payload(instance_id, event="snapshot")
+            if payload is not None:
+                snapshot.append(payload)
+        return snapshot
+
     def _get_instance_state_files(self, instance_id: str) -> Dict[str, Path]:
         """Get paths to instance-specific state files"""
         return {
@@ -92,6 +186,68 @@ class BotInstanceManager:
             "config": self.state_dir / f"config_{instance_id}.yaml",
             "log": self.state_dir / f"bot_{instance_id}.log",
         }
+
+    def _open_instance_log(self, instance_id: str) -> TextIO:
+        """Open per-instance log file handle used by subprocess stdout/stderr."""
+        self._close_instance_log(instance_id)
+        log_file = self._get_instance_state_files(instance_id)["log"]
+        handle = open(log_file, "a", encoding="utf-8", buffering=1)
+        self.log_handles[instance_id] = handle
+        return handle
+
+    def _close_instance_log(self, instance_id: str):
+        """Close any open log file handle for an instance."""
+        handle = self.log_handles.pop(instance_id, None)
+        if handle is None:
+            return
+        try:
+            handle.flush()
+            handle.close()
+        except Exception as exc:
+            logger.warning("Failed to close log handle for %s: %s", instance_id, exc)
+
+    def _read_recent_log_tail(self, instance_id: str, max_chars: int = 500) -> str:
+        """Read the most recent log output for error reporting."""
+        log_file = self._get_instance_state_files(instance_id)["log"]
+        if not log_file.exists():
+            return ""
+
+        try:
+            with open(log_file, "rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                handle.seek(max(0, size - max_chars))
+                return handle.read().decode("utf-8", errors="ignore").strip()
+        except Exception as exc:
+            logger.warning("Failed to read log tail for %s: %s", instance_id, exc)
+            return ""
+
+    def _mark_instance_error(
+        self,
+        instance_id: str,
+        message: str,
+        exit_code: Optional[int] = None,
+    ) -> bool:
+        """Transition an instance into ERROR state and capture failure details."""
+        instance = self.instances.get(instance_id)
+        if instance is None:
+            return False
+
+        status_changed = instance.status != BotStatus.ERROR
+        instance.status = BotStatus.ERROR
+        instance.last_update = datetime.now()
+        instance.process_info["stopped_at"] = datetime.now()
+        if exit_code is not None:
+            instance.process_info["exit_code"] = exit_code
+        if message:
+            instance.process_info["last_error"] = message
+        instance.process_info.pop("pid", None)
+
+        self.processes.pop(instance_id, None)
+        self._close_instance_log(instance_id)
+        self._save_instances_state()
+
+        return status_changed
 
     def _create_instance_config_file(self, instance_id: str, config: BotInstanceConfig) -> Path:
         """Create instance-specific configuration file"""
@@ -202,6 +358,7 @@ class BotInstanceManager:
             self._save_instances_state()
 
             logger.info(f"Created bot instance: {config.instance_id}")
+            await self._publish_strategy_status(config.instance_id, event="created")
 
             return BotOperationResult(
                 success=True,
@@ -243,6 +400,8 @@ class BotInstanceManager:
             # Update status
             instance.status = BotStatus.STARTING
             instance.last_update = datetime.now()
+            instance.process_info.pop("last_error", None)
+            await self._publish_strategy_status(instance_id, event="starting")
 
             # Get instance files
             files = self._get_instance_state_files(instance_id)
@@ -268,18 +427,45 @@ class BotInstanceManager:
                 "--config",
                 str(files["config"]),
             ]
+            log_handle = self._open_instance_log(instance_id)
 
             process = subprocess.Popen(
                 cmd,
                 env=bot_env,
-                stdout=subprocess.PIPE,
+                stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 cwd=Path(__file__).parent,
                 text=True,
+                bufsize=1,
             )
 
             # Store process reference
             self.processes[instance_id] = process
+
+            startup_grace = float(os.getenv("BOT_STARTUP_GRACE_SECONDS", "0.2"))
+            await asyncio.sleep(max(0.0, startup_grace))
+            exit_code = process.poll()
+            if exit_code is not None:
+                log_tail = self._read_recent_log_tail(instance_id)
+                error_message = (
+                    f"Instance {instance_id} exited during startup (exit_code={exit_code})"
+                )
+                if log_tail:
+                    error_message = f"{error_message}: {log_tail.splitlines()[-1]}"
+
+                self._mark_instance_error(instance_id, error_message, exit_code=exit_code)
+                await self._publish_strategy_status(
+                    instance_id,
+                    event="error",
+                    last_error=error_message,
+                )
+                return BotOperationResult(
+                    success=False,
+                    message=error_message,
+                    instance_id=instance_id,
+                    status=BotStatus.ERROR,
+                    error=error_message,
+                )
 
             # Update instance state
             instance.status = BotStatus.RUNNING
@@ -287,12 +473,14 @@ class BotInstanceManager:
                 "pid": process.pid,
                 "started_at": datetime.now(),
                 "cmd": " ".join(cmd),
+                "log_path": str(files["log"]),
             }
             instance.last_update = datetime.now()
 
             self._save_instances_state()
 
             logger.info(f"Started bot instance {instance_id} with PID {process.pid}")
+            await self._publish_strategy_status(instance_id, event="running")
 
             return BotOperationResult(
                 success=True,
@@ -305,7 +493,12 @@ class BotInstanceManager:
         except Exception as e:
             logger.error(f"Error starting instance {instance_id}: {e}")
             if instance_id in self.instances:
-                self.instances[instance_id].status = BotStatus.ERROR
+                self._mark_instance_error(instance_id, str(e))
+                await self._publish_strategy_status(
+                    instance_id,
+                    event="error",
+                    last_error=str(e),
+                )
             return BotOperationResult(
                 success=False,
                 message=f"Error starting instance: {str(e)}",
@@ -337,6 +530,7 @@ class BotInstanceManager:
             # Update status
             instance.status = BotStatus.STOPPING
             instance.last_update = datetime.now()
+            await self._publish_strategy_status(instance_id, event="stopping")
 
             # Stop process if running
             if instance_id in self.processes:
@@ -364,11 +558,14 @@ class BotInstanceManager:
             instance.status = BotStatus.STOPPED
             instance.process_info["stopped_at"] = datetime.now()
             instance.process_info.pop("pid", None)
+            instance.process_info.pop("last_error", None)
             instance.last_update = datetime.now()
+            self._close_instance_log(instance_id)
 
             self._save_instances_state()
 
             logger.info(f"Stopped bot instance: {instance_id}")
+            await self._publish_strategy_status(instance_id, event="stopped")
 
             return BotOperationResult(
                 success=True,
@@ -379,6 +576,12 @@ class BotInstanceManager:
 
         except Exception as e:
             logger.error(f"Error stopping instance {instance_id}: {e}")
+            self._mark_instance_error(instance_id, str(e))
+            await self._publish_strategy_status(
+                instance_id,
+                event="error",
+                last_error=str(e),
+            )
             return BotOperationResult(
                 success=False,
                 message=f"Error stopping instance: {str(e)}",
@@ -401,6 +604,7 @@ class BotInstanceManager:
             # Remove from memory
             if instance_id in self.instances:
                 del self.instances[instance_id]
+            self._close_instance_log(instance_id)
 
             # Cleanup state files
             files = self._get_instance_state_files(instance_id)
@@ -439,9 +643,15 @@ class BotInstanceManager:
         if instance_id in self.processes:
             process = self.processes[instance_id]
             if process.poll() is not None:  # Process died
-                instance.status = BotStatus.ERROR
-                instance.process_info["stopped_at"] = datetime.now()
-                del self.processes[instance_id]
+                error_message = (
+                    f"Instance {instance_id} exited unexpectedly (exit_code={process.returncode})"
+                )
+                if self._mark_instance_error(instance_id, error_message, exit_code=process.returncode):
+                    await self._publish_strategy_status(
+                        instance_id,
+                        event="error",
+                        last_error=error_message,
+                    )
             else:
                 # Update resource usage
                 try:
@@ -453,7 +663,15 @@ class BotInstanceManager:
                         }
                     )
                 except psutil.NoSuchProcess:
-                    instance.status = BotStatus.ERROR
+                    error_message = (
+                        f"Runtime process for {instance_id} disappeared before metrics could be collected"
+                    )
+                    if self._mark_instance_error(instance_id, error_message):
+                        await self._publish_strategy_status(
+                            instance_id,
+                            event="error",
+                            last_error=error_message,
+                        )
 
         # Update trading stats from state files
         self._update_instance_trading_stats(instance_id)
@@ -494,10 +712,15 @@ class BotInstanceManager:
             process = self.processes[instance_id]
             if process.poll() is not None:  # Process is dead
                 logger.warning(f"Found dead process for instance {instance_id}")
-                if instance_id in self.instances:
-                    self.instances[instance_id].status = BotStatus.ERROR
-                    self.instances[instance_id].process_info["stopped_at"] = datetime.now()
-                del self.processes[instance_id]
+                error_message = (
+                    f"Background monitor detected crashed process for {instance_id} (exit_code={process.returncode})"
+                )
+                if self._mark_instance_error(instance_id, error_message, exit_code=process.returncode):
+                    await self._publish_strategy_status(
+                        instance_id,
+                        event="error",
+                        last_error=error_message,
+                    )
 
         self._save_instances_state()
 

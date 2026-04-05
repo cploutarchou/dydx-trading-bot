@@ -1,17 +1,27 @@
 import {
-    AlertCircle,
-    ChevronDown,
-    ChevronUp,
-    Pause,
-    Play,
-    Plus,
-    RefreshCw,
-    Trash2,
-    Zap,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Zap,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
-import api from '../api';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
 import { classifyApiError } from '../api';
+import {
+  useBotInstances,
+  useCreateBotInstance,
+  useDeleteBotInstance,
+  useRestartBotInstance,
+  useStartBotInstance,
+  useStopBotInstance,
+} from '../api/hooks';
+import { enhancedApiClient } from '../api/enhancedClient';
+import { queryKeys } from '../api/queryClient';
 
 interface BotInstance {
   instance_id: string;
@@ -56,6 +66,23 @@ const toNumber = (value: unknown, fallback = 0): number => {
   return fallback;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const mapBots = (data: unknown): BotInstance[] => {
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((bot) => {
+      const record = isRecord(bot) ? bot : {};
+      return {
+        ...(record as unknown as BotInstance),
+        instance_id: typeof record.instance_id === 'string' ? record.instance_id : '',
+        status: normalizeStatus(record.status as string | undefined),
+      };
+    })
+    .filter((bot) => bot.instance_id.length > 0);
+};
+
 const mapBotStats = (raw: Record<string, unknown>): BotStats => {
   const botStatistics =
     typeof raw.bot_statistics === 'object' && raw.bot_statistics
@@ -71,17 +98,18 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
 
   return {
     total_positions: totalTrades,
-    open_positions: 0,
+    open_positions: toNumber(raw.open_positions),
     closed_positions: totalTrades,
     total_pnl: toNumber(
       tradeStatistics.net_profit,
       toNumber(botStatistics.total_profit_loss, toNumber(raw.total_pnl))
     ),
-    realized_pnl: toNumber(tradeStatistics.total_profit),
+    realized_pnl: toNumber(tradeStatistics.total_profit, toNumber(raw.realized_pnl)),
     unrealized_pnl: toNumber(raw.unrealized_pnl),
     total_trades: totalTrades,
     win_rate: toNumber(tradeStatistics.win_rate, toNumber(botStatistics.win_rate)) / 100,
-    last_update: new Date().toISOString(),
+    last_update:
+      typeof raw.last_update === 'string' ? raw.last_update : new Date().toISOString(),
   };
 };
 
@@ -97,15 +125,12 @@ const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
 };
 
 const BotManager: React.FC = () => {
-  const [bots, setBots] = useState<BotInstance[]>([]);
-  const [botStats, setBotStats] = useState<Record<string, BotStats>>({});
-  const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [expandedBot, setExpandedBot] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Form state
   const [createForm, setCreateForm] = useState({
     instance_id: '',
     chain_id: 'dydx-mainnet-1',
@@ -117,69 +142,76 @@ const BotManager: React.FC = () => {
     usd_per_trade: 10,
   });
 
-  // Load bot instances
-  const loadBots = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.listBotInstances(0, 100);
-      if (response.success && response.data) {
-        const botList = response.data.bots || response.data;
-        const normalizedBots = Array.isArray(botList)
-          ? (botList as Record<string, unknown>[]).map((bot) => ({
-              ...(bot as unknown as BotInstance),
-              status: normalizeStatus(bot.status as string | undefined),
-            }))
-          : [];
+  const botsQuery = useBotInstances({ limit: 100 });
+  const bots = mapBots(botsQuery.data?.data);
 
-        setBots(normalizedBots);
-        setError(null);
-      }
-    } catch (err) {
-      console.error('Failed to load bots:', err);
-      setError(toOperatorErrorMessage(err, 'Failed to load bot instances'));
-    } finally {
-      setLoading(false);
+  const statsQueries = useQueries({
+    queries: bots.map((bot) => ({
+      queryKey: queryKeys.botStats(bot.instance_id),
+      queryFn: () => enhancedApiClient.getBotStats(bot.instance_id),
+      enabled: !!bot.instance_id,
+      staleTime: 30 * 1000,
+      gcTime: 5 * 60 * 1000,
+    })),
+  });
+
+  const statsByBotId = bots.reduce<Record<string, BotStats>>((acc, bot, index) => {
+    const raw = statsQueries[index]?.data;
+    if (raw && isRecord(raw)) {
+      acc[bot.instance_id] = mapBotStats(raw);
     }
-  }, []);
+    return acc;
+  }, {});
+  const statsError = statsQueries.find((query) => query.error)?.error;
 
-  // Load stats for all bots
-  const loadAllStats = useCallback(async () => {
-    const statsMap: Record<string, BotStats> = {};
-    for (const bot of bots) {
-      try {
-        const response = await api.getBotStats(bot.instance_id);
-        if (response.success && response.data && typeof response.data === 'object') {
-          statsMap[bot.instance_id] = mapBotStats(response.data as Record<string, unknown>);
-        }
-      } catch (err) {
-        console.warn(`Failed to load stats for bot ${bot.instance_id}:`, err);
-      }
+  const createBotMutation = useCreateBotInstance();
+  const startBotMutation = useStartBotInstance();
+  const stopBotMutation = useStopBotInstance();
+  const restartBotMutation = useRestartBotInstance();
+  const deleteBotMutation = useDeleteBotInstance();
+
+  useEffect(() => {
+    if (botsQuery.error) {
+      setError(toOperatorErrorMessage(botsQuery.error, 'Failed to load bot instances'));
+      return;
     }
-    setBotStats(statsMap);
-  }, [bots]);
 
-  // Initial load and set up refresh interval
-  useEffect(() => {
-    loadBots();
-  }, [loadBots]);
+    if (statsError) {
+      setError(toOperatorErrorMessage(statsError, 'Failed to load bot statistics'));
+      return;
+    }
 
-  // Refresh stats when bot list changes
-  useEffect(() => {
-    loadAllStats();
-  }, [bots, loadAllStats]);
+    setError(null);
+  }, [botsQuery.error, statsError]);
 
-  // Auto-refresh bots every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      loadBots();
+      void queryClient.invalidateQueries({ queryKey: ['bots'] });
     }, 10000);
 
     return () => {
-      if (interval) clearInterval(interval);
+      clearInterval(interval);
     };
-  }, [loadBots]);
+  }, [queryClient]);
 
-  // Create new bot instance
+  const refreshBots = async () => {
+    setError(null);
+    await queryClient.invalidateQueries({ queryKey: ['bots'] });
+  };
+
+  const resetCreateForm = () => {
+    setCreateForm({
+      instance_id: '',
+      chain_id: 'dydx-mainnet-1',
+      address: '',
+      mnemonic: '',
+      is_testnet: false,
+      zscore_threshold: 1.5,
+      max_half_life: 24,
+      usd_per_trade: 10,
+    });
+  };
+
   const handleCreateBot = async () => {
     try {
       if (!createForm.instance_id || !createForm.address || !createForm.mnemonic) {
@@ -187,126 +219,93 @@ const BotManager: React.FC = () => {
         return;
       }
 
-      setLoading(true);
-      const response = await api.createBotInstance({
-        instance_id: createForm.instance_id,
-        instance_name: createForm.instance_id,
-        network: createForm.is_testnet ? 'testnet' : 'mainnet',
-        strategy: 'default',
-        credentials: {
-          chain_id: createForm.chain_id,
-          address: createForm.address,
-          secret_phrase: createForm.mnemonic,
-        },
-        trading_params: {
-          is_testnet: createForm.is_testnet,
-          zscore_threshold: createForm.zscore_threshold,
-          max_half_life: createForm.max_half_life,
-          usd_per_trade: createForm.usd_per_trade,
-        },
-      });
+      setError(null);
+      await createBotMutation.mutateAsync(
+        {
+          instance_id: createForm.instance_id,
+          name: createForm.instance_id,
+          credentials: {
+            address: createForm.address,
+            mnemonic: createForm.mnemonic,
+            network: createForm.is_testnet ? 'testnet' : 'mainnet',
+            chain_id: createForm.chain_id,
+            secret_phrase: createForm.mnemonic,
+          },
+          trading_params: {
+            is_testnet: createForm.is_testnet,
+            zscore_threshold: createForm.zscore_threshold,
+            max_half_life: createForm.max_half_life,
+            usd_per_trade: createForm.usd_per_trade,
+          },
+          instance_name: createForm.instance_id,
+          strategy: 'default',
+        } as Parameters<typeof createBotMutation.mutateAsync>[0]
+      );
 
-      if (response.success) {
-        setShowCreateForm(false);
-        setCreateForm({
-          instance_id: '',
-          chain_id: 'dydx-mainnet-1',
-          address: '',
-          mnemonic: '',
-          is_testnet: false,
-          zscore_threshold: 1.5,
-          max_half_life: 24,
-          usd_per_trade: 10,
-        });
-        loadBots();
-        setError(null);
-      }
+      setShowCreateForm(false);
+      resetCreateForm();
+      await refreshBots();
     } catch (err) {
       console.error('Failed to create bot:', err);
-      const message = toOperatorErrorMessage(err, 'Failed to create bot instance');
-      setError(message);
-    } finally {
-      setLoading(false);
+      setError(toOperatorErrorMessage(err, 'Failed to create bot instance'));
     }
   };
 
-  // Start bot instance
-  const handleStartBot = async (instanceId: string) => {
+  const runBotAction = async (
+    actionKey: string,
+    action: () => Promise<unknown>,
+    fallbackMessage: string
+  ) => {
     try {
-      setActionLoading(`start:${instanceId}`);
-      const response = await api.startBotInstance(instanceId);
-      if (response.success) {
-        loadBots();
-        setError(null);
-      }
+      setActionLoading(actionKey);
+      setError(null);
+      await action();
+      await refreshBots();
     } catch (err) {
-      console.error('Failed to start bot:', err);
-      const message = toOperatorErrorMessage(err, 'Failed to start bot');
-      setError(message);
+      console.error(`${actionKey} failed:`, err);
+      setError(toOperatorErrorMessage(err, fallbackMessage));
     } finally {
       setActionLoading(null);
     }
   };
 
-  // Stop bot instance
-  const handleStopBot = async (instanceId: string) => {
-    try {
-      setActionLoading(`stop:${instanceId}`);
-      const response = await api.stopBotInstance(instanceId);
-      if (response.success) {
-        loadBots();
-        setError(null);
-      }
-    } catch (err) {
-      console.error('Failed to stop bot:', err);
-      const message = toOperatorErrorMessage(err, 'Failed to stop bot');
-      setError(message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const handleStartBot = async (instanceId: string) =>
+    runBotAction(
+      `start:${instanceId}`,
+      () => startBotMutation.mutateAsync({ instanceId }),
+      'Failed to start bot'
+    );
 
-  // Restart bot instance
-  const handleRestartBot = async (instanceId: string) => {
-    try {
-      setActionLoading(`restart:${instanceId}`);
-      const response = await api.restartBotInstance(instanceId);
-      if (response.success) {
-        loadBots();
-        setError(null);
-      }
-    } catch (err) {
-      console.error('Failed to restart bot:', err);
-      const message = toOperatorErrorMessage(err, 'Failed to restart bot');
-      setError(message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const handleStopBot = async (instanceId: string) =>
+    runBotAction(
+      `stop:${instanceId}`,
+      () => stopBotMutation.mutateAsync(instanceId),
+      'Failed to stop bot'
+    );
 
-  // Delete bot instance
+  const handleRestartBot = async (instanceId: string) =>
+    runBotAction(
+      `restart:${instanceId}`,
+      () => restartBotMutation.mutateAsync(instanceId),
+      'Failed to restart bot'
+    );
+
   const handleDeleteBot = async (instanceId: string) => {
     if (!window.confirm(`Are you sure you want to delete bot ${instanceId}?`)) {
       return;
     }
 
-    try {
-      setActionLoading(`delete:${instanceId}`);
-      const response = await api.deleteBotInstance(instanceId);
-      if (response.success) {
-        loadBots();
-        setError(null);
-      }
-    } catch (err) {
-      console.error('Failed to delete bot:', err);
-      const message = toOperatorErrorMessage(err, 'Failed to delete bot');
-      setError(message);
-    } finally {
-      setActionLoading(null);
-    }
+    await runBotAction(
+      `delete:${instanceId}`,
+      () => deleteBotMutation.mutateAsync(instanceId),
+      'Failed to delete bot'
+    );
   };
 
-  // Get status badge color
+  const isCreating = createBotMutation.isPending;
+  const isRefreshing = botsQuery.isFetching && bots.length > 0;
+  const isInitialLoading = botsQuery.isLoading && bots.length === 0;
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'RUNNING':
@@ -326,7 +325,6 @@ const BotManager: React.FC = () => {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Bot Manager</h1>
@@ -334,12 +332,12 @@ const BotManager: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={loadBots}
-            disabled={loading}
+            onClick={() => void refreshBots()}
+            disabled={botsQuery.isFetching}
             className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition disabled:opacity-60"
           >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-            Refresh
+            <RefreshCw size={18} className={botsQuery.isFetching ? 'animate-spin' : ''} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
@@ -351,7 +349,6 @@ const BotManager: React.FC = () => {
         </div>
       </div>
 
-      {/* Error message */}
       {error && (
         <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded-lg flex items-center gap-2">
           <AlertCircle size={20} />
@@ -359,7 +356,6 @@ const BotManager: React.FC = () => {
         </div>
       )}
 
-      {/* Create Bot Form */}
       {showCreateForm && (
         <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 space-y-4">
           <h2 className="text-xl font-semibold text-white">Create New Bot Instance</h2>
@@ -433,7 +429,7 @@ const BotManager: React.FC = () => {
                 type="number"
                 value={createForm.max_half_life}
                 onChange={(e) =>
-                  setCreateForm({ ...createForm, max_half_life: parseInt(e.target.value) })
+                  setCreateForm({ ...createForm, max_half_life: parseInt(e.target.value, 10) })
                 }
                 className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
               />
@@ -467,11 +463,11 @@ const BotManager: React.FC = () => {
 
           <div className="flex gap-3">
             <button
-              onClick={handleCreateBot}
-              disabled={loading}
+              onClick={() => void handleCreateBot()}
+              disabled={isCreating}
               className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
             >
-              {loading ? 'Creating...' : 'Create Bot'}
+              {isCreating ? 'Creating...' : 'Create Bot'}
             </button>
             <button
               onClick={() => setShowCreateForm(false)}
@@ -483,9 +479,8 @@ const BotManager: React.FC = () => {
         </div>
       )}
 
-      {/* Bot List */}
       <div className="space-y-4">
-        {loading && bots.length === 0 ? (
+        {isInitialLoading ? (
           <div className="text-center text-slate-400 py-8">Loading bots...</div>
         ) : bots.length === 0 ? (
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-8 text-center">
@@ -494,7 +489,7 @@ const BotManager: React.FC = () => {
           </div>
         ) : (
           bots.map((bot) => {
-            const stats = botStats[bot.instance_id];
+            const stats = statsByBotId[bot.instance_id];
             const isExpanded = expandedBot === bot.instance_id;
 
             return (
@@ -502,7 +497,6 @@ const BotManager: React.FC = () => {
                 key={bot.instance_id}
                 className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden"
               >
-                {/* Bot Header */}
                 <div
                   className="p-4 flex items-center justify-between hover:bg-slate-750 transition cursor-pointer"
                   onClick={() => setExpandedBot(isExpanded ? null : bot.instance_id)}
@@ -524,8 +518,7 @@ const BotManager: React.FC = () => {
                       </h3>
                       <p className="text-xs text-slate-500">ID: {bot.instance_id}</p>
                       <p className="text-sm text-slate-400">
-                        Started:{' '}
-                        {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
+                        Started: {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
                       </p>
                     </div>
 
@@ -538,7 +531,7 @@ const BotManager: React.FC = () => {
                     {stats && (
                       <div className="ml-auto text-right">
                         <p className="text-sm font-semibold text-white">
-                          P&L:{' '}
+                          P&amp;L:{' '}
                           <span
                             className={stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}
                           >
@@ -552,22 +545,21 @@ const BotManager: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Action Buttons */}
                   <div className="flex gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
                     {bot.status === 'RUNNING' ? (
                       <>
                         <button
-                          onClick={() => handleStopBot(bot.instance_id)}
+                          onClick={() => void handleStopBot(bot.instance_id)}
                           disabled={actionLoading === `stop:${bot.instance_id}`}
-                          className="p-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded transition"
+                          className="p-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded transition disabled:opacity-60"
                           title="Stop bot"
                         >
                           <Pause size={18} />
                         </button>
                         <button
-                          onClick={() => handleRestartBot(bot.instance_id)}
+                          onClick={() => void handleRestartBot(bot.instance_id)}
                           disabled={actionLoading === `restart:${bot.instance_id}`}
-                          className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
+                          className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition disabled:opacity-60"
                           title="Restart bot"
                         >
                           <RefreshCw size={18} />
@@ -575,18 +567,18 @@ const BotManager: React.FC = () => {
                       </>
                     ) : (
                       <button
-                        onClick={() => handleStartBot(bot.instance_id)}
+                        onClick={() => void handleStartBot(bot.instance_id)}
                         disabled={actionLoading === `start:${bot.instance_id}`}
-                        className="p-2 bg-green-600 hover:bg-green-700 text-white rounded transition"
+                        className="p-2 bg-green-600 hover:bg-green-700 text-white rounded transition disabled:opacity-60"
                         title="Start bot"
                       >
                         <Play size={18} />
                       </button>
                     )}
                     <button
-                      onClick={() => handleDeleteBot(bot.instance_id)}
+                      onClick={() => void handleDeleteBot(bot.instance_id)}
                       disabled={actionLoading === `delete:${bot.instance_id}`}
-                      className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition"
+                      className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition disabled:opacity-60"
                       title="Delete bot"
                     >
                       <Trash2 size={18} />
@@ -594,13 +586,12 @@ const BotManager: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Expanded Details */}
                 {isExpanded && (
                   <div className="bg-slate-750 border-t border-slate-700 p-4 space-y-3">
                     {stats && (
                       <div className="grid grid-cols-3 gap-4">
                         <div className="bg-slate-800 p-3 rounded">
-                          <p className="text-xs text-slate-400">Total P&L</p>
+                          <p className="text-xs text-slate-400">Total P&amp;L</p>
                           <p
                             className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
                           >

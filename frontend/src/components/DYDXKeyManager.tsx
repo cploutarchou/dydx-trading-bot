@@ -37,6 +37,7 @@ export const DYDXKeyManager: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [formSubmitting, setFormSubmitting] = useState(false);
+  const [confirmDeleteNetwork, setConfirmDeleteNetwork] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<CreateKeyPayload>({
@@ -178,19 +179,12 @@ export const DYDXKeyManager: React.FC = () => {
    * Handle deleting a key
    */
   const handleDeleteKey = async (network: string) => {
-    if (
-      !confirm(
-        `🗑️  Are you sure you want to delete the ${network} key?\n\nThis action cannot be undone.`
-      )
-    ) {
-      return;
-    }
-
     setDeleting(network);
     setError(null);
 
     try {
       await api.deleteKey(network);
+      setConfirmDeleteNetwork(null);
       setSuccessMessage(`✅ ${network} key deleted successfully!`);
       await loadKeys();
     } catch (err) {
@@ -452,17 +446,40 @@ export const DYDXKeyManager: React.FC = () => {
                     )}
 
                     {/* Delete Button */}
-                    <button
-                      onClick={() => handleDeleteKey(key.network)}
-                      disabled={deleting === key.network}
-                      className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
-                        deleting === key.network
-                          ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                          : 'bg-red-900/50 hover:bg-red-900 border border-red-700 text-red-300 hover:text-red-200'
-                      }`}
-                    >
-                      {deleting === key.network ? 'Deleting...' : '🗑️ Delete'}
-                    </button>
+                    {confirmDeleteNetwork === key.network ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => void handleDeleteKey(key.network)}
+                          disabled={deleting === key.network}
+                          className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+                            deleting === key.network
+                              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                              : 'bg-red-700 hover:bg-red-800 border border-red-600 text-white'
+                          }`}
+                        >
+                          {deleting === key.network ? 'Deleting...' : 'Confirm Delete'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteNetwork(null)}
+                          disabled={deleting === key.network}
+                          className="px-3 py-1 rounded-lg text-sm font-medium transition-all bg-slate-700 hover:bg-slate-600 text-white"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteNetwork(key.network)}
+                        disabled={deleting === key.network}
+                        className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+                          deleting === key.network
+                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                            : 'bg-red-900/50 hover:bg-red-900 border border-red-700 text-red-300 hover:text-red-200'
+                        }`}
+                      >
+                        🗑️ Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

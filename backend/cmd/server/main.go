@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,6 +19,22 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
+
+func probeJSONEndpoint(url string, timeout time.Duration) (int, map[string]interface{}, string) {
+	httpClient := &http.Client{Timeout: timeout}
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return 0, nil, err.Error()
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		payload = nil
+	}
+
+	return resp.StatusCode, payload, ""
+}
 
 func loadRootEnv() {
 	// Prefer backend-local .env first, then fallback to parent locations.
@@ -90,6 +107,7 @@ func main() {
 	}
 
 	// Add middleware in order
+	router.Use(middleware.RequestTraceMiddleware())
 	router.Use(middleware.ErrorHandlingMiddleware())
 	router.Use(middleware.CORSMiddleware())
 	// Header logging middleware (masks Authorization/Cookie)
@@ -99,50 +117,49 @@ func main() {
 	// Add rate limiting middleware (100 requests/second per IP, burst of 200)
 	router.Use(middleware.RateLimitMiddleware(100, 200))
 
-	// Health check endpoint (includes database stats and bot API upstream probe)
-	router.GET("/health", func(c *gin.Context) {
-		if err := database.Health(); err != nil {
-			c.JSON(503, gin.H{
-				"status": "unhealthy",
-				"error":  err.Error(),
-			})
-			return
-		}
+	botAPIURL := strings.TrimRight(os.Getenv("BOT_API_URL"), "/")
+	if botAPIURL == "" {
+		botAPIURL = "http://127.0.0.1:8889"
+	}
 
-		botAPIURL := strings.TrimRight(os.Getenv("BOT_API_URL"), "/")
-		if botAPIURL == "" {
-			botAPIURL = "http://127.0.0.1:8889"
+	buildDependencySnapshot := func(endpoint string) (gin.H, bool) {
+		statusCode, payload, probeError := probeJSONEndpoint(endpoint, 3*time.Second)
+		healthy := probeError == "" && statusCode >= 200 && statusCode < 300
+		return gin.H{
+			"base_url":       botAPIURL,
+			"probe_url":      endpoint,
+			"reachable":      healthy,
+			"status_code":    statusCode,
+			"error":          probeError,
+			"payload":        payload,
+			"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
+		}, healthy
+	}
+
+	// Health check endpoint (liveness with dependency visibility).
+	router.GET("/health", func(c *gin.Context) {
+		dbHealthy := true
+		dbError := ""
+		if err := database.Health(); err != nil {
+			dbHealthy = false
+			dbError = err.Error()
 		}
 
 		botHealthURL := botAPIURL + "/health"
-		botReachable := false
-		botStatusCode := 0
-		botError := ""
-
-		httpClient := &http.Client{Timeout: 3 * time.Second}
-		if resp, err := httpClient.Get(botHealthURL); err != nil {
-			botError = err.Error()
-		} else {
-			botStatusCode = resp.StatusCode
-			_ = resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				botReachable = true
-			}
-		}
-
+		botSnapshot, botHealthy := buildDependencySnapshot(botHealthURL)
 		// Get database stats
 		stats := database.GetStats()
 		c.JSON(200, gin.H{
 			"status": "healthy",
-			"bot_api": gin.H{
-				"base_url":       botAPIURL,
-				"health_url":     botHealthURL,
-				"reachable":      botReachable,
-				"status_code":    botStatusCode,
-				"error":          botError,
-				"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
+			"live":   true,
+			"dependencies": gin.H{
+				"database_healthy": dbHealthy,
+				"bot_api_healthy":  botHealthy,
 			},
+			"bot_api": botSnapshot,
 			"database": gin.H{
+				"healthy":             dbHealthy,
+				"error":               dbError,
 				"open_connections":    stats.OpenConnections,
 				"in_use":              stats.InUse,
 				"idle":                stats.Idle,
@@ -154,14 +171,42 @@ func main() {
 		})
 	})
 
+	// Readiness check endpoint (strict dependency validation for deploy gates).
+	router.GET("/ready", func(c *gin.Context) {
+		if err := database.Health(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":    "not_ready",
+				"ready":     false,
+				"component": "database",
+				"error":     err.Error(),
+			})
+			return
+		}
+
+		botReadyURL := botAPIURL + "/ready"
+		botSnapshot, botReady := buildDependencySnapshot(botReadyURL)
+		if !botReady {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":    "not_ready",
+				"ready":     false,
+				"component": "bot_api",
+				"bot_api":   botSnapshot,
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ready",
+			"ready":   true,
+			"bot_api": botSnapshot,
+			"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
 	// Register auth routes (bypasses strict validation)
 	routes.RegisterAuthRoutes(router, database.DB)
 
 	// Initialize bot API client for delegating calls to Python bot API
-	botAPIURL := os.Getenv("BOT_API_URL")
-	if botAPIURL == "" {
-		botAPIURL = "http://127.0.0.1:8889" // Default to local bot API (IPv4 loopback)
-	}
 	botAPIToken := os.Getenv("BOT_API_TOKEN")
 	// Token will typically be obtained via login in the frontend
 	apiClient := services.NewBotAPIClient(botAPIURL, botAPIToken)

@@ -5,7 +5,7 @@ Provides live position updates, market data, and P&L tracking
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -397,3 +397,18 @@ async def broadcast_stats_update(bot_instance_id: int, stats_data: Dict):
 async def broadcast_alert(bot_instance_id: int, alert_data: Dict):
     """Called when alert is triggered"""
     await WebSocketEvents.handle_alert(str(bot_instance_id), alert_data)
+
+
+async def broadcast_strategy_status(status_payload: Dict):
+    """Broadcast strategy runtime lifecycle updates to strategy channel subscribers."""
+    await manager.broadcast_to_bot("strategies", status_payload)
+
+
+def build_strategy_snapshot_message(status_payloads: list[Dict]) -> Dict:
+    """Build initial strategy channel snapshot payload."""
+    return {
+        "type": "strategy_status_snapshot",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "count": len(status_payloads),
+        "data": status_payloads,
+    }

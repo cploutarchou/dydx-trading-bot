@@ -1,9 +1,9 @@
 ﻿# Frontend Integration Tasks
 
 ## Status Summary
-- Completed: `56`
-- Pending: `5`
-- Last updated: `2026-04-04`
+- Completed: `58`
+- Pending: `3`
+- Last updated: `2026-04-05`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
 ## Cross-Repo Status Snapshot
@@ -12,9 +12,9 @@
 | -------- | --------- | ------- | ------------------------------------------------------------------------ |
 | backend  | 54        | 0       | Delegated contract parity and contract-lock coverage shipped             |
 | bot      | 26        | 0       | Canonical API contract and runtime envelope/documentation stability      |
-| frontend | 56        | 5       | Remaining responsive evidence + medium-priority backend integration asks |
+| frontend | 58        | 3       | Remaining responsive evidence + medium-priority backend integration asks |
 
-Snapshot date: `2026-04-04`.
+Snapshot date: `2026-04-05`.
 
 ## Responsive QA
 - [x] Deliver route-by-route responsive QA matrix (375/768/1024/1440) in `docs/RESPONSIVE_QA_STATUS.md`.
@@ -53,6 +53,7 @@ Snapshot date: `2026-04-04`.
 ## UX / Error Handling
 - [x] Preserve backend passthrough errors for delegated endpoints (show upstream message where safe).
 - [x] Distinguish transport failures (`502/504`) from validation/business failures (`4xx`).
+- [x] Propagate `X-Trace-Id` on both Axios and `fetch` API calls and retain backend trace IDs in client-side error classification for operator debugging.
 - [x] Retry polling endpoints with capped backoff.
 - [x] Prevent app lock on auth bootstrap by adding timeout fallback and a recover-to-login action from `Restoring session...`.
 
@@ -114,14 +115,14 @@ Snapshot date: `2026-04-04`.
   - Owner: Backend
 
 ### D) Strategy Runtime Stability (medium priority)
-- [ ] Date: 2026-04-04 | Endpoint: `WS /ws/strategies`
+- [x] Date: 2026-04-05 | Endpoint: `WS /ws/strategies`
   - UI impact: Strategy Runtime status tiles (`running/stopped/error`) and counters.
-  - Fallback behavior: heartbeat/ping and reconnect-safe payloads.
-  - Owner: Backend
-- [ ] Date: 2026-04-04 | Endpoint(s): strategy control APIs (start/stop/update)
+  - Fallback behavior: reconnect-safe snapshot + lifecycle event handling, with HTTP polling retained as truth-source recovery.
+  - Owner: Backend + Bot + Frontend
+- [x] Date: 2026-04-05 | Endpoint(s): strategy control APIs (start/stop/update)
   - UI impact: replace frontend-local toggles with persisted runtime truth.
-  - Fallback behavior: return current effective state after action.
-  - Owner: Backend
+  - Fallback behavior: return current effective state after action and reconcile against runtime polling if websocket events are missed.
+  - Owner: Backend + Bot + Frontend
 
 ### E) Ops / Observability (medium priority)
 - [ ] Date: 2026-04-04 | Endpoint(s): all high-traffic routes
@@ -159,6 +160,7 @@ Snapshot date: `2026-04-04`.
 - [x] 2026-04-04: Added one-page exact screenshot filename checklist in `docs/RESPONSIVE_SCREENSHOT_CHECKLIST.md` to speed up manual evidence capture.
 - [x] 2026-04-04: Added `npm run qa:screenshots:sync` to auto-refresh screenshot checklist checkboxes from files present in `docs/screenshots/responsive/`.
 - [x] Added first frontend implementation entries for sync-health panel and polling backoff updates.
+- [x] 2026-04-05: Strategy runtime controls are now live in `StrategyManager`; the UI consumes backend start/stop/runtime endpoints and safely handles bot websocket snapshots/lifecycle updates.
 
 ## Change Log Template
 - Date:

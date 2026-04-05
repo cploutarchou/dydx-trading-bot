@@ -38,6 +38,7 @@ func getRequestBotAPIClient(c *gin.Context, fallback *services.BotAPIClient) *se
 }
 
 func respondBotAPIError(c *gin.Context, err error) {
+	traceID := middleware.GetTraceID(c)
 	// Transport-level failures (connection refused, timeout) carry a pre-classified
 	// status code so callers receive a clean 502/504 without raw Go error messages.
 	var transportErr *services.BotAPITransportError
@@ -46,7 +47,7 @@ func respondBotAPIError(c *gin.Context, err error) {
 		if status <= 0 {
 			status = http.StatusBadGateway
 		}
-		c.JSON(status, gin.H{"error": transportErr.Message, "message": transportErr.Message})
+		c.JSON(status, gin.H{"error": transportErr.Message, "message": transportErr.Message, "trace_id": traceID})
 		return
 	}
 	if apiErr, ok := err.(*services.BotAPIError); ok {
@@ -58,10 +59,10 @@ func respondBotAPIError(c *gin.Context, err error) {
 		if message == "" {
 			message = "upstream bot API request failed"
 		}
-		c.JSON(status, gin.H{"error": message, "message": message})
+		c.JSON(status, gin.H{"error": message, "message": message, "trace_id": traceID})
 		return
 	}
-	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "message": err.Error()})
+	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "message": err.Error(), "trace_id": traceID})
 }
 
 func delegateJSON(c *gin.Context, fallback *services.BotAPIClient, call func(*services.BotAPIClient) (map[string]interface{}, error)) {
@@ -213,6 +214,7 @@ func respondBacktestEnvelope(c *gin.Context, statusCode int, fallbackMessage str
 		"message":   message,
 		"data":      data,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"trace_id":  middleware.GetTraceID(c),
 	}
 	for key, value := range data {
 		switch key {
@@ -394,6 +396,9 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		if token := strings.TrimSpace(requestClient.AuthToken()); token != "" {
 			requestHeaders.Set("Authorization", "Bearer "+token)
 		}
+		if traceID := middleware.GetTraceID(c); traceID != "" {
+			requestHeaders.Set(middleware.TraceIDHeader, traceID)
+		}
 
 		upstreamConn, _, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
 		if err != nil {
@@ -437,16 +442,17 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		if serviceTokenMode && serviceTokenConfigured {
 			// Service-token model: keep configured BOT_API_TOKEN and do not
 			// override upstream auth with caller JWT.
-			c.Set("bot_api_client", apiClient)
+			c.Set("bot_api_client", apiClient.WithTraceID(middleware.GetTraceID(c)))
 			c.Next()
 			return
 		}
 
+		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
 		token := extractBotAuthToken(c)
 		if token != "" {
-			c.Set("bot_api_client", apiClient.WithToken(token))
+			c.Set("bot_api_client", requestClient.WithToken(token))
 		} else {
-			c.Set("bot_api_client", apiClient)
+			c.Set("bot_api_client", requestClient)
 		}
 		c.Next()
 	}
@@ -1183,9 +1189,9 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 
 	// System status endpoint
 	router.GET("/api/v1/system/status", middleware.RequireAuth(), func(c *gin.Context) {
-		requestClient := apiClient
+		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
 		if token := extractBotAuthToken(c); token != "" {
-			requestClient = apiClient.WithToken(token)
+			requestClient = requestClient.WithToken(token)
 		}
 		c.Set("bot_api_client", requestClient)
 		delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
@@ -1236,4 +1242,3 @@ func normalizeRealtimeBotInstanceID(instanceID string) (string, error) {
 	}
 	return trimmed, nil
 }
-

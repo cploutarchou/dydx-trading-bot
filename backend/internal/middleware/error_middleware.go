@@ -12,10 +12,12 @@ func ErrorHandlingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Printf("🚨 Panic recovered: %v", err)
-				fmt.Printf("🚨 PANIC STACK TRACE: %v\n", err)
+				traceID := GetTraceID(c)
+				log.Printf("🚨 Panic recovered: trace_id=%s err=%v", traceID, err)
+				fmt.Printf("🚨 PANIC STACK TRACE: trace_id=%s err=%v\n", traceID, err)
 				c.JSON(500, gin.H{
-					"error": "Internal server error",
+					"error":    "Internal server error",
+					"trace_id": traceID,
 				})
 				c.Abort()
 			}

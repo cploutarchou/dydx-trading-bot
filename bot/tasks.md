@@ -23,7 +23,7 @@ Snapshot date: `2026-04-04`.
 | Run-scoped `run_id` payload consistency | complete | complete | pending verification | backend + frontend | 2026-04-08 |
 | `GET /api/v1/backtests/sync-health` | complete | complete | pending consumption | backend + frontend | 2026-04-09 |
 | Auth token shape lock (`access_token`, `refresh_token`, `token_type`, `expires_in`) | complete (tests added) | complete | pending sync test | backend + frontend | 2026-04-09 |
-| Trace propagation (`trace_id`, `X-Trace-Id`) | complete | pending passthrough/logging | pending display/debug tooling | backend + frontend | 2026-04-10 |
+| Trace propagation (`trace_id`, `X-Trace-Id`) | complete | complete | complete | backend + frontend | done |
 | Telegram severity/category throttling | complete | n/a | n/a | bot | done |
 
 Use this matrix as the source of truth for cross-repo handoff status; update statuses, owner, and ETA in all three task files in the same change.
@@ -78,9 +78,11 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] 2026-04-04: Backend unified delegated non-stream backtest success envelopes and now preserves status/sync-health compatibility aliases within the canonical response shape.
 - [x] 2026-04-04: Backend standardized delegated backtest details/empty-state payloads and enabled broader CI contract-lock enforcement for frontend-facing backtest routes.
 - [x] 2026-04-04: Adopted cross-repo task governance format with backend/frontend linkage.
+- [x] 2026-04-05: Added strict `/ready` readiness probe and completed cross-service trace passthrough from frontend -> backend -> bot HTTP/websocket paths for production triage.
 - [x] 2026-04-04: Added contract aliases (`progress`, `backtests`, `count`), run-scoped `run_id` coverage, `sync-health`, trace-id logging, and runtime queue/job counters.
 - [x] 2026-04-04: Synced with backend governance enforcement and new backend sync capabilities (`resync`, `run_age_seconds`, `sync_lag_seconds`, `quality_issues`).
 - [x] 2026-04-04: Improved Telegram interaction safety/ops signal with HTML-safe escaping, truncation, severity/category-based dedupe policy, and category-tagged runtime alerts.
+- 2026-04-05: Added strategy runtime websocket snapshot/lifecycle events, per-instance subprocess log files, and a continuous dead-process monitor so backend/frontend integrations receive truthful bot state without relying on manual polling alone.
 
 ## Change Log Template
 - Date:

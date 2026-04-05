@@ -5,6 +5,7 @@
 
 import { Camera, Check, Upload, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import apiClient from '../api';
 import { useAuthStore } from '../store/auth';
 
@@ -35,27 +36,25 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [avatar, setAvatar] = useState<string | null>(user?.avatar || null);
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load fresh user data on component mount
-  useEffect(() => {
-    const loadUserData = async () => {
-      try {
-        const response = await apiClient.getCurrentUser();
-        const userData = response.data;
+  const currentUserQuery = useQuery({
+    queryKey: ['profile', 'current-user'],
+    queryFn: () => apiClient.getCurrentUser(),
+    staleTime: 5 * 60 * 1000,
+  });
 
-        if (userData) {
-          // Update auth store with fresh data
-          useAuthStore.setState({ user: userData });
-        }
-      } catch (error) {
-        console.error('❌ ProfileSettings: Failed to load user data:', error);
-      }
-    };
-    loadUserData();
-  }, []);
+  const updateProfileMutation = useMutation({
+    mutationFn: (profileData: ProfileUpdateData) => apiClient.updateProfile(profileData),
+  });
+
+  useEffect(() => {
+    const userData = currentUserQuery.data?.data;
+    if (userData) {
+      useAuthStore.setState({ user: userData });
+    }
+  }, [currentUserQuery.data]);
 
   useEffect(() => {
     setFullName(user?.full_name || '');
@@ -98,7 +97,6 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
 
   const handleSave = async () => {
     try {
-      setSaving(true);
       setMessage(null);
 
       const profileData = {
@@ -108,10 +106,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
       };
 
       // Call API to save profile
-      const response = await apiClient.updateProfile(profileData);
+      const response = await updateProfileMutation.mutateAsync(profileData);
 
       if (response.success && response.data?.user) {
-        // Update auth store with new user data
         const updatedUser = response.data.user;
         useAuthStore.setState({ user: updatedUser });
 
@@ -128,8 +125,6 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
         type: 'error',
         text: errorMessage,
       });
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -139,6 +134,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
     setAvatar(user?.avatar || null);
     setMessage(null);
   };
+
+  const saving = updateProfileMutation.isPending;
 
   return (
     <div className="bg-slate-800 rounded-lg shadow p-6 border border-slate-700">
@@ -237,6 +234,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
               onChange={(e) => setFullName(e.target.value)}
               placeholder="Enter your full name"
               maxLength={100}
+              disabled={saving}
               className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500"
             />
             <p className="text-xs text-gray-500 mt-2">{fullName.length}/100 characters</p>
@@ -257,6 +255,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your.email@example.com"
+              disabled={saving}
               className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500"
             />
           </label>
@@ -306,6 +305,12 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           </label>
         </div>
       </div>
+
+      {currentUserQuery.isError && (
+        <div className="mt-6 px-4 py-3 rounded border bg-red-900 border-red-700 text-red-100">
+          {getErrorMessage(currentUserQuery.error, 'Failed to refresh profile data')}
+        </div>
+      )}
 
       {/* Action Buttons */}
       <div className="mt-8 flex gap-3 pt-6 border-t border-slate-700">

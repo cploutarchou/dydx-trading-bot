@@ -24,6 +24,7 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		authRoutes.GET("/registration-status", registrationStatusHandler(database))
 		authRoutes.POST("/login", loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
+		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
 	}
 
 	// User routes (require authentication)
@@ -61,16 +62,17 @@ type TokenResponse struct {
 }
 
 type UserResponse struct {
-	ID        int    `json:"id"`
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	FullName  string `json:"full_name"`
-	Avatar    string `json:"avatar"`
-	IsActive  bool   `json:"is_active"`
-	IsAdmin   bool   `json:"is_admin"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID                     int    `json:"id"`
+	Username               string `json:"username"`
+	Email                  string `json:"email"`
+	Role                   string `json:"role"`
+	FullName               string `json:"full_name"`
+	Avatar                 string `json:"avatar"`
+	IsActive               bool   `json:"is_active"`
+	IsAdmin                bool   `json:"is_admin"`
+	PasswordChangeRequired bool   `json:"password_change_required"`
+	CreatedAt              string `json:"created_at"`
+	UpdatedAt              string `json:"updated_at"`
 }
 
 type RegistrationStatusResponse struct {
@@ -80,16 +82,17 @@ type RegistrationStatusResponse struct {
 
 func toUserResponse(user *models.User) UserResponse {
 	return UserResponse{
-		ID:        user.ID,
-		Username:  user.Username,
-		Email:     user.Email,
-		Role:      models.NormalizeUserRole(user.Role, user.IsAdmin),
-		FullName:  user.FullName,
-		Avatar:    user.Avatar,
-		IsActive:  user.IsActive,
-		IsAdmin:   user.IsAdmin,
-		CreatedAt: user.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: user.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:                     user.ID,
+		Username:               user.Username,
+		Email:                  user.Email,
+		Role:                   models.NormalizeUserRole(user.Role, user.IsAdmin),
+		FullName:               user.FullName,
+		Avatar:                 user.Avatar,
+		IsActive:               user.IsActive,
+		IsAdmin:                user.IsAdmin,
+		PasswordChangeRequired: user.PasswordChangeRequired,
+		CreatedAt:              user.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:              user.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -148,12 +151,13 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 		// Create user in database
 		userRepo := repository.NewUserRepository(database)
 		user := &models.User{
-			Username: req.Username,
-			Email:    req.Email,
-			Role:     models.NormalizeUserRole("", false),
-			Password: string(hashedPassword),
-			IsActive: true,
-			IsAdmin:  false,
+			Username:               req.Username,
+			Email:                  req.Email,
+			Role:                   models.NormalizeUserRole("", false),
+			Password:               string(hashedPassword),
+			IsActive:               true,
+			IsAdmin:                false,
+			PasswordChangeRequired: false,
 		}
 
 		err = userRepo.Create(user)
@@ -274,6 +278,14 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		if !user.IsActive {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Account is inactive",
+			})
+			return
+		}
+
 		// Verify password
 
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
@@ -327,6 +339,107 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			RefreshToken: refreshToken,
 			TokenType:    "bearer",
 			ExpiresIn:    1800, // 30 minutes
+		})
+	}
+}
+
+func changePasswordHandler(database *sql.DB) gin.HandlerFunc {
+	type changePasswordRequest struct {
+		CurrentPassword string `json:"current_password" binding:"required"`
+		NewPassword     string `json:"new_password" binding:"required,min=8"`
+	}
+
+	return func(c *gin.Context) {
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Not authenticated",
+			})
+			return
+		}
+
+		userID, ok := userIDValue.(int)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Invalid user context",
+			})
+			return
+		}
+
+		var req changePasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid request payload",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		if strings.TrimSpace(req.NewPassword) == "" || len(req.NewPassword) < 8 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "New password must be at least 8 characters",
+			})
+			return
+		}
+
+		if req.CurrentPassword == req.NewPassword {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "New password must be different from the current password",
+			})
+			return
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(userID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"message": "User not found",
+			})
+			return
+		}
+
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.CurrentPassword)); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Current password is incorrect",
+			})
+			return
+		}
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Failed to secure password",
+			})
+			return
+		}
+
+		user.Password = string(hashedPassword)
+		user.PasswordChangeRequired = false
+
+		if err := userRepo.Update(user); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Failed to update password",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Password updated successfully",
+			"data": gin.H{
+				"user": toUserResponse(user),
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }

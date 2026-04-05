@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users
   avatar          TEXT         DEFAULT '',
   is_active       BOOLEAN      DEFAULT NULL,
   is_admin        BOOLEAN      DEFAULT NULL,
+  password_change_required BOOLEAN NOT NULL DEFAULT FALSE,
   created_at      DATETIME     DEFAULT NULL,
   updated_at      DATETIME     DEFAULT NULL,
   last_login      DATETIME     DEFAULT NULL

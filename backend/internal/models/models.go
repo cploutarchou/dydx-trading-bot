@@ -8,18 +8,19 @@ import (
 // ==================== USER MODELS ====================
 
 type User struct {
-	ID        int        `db:"id" json:"id"`
-	Username  string     `db:"username" json:"username"`
-	Email     string     `db:"email" json:"email"`
-	Role      string     `db:"role" json:"role"`
-	FullName  string     `db:"full_name" json:"full_name"`
-	Avatar    string     `db:"avatar" json:"avatar"`
-	IsActive  bool       `db:"is_active" json:"is_active"`
-	IsAdmin   bool       `db:"is_admin" json:"is_admin"`
-	Password  string     `db:"password" json:"-"`
-	LastLogin *time.Time `db:"last_login" json:"last_login"`
-	CreatedAt time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
+	ID                     int        `db:"id" json:"id"`
+	Username               string     `db:"username" json:"username"`
+	Email                  string     `db:"email" json:"email"`
+	Role                   string     `db:"role" json:"role"`
+	FullName               string     `db:"full_name" json:"full_name"`
+	Avatar                 string     `db:"avatar" json:"avatar"`
+	IsActive               bool       `db:"is_active" json:"is_active"`
+	IsAdmin                bool       `db:"is_admin" json:"is_admin"`
+	PasswordChangeRequired bool       `db:"password_change_required" json:"password_change_required"`
+	Password               string     `db:"password" json:"-"`
+	LastLogin              *time.Time `db:"last_login" json:"last_login"`
+	CreatedAt              time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt              time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 // ==================== DYDX KEY MODELS ====================

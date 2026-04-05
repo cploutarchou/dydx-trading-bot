@@ -57,18 +57,19 @@ func (u *User) ToDict() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"id":              u.ID,
-		"username":        u.Username,
-		"email":           u.Email,
-		"role":            u.Role,
-		"full_name":       u.FullName,
-		"avatar":          u.Avatar,
-		"is_active":       u.IsActive,
-		"is_admin":        u.IsAdmin,
-		"created_at":      createdAtStr,
-		"updated_at":      updatedAtStr,
-		"last_login":      lastLoginStr,
-		"hashed_password": u.Password,
+		"id":                       u.ID,
+		"username":                 u.Username,
+		"email":                    u.Email,
+		"role":                     u.Role,
+		"full_name":                u.FullName,
+		"avatar":                   u.Avatar,
+		"is_active":                u.IsActive,
+		"is_admin":                 u.IsAdmin,
+		"password_change_required": u.PasswordChangeRequired,
+		"created_at":               createdAtStr,
+		"updated_at":               updatedAtStr,
+		"last_login":               lastLoginStr,
+		"hashed_password":          u.Password,
 	}
 }
 
@@ -105,6 +106,9 @@ func (u *User) FromDict(data map[string]interface{}) {
 	}
 	if isAdmin, ok := data["is_admin"].(bool); ok {
 		u.IsAdmin = isAdmin
+	}
+	if passwordChangeRequired, ok := data["password_change_required"].(bool); ok {
+		u.PasswordChangeRequired = passwordChangeRequired
 	}
 	if hashedPassword, ok := data["hashed_password"].(string); ok {
 		u.Password = hashedPassword

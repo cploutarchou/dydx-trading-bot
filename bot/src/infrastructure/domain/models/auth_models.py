@@ -6,11 +6,10 @@ SQLAlchemy models for user authentication, JWT tokens, and related data.
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from internal.domain import Base
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
+from src.shared.time_utils import utc_now
 
 
 class User(Base):
@@ -25,8 +24,8 @@ class User(Base):
     full_name = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     tokens = relationship(
         "UserToken",
@@ -56,7 +55,7 @@ class UserToken(Base):
     token = Column(Text, nullable=False, unique=True)
     token_type = Column(String(20), default="refresh")
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     is_revoked = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="tokens")

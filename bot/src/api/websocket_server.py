@@ -5,7 +5,6 @@ Provides live position updates, market data, and P&L tracking
 
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -14,6 +13,7 @@ from src.api.realtime_serializers import (serialize_market_core,
                                           serialize_stats_risk_fields)
 
 from src.infrastructure.database import db
+from src.shared.time_utils import utc_now_iso
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class WebSocketEvents:
         """Broadcast position opened event"""
         message = {
             "type": "position_opened",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_iso(),
             "bot_instance_id": bot_instance_id,
             "data": position_data,
         }
@@ -98,7 +98,7 @@ class WebSocketEvents:
         """Broadcast position price update"""
         message = {
             "type": "position_updated",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_iso(),
             "bot_instance_id": bot_instance_id,
             "data": position_data,
         }
@@ -109,7 +109,7 @@ class WebSocketEvents:
         """Broadcast position closed event"""
         message = {
             "type": "position_closed",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_iso(),
             "bot_instance_id": bot_instance_id,
             "data": position_data,
         }
@@ -120,7 +120,7 @@ class WebSocketEvents:
         """Broadcast market data update"""
         message = {
             "type": "market_data",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_iso(),
             "bot_instance_id": bot_instance_id,
             "data": market_data,
         }
@@ -131,7 +131,7 @@ class WebSocketEvents:
         """Broadcast stats update"""
         message = {
             "type": "stats_updated",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_iso(),
             "bot_instance_id": bot_instance_id,
             "data": stats_data,
         }
@@ -142,7 +142,7 @@ class WebSocketEvents:
         """Broadcast alert event"""
         message = {
             "type": "alert",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_iso(),
             "bot_instance_id": bot_instance_id,
             "severity": alert_data.get("severity", "info"),
             "message": alert_data.get("message", ""),
@@ -194,7 +194,7 @@ class WebSocketServer:
 
             message = {
                 "type": "initial_state",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now_iso(),
                 "data": {
                     "positions": [
                         serialize_realtime_position(p)
@@ -247,7 +247,7 @@ class WebSocketServer:
         if message_type == "ping":
             # Respond to ping
             await manager.send_personal_message(
-                {"type": "pong", "timestamp": datetime.utcnow().isoformat()}, websocket
+                {"type": "pong", "timestamp": utc_now_iso()}, websocket
             )
 
         elif message_type == "request_positions":
@@ -277,7 +277,7 @@ class WebSocketServer:
 
             message = {
                 "type": "positions_list",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now_iso(),
                 "data": [
                     {
                         "position_id": p.position_id,
@@ -308,7 +308,7 @@ class WebSocketServer:
 
             message = {
                 "type": "stats",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now_iso(),
                 "data": {
                     "total_open_positions": stats.total_open_positions if stats else 0,
                     "total_unrealized_pnl": float(stats.total_unrealized_pnl)
@@ -345,7 +345,7 @@ class WebSocketServer:
 
             message = {
                 "type": "market_data",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now_iso(),
                 "data": [
                     {
                         **serialize_market_core(m, include_volatility=False),

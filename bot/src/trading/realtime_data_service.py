@@ -5,13 +5,13 @@ Captures live bot data and broadcasts updates via WebSocket
 
 import asyncio
 import logging
-from datetime import datetime
 from typing import Dict
 
 from src.api.realtime_serializers import serialize_stats_risk_fields
 from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
     broadcast_alert, broadcast_position_opened, broadcast_position_closed
 from src.infrastructure.database import db
+from src.shared.time_utils import utc_now_iso
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ class RealTimeDataService:
                             "current_price2": float(market2.current_price),
                             "unrealized_pnl": float(position.unrealized_pnl),
                             "unrealized_pnl_pct": float(position.unrealized_pnl_pct),
-                            "updated_at": datetime.utcnow().isoformat(),
+                            "updated_at": utc_now_iso(),
                         },
                     )
 
@@ -139,7 +139,7 @@ class RealTimeDataService:
                         "volume_24h": float(market.volume_24h)
                         if market.volume_24h
                         else None,
-                        "updated_at": datetime.utcnow().isoformat(),
+                        "updated_at": utc_now_iso(),
                     },
                 )
 
@@ -169,7 +169,7 @@ class RealTimeDataService:
                         "daily_trades_opened": stats.daily_trades_opened,
                         "daily_trades_closed": stats.daily_trades_closed,
                         **serialize_stats_risk_fields(stats),
-                        "updated_at": datetime.utcnow().isoformat(),
+                        "updated_at": utc_now_iso(),
                     },
                 )
 

@@ -12,6 +12,10 @@ import (
 var jwtManager *auth.Manager
 
 func InitAuthMiddleware(cfg *config.Config) {
+	if cfg != nil {
+		config.ConfigInstance = cfg
+	}
+
 	expiryHours := (cfg.Auth.AccessTokenExpireMinutes + 59) / 60
 	if expiryHours <= 0 {
 		expiryHours = 1

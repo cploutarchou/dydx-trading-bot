@@ -3,13 +3,13 @@ Realtime database models for live trading data
 """
 
 import enum
-from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, Boolean,
     ForeignKey, Enum, JSON
 )
 from sqlalchemy.orm import relationship
 from internal.domain import Base
+from src.shared.time_utils import utc_now
 
 
 class PositionStatusEnum(enum.Enum):
@@ -49,9 +49,9 @@ class Position(Base):
     realized_pnl_pct = Column(Float, default=0.0)
     z_score_entry = Column(Float, nullable=True)  # Z-score when position was opened
     z_score_current = Column(Float, nullable=True)  # Current z-score
-    entry_time = Column(DateTime, default=datetime.utcnow)  # When position was opened
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    entry_time = Column(DateTime, default=utc_now)  # When position was opened
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     closed_at = Column(DateTime, nullable=True)
 
 
@@ -71,7 +71,7 @@ class MarketData(Base):
     moving_avg_20 = Column(Float, nullable=True)
     moving_avg_50 = Column(Float, nullable=True)
     funding_rate = Column(Float, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         {"schema": None},  # No schema for SQLite
@@ -93,8 +93,8 @@ class BotStats(Base):
     daily_win_rate = Column(Float, default=0.0)
     max_drawdown_session = Column(Float, nullable=True)
     current_drawdown = Column(Float, default=0.0)
-    session_start = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    session_start = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Alert(Base):
@@ -107,5 +107,5 @@ class Alert(Base):
     message = Column(Text, nullable=False)
     details = Column(JSON, nullable=True)
     acknowledged = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     acknowledged_at = Column(DateTime, nullable=True)

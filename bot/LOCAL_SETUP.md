@@ -4,7 +4,7 @@ This guide covers the supported local workflow for the Python bot API and worker
 
 ## Start here
 
-The bot uses the shared repo-root `.env` and can run either as a local API process, a local worker process, or both.
+The bot uses the shared structured JSON config under `config/` and can run either as a local API process, a local worker process, or both.
 
 Canonical API entry point:
 
@@ -28,24 +28,14 @@ pip install -r requirements.txt
 You will also need:
 
 - Python 3.9+
-- the repo-root `.env`
+- repo-root `.configkey.bin`
+- `config/profiles/development.config.enc.json`
+- `run.json` generated with `make dev`
 - Docker + `make` if you want shared PostgreSQL/Redis infrastructure
 
 ## Shared environment
 
-The bot reads configuration from the repository root, not from `bot/.env`.
-
-From the repo root:
-
-```bash
-make stack-env
-```
-
-If you need to create the file manually instead:
-
-```bash
-python3 scripts/render_env.py --environment development --output .env
-```
+The bot reads configuration from `run.json` by default, not from `bot/.env`.
 
 Typical local settings include:
 
@@ -205,9 +195,11 @@ By default, `API_BYPASS_AUTH=true` disables auth for local development.
 
 To test with auth enabled:
 
-1. Set `API_BYPASS_AUTH=false` in the repo-root `.env`
+1. Set `API_BYPASS_AUTH=false` in `config/profiles/<environment>.config.enc.json`
 2. Start the API
 3. Log in and use the returned bearer token
+
+Note: dYdX trading credentials are no longer supplied through shared environment config. Use the app's dYdX key management flow or pass credentials in the bot instance payload when creating an instance.
 
 Example:
 
@@ -221,7 +213,7 @@ curl -X POST http://localhost:8889/auth/auth/login \
 
 ### Port already in use
 
-Update the repo-root `.env` and restart the API:
+Update the structured config and restart the API:
 
 ```env
 BOT_API_PORT=8890
@@ -247,7 +239,7 @@ pip install -r requirements.txt --upgrade
 From `bot/`:
 
 ```bash
-ls -la ../.env
+ls -la ../config/profiles/development.config.enc.json
 python -c "from config.config import config; print(config())"
 ```
 

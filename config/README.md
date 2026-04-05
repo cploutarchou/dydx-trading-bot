@@ -1,46 +1,32 @@
-# Shared Environment Configuration
+# Shared Runtime Configuration
 
 This directory is the structured source of truth for monorepo runtime configuration.
 
 ## Layout
 
-- `environments/development.env.json`
-- `environments/production.env.json`
-- `secrets/development.secrets.example.json`
-- `secrets/production.secrets.example.json`
-
-Optional local files that should not be committed:
-
-- `secrets/development.secrets.json`
-- `secrets/production.secrets.json`
-- `secrets/development.secrets.sops.json`
-- `secrets/production.secrets.sops.json`
+- `profiles/development.config.enc.json`
+- `profiles/production.config.enc.json`
+- `profiles/example.config.json`
 
 ## Security model
 
+- Each environment uses one encrypted profile file committed to the repo.
+- The example file is plain JSON only to document structure and bootstrap new profiles.
+- The repo-owned binary key lives at `.configkey.bin` in the monorepo root.
 - Passwords in the database remain hashed only.
-- Runtime secrets that the app must actually use cannot be hash-only.
-- For reversible secrets, use encryption:
-  - SOPS for repo-managed config files
-  - the existing backend encryption-at-rest for DB-stored API keys and seed phrases
+- Runtime secrets that the app must use stay encrypted and are decrypted only at load time.
 
-Hashing is one-way. It is not possible to safely "hash and unhash" the same secret.
+Hashing is one-way. It is not possible to safely "hash and unhash" the same secret, so config files use encryption, not hashing.
 
 ## How apps use this
 
-The frontend, backend, and bot still consume the shared repo-root `.env`, because that is the common runtime format across Vite, Go, and Python in this monorepo.
+The encrypted profile is the secure source of truth, but local service startup uses a shared decrypted runtime file:
 
-Generate that file from the structured config with:
-
-```bash
-python3 scripts/render_env.py --environment development --output .env
-```
-
-or:
-
-```bash
-make stack-env
-```
+- source profile: `config/profiles/<environment>.config.enc.json`
+- generated runtime file: `run.json`
+- optional runtime override: `APP_RUN_CONFIG_FILE=/absolute/path/to/run.json`
+- optional profile override: `APP_CONFIG_FILE=/absolute/path/to/file.config.enc.json`
+- optional key override: `APP_CONFIG_KEY_FILE=/absolute/path/to/.configkey.bin`
 
 Open and edit the active config profile with:
 
@@ -49,39 +35,46 @@ make dev-config
 make prod-config
 ```
 
-Those commands open the profile in your editor, let you edit the matching secrets file, and then re-render the repo-root `.env` after the editor closes.
+Then generate the shared runtime file with:
 
-## SOPS usage
+```bash
+make dev
+make prod
+```
 
-If `sops` is installed and the selected secrets file is SOPS-encrypted, the render script will decrypt it automatically.
+Those commands decrypt the encrypted profile into `run.json`, which is what the services read by default.
+
+## Key workflow
+
+Bootstrap the repo-owned key flow with:
+
+```bash
+make config-keygen
+```
+
+That command:
+
+- creates repo-root `.configkey.bin`
+- prints a shareable config token
+- can be repeated on other machines with `make install-config-key TOKEN=...`
+
+Rotate the key later with:
+
+```bash
+make config-key-rotate
+```
+
+That command:
+
+- decrypts the committed encrypted profiles with the current key
+- re-encrypts them with a fresh key
+- saves the previous key as `.configkey.bin.bak`
+- prints the new shareable token for DevOps
 
 Typical flow:
 
-1. Copy `config/secrets/development.secrets.example.json` to `config/secrets/development.secrets.json`
-2. Fill in the real values
-3. Copy `config/.sops.example.yaml` to `.sops.yaml` and replace the age recipient with your own
-4. Encrypt it with your own SOPS/age or KMS setup
-   Example: `sops --encrypt --in-place config/secrets/development.secrets.json`
-5. Remove the plain JSON copy once the encrypted file exists
-
-To install local tooling:
-
-```bash
-make install-sops
-```
-
-That command now:
-
-- installs `sops`, `age`, and `age-keygen` into `~/.local/bin` when needed
-- creates `~/.config/sops/age/keys.txt` if it does not already exist
-- prints your public age recipient
-- bootstraps repo-root `.sops.yaml` from the example template if it is missing
-
-The render order is:
-
-1. base profile from `config/environments/<environment>.env.json`
-2. encrypted secrets from `config/secrets/<environment>.secrets.sops.json`
-3. local secrets from `config/secrets/<environment>.secrets.json`
-4. example secrets from `config/secrets/<environment>.secrets.example.json`
-
-Earlier layers are overridden by later ones.
+1. Run `make config-keygen`
+2. Run `make dev-config`
+3. Save the encrypted profile
+4. Run `make dev`
+5. Start or restart the services

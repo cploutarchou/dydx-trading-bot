@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from src.shared.env_loader import load_repo_env
 
-# Load .env BEFORE importing project modules that initialize config/database.
+# Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
 
 # Import authentication modules

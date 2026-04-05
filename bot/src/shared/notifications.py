@@ -20,8 +20,8 @@ class TelegramMessenger:
     _recent_messages: Dict[str, float] = {}
 
     def __init__(self):
-        self.bot_token = TELEGRAM_TOKEN
-        self.chat_id = TELEGRAM_CHAT_ID
+        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or TELEGRAM_TOKEN
+        self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip() or TELEGRAM_CHAT_ID
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self.enabled = bool(self.bot_token and self.chat_id)
 

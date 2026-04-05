@@ -38,11 +38,13 @@ func setupTransportRouter(t *testing.T, botAPIBaseURL string, botHTTPClient *htt
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		email TEXT NOT NULL UNIQUE,
+		role TEXT NOT NULL DEFAULT 'client',
 		full_name TEXT,
 		avatar TEXT,
 		hashed_password TEXT NOT NULL,
 		is_active BOOLEAN NOT NULL DEFAULT 1,
 		is_admin BOOLEAN NOT NULL DEFAULT 0,
+		password_change_required BOOLEAN NOT NULL DEFAULT 0,
 		last_login DATETIME,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL

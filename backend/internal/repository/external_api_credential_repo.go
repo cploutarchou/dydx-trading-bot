@@ -18,7 +18,7 @@ func NewExternalAPICredentialRepository(db *sql.DB) *ExternalAPICredentialReposi
 
 func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provider string) (*models.ExternalAPICredential, error) {
 	query := `
-		SELECT id, user_id, provider, label, encrypted_api_key, is_active, created_at, updated_at
+		SELECT id, user_id, provider, label, encrypted_api_key, COALESCE(api_key_hash, ''), COALESCE(api_key_masked, ''), is_active, created_at, updated_at
 		FROM external_api_credentials
 		WHERE user_id = $1 AND provider = $2
 		LIMIT 1
@@ -31,6 +31,8 @@ func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provi
 		&credential.Provider,
 		&credential.Label,
 		&credential.EncryptedAPIKey,
+		&credential.APIKeyHash,
+		&credential.APIKeyMasked,
 		&credential.IsActive,
 		&credential.CreatedAt,
 		&credential.UpdatedAt,
@@ -48,27 +50,45 @@ func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provi
 func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPICredential) error {
 	now := time.Now().UTC()
 	query := `
-		INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (user_id, provider)
 		DO UPDATE SET
 			label = EXCLUDED.label,
 			encrypted_api_key = EXCLUDED.encrypted_api_key,
+			api_key_hash = EXCLUDED.api_key_hash,
+			api_key_masked = EXCLUDED.api_key_masked,
 			is_active = EXCLUDED.is_active,
 			updated_at = EXCLUDED.updated_at
-		RETURNING id, created_at, updated_at
 	`
 
-	return r.db.QueryRow(
+	if _, err := r.db.Exec(
 		query,
 		credential.UserID,
 		credential.Provider,
 		credential.Label,
 		credential.EncryptedAPIKey,
+		credential.APIKeyHash,
+		credential.APIKeyMasked,
 		credential.IsActive,
 		now,
 		now,
-	).Scan(&credential.ID, &credential.CreatedAt, &credential.UpdatedAt)
+	); err != nil {
+		return fmt.Errorf("failed to upsert external api credential: %w", err)
+	}
+
+	stored, err := r.GetByUserAndProvider(credential.UserID, credential.Provider)
+	if err != nil {
+		return fmt.Errorf("failed to reload external api credential after upsert: %w", err)
+	}
+	if stored == nil {
+		return fmt.Errorf("external api credential was not found after upsert")
+	}
+
+	credential.ID = stored.ID
+	credential.CreatedAt = stored.CreatedAt
+	credential.UpdatedAt = stored.UpdatedAt
+	return nil
 }
 
 func (r *ExternalAPICredentialRepository) Deactivate(userID int, provider string) error {

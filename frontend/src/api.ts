@@ -105,15 +105,75 @@ interface RegisterRequest {
   password: string;
 }
 
+export interface RegistrationStatusResponse extends Record<string, unknown> {
+  enabled: boolean;
+  reason: string;
+}
+
 interface UserProfile extends Record<string, unknown> {
   id: number;
   username: string;
   email: string;
+  role: string;
   is_active: boolean;
   is_admin: boolean;
+  password_change_required: boolean;
   created_at: string;
   avatar?: string;
   full_name?: string;
+}
+
+export interface AdminUser extends UserProfile {
+  updated_at: string;
+}
+
+export interface AdminUserListResponse extends Record<string, unknown> {
+  users: AdminUser[];
+  roles: string[];
+}
+
+export interface CreateAdminUserPayload extends Record<string, unknown> {
+  username: string;
+  email: string;
+  password: string;
+  role: string;
+  full_name?: string;
+  is_active?: boolean;
+}
+
+export interface UpdateAdminUserPayload extends Record<string, unknown> {
+  email?: string;
+  full_name?: string;
+  role?: string;
+  is_active?: boolean;
+}
+
+export interface ChangePasswordPayload extends Record<string, unknown> {
+  current_password: string;
+  new_password: string;
+}
+
+export interface MailgunStatusResponse extends Record<string, unknown> {
+  provider: string;
+  configured: boolean;
+  shared_key_present: boolean;
+  shared_key_masked?: string;
+  shared_key_label?: string;
+  domain?: string;
+  from_email?: string;
+  from_name?: string;
+  region?: 'us' | 'eu' | string;
+  base_url?: string;
+  pending_password_change_count: number;
+}
+
+export interface MailgunConfigPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+  domain: string;
+  from_email: string;
+  from_name?: string;
+  region?: 'us' | 'eu' | string;
 }
 
 interface BacktestRequest extends Record<string, unknown> {
@@ -180,6 +240,8 @@ export interface CodexStatusResponse extends Record<string, unknown> {
   base_url: string;
   shared_key_available: boolean;
   user_key_available: boolean;
+  shared_key_masked?: string;
+  user_key_masked?: string;
   active_key_source: 'user' | 'shared' | 'none';
   capabilities: CodexCapabilities;
   message: string;
@@ -286,10 +348,47 @@ export interface CodexKeyPayload extends Record<string, unknown> {
   label?: string;
 }
 
+export interface CoinDeskArticle extends Record<string, unknown> {
+  id: string;
+  title: string;
+  url: string;
+  summary: string;
+  author: string;
+  category: string;
+  published_at: string;
+  image_url: string;
+  tags: string[];
+}
+
+export interface CoinDeskNewsResponse extends Record<string, unknown> {
+  provider: string;
+  source: string;
+  feed_url: string;
+  last_build_at: string;
+  generated_at: string;
+  articles: CoinDeskArticle[];
+}
+
+export interface CoinDeskNewsConfigStatus extends Record<string, unknown> {
+  provider: string;
+  shared_key_present: boolean;
+  shared_key_masked?: string;
+  shared_key_label?: string;
+  feed_url: string;
+  source: string;
+  configured_by_admin: boolean;
+}
+
+export interface CoinDeskNewsConfigPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+}
+
 interface DYDXKey extends Record<string, unknown> {
   id?: number;
   network: string;
   chain_address: string;
+  secret_masked?: string;
   encrypted_secret?: string;
   is_active?: boolean;
   created_at?: string;
@@ -794,6 +893,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getRegistrationStatus(): Promise<ApiResponse<RegistrationStatusResponse>> {
+    const response = await this.client.get<ApiResponse<RegistrationStatusResponse>>('/api/v1/auth/registration-status');
+    return response.data;
+  }
+
   async login(data: LoginRequest): Promise<Token> {
     try {
       // Backend wraps responses in { success, message, data: { ... } }
@@ -848,6 +952,14 @@ class ApiClient {
   async updateProfile(data: Partial<UserProfile>): Promise<ApiResponse<UpdateProfileResponse>> {
     const response = await this.client.put<ApiResponse<UpdateProfileResponse>>(
       '/api/v1/profile',
+      data
+    );
+    return response.data;
+  }
+
+  async changePassword(data: ChangePasswordPayload): Promise<ApiResponse<{ user: UserProfile }>> {
+    const response = await this.client.put<ApiResponse<{ user: UserProfile }>>(
+      '/api/v1/auth/change-password',
       data
     );
     return response.data;
@@ -985,6 +1097,32 @@ class ApiClient {
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
+  }
+
+  async listAdminUsers(): Promise<ApiResponse<AdminUserListResponse>> {
+    const response = await this.client.get<ApiResponse<AdminUserListResponse>>('/api/v1/admin/users');
+    return response.data;
+  }
+
+  async createAdminUser(
+    data: CreateAdminUserPayload
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>> {
+    const response = await this.client.post<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>>(
+      '/api/v1/admin/users',
+      data
+    );
+    return response.data;
+  }
+
+  async updateAdminUser(
+    userId: number,
+    data: UpdateAdminUserPayload
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
+    const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+      `/api/v1/admin/users/${userId}`,
+      data
+    );
+    return response.data;
   }
 
   async initializeSettings(): Promise<ApiResponse> {
@@ -1722,6 +1860,50 @@ class ApiClient {
   async resolveCodexAssetContext(data: CodexAssetContextRequest): Promise<ApiResponse<CodexAssetContextResponse>> {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<CodexAssetContextResponse>>('/api/v1/codex/assets/context', data);
+    return response.data;
+  }
+
+  async getCoinDeskNews(limit = 8): Promise<ApiResponse<CoinDeskNewsResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CoinDeskNewsResponse>>('/api/v1/news/coindesk', {
+      params: { limit },
+    });
+    return response.data;
+  }
+
+  async getCoinDeskNewsConfig(): Promise<ApiResponse<CoinDeskNewsConfigStatus>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CoinDeskNewsConfigStatus>>('/api/v1/news/coindesk/config');
+    return response.data;
+  }
+
+  async saveCoinDeskNewsConfig(data: CoinDeskNewsConfigPayload): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config', data);
+    return response.data;
+  }
+
+  async deleteCoinDeskNewsConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config');
+    return response.data;
+  }
+
+  async getMailgunStatus(): Promise<ApiResponse<MailgunStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
+    return response.data;
+  }
+
+  async saveMailgunConfig(data: MailgunConfigPayload): Promise<ApiResponse<MailgunStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/config', data);
+    return response.data;
+  }
+
+  async deleteMailgunConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
     return response.data;
   }
 }

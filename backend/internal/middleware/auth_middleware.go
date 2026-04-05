@@ -76,6 +76,7 @@ func RequireAuth() gin.HandlerFunc {
 		c.Set("username", claims.Username)
 		c.Set("email", claims.Email)
 		c.Set("is_admin", claims.IsAdmin)
+		c.Set("role", claims.Role)
 
 		c.Next()
 	}

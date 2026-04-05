@@ -10,13 +10,16 @@ import (
 )
 
 const ExternalAPIProviderCodexIO = "codex_io"
+const ExternalAPIProviderMailgun = "mailgun"
+const SharedCredentialUserID = 0
 
 type ExternalAPICredentialInfo struct {
-	Provider  string    `json:"provider"`
-	Label     string    `json:"label"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Provider    string    `json:"provider"`
+	Label       string    `json:"label"`
+	MaskedValue string    `json:"masked_value"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type ExternalAPICredentialService struct {
@@ -32,7 +35,7 @@ func NewExternalAPICredentialService(repo *repository.ExternalAPICredentialRepos
 }
 
 func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey string, label string) (*ExternalAPICredentialInfo, error) {
-	if userID <= 0 {
+	if userID < 0 {
 		return nil, fmt.Errorf("user id is required")
 	}
 	provider = strings.TrimSpace(strings.ToLower(provider))
@@ -54,6 +57,8 @@ func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey 
 		Provider:        provider,
 		Label:           strings.TrimSpace(label),
 		EncryptedAPIKey: encryptedKey,
+		APIKeyHash:      hashSecretValue(apiKey),
+		APIKeyMasked:    maskSecretValue(apiKey),
 		IsActive:        true,
 	}
 	if err := s.repo.Upsert(credential); err != nil {
@@ -61,16 +66,21 @@ func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey 
 	}
 
 	return &ExternalAPICredentialInfo{
-		Provider:  credential.Provider,
-		Label:     credential.Label,
-		IsActive:  credential.IsActive,
-		CreatedAt: credential.CreatedAt,
-		UpdatedAt: credential.UpdatedAt,
+		Provider:    credential.Provider,
+		Label:       credential.Label,
+		MaskedValue: credential.APIKeyMasked,
+		IsActive:    credential.IsActive,
+		CreatedAt:   credential.CreatedAt,
+		UpdatedAt:   credential.UpdatedAt,
 	}, nil
 }
 
+func (s *ExternalAPICredentialService) SaveShared(provider string, apiKey string, label string) (*ExternalAPICredentialInfo, error) {
+	return s.Save(SharedCredentialUserID, provider, apiKey, label)
+}
+
 func (s *ExternalAPICredentialService) Delete(userID int, provider string) error {
-	if userID <= 0 {
+	if userID < 0 {
 		return fmt.Errorf("user id is required")
 	}
 	provider = strings.TrimSpace(strings.ToLower(provider))
@@ -78,6 +88,10 @@ func (s *ExternalAPICredentialService) Delete(userID int, provider string) error
 		return fmt.Errorf("provider is required")
 	}
 	return s.repo.Deactivate(userID, provider)
+}
+
+func (s *ExternalAPICredentialService) DeleteShared(provider string) error {
+	return s.Delete(SharedCredentialUserID, provider)
 }
 
 func (s *ExternalAPICredentialService) Get(userID int, provider string) (*ExternalAPICredentialInfo, error) {
@@ -90,12 +104,17 @@ func (s *ExternalAPICredentialService) Get(userID int, provider string) (*Extern
 	}
 
 	return &ExternalAPICredentialInfo{
-		Provider:  credential.Provider,
-		Label:     credential.Label,
-		IsActive:  credential.IsActive,
-		CreatedAt: credential.CreatedAt,
-		UpdatedAt: credential.UpdatedAt,
+		Provider:    credential.Provider,
+		Label:       credential.Label,
+		MaskedValue: credential.APIKeyMasked,
+		IsActive:    credential.IsActive,
+		CreatedAt:   credential.CreatedAt,
+		UpdatedAt:   credential.UpdatedAt,
 	}, nil
+}
+
+func (s *ExternalAPICredentialService) GetShared(provider string) (*ExternalAPICredentialInfo, error) {
+	return s.Get(SharedCredentialUserID, provider)
 }
 
 func (s *ExternalAPICredentialService) ResolveKey(userID int, provider string) (string, bool, error) {
@@ -113,4 +132,8 @@ func (s *ExternalAPICredentialService) ResolveKey(userID int, provider string) (
 	}
 
 	return strings.TrimSpace(key), true, nil
+}
+
+func (s *ExternalAPICredentialService) ResolveSharedKey(provider string) (string, bool, error) {
+	return s.ResolveKey(SharedCredentialUserID, provider)
 }

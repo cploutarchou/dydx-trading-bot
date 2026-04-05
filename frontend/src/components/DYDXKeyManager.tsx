@@ -6,6 +6,7 @@ interface DYDXKey {
   id: number;
   network: 'testnet' | 'mainnet';
   chain_address: string;
+  secret_masked?: string;
   is_active?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -259,7 +260,9 @@ export const DYDXKeyManager: React.FC = () => {
           onSubmit={handleAddKey}
           className="bg-slate-900 rounded-lg border border-slate-700 p-6"
         >
-          <h3 className="text-lg font-bold text-white mb-4">Add New Key</h3>
+          <h3 className="text-lg font-bold text-white mb-4">
+            {keys.some((key) => key.network === formData.network) ? 'Update Stored Key' : 'Add New Key'}
+          </h3>
 
           {/* Network Selection */}
           <div className="mb-6">
@@ -294,6 +297,9 @@ export const DYDXKeyManager: React.FC = () => {
                   <p className="text-slate-400 text-xs mt-1">
                     {net === 'testnet' ? 'For testing and development' : 'For production trading'}
                   </p>
+                  {keys.some((key) => key.network === net) && (
+                    <p className="mt-2 text-xs text-cyan-300">Existing stored secret will be updated</p>
+                  )}
                 </label>
               ))}
             </div>
@@ -433,6 +439,10 @@ export const DYDXKeyManager: React.FC = () => {
                           ? `${new Date(key.created_at).toLocaleDateString()} at ${new Date(key.created_at).toLocaleTimeString()}`
                           : 'Unknown'}
                       </p>
+                      <p className="mt-2 text-xs text-slate-500">Masked secret</p>
+                      <p className="font-mono text-xs text-slate-300">
+                        {key.secret_masked || 'Stored and masked'}
+                      </p>
                     </div>
                   </div>
 
@@ -498,9 +508,7 @@ export const DYDXKeyManager: React.FC = () => {
           <li className="flex gap-2">
             <span className="text-green-400 font-bold">✓</span>
             <span>
-              Keys are encrypted with{' '}
-              <code className="bg-slate-800 px-2 py-1 rounded text-xs">Fernet</code> symmetric
-              encryption
+              Keys are encrypted at rest and stored with an additional one-way fingerprint for safer operational handling
             </span>
           </li>
           <li className="flex gap-2">

@@ -40,10 +40,12 @@ export interface User {
   id: number;
   username: string;
   email: string;
+  role: string;
   full_name?: string;
   avatar?: string;
   is_active: boolean;
   is_admin: boolean;
+  password_change_required: boolean;
   created_at: string;
   updated_at?: string;
   profile?: UserProfile;

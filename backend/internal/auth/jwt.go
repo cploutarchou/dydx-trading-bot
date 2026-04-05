@@ -21,6 +21,7 @@ type TokenClaims struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	IsAdmin  bool   `json:"is_admin"`
+	Role     string `json:"role"`
 	Type     string `json:"type"`
 	jwt.RegisteredClaims
 }
@@ -45,6 +46,14 @@ func NewManager(cfg JWTConfig) *Manager {
 
 // CreateAccessToken creates a JWT access token
 func (m *Manager) CreateAccessToken(userID int, username, email string, isAdmin bool, expiresDelta ...time.Duration) (string, time.Time, error) {
+	role := "client"
+	if isAdmin {
+		role = "admin"
+	}
+	return m.CreateAccessTokenWithRole(userID, username, email, isAdmin, role, expiresDelta...)
+}
+
+func (m *Manager) CreateAccessTokenWithRole(userID int, username, email string, isAdmin bool, role string, expiresDelta ...time.Duration) (string, time.Time, error) {
 	var expiresAt time.Time
 	if len(expiresDelta) > 0 {
 		expiresAt = time.Now().Add(expiresDelta[0])
@@ -59,6 +68,7 @@ func (m *Manager) CreateAccessToken(userID int, username, email string, isAdmin 
 		Username: username,
 		Email:    email,
 		IsAdmin:  isAdmin,
+		Role:     role,
 		Type:     "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
@@ -78,6 +88,14 @@ func (m *Manager) CreateAccessToken(userID int, username, email string, isAdmin 
 
 // CreateRefreshToken creates a JWT refresh token
 func (m *Manager) CreateRefreshToken(userID int, username, email string, isAdmin bool) (string, time.Time, error) {
+	role := "client"
+	if isAdmin {
+		role = "admin"
+	}
+	return m.CreateRefreshTokenWithRole(userID, username, email, isAdmin, role)
+}
+
+func (m *Manager) CreateRefreshTokenWithRole(userID int, username, email string, isAdmin bool, role string) (string, time.Time, error) {
 	var expiresAt time.Time
 	if m.config.RefreshExpiryDays > 0 {
 		expiresAt = time.Now().Add(time.Hour * 24 * time.Duration(m.config.RefreshExpiryDays))
@@ -90,6 +108,7 @@ func (m *Manager) CreateRefreshToken(userID int, username, email string, isAdmin
 		Username: username,
 		Email:    email,
 		IsAdmin:  isAdmin,
+		Role:     role,
 		Type:     "refresh",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),

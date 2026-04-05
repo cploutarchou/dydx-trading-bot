@@ -3,7 +3,7 @@
  * Persistent left sidebar with navigation links, user info, and logout
  */
 
-import { BarChart3, Bot, Home, Library, LogOut, PlayCircle, Settings, Sparkles, Target, X } from 'lucide-react';
+import { BarChart3, Bot, Home, Library, LogOut, Newspaper, PlayCircle, Settings, Sparkles, Target, X } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
@@ -62,6 +62,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       exact: true,
     },
     {
+      label: 'Market News',
+      path: '/news',
+      icon: <Newspaper className="w-5 h-5" />,
+      exact: true,
+    },
+    {
       label: 'Compare Backtests',
       path: '/backtests/compare',
       icon: <BarChart3 className="w-5 h-5" />,
@@ -87,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static w-64 h-screen bg-slate-900 border-r border-slate-700 flex flex-col transition-transform duration-300 z-50 ${
+        className={`premium-sidebar fixed lg:static w-72 h-screen border-r border-slate-800/80 flex flex-col transition-transform duration-300 z-50 ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
@@ -103,14 +109,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Logo/Title */}
-        <div className="px-6 py-8 border-b border-slate-700">
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+        <div className="px-6 py-8 border-b border-slate-800/90">
+          <div className="mb-4 inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            Trading OS
+          </div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-500 via-blue-500 to-emerald-400 shadow-lg shadow-cyan-500/20 flex items-center justify-center">
               📊
             </div>
             dYdX Bot
           </h1>
-          <p className="text-xs text-gray-400 mt-2">Trading & Analysis</p>
+          <p className="text-xs text-slate-400 mt-3 leading-5">
+            Trading intelligence, strategy operations, and premium backtest insight in one cockpit.
+          </p>
         </div>
 
         {/* Navigation Links */}
@@ -126,10 +137,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                     navigate(item.path);
                     onClose?.();
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  className={`group w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium transition-all ${
                     active
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                      : 'text-gray-400 hover:bg-slate-800 hover:text-white'
+                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
+                      : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'
                   }`}
                 >
                   <span className={active ? 'text-white' : 'text-slate-400 group-hover:text-white'}>
@@ -144,19 +155,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </nav>
 
         {/* User Section */}
-        <div className="px-4 py-4 border-t border-slate-700">
+        <div className="px-4 py-4 border-t border-slate-800/90">
           {/* User Info */}
-          <div className="mb-4 p-3 bg-slate-800 rounded-lg">
+          <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
             <p className="text-xs text-gray-400 mb-1">Logged in as</p>
             <p className="text-sm font-semibold text-white truncate">{user?.username}</p>
             <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+            {user?.role && (
+              <div className="mt-3 inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-300">
+                {user.role}
+              </div>
+            )}
           </div>
 
           {/* Logout Button */}
           <button
             type="button"
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+            className="w-full flex items-center gap-2 px-4 py-3 bg-red-600/90 hover:bg-red-600 text-white text-sm font-medium rounded-2xl transition-colors"
           >
             <LogOut className="w-4 h-4" />
             Logout

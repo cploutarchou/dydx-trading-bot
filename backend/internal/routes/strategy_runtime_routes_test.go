@@ -50,11 +50,13 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			username TEXT NOT NULL UNIQUE,
 			email TEXT NOT NULL UNIQUE,
+			role TEXT NOT NULL DEFAULT 'client',
 			full_name TEXT,
 			avatar TEXT,
 			hashed_password TEXT NOT NULL,
 			is_active BOOLEAN NOT NULL DEFAULT 1,
 			is_admin BOOLEAN NOT NULL DEFAULT 0,
+			password_change_required BOOLEAN NOT NULL DEFAULT 0,
 			last_login DATETIME,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
@@ -109,6 +111,8 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 			network TEXT NOT NULL,
 			chain_address TEXT NOT NULL,
 			encrypted_secret TEXT NOT NULL,
+			secret_hash TEXT NOT NULL DEFAULT '',
+			secret_masked TEXT NOT NULL DEFAULT '',
 			is_active BOOLEAN NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL

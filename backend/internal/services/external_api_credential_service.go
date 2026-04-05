@@ -13,11 +13,12 @@ const ExternalAPIProviderCodexIO = "codex_io"
 const SharedCredentialUserID = 0
 
 type ExternalAPICredentialInfo struct {
-	Provider  string    `json:"provider"`
-	Label     string    `json:"label"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Provider    string    `json:"provider"`
+	Label       string    `json:"label"`
+	MaskedValue string    `json:"masked_value"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type ExternalAPICredentialService struct {
@@ -55,6 +56,8 @@ func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey 
 		Provider:        provider,
 		Label:           strings.TrimSpace(label),
 		EncryptedAPIKey: encryptedKey,
+		APIKeyHash:      hashSecretValue(apiKey),
+		APIKeyMasked:    maskSecretValue(apiKey),
 		IsActive:        true,
 	}
 	if err := s.repo.Upsert(credential); err != nil {
@@ -62,11 +65,12 @@ func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey 
 	}
 
 	return &ExternalAPICredentialInfo{
-		Provider:  credential.Provider,
-		Label:     credential.Label,
-		IsActive:  credential.IsActive,
-		CreatedAt: credential.CreatedAt,
-		UpdatedAt: credential.UpdatedAt,
+		Provider:    credential.Provider,
+		Label:       credential.Label,
+		MaskedValue: credential.APIKeyMasked,
+		IsActive:    credential.IsActive,
+		CreatedAt:   credential.CreatedAt,
+		UpdatedAt:   credential.UpdatedAt,
 	}, nil
 }
 
@@ -99,11 +103,12 @@ func (s *ExternalAPICredentialService) Get(userID int, provider string) (*Extern
 	}
 
 	return &ExternalAPICredentialInfo{
-		Provider:  credential.Provider,
-		Label:     credential.Label,
-		IsActive:  credential.IsActive,
-		CreatedAt: credential.CreatedAt,
-		UpdatedAt: credential.UpdatedAt,
+		Provider:    credential.Provider,
+		Label:       credential.Label,
+		MaskedValue: credential.APIKeyMasked,
+		IsActive:    credential.IsActive,
+		CreatedAt:   credential.CreatedAt,
+		UpdatedAt:   credential.UpdatedAt,
 	}, nil
 }
 

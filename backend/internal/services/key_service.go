@@ -62,6 +62,8 @@ func (s *KeyManagementService) CreateKey(userID int, network string, chainAddres
 		// Update existing key
 		existing.ChainAddress = chainAddress
 		existing.EncryptedSecret = encrypted
+		existing.SecretHash = hashSecretValue(secretPhrase)
+		existing.SecretMasked = maskSecretValue(secretPhrase)
 		if err := s.repo.UpdateKey(existing); err != nil {
 			return nil, fmt.Errorf("failed to update key: %w", err)
 		}
@@ -74,6 +76,8 @@ func (s *KeyManagementService) CreateKey(userID int, network string, chainAddres
 		Network:         network,
 		ChainAddress:    chainAddress,
 		EncryptedSecret: encrypted,
+		SecretHash:      hashSecretValue(secretPhrase),
+		SecretMasked:    maskSecretValue(secretPhrase),
 		IsActive:        true,
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
@@ -100,6 +104,7 @@ func (s *KeyManagementService) GetKeyInfo(userID int, network string) (map[strin
 		"id":            key.ID,
 		"network":       key.Network,
 		"chain_address": key.ChainAddress,
+		"secret_masked": key.SecretMasked,
 		"is_active":     key.IsActive,
 		"created_at":    key.CreatedAt.Format(time.RFC3339),
 		"updated_at":    key.UpdatedAt.Format(time.RFC3339),
@@ -144,6 +149,7 @@ func (s *KeyManagementService) GetActiveKeys(userID int) ([]map[string]interface
 			"id":            key.ID,
 			"network":       key.Network,
 			"chain_address": key.ChainAddress,
+			"secret_masked": key.SecretMasked,
 			"is_active":     key.IsActive,
 			"created_at":    key.CreatedAt.Format(time.RFC3339),
 			"updated_at":    key.UpdatedAt.Format(time.RFC3339),

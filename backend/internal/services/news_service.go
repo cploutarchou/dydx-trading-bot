@@ -22,6 +22,8 @@ const (
 type CoinDeskNewsConfigStatus struct {
 	Provider          string `json:"provider"`
 	SharedKeyPresent  bool   `json:"shared_key_present"`
+	SharedKeyMasked   string `json:"shared_key_masked"`
+	SharedKeyLabel    string `json:"shared_key_label"`
 	FeedURL           string `json:"feed_url"`
 	Source            string `json:"source"`
 	ConfiguredByAdmin bool   `json:"configured_by_admin"`
@@ -114,8 +116,20 @@ func (s *NewsService) GetCoinDeskConfigStatus() (*CoinDeskNewsConfigStatus, erro
 	}
 
 	return &CoinDeskNewsConfigStatus{
-		Provider:          "coindesk",
-		SharedKeyPresent:  sharedPresent,
+		Provider:         "coindesk",
+		SharedKeyPresent: sharedPresent,
+		SharedKeyMasked: func() string {
+			if info != nil {
+				return info.MaskedValue
+			}
+			return ""
+		}(),
+		SharedKeyLabel: func() string {
+			if info != nil {
+				return info.Label
+			}
+			return ""
+		}(),
 		FeedURL:           s.feedURL,
 		Source:            "coindesk_rss",
 		ConfiguredByAdmin: info != nil && info.IsActive,

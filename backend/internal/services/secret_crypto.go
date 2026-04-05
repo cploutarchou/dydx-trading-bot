@@ -4,11 +4,14 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"strings"
 )
 
 func loadEncryptionSecret() string {
@@ -75,4 +78,21 @@ func decryptString(secret string, encryptedText string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+func hashSecretValue(plaintext string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(plaintext)))
+	return hex.EncodeToString(sum[:])
+}
+
+func maskSecretValue(plaintext string) string {
+	trimmed := strings.TrimSpace(plaintext)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= 8 {
+		return strings.Repeat("*", len(runes))
+	}
+	return string(runes[:4]) + strings.Repeat("*", len(runes)-8) + string(runes[len(runes)-4:])
 }

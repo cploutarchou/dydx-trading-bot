@@ -11,6 +11,7 @@ type User struct {
 	ID        int        `db:"id" json:"id"`
 	Username  string     `db:"username" json:"username"`
 	Email     string     `db:"email" json:"email"`
+	Role      string     `db:"role" json:"role"`
 	FullName  string     `db:"full_name" json:"full_name"`
 	Avatar    string     `db:"avatar" json:"avatar"`
 	IsActive  bool       `db:"is_active" json:"is_active"`
@@ -29,6 +30,8 @@ type DYDXKey struct {
 	Network         string    `db:"network" json:"network"`
 	ChainAddress    string    `db:"chain_address" json:"chain_address"`
 	EncryptedSecret string    `db:"encrypted_secret" json:"-"`
+	SecretHash      string    `db:"secret_hash" json:"-"`
+	SecretMasked    string    `db:"secret_masked" json:"secret_masked"`
 	IsActive        bool      `db:"is_active" json:"is_active"`
 	CreatedAt       time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
@@ -49,6 +52,8 @@ type ExternalAPICredential struct {
 	Provider        string    `db:"provider" json:"provider"`
 	Label           string    `db:"label" json:"label"`
 	EncryptedAPIKey string    `db:"encrypted_api_key" json:"-"`
+	APIKeyHash      string    `db:"api_key_hash" json:"-"`
+	APIKeyMasked    string    `db:"api_key_masked" json:"api_key_masked"`
 	IsActive        bool      `db:"is_active" json:"is_active"`
 	CreatedAt       time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`

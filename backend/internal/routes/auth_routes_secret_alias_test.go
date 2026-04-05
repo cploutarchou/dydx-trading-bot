@@ -12,8 +12,8 @@ import (
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/gin-gonic/gin"
-	_ "modernc.org/sqlite"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 func TestAuth_LoginTokenValidWhenOnlySecretKeyAliasIsSet(t *testing.T) {
@@ -38,6 +38,7 @@ func TestAuth_LoginTokenValidWhenOnlySecretKeyAliasIsSet(t *testing.T) {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		email TEXT NOT NULL UNIQUE,
+		role TEXT NOT NULL DEFAULT 'client',
 		full_name TEXT,
 		avatar TEXT,
 		hashed_password TEXT NOT NULL,
@@ -105,4 +106,3 @@ func TestAuth_LoginTokenValidWhenOnlySecretKeyAliasIsSet(t *testing.T) {
 		t.Fatalf("expected /api/v1/users/me 200, got %d body=%s", meRes.Code, meRes.Body.String())
 	}
 }
-

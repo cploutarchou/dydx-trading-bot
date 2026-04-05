@@ -6,7 +6,9 @@ React + TypeScript frontend for the dYdX trading dashboard and backtest workflow
 
 ```bash
 npm install
-make stack-env
+make config-keygen
+make dev-config
+make dev
 make infra-up
 npm run dev
 ```
@@ -15,7 +17,7 @@ Visit <http://localhost:5173> for local development.
 
 ## Prerequisites
 
-- **Development:** Node 20+, npm, and access to the repo-root `.env`
+- **Development:** Node 20+, npm, Python 3 with `cryptography`, repo-root `.configkey.bin`, and access to `run.json` generated from `config/profiles/*.config.enc.json`
 - **Integration services:** Docker + `make`
 
 ## Common commands

@@ -3,10 +3,20 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+var validUserRoles = []string{
+	"admin",
+	"user",
+	"accounting",
+	"marketing",
+	"agent",
+	"client",
+}
 
 // ============ User Methods ============
 
@@ -47,17 +57,19 @@ func (u *User) ToDict() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"id":              u.ID,
-		"username":        u.Username,
-		"email":           u.Email,
-		"full_name":       u.FullName,
-		"avatar":          u.Avatar,
-		"is_active":       u.IsActive,
-		"is_admin":        u.IsAdmin,
-		"created_at":      createdAtStr,
-		"updated_at":      updatedAtStr,
-		"last_login":      lastLoginStr,
-		"hashed_password": u.Password,
+		"id":                       u.ID,
+		"username":                 u.Username,
+		"email":                    u.Email,
+		"role":                     u.Role,
+		"full_name":                u.FullName,
+		"avatar":                   u.Avatar,
+		"is_active":                u.IsActive,
+		"is_admin":                 u.IsAdmin,
+		"password_change_required": u.PasswordChangeRequired,
+		"created_at":               createdAtStr,
+		"updated_at":               updatedAtStr,
+		"last_login":               lastLoginStr,
+		"hashed_password":          u.Password,
 	}
 }
 
@@ -80,6 +92,9 @@ func (u *User) FromDict(data map[string]interface{}) {
 	if email, ok := data["email"].(string); ok {
 		u.Email = email
 	}
+	if role, ok := data["role"].(string); ok {
+		u.Role = role
+	}
 	if fullName, ok := data["full_name"].(string); ok {
 		u.FullName = fullName
 	}
@@ -91,6 +106,9 @@ func (u *User) FromDict(data map[string]interface{}) {
 	}
 	if isAdmin, ok := data["is_admin"].(bool); ok {
 		u.IsAdmin = isAdmin
+	}
+	if passwordChangeRequired, ok := data["password_change_required"].(bool); ok {
+		u.PasswordChangeRequired = passwordChangeRequired
 	}
 	if hashedPassword, ok := data["hashed_password"].(string); ok {
 		u.Password = hashedPassword
@@ -110,6 +128,33 @@ func (u *User) FromDict(data map[string]interface{}) {
 			u.LastLogin = &t
 		}
 	}
+}
+
+func NormalizeUserRole(role string, isAdmin bool) string {
+	role = strings.TrimSpace(strings.ToLower(role))
+	validRoles := map[string]struct{}{}
+	for _, validRole := range validUserRoles {
+		validRoles[validRole] = struct{}{}
+	}
+	if role == "" {
+		if isAdmin {
+			return "admin"
+		}
+		return "client"
+	}
+	if _, ok := validRoles[role]; ok {
+		return role
+	}
+	if isAdmin {
+		return "admin"
+	}
+	return "client"
+}
+
+func AvailableUserRoles() []string {
+	roles := make([]string, len(validUserRoles))
+	copy(roles, validUserRoles)
+	return roles
 }
 
 // ToJSON converts User to JSON bytes

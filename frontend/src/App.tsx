@@ -15,8 +15,12 @@ import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
 import StrategyManager from './components/StrategyManager';
 import BacktestDetailsV2 from './pages/BacktestDetailsV2';
+import { BacktestsPage } from './pages/Backtests';
+import { CodexPage } from './pages/Codex';
 import { DashboardPage } from './pages/Dashboard';
+import { ForcePasswordChangePage } from './pages/ForcePasswordChange';
 import { LoginPage } from './pages/Login';
+import { NewsPage } from './pages/News';
 import { RegisterPage } from './pages/Register';
 import SettingsPage from './pages/Settings';
 import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
@@ -51,7 +55,26 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/login" replace />;
   }
 
+  if (user.password_change_required) {
+    return <Navigate to="/force-password" replace />;
+  }
+
   return <MainLayout>{children}</MainLayout>;
+};
+
+const PasswordRotationRoute: React.FC = () => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const user = useAuthStore((state) => state.user);
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!user.password_change_required) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <ForcePasswordChangePage />;
 };
 
 export const App: React.FC = () => {
@@ -138,6 +161,7 @@ export const App: React.FC = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
+            <Route path="/force-password" element={<PasswordRotationRoute />} />
             <Route
               path="/dashboard"
               element={
@@ -147,10 +171,26 @@ export const App: React.FC = () => {
               }
             />
             <Route
+              path="/codex"
+              element={
+                <ProtectedRoute>
+                  <CodexPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/news"
+              element={
+                <ProtectedRoute>
+                  <NewsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/backtests"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <BacktestsPage />
                 </ProtectedRoute>
               }
             />

@@ -6,6 +6,7 @@
 import { ChevronRight, Menu } from 'lucide-react';
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuthStore } from '../store/auth';
 import { getMockDataMode, setMockDataMode, shouldUseDevMocks, type MockDataMode } from '../api/mockData';
 
 interface HeaderProps {
@@ -14,12 +15,19 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const location = useLocation();
-  const [mockMode, setMockModeState] = React.useState<MockDataMode>(() => getMockDataMode());
-  const usingMockData = shouldUseDevMocks();
+  const user = useAuthStore((state) => state.user);
+  const isDevelopment = import.meta.env.DEV;
+  const [mockMode, setMockModeState] = React.useState<MockDataMode>(() =>
+    isDevelopment ? getMockDataMode() : 'off'
+  );
+  const usingMockData = isDevelopment && shouldUseDevMocks();
   const environmentLabel = import.meta.env.DEV ? '🟡 Development' : '🟢 Production';
   const environmentColor = import.meta.env.DEV ? 'text-yellow-400' : 'text-green-400';
 
   const cycleMockMode = () => {
+    if (!isDevelopment) {
+      return;
+    }
     const nextMode: MockDataMode =
       mockMode === 'auto' ? 'on' : mockMode === 'on' ? 'off' : 'auto';
     setMockDataMode(nextMode);
@@ -68,13 +76,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const pageTitle = breadcrumbs[breadcrumbs.length - 1]?.label || 'Dashboard';
 
   return (
-    <header className="bg-slate-800 border-b border-slate-700 sticky top-0 z-40">
-      <div className="flex items-center justify-between h-16 px-4 lg:px-6">
+    <header className="premium-topbar sticky top-0 z-40">
+      <div className="flex min-h-20 items-center justify-between gap-4 px-4 lg:px-6">
         {/* Left: Menu Toggle + Breadcrumbs */}
         <div className="flex items-center gap-4">
           <button
             onClick={onMenuToggle}
-            className="lg:hidden p-2 text-gray-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+            className="lg:hidden rounded-2xl border border-slate-700/80 bg-slate-900/70 p-2.5 text-gray-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <Menu className="w-6 h-6" />
           </button>
@@ -104,21 +112,29 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
         {/* Right: Status/Info Area (can be extended) */}
         <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={cycleMockMode}
-            className={`px-2.5 py-1 rounded border text-xs font-medium transition-colors ${
-              usingMockData
-                ? 'border-amber-700 bg-amber-900/40 text-amber-300 hover:bg-amber-900/60'
-                : 'border-slate-600 bg-slate-700/40 text-slate-300 hover:bg-slate-700/60'
-            }`}
-            title="Cycle mock mode: auto -> on -> off"
-          >
-            Mock: {mockMode.toUpperCase()}
-          </button>
-          <div className="text-right hidden lg:block">
-            <p className="text-xs text-gray-400">Environment</p>
-            <p className={`text-sm font-medium ${environmentColor}`}>{environmentLabel}</p>
+          {isDevelopment && (
+            <button
+              type="button"
+              onClick={cycleMockMode}
+              className={`px-2.5 py-1 rounded border text-xs font-medium transition-colors ${
+                usingMockData
+                  ? 'border-amber-700 bg-amber-900/40 text-amber-300 hover:bg-amber-900/60'
+                  : 'border-slate-600 bg-slate-700/40 text-slate-300 hover:bg-slate-700/60'
+              }`}
+              title="Cycle mock mode: auto -> on -> off"
+            >
+              Mock: {mockMode.toUpperCase()}
+            </button>
+          )}
+          <div className="hidden lg:flex items-center gap-3">
+            <div className="rounded-full border border-slate-700/70 bg-slate-900/65 px-3 py-2 text-right">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Environment</p>
+              <p className={`text-sm font-medium ${environmentColor}`}>{environmentLabel}</p>
+            </div>
+            <div className="rounded-full border border-slate-700/70 bg-slate-900/65 px-4 py-2">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Operator</p>
+              <p className="text-sm font-medium text-white">{user?.full_name || user?.username || 'Trader'}</p>
+            </div>
           </div>
         </div>
       </div>

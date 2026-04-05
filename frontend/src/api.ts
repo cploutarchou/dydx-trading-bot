@@ -9,6 +9,7 @@ import {
   guardRunBacktestContract,
   guardSyncHealthContract,
 } from './api/contractGuards';
+import { attachTraceHeader, traceHeaderName } from './api/trace';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
 
@@ -38,12 +39,17 @@ export interface ApiFailureInfo {
   kind: ApiFailureKind;
   statusCode: number | null;
   message: string;
+  traceId?: string | null;
 }
 
 export const classifyApiError = (error: unknown): ApiFailureInfo => {
   if (error instanceof AxiosError) {
     const statusCode = error.response?.status ?? null;
     const data = error.response?.data as Record<string, unknown> | undefined;
+    const traceId =
+      typeof data?.trace_id === 'string'
+        ? data.trace_id
+        : error.response?.headers?.[traceHeaderName.toLowerCase()] || null;
     const upstreamMessage =
       typeof data?.message === 'string'
         ? data.message
@@ -56,14 +62,14 @@ export const classifyApiError = (error: unknown): ApiFailureInfo => {
     const message = upstreamMessage || error.message || 'Unknown API error';
 
     if (statusCode === null || statusCode >= 500 || statusCode === 502 || statusCode === 504) {
-      return { kind: 'transport', statusCode, message };
+      return { kind: 'transport', statusCode, message, traceId };
     }
 
     if (statusCode >= 400 && statusCode < 500) {
-      return { kind: 'business', statusCode, message };
+      return { kind: 'business', statusCode, message, traceId };
     }
 
-    return { kind: 'unknown', statusCode, message };
+    return { kind: 'unknown', statusCode, message, traceId };
   }
 
   if (error instanceof Error) {
@@ -78,6 +84,7 @@ interface ApiResponse<T extends Record<string, unknown> | Token = Record<string,
   message: string;
   data?: T;
   timestamp: string;
+  trace_id?: string;
 }
 
 interface Token extends Record<string, unknown> {
@@ -98,15 +105,93 @@ interface RegisterRequest {
   password: string;
 }
 
+export interface RegistrationStatusResponse extends Record<string, unknown> {
+  enabled: boolean;
+  reason: string;
+}
+
 interface UserProfile extends Record<string, unknown> {
   id: number;
   username: string;
   email: string;
+  role: string;
   is_active: boolean;
   is_admin: boolean;
+  password_change_required: boolean;
   created_at: string;
   avatar?: string;
   full_name?: string;
+}
+
+export interface AdminUser extends UserProfile {
+  updated_at: string;
+}
+
+export interface AdminUserListResponse extends Record<string, unknown> {
+  users: AdminUser[];
+  roles: string[];
+}
+
+export interface CreateAdminUserPayload extends Record<string, unknown> {
+  username: string;
+  email: string;
+  password: string;
+  role: string;
+  full_name?: string;
+  is_active?: boolean;
+}
+
+export interface UpdateAdminUserPayload extends Record<string, unknown> {
+  email?: string;
+  full_name?: string;
+  role?: string;
+  is_active?: boolean;
+}
+
+export interface ChangePasswordPayload extends Record<string, unknown> {
+  current_password: string;
+  new_password: string;
+}
+
+export interface MailgunStatusResponse extends Record<string, unknown> {
+  provider: string;
+  configured: boolean;
+  shared_key_present: boolean;
+  shared_key_masked?: string;
+  shared_key_label?: string;
+  domain?: string;
+  from_email?: string;
+  from_name?: string;
+  region?: 'us' | 'eu' | string;
+  base_url?: string;
+  pending_password_change_count: number;
+}
+
+export interface MailgunConfigPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+  domain: string;
+  from_email: string;
+  from_name?: string;
+  region?: 'us' | 'eu' | string;
+}
+
+export interface TelegramStatusResponse extends Record<string, unknown> {
+  provider: string;
+  configured: boolean;
+  shared_token_present: boolean;
+  shared_token_masked?: string;
+  shared_token_label?: string;
+  chat_id?: string;
+  chat_id_masked?: string;
+  delivery_mode?: string;
+  message?: string;
+}
+
+export interface TelegramConfigPayload extends Record<string, unknown> {
+  bot_token?: string;
+  chat_id: string;
+  label?: string;
 }
 
 interface BacktestRequest extends Record<string, unknown> {
@@ -130,6 +215,7 @@ interface StrategyRequest extends Record<string, unknown> {
   description?: string;
   is_public?: boolean;
   user_id?: number;
+  runtime_strategy?: string;
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -149,6 +235,13 @@ interface StrategyRequest extends Record<string, unknown> {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  transaction_fee?: number;
+  slippage?: number;
+  starting_balance?: number;
+  max_history_days?: number;
+  benchmark_symbol?: string;
+  risk_free_rate?: number;
+  initial_amount?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
 }
 
@@ -157,10 +250,171 @@ interface SettingsUpdate extends Record<string, unknown> {
   [key: string]: unknown;
 }
 
+export interface CodexCapabilities extends Record<string, unknown> {
+  query_only: boolean;
+  supports_websockets: boolean;
+  supports_webhooks: boolean;
+  supports_wallet_pnl: boolean;
+  supports_wallet_balances: boolean;
+  requests_per_second: number;
+  monthly_requests: number;
+}
+
+export interface CodexStatusResponse extends Record<string, unknown> {
+  configured: boolean;
+  provider: string;
+  base_url: string;
+  shared_key_available: boolean;
+  user_key_available: boolean;
+  shared_key_masked?: string;
+  user_key_masked?: string;
+  active_key_source: 'user' | 'shared' | 'none';
+  capabilities: CodexCapabilities;
+  message: string;
+}
+
+export interface CodexTokenSummary extends Record<string, unknown> {
+  id: string;
+  address: string;
+  network_id: number;
+  name: string;
+  symbol: string;
+  price_usd: number;
+  price_change_pct_1h: number;
+  price_change_pct_4h: number;
+  price_change_pct_24h: number;
+  liquidity_usd: number;
+  volume_usd_24h: number;
+  market_cap_usd: number;
+  transactions_24h: number;
+  is_scam: boolean;
+  exchanges: string[];
+  confidence_hint: 'high' | 'medium' | 'low' | 'flagged';
+  resolution_confidence?: 'high' | 'medium';
+}
+
+export interface CodexMarketOverviewResponse extends Record<string, unknown> {
+  network_id: number;
+  movers: CodexTokenSummary[];
+  safe_movers: CodexTokenSummary[];
+  generated_at: string;
+}
+
+export interface CodexTokenSearchResponse extends Record<string, unknown> {
+  results: CodexTokenSummary[];
+  count: number;
+  query: string;
+}
+
+export interface CodexPairSummary extends Record<string, unknown> {
+  pair_id: string;
+  pair_address: string;
+  exchange_name: string;
+  exchange_id: string;
+  protocol: string;
+  liquidity_usd: number;
+  volume_usd_24h: number;
+  price_usd: number;
+  price_change_pct_24h: number;
+  backing_token: string;
+}
+
+export interface CodexTokenDetailResponse extends Record<string, unknown> {
+  token: CodexTokenSummary;
+  description: string;
+  image_small_url: string;
+  image_large_url: string;
+  image_banner_url: string;
+  circulating_supply: number;
+  total_supply: number;
+  top_pairs: CodexPairSummary[];
+}
+
+export interface CodexChartPoint extends Record<string, unknown> {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume_usd: number;
+  liquidity_usd: number;
+  transactions: number;
+}
+
+export interface CodexTokenChartResponse extends Record<string, unknown> {
+  token_id: string;
+  interval: string;
+  points: CodexChartPoint[];
+  generated_at: string;
+}
+
+export interface CodexAssetContextRequest extends Record<string, unknown> {
+  network_id?: number;
+  assets: Array<{
+    label?: string;
+    symbol?: string;
+    address?: string;
+    network_id?: number;
+  }>;
+}
+
+export interface CodexAssetIntel extends Record<string, unknown> {
+  label: string;
+  resolved: boolean;
+  resolution_reason?: string;
+  token?: CodexTokenSummary;
+}
+
+export interface CodexAssetContextResponse extends Record<string, unknown> {
+  items: CodexAssetIntel[];
+}
+
+export interface CodexKeyPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+}
+
+export interface CoinDeskArticle extends Record<string, unknown> {
+  id: string;
+  title: string;
+  url: string;
+  summary: string;
+  author: string;
+  category: string;
+  published_at: string;
+  image_url: string;
+  tags: string[];
+}
+
+export interface CoinDeskNewsResponse extends Record<string, unknown> {
+  provider: string;
+  source: string;
+  feed_url: string;
+  last_build_at: string;
+  generated_at: string;
+  articles: CoinDeskArticle[];
+}
+
+export interface CoinDeskNewsConfigStatus extends Record<string, unknown> {
+  provider: string;
+  shared_key_present: boolean;
+  shared_key_masked?: string;
+  shared_key_label?: string;
+  feed_url: string;
+  source: string;
+  configured_by_admin: boolean;
+}
+
+export interface CoinDeskNewsConfigPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+}
+
 interface DYDXKey extends Record<string, unknown> {
   id?: number;
   network: string;
   chain_address: string;
+  secret_masked?: string;
   encrypted_secret?: string;
   is_active?: boolean;
   created_at?: string;
@@ -262,6 +516,7 @@ interface StrategyResponse extends Record<string, unknown> {
   name: string;
   category?: string;
   description?: string;
+  runtime_strategy?: string;
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -281,6 +536,13 @@ interface StrategyResponse extends Record<string, unknown> {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  transaction_fee?: number;
+  slippage?: number;
+  starting_balance?: number;
+  max_history_days?: number;
+  benchmark_symbol?: string;
+  risk_free_rate?: number;
+  initial_amount?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   is_public?: boolean;
   created_at?: string;
@@ -290,6 +552,24 @@ interface StrategyResponse extends Record<string, unknown> {
 interface StrategyListResponse extends Record<string, unknown> {
   strategies: StrategyResponse[];
   total: number;
+}
+
+interface StrategyRuntimeResponse extends Record<string, unknown> {
+  strategy_id: number;
+  strategy_name?: string;
+  instance_id?: string;
+  network?: string;
+  status: string;
+  bot_status?: string;
+  is_running: boolean;
+  process_id?: number | null;
+  last_error?: string;
+  started_at?: string;
+  stopped_at?: string;
+  last_run_at?: string;
+  next_run_at?: string;
+  updated_at?: string;
+  last_synced_at?: string;
 }
 
 const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
@@ -379,13 +659,14 @@ class ApiClient {
 
     // Request interceptor to add an auth token
     this.client.interceptors.request.use((config) => {
+      const headers = (config.headers ??= {});
+      attachTraceHeader(headers as Record<string, string>);
+
       // Prefer in-memory accessToken, but fall back to storage (localStorage or cookie)
       const token = this.accessToken || this.getTokenFromStorage();
       if (token) {
         // Ensure the headers object exists
-        if (config.headers) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
+        headers.Authorization = `Bearer ${token}`;
       } else {
         const url = config.url || '';
         const isPublicAuthRoute =
@@ -408,7 +689,11 @@ class ApiClient {
         // Log all errors for debugging
         const url = error.config?.url || '';
         const status = error.response?.status;
-        console.warn('🚨 API Error:', { url, status, message: error.message });
+        const traceId =
+          error.response?.headers?.[traceHeaderName.toLowerCase()] ||
+          (error.response?.data as { trace_id?: string } | undefined)?.trace_id ||
+          null;
+        console.warn('🚨 API Error:', { url, status, message: error.message, traceId });
 
         // Handle 401 Unauthorized - attempt silent refresh
         if (
@@ -566,6 +851,7 @@ class ApiClient {
         withCredentials: true,
         headers: {
           'Content-Type': 'application/json',
+          [traceHeaderName]: attachTraceHeader({}),
         },
       }
     );
@@ -641,6 +927,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getRegistrationStatus(): Promise<ApiResponse<RegistrationStatusResponse>> {
+    const response = await this.client.get<ApiResponse<RegistrationStatusResponse>>('/api/v1/auth/registration-status');
+    return response.data;
+  }
+
   async login(data: LoginRequest): Promise<Token> {
     try {
       // Backend wraps responses in { success, message, data: { ... } }
@@ -695,6 +986,14 @@ class ApiClient {
   async updateProfile(data: Partial<UserProfile>): Promise<ApiResponse<UpdateProfileResponse>> {
     const response = await this.client.put<ApiResponse<UpdateProfileResponse>>(
       '/api/v1/profile',
+      data
+    );
+    return response.data;
+  }
+
+  async changePassword(data: ChangePasswordPayload): Promise<ApiResponse<{ user: UserProfile }>> {
+    const response = await this.client.put<ApiResponse<{ user: UserProfile }>>(
+      '/api/v1/auth/change-password',
       data
     );
     return response.data;
@@ -832,6 +1131,32 @@ class ApiClient {
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
+  }
+
+  async listAdminUsers(): Promise<ApiResponse<AdminUserListResponse>> {
+    const response = await this.client.get<ApiResponse<AdminUserListResponse>>('/api/v1/admin/users');
+    return response.data;
+  }
+
+  async createAdminUser(
+    data: CreateAdminUserPayload
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>> {
+    const response = await this.client.post<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>>(
+      '/api/v1/admin/users',
+      data
+    );
+    return response.data;
+  }
+
+  async updateAdminUser(
+    userId: number,
+    data: UpdateAdminUserPayload
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
+    const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+      `/api/v1/admin/users/${userId}`,
+      data
+    );
+    return response.data;
   }
 
   async initializeSettings(): Promise<ApiResponse> {
@@ -994,6 +1319,47 @@ class ApiClient {
           : [],
       },
     };
+  }
+
+  async getStrategyRuntime(strategyId: number): Promise<ApiResponse<StrategyRuntimeResponse>> {
+    try {
+      const response = await this.client.get<ApiResponse<StrategyRuntimeResponse>>(
+        `/api/v1/strategies/${strategyId}/runtime`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async startStrategyRuntime(
+    strategyId: number,
+    network?: 'testnet' | 'mainnet'
+  ): Promise<ApiResponse<StrategyRuntimeResponse>> {
+    try {
+      const query = network ? `?network=${encodeURIComponent(network)}` : '';
+      const response = await this.client.post<ApiResponse<StrategyRuntimeResponse>>(
+        `/api/v1/strategies/${strategyId}/start${query}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async stopStrategyRuntime(
+    strategyId: number,
+    force: boolean = false
+  ): Promise<ApiResponse<StrategyRuntimeResponse>> {
+    try {
+      const query = force ? '?force=true' : '';
+      const response = await this.client.post<ApiResponse<StrategyRuntimeResponse>>(
+        `/api/v1/strategies/${strategyId}/stop${query}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   // Strategy version control
@@ -1469,6 +1835,127 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response =
       await this.client.get<ApiResponse<Record<string, unknown>>>('/api/v1/settings/redis');
+    return response.data;
+  }
+
+  async getCodexStatus(): Promise<ApiResponse<CodexStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexStatusResponse>>('/api/v1/codex/status');
+    return response.data;
+  }
+
+  async saveCodexKey(data: CodexKeyPayload): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/codex/key', data);
+    return response.data;
+  }
+
+  async deleteCodexKey(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/codex/key');
+    return response.data;
+  }
+
+  async getCodexMarketOverview(network = 1, limit = 6): Promise<ApiResponse<CodexMarketOverviewResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexMarketOverviewResponse>>('/api/v1/codex/market/overview', {
+      params: { network, limit },
+    });
+    return response.data;
+  }
+
+  async searchCodexTokens(query: string, network?: number, limit = 8): Promise<ApiResponse<CodexTokenSearchResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexTokenSearchResponse>>('/api/v1/codex/tokens/search', {
+      params: { q: query, network, limit },
+    });
+    return response.data;
+  }
+
+  async getCodexTokenDetail(network: number, address: string): Promise<ApiResponse<CodexTokenDetailResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexTokenDetailResponse>>(`/api/v1/codex/tokens/${network}/${address}`);
+    return response.data;
+  }
+
+  async getCodexTokenChart(
+    network: number,
+    address: string,
+    interval: '1h' | '4h' | '1d' = '1d',
+    points = 60
+  ): Promise<ApiResponse<CodexTokenChartResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexTokenChartResponse>>(`/api/v1/codex/tokens/${network}/${address}/chart`, {
+      params: { interval, points },
+    });
+    return response.data;
+  }
+
+  async resolveCodexAssetContext(data: CodexAssetContextRequest): Promise<ApiResponse<CodexAssetContextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<CodexAssetContextResponse>>('/api/v1/codex/assets/context', data);
+    return response.data;
+  }
+
+  async getCoinDeskNews(limit = 8): Promise<ApiResponse<CoinDeskNewsResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CoinDeskNewsResponse>>('/api/v1/news/coindesk', {
+      params: { limit },
+    });
+    return response.data;
+  }
+
+  async getCoinDeskNewsConfig(): Promise<ApiResponse<CoinDeskNewsConfigStatus>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CoinDeskNewsConfigStatus>>('/api/v1/news/coindesk/config');
+    return response.data;
+  }
+
+  async saveCoinDeskNewsConfig(data: CoinDeskNewsConfigPayload): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config', data);
+    return response.data;
+  }
+
+  async deleteCoinDeskNewsConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config');
+    return response.data;
+  }
+
+  async getMailgunStatus(): Promise<ApiResponse<MailgunStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
+    return response.data;
+  }
+
+  async getTelegramStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/status');
+    return response.data;
+  }
+
+  async saveTelegramConfig(data: TelegramConfigPayload): Promise<ApiResponse<TelegramStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/config', data);
+    return response.data;
+  }
+
+  async deleteTelegramConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/config');
+    return response.data;
+  }
+
+  async saveMailgunConfig(data: MailgunConfigPayload): Promise<ApiResponse<MailgunStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/config', data);
+    return response.data;
+  }
+
+  async deleteMailgunConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
     return response.data;
   }
 }

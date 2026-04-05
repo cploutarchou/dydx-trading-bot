@@ -471,6 +471,15 @@ func (h *SettingsHandler) Initialize(c *gin.Context) {
 			isActive:     true,
 		},
 		{
+			section:      "platform",
+			key:          "allow_public_registration",
+			value:        "true",
+			valueType:    "boolean",
+			description:  "Allow new users to register without administrator approval",
+			defaultValue: "true",
+			isActive:     true,
+		},
+		{
 			section:      "bot",
 			key:          "enabled",
 			value:        "false",
@@ -575,6 +584,21 @@ func (h *SettingsHandler) GetSchema(c *gin.Context) {
 						"value_type":    "integer",
 						"description":   "Number of retry attempts for failed requests",
 						"default_value": "3",
+						"required":      false,
+					},
+				},
+			},
+			{
+				"section":     "platform",
+				"title":       "Platform Access",
+				"description": "Platform-wide user access controls",
+				"fields": []map[string]interface{}{
+					{
+						"key":           "allow_public_registration",
+						"label":         "Allow Public Registration",
+						"value_type":    "boolean",
+						"description":   "Enable or disable self-service account registration",
+						"default_value": true,
 						"required":      false,
 					},
 				},
@@ -712,6 +736,15 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 				valueType:    "integer",
 				description:  "Number of retry attempts for failed requests",
 				defaultValue: "3",
+				isActive:     true,
+			},
+			{
+				section:      "platform",
+				key:          "allow_public_registration",
+				value:        "true",
+				valueType:    "boolean",
+				description:  "Allow new users to register without administrator approval",
+				defaultValue: "true",
 				isActive:     true,
 			},
 			{

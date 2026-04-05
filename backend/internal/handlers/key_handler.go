@@ -23,12 +23,13 @@ type CreateKeyRequest struct {
 }
 
 type KeyResponse struct {
-	ID        int    `json:"id"`
-	Network   string `json:"network"`
-	ChainAddr string `json:"chain_address"`
-	IsActive  bool   `json:"is_active"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID           int    `json:"id"`
+	Network      string `json:"network"`
+	ChainAddr    string `json:"chain_address"`
+	SecretMasked string `json:"secret_masked,omitempty"`
+	IsActive     bool   `json:"is_active"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 type KeyListResponse struct {
@@ -129,12 +130,13 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 	keyResponses := make([]KeyResponse, 0)
 	for _, k := range keys {
 		keyResponses = append(keyResponses, KeyResponse{
-			ID:        k["id"].(int),
-			Network:   k["network"].(string),
-			ChainAddr: k["chain_address"].(string),
-			IsActive:  true,
-			CreatedAt: k["created_at"].(string),
-			UpdatedAt: k["updated_at"].(string),
+			ID:           k["id"].(int),
+			Network:      k["network"].(string),
+			ChainAddr:    k["chain_address"].(string),
+			SecretMasked: stringValue(k["secret_masked"]),
+			IsActive:     true,
+			CreatedAt:    k["created_at"].(string),
+			UpdatedAt:    k["updated_at"].(string),
 		})
 	}
 
@@ -182,12 +184,13 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 	}
 
 	response := KeyResponse{
-		ID:        keyInfo["id"].(int),
-		Network:   keyInfo["network"].(string),
-		ChainAddr: keyInfo["chain_address"].(string),
-		IsActive:  keyInfo["is_active"].(bool),
-		CreatedAt: keyInfo["created_at"].(string),
-		UpdatedAt: keyInfo["updated_at"].(string),
+		ID:           keyInfo["id"].(int),
+		Network:      keyInfo["network"].(string),
+		ChainAddr:    keyInfo["chain_address"].(string),
+		SecretMasked: stringValue(keyInfo["secret_masked"]),
+		IsActive:     keyInfo["is_active"].(bool),
+		CreatedAt:    keyInfo["created_at"].(string),
+		UpdatedAt:    keyInfo["updated_at"].(string),
 	}
 
 	c.JSON(http.StatusOK, SuccessResponse{
@@ -195,6 +198,13 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 		Data:      response,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+func stringValue(value interface{}) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
 }
 
 func (h *KeyHandler) DeleteKey(c *gin.Context) {

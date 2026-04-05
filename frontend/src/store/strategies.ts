@@ -13,7 +13,9 @@ export interface Strategy {
   description?: string;
   is_public?: boolean;
   user_id?: number;
+  runtime_strategy?: string;
   resolution?: string;
+  candle_resolution?: string;
   zscore_threshold?: number;
   stats_window?: number;
   max_half_life?: number;
@@ -31,6 +33,13 @@ export interface Strategy {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  transaction_fee?: number;
+  slippage?: number;
+  starting_balance?: number;
+  max_history_days?: number;
+  benchmark_symbol?: string;
+  risk_free_rate?: number;
+  initial_amount?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   created_at?: string;
   updated_at?: string;
@@ -62,7 +71,9 @@ const buildStrategyPayload = (data: Partial<Strategy>) => ({
   description: data.description,
   is_public: data.is_public,
   user_id: data.user_id,
+  runtime_strategy: data.runtime_strategy,
   resolution: data.resolution,
+  candle_resolution: data.candle_resolution ?? data.resolution,
   zscore_threshold: data.zscore_threshold,
   stats_window: data.stats_window,
   max_half_life: data.max_half_life,
@@ -80,6 +91,13 @@ const buildStrategyPayload = (data: Partial<Strategy>) => ({
   trailing_stop_pct: data.trailing_stop_pct,
   rebalance_interval_hours: data.rebalance_interval_hours,
   position_timeout_hours: data.position_timeout_hours,
+  transaction_fee: data.transaction_fee,
+  slippage: data.slippage,
+  starting_balance: data.starting_balance,
+  max_history_days: data.max_history_days,
+  benchmark_symbol: data.benchmark_symbol,
+  risk_free_rate: data.risk_free_rate,
+  initial_amount: data.initial_amount,
   pair_selection_mode: data.pair_selection_mode,
 });
 

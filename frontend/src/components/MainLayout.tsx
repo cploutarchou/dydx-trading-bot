@@ -24,17 +24,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-900 text-white">
+    <div className="premium-shell flex min-h-screen text-white">
+      <div className="premium-orb left-[-8rem] top-12 h-64 w-64 bg-cyan-500/10" />
+      <div className="premium-orb right-[-6rem] top-28 h-72 w-72 bg-blue-500/12" />
+
       {/* Sidebar */}
       <Sidebar isOpen={isMobileMenuOpen} onClose={closeMobileMenu} />
 
       {/* Main Content Area */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
         <Header onMenuToggle={toggleMobileMenu} />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-900">
+        <main className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto">
           {children}
         </main>
       </div>

@@ -446,14 +446,15 @@ func RequestLoggingMiddleware() gin.HandlerFunc {
 		method := c.Request.Method
 		path := c.Request.URL.Path
 		clientIP := c.ClientIP()
+		traceID := GetTraceID(c)
 
 		// Log request
 		if statusCode >= 400 {
-			fmt.Printf("❌ [%s] %s %s - Status: %d - Duration: %dms - IP: %s\n",
-				method, path, c.Request.URL.RawQuery, statusCode, duration, clientIP)
+			fmt.Printf("❌ [%s] %s %s - Status: %d - Duration: %dms - IP: %s - Trace: %s\n",
+				method, path, c.Request.URL.RawQuery, statusCode, duration, clientIP, traceID)
 		} else {
-			fmt.Printf("✅ [%s] %s %s - Status: %d - Duration: %dms - IP: %s\n",
-				method, path, c.Request.URL.RawQuery, statusCode, duration, clientIP)
+			fmt.Printf("✅ [%s] %s %s - Status: %d - Duration: %dms - IP: %s - Trace: %s\n",
+				method, path, c.Request.URL.RawQuery, statusCode, duration, clientIP, traceID)
 		}
 	}
 }

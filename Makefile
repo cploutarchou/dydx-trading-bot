@@ -1,4 +1,5 @@
-.PHONY: help setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps
+.PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps
+MODE ?= development
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -7,9 +8,11 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Daily service-first quick start:"
-	@echo "  1. make stack-env       # Create .env from template if missing"
-	@echo "  2. make infra-up        # Start shared postgres + redis only"
-	@echo "  3. Start your service from its own workspace/devcontainer"
+	@echo "  1. make config-keygen   # Create .configkey.bin and print the shareable token"
+	@echo "  2. make dev-config      # Edit the encrypted development profile"
+	@echo "  3. make dev             # Decrypt development profile into run.json"
+	@echo "  4. make infra-up        # Start shared postgres + redis only"
+	@echo "  5. Start your service from its own workspace/devcontainer"
 	@echo ""
 	@echo "Integration quick start:"
 	@echo "  1. make stack-up-dev    # Start frontend + api + worker + db + redis"
@@ -38,24 +41,53 @@ config: ## Deprecated legacy config target (bot uses runtime config under bot/)
 	@echo "⚠️  'make config' is deprecated for this monorepo layout."
 	@echo "Use stack/dev workflows and bot runtime config under bot/ instead."
 
-env-setup: ## Set up environment variables from .env.example
-	@if [ -f .env ]; then \
-		echo "⚠️  .env already exists. Backing up to .env.bak"; \
-		cp .env .env.bak; \
+edit-config: ## Open MODE JSON config files in your editor and normalize them on close
+	@python3 scripts/edit_config.py --environment $(MODE)
+
+dev-config: ## Open the encrypted development config profile
+	@$(MAKE) edit-config MODE=development
+
+prod-config: ## Open the encrypted production config profile
+	@$(MAKE) edit-config MODE=production
+
+config-keygen: ## Create repo-root .configkey.bin and print the shareable config token
+	@python3 scripts/secure_config.py keygen
+
+install-config-key: ## Rebuild .configkey.bin from TOKEN=<printed-token>
+	@if [ -z "$(TOKEN)" ]; then \
+		echo "Usage: make install-config-key TOKEN=<printed-config-token>"; \
+		exit 1; \
 	fi
-	@echo "Creating .env from template..."
-	@cp .env.example.new .env 2>/dev/null || cp .env.example .env
-	@echo "✅ Environment file created at .env"
-	@echo "📌 Edit .env with your specific settings (keys, addresses, etc.)"
-	@echo ""
-	@echo "🔐 Generate encryption key with:"
-	@echo "  python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-	@echo ""
+	@python3 scripts/secure_config.py install-key --token "$(TOKEN)"
+
+show-config-token: ## Print the current shareable token for .configkey.bin
+	@python3 scripts/secure_config.py show-token
+
+config-key-rotate: ## Rotate .configkey.bin, re-encrypt profiles, and print the new shareable token
+	@python3 scripts/secure_config.py rotate-key
+
+decrypt-dev-config: ## Decrypt development profile to config/profiles/development.config.json
+	@python3 scripts/secure_config.py decrypt --environment development --output config/profiles/development.config.json
+
+encrypt-dev-config: ## Encrypt config/profiles/development.config.json back into the secure profile
+	@python3 scripts/secure_config.py encrypt --environment development --input config/profiles/development.config.json
+
+decrypt-prod-config: ## Decrypt production profile to config/profiles/production.config.json
+	@python3 scripts/secure_config.py decrypt --environment production --output config/profiles/production.config.json
+
+encrypt-prod-config: ## Encrypt config/profiles/production.config.json back into the secure profile
+	@python3 scripts/secure_config.py encrypt --environment production --input config/profiles/production.config.json
+
+install-security-tools: ## Bootstrap the repo-owned config key workflow
+	@bash scripts/install_security_tools.sh
+
+env-setup: ## Deprecated: use `make dev` or `make prod` to generate run.json
+	@echo "⚠️  env-setup is deprecated."
+	@echo "Use make dev-config / make prod-config, then make dev / make prod."
 
 env: ## Show deprecation warning for .env
-	@echo "⚠️  WARNING: .env configuration is DEPRECATED!"
-	@echo "Use 'make config' to create the new YAML-based configuration instead."
-	@echo "The .env file is no longer supported by this application."
+	@echo "⚠️  WARNING: repo-root .env is deprecated."
+	@echo "Use config/profiles/<env>.config.enc.json and generate run.json with make dev."
 
 # ============================================================================
 # DEVELOPMENT
@@ -343,8 +375,7 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 
 infra-up: ## Start shared infra only (postgres + redis) for local service development
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.infra.yml up -d --remove-orphans; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml up -d --remove-orphans; \
 		echo "✅ Infra started (postgres:5432, redis:6379)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start infra"; \
@@ -353,8 +384,7 @@ infra-up: ## Start shared infra only (postgres + redis) for local service develo
 
 infra-down: ## Stop shared infra only (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.infra.yml down --remove-orphans; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml down --remove-orphans; \
 		echo "✅ Infra stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop infra"; \
@@ -363,8 +393,7 @@ infra-down: ## Stop shared infra only (postgres + redis)
 
 infra-logs: ## Follow logs for shared infra services (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.infra.yml logs -f --tail=100; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml logs -f --tail=100; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra logs"; \
 		exit 0; \
@@ -372,8 +401,7 @@ infra-logs: ## Follow logs for shared infra services (postgres + redis)
 
 infra-ps: ## Show status for shared infra services (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.infra.yml ps; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml ps; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra status"; \
 		exit 0; \
@@ -382,9 +410,8 @@ infra-ps: ## Show status for shared infra services (postgres + redis)
 stack-up-dev: ## Start full integration stack (api + worker + frontend dev + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
-		python3 scripts/validate_stack_env.py; \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev up -d --remove-orphans; \
+		python3 scripts/validate_stack_env.py --environment development; \
+		APP_CONFIG_ENV=development docker compose -f docker-compose.stack.yml --profile dev up -d --remove-orphans; \
 		echo "✅ Dev stack started (frontend:5173, api:8889, worker enabled)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
@@ -394,9 +421,8 @@ stack-up-dev: ## Start full integration stack (api + worker + frontend dev + pos
 stack-up-prod: ## Start split app stack (api + worker + frontend preview + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		set -e; \
-		python3 scripts/validate_stack_env.py --strict-prod; \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile prod up -d --remove-orphans; \
+		python3 scripts/validate_stack_env.py --environment production --strict-prod; \
+		APP_CONFIG_ENV=production docker compose -f docker-compose.stack.yml --profile prod up -d --remove-orphans; \
 		echo "✅ Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
@@ -407,8 +433,7 @@ stack-up-integration: stack-up-dev ## Alias for full integration stack in dev pr
 
 stack-down: ## Stop split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml --profile dev --profile prod down --remove-orphans; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.stack.yml --profile dev --profile prod down --remove-orphans; \
 		echo "✅ Stack stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop stack"; \
@@ -417,8 +442,7 @@ stack-down: ## Stop split app stack
 
 stack-logs: ## Follow logs for split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml logs -f --tail=100; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.stack.yml logs -f --tail=100; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch logs"; \
 		exit 0; \
@@ -426,25 +450,29 @@ stack-logs: ## Follow logs for split app stack
 
 stack-ps: ## Show status for split app stack services
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		ENV_OPT=$$( [ -f .env ] && echo "--env-file .env" ); \
-		docker compose $$ENV_OPT -f docker-compose.stack.yml ps; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.stack.yml ps; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch service status"; \
 		exit 0; \
 	fi
 
-stack-env: ## Create .env from template (safe; won't overwrite existing)
-	@if [ -f .env ]; then \
-		echo "ℹ️ .env already exists"; \
-	else \
-		cp .env.example .env; \
-		echo "✅ Created .env (edit secrets before production use)"; \
-	fi
+stack-env: ## Deprecated: stack reads structured JSON config directly
+	@echo "⚠️  stack-env is deprecated."
+	@echo "Use make dev-config or make prod-config instead."
 
-stack-env-check: ## Validate required variables in .env
-	python3 scripts/validate_stack_env.py
+stack-env-check: ## Validate required variables in structured config
+	python3 scripts/validate_stack_env.py --environment $(MODE)
 
-stack-env-check-prod: ## Validate .env with strict production rules
-	python3 scripts/validate_stack_env.py --strict-prod
+stack-env-check-prod: ## Validate production structured config with strict rules
+	python3 scripts/validate_stack_env.py --environment production --strict-prod
 
 .DEFAULT_GOAL := help
+dev: ## Prepare repo-root run.json from the encrypted development profile
+	@python3 scripts/render_run_config.py --environment development --output run.json
+	@python3 scripts/validate_stack_env.py --environment development
+	@echo "✅ run.json is ready for local development"
+
+prod: ## Prepare repo-root run.json from the encrypted production profile
+	@python3 scripts/render_run_config.py --environment production --output run.json
+	@python3 scripts/validate_stack_env.py --environment production --strict-prod
+	@echo "✅ run.json is ready for production-like startup"

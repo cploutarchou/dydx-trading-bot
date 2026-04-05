@@ -108,23 +108,8 @@ init-env: ## Initialize environment file from template
 	fi
 
 .PHONY: dev-env
-dev-env: ## Create or overwrite .env for development|production (usage: make dev-env MODE=development)
-	@MODE_VALUE="$(MODE)"; \
-	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
-		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(RESET)"; \
-		exit 1; \
-	fi; \
-	if [ -f .env ]; then \
-		printf "$(YELLOW).env already exists. Overwrite for %s? [y/N] $(RESET)" "$$MODE_VALUE"; \
-		read answer; \
-		case "$$answer" in \
-			y|Y|yes|YES) ;; \
-			*) echo "$(YELLOW)Operation cancelled$(RESET)"; exit 1;; \
-		esac; \
-	fi; \
-	cp .env.example .env; \
-	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('.env'); lines=p.read_text().splitlines(); updates={'SECRET_KEY':'your-super-secret-key-change-in-production-min-32-chars','FRONTEND_URL':'http://localhost:5173','BOT_API_HOST':'0.0.0.0','BOT_API_PORT':'8889','API_BYPASS_AUTH':'false'}; updates.update({'BOT_API_TOKEN':'dev-local-service-token','ENVIRONMENT':'development','IS_TESTNET':'true'} if mode=='development' else {'BOT_API_TOKEN':'change-me-service-token','ENVIRONMENT':'production','IS_TESTNET':'false'}); out=[]; [out.append(line if (not line or line.lstrip().startswith('#') or '=' not in line or line.split('=',1)[0] not in updates) else f\"{line.split('=',1)[0]}={updates[line.split('=',1)[0]]}\") for line in lines]; keys_present={line.split('=',1)[0] for line in out if '=' in line and not line.lstrip().startswith('#')}; [out.append(f'{k}=') for k in ('BOT_API_TOKEN','BOT_API_TOKEN_PREVIOUS','BOT_API_TOKENS') if k not in keys_present]; p.write_text('\\n'.join(out)+'\\n'); print(f'Created {p} for {mode}')";
-	@echo "$(GREEN)✅ .env generated for $(MODE)$(RESET)"
+dev-env: ## Deprecated: bot now reads config/profiles directly
+	@echo "$(YELLOW)⚠ dev-env is deprecated. Use make dev-config or make prod-config from the repo root.$(RESET)"
 
 .PHONY: init-ssl
 init-ssl: ## Generate SSL certificates for development

@@ -115,7 +115,8 @@ docker ps
 docker ps
 
 # Start repo-root infra stack
-make stack-env
+make dev-config
+make dev
 make infra-up
 
 # View error logs
@@ -299,8 +300,9 @@ ls -la dist/
 ```bash
 # For Vite, use: import.meta.env.VITE_*
 
-# Create repo-root .env
-cp ../.env.example ../.env
+# Edit structured config and regenerate runtime config
+make dev-config
+make dev
 
 # Add variables
 VITE_API_URL=http://localhost:8888

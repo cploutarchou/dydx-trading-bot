@@ -21,8 +21,10 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 	authRoutes := router.Group("/api/v1/auth")
 	{
 		authRoutes.POST("/register", registerHandler(database))
+		authRoutes.GET("/registration-status", registrationStatusHandler(database))
 		authRoutes.POST("/login", loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
+		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
 	}
 
 	// User routes (require authentication)
@@ -60,34 +62,60 @@ type TokenResponse struct {
 }
 
 type UserResponse struct {
-	ID        int    `json:"id"`
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	FullName  string `json:"full_name"`
-	Avatar    string `json:"avatar"`
-	IsActive  bool   `json:"is_active"`
-	IsAdmin   bool   `json:"is_admin"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID                     int    `json:"id"`
+	Username               string `json:"username"`
+	Email                  string `json:"email"`
+	Role                   string `json:"role"`
+	FullName               string `json:"full_name"`
+	Avatar                 string `json:"avatar"`
+	IsActive               bool   `json:"is_active"`
+	IsAdmin                bool   `json:"is_admin"`
+	PasswordChangeRequired bool   `json:"password_change_required"`
+	CreatedAt              string `json:"created_at"`
+	UpdatedAt              string `json:"updated_at"`
+}
+
+type RegistrationStatusResponse struct {
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason"`
 }
 
 func toUserResponse(user *models.User) UserResponse {
 	return UserResponse{
-		ID:        user.ID,
-		Username:  user.Username,
-		Email:     user.Email,
-		FullName:  user.FullName,
-		Avatar:    user.Avatar,
-		IsActive:  user.IsActive,
-		IsAdmin:   user.IsAdmin,
-		CreatedAt: user.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: user.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:                     user.ID,
+		Username:               user.Username,
+		Email:                  user.Email,
+		Role:                   models.NormalizeUserRole(user.Role, user.IsAdmin),
+		FullName:               user.FullName,
+		Avatar:                 user.Avatar,
+		IsActive:               user.IsActive,
+		IsAdmin:                user.IsAdmin,
+		PasswordChangeRequired: user.PasswordChangeRequired,
+		CreatedAt:              user.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:              user.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
 // registerHandler handles user registration
 func registerHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		enabled, err := isPublicRegistrationEnabled(database)
+		if err != nil {
+			log.Printf("Failed to resolve registration setting: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "Failed to determine registration availability",
+			})
+			return
+		}
+		if !enabled {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Public registration is currently disabled by the administrator",
+			})
+			return
+		}
+
 		var req RegisterRequest
 
 		// Bind JSON with error handling
@@ -123,11 +151,13 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 		// Create user in database
 		userRepo := repository.NewUserRepository(database)
 		user := &models.User{
-			Username: req.Username,
-			Email:    req.Email,
-			Password: string(hashedPassword),
-			IsActive: true,
-			IsAdmin:  false,
+			Username:               req.Username,
+			Email:                  req.Email,
+			Role:                   models.NormalizeUserRole("", false),
+			Password:               string(hashedPassword),
+			IsActive:               true,
+			IsAdmin:                false,
+			PasswordChangeRequired: false,
 		}
 
 		err = userRepo.Create(user)
@@ -148,6 +178,57 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 				"username": user.Username,
 			},
 		})
+	}
+}
+
+func registrationStatusHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		enabled, err := isPublicRegistrationEnabled(database)
+		if err != nil {
+			log.Printf("Failed to resolve registration status: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "Failed to determine registration availability",
+			})
+			return
+		}
+
+		reason := "Public registration is enabled"
+		if !enabled {
+			reason = "Public registration is currently disabled by the administrator"
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": RegistrationStatusResponse{
+				Enabled: enabled,
+				Reason:  reason,
+			},
+		})
+	}
+}
+
+func isPublicRegistrationEnabled(database *sql.DB) (bool, error) {
+	settingsRepo := repository.NewSettingsRepository(database)
+	setting, err := settingsRepo.GetBotSettingBySectionAndKey("platform", "allow_public_registration")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") || strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+			return true, nil
+		}
+		return false, err
+	}
+	if setting == nil {
+		return true, nil
+	}
+
+	value := strings.TrimSpace(strings.ToLower(setting.Value))
+	switch value {
+	case "", "true", "1", "yes", "on":
+		return true, nil
+	case "false", "0", "no", "off":
+		return false, nil
+	default:
+		return true, nil
 	}
 }
 
@@ -197,6 +278,14 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		if !user.IsActive {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Account is inactive",
+			})
+			return
+		}
+
 		// Verify password
 
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
@@ -210,7 +299,8 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		// Generate tokens
-		accessToken, err := services.GenerateAccessToken(user.ID, user.Username, user.IsAdmin)
+		role := models.NormalizeUserRole(user.Role, user.IsAdmin)
+		accessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			log.Printf("Failed to generate access token: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -220,7 +310,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		refreshToken, err := services.GenerateRefreshToken(user.ID, user.Username)
+		refreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			log.Printf("Failed to generate refresh token: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -249,6 +339,107 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			RefreshToken: refreshToken,
 			TokenType:    "bearer",
 			ExpiresIn:    1800, // 30 minutes
+		})
+	}
+}
+
+func changePasswordHandler(database *sql.DB) gin.HandlerFunc {
+	type changePasswordRequest struct {
+		CurrentPassword string `json:"current_password" binding:"required"`
+		NewPassword     string `json:"new_password" binding:"required,min=8"`
+	}
+
+	return func(c *gin.Context) {
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Not authenticated",
+			})
+			return
+		}
+
+		userID, ok := userIDValue.(int)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Invalid user context",
+			})
+			return
+		}
+
+		var req changePasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid request payload",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		if strings.TrimSpace(req.NewPassword) == "" || len(req.NewPassword) < 8 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "New password must be at least 8 characters",
+			})
+			return
+		}
+
+		if req.CurrentPassword == req.NewPassword {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "New password must be different from the current password",
+			})
+			return
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(userID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"message": "User not found",
+			})
+			return
+		}
+
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.CurrentPassword)); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Current password is incorrect",
+			})
+			return
+		}
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Failed to secure password",
+			})
+			return
+		}
+
+		user.Password = string(hashedPassword)
+		user.PasswordChangeRequired = false
+
+		if err := userRepo.Update(user); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Failed to update password",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Password updated successfully",
+			"data": gin.H{
+				"user": toUserResponse(user),
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }
@@ -316,7 +507,8 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		newAccessToken, err := services.GenerateAccessToken(user.ID, user.Username, user.IsAdmin)
+		role := models.NormalizeUserRole(user.Role, user.IsAdmin)
+		newAccessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
@@ -325,7 +517,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		newRefreshToken, err := services.GenerateRefreshToken(user.ID, user.Username)
+		newRefreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,

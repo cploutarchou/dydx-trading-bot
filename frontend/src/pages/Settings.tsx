@@ -6,7 +6,6 @@
  * - dYdX Key Management (testnet/mainnet keys)
  * - Logging (log level, Loki integration)
  * - Telegram (notification settings)
- * - dYdX Connection (testnet/mainnet, chain ID, mnemonic)
  *
  * NOTE: Bot Settings and Backtesting moved to Strategies page for per-strategy configuration
  */
@@ -14,11 +13,17 @@
 import { Loader } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api';
+import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
+import { CodexSettings } from '../components/CodexSettings';
+import { CoinDeskNewsSettings } from '../components/CoinDeskNewsSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { useToastStore } from '../components/ErrorBoundary';
+import { MailgunSettings } from '../components/MailgunSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
+import { TelegramSettings } from '../components/TelegramSettings';
+import { useAuthStore } from '../store/auth';
 
 type SettingValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[];
 
@@ -93,12 +98,18 @@ const getSettingsFieldDomId = (section: string, fieldKey: string): string =>
 const getSettingsFieldRefKey = (section: string, fieldKey: string): string => `${section}.${fieldKey}`;
 
 const MANUAL_SECTION_IDS = new Set([
+  'codex_io',
+  'market_news',
+  'mailgun',
+  'telegram',
   'profile',
   'dydx_keys',
   'security',
+  'access_control',
   'botsettings',
   'backtesting',
   'bot_settings',
+  'platform',
 ]);
 
 const parseFieldInputValue = (field: SettingField, rawValue: string): SettingValue => {
@@ -210,6 +221,7 @@ const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
   Object.values(errors).some((sectionErrors) => Object.keys(sectionErrors).length > 0);
 
 export default function Settings() {
+  const user = useAuthStore((state) => state.user);
   const [schema, setSchema] = useState<SettingsSchema | null>(null);
   const [settings, setSettings] = useState<SavedSettings | null>(null);
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
@@ -239,6 +251,15 @@ export default function Settings() {
     const manualSections: SidebarSectionItem[] = [
       { section: 'profile', title: '👤 Profile', description: 'Account & Avatar' },
       { section: 'dydx_keys', title: '🔑 dYdX Keys', description: 'Testnet & Mainnet' },
+      { section: 'codex_io', title: '📈 Codex.io', description: 'Market Intel Key' },
+      ...(user?.is_admin
+        ? [
+            { section: 'access_control', title: '🧭 Access Control', description: 'Roles & Registration' },
+            { section: 'telegram', title: '💬 Telegram', description: 'Shared Notifications' },
+            { section: 'mailgun', title: '✉️ Mailgun', description: 'Onboarding Email' },
+            { section: 'market_news', title: '📰 Market News', description: 'CoinDesk Feed' },
+          ]
+        : []),
       { section: 'security', title: '🛡️ Security', description: '2FA & Session Controls' },
     ];
 
@@ -250,7 +271,7 @@ export default function Settings() {
         description: section.description,
       })),
     ];
-  }, [visibleSchemaSections]);
+  }, [user?.is_admin, visibleSchemaSections]);
 
   const filteredSidebarSections = useMemo(() => {
     const query = sectionSearchQuery.trim().toLowerCase();
@@ -518,19 +539,41 @@ export default function Settings() {
 
   return (
     <PageContainer size="wide" className="space-y-8">
-      <div className="rounded-3xl border border-slate-700/70 bg-linear-to-br from-slate-900 to-slate-800 p-4 shadow-2xl shadow-slate-950/30 sm:p-6 lg:p-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white">Settings</h1>
-          <p className="text-gray-400 mt-2">
-            Manage your profile, keys, and system-wide configuration
-          </p>
+      <section className="premium-hero px-6 py-7 sm:px-8">
+        <div className="premium-orb -right-10 top-0 h-44 w-44 bg-cyan-500/10" />
+        <div className="premium-orb -left-8 bottom-0 h-36 w-36 bg-emerald-500/10" />
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="premium-kicker">Settings</div>
+            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+              Control identity, infrastructure, and premium data access from one command layer.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              This workspace is designed for operators. Profile, security, provider keys, and system
+              configuration now live inside a cleaner, faster settings experience.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:min-w-[320px]">
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Sections</p>
+              <p className="mt-1 text-3xl font-semibold text-white">{sidebarSections.length}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">State</p>
+              <p className={`mt-1 text-sm font-semibold ${hasUnsavedChanges ? 'text-amber-300' : 'text-emerald-300'}`}>
+                {hasUnsavedChanges ? 'Unsaved changes' : 'Fully synced'}
+              </p>
+            </div>
+          </div>
         </div>
+      </section>
+
+      <div className="rounded-3xl border border-slate-700/70 bg-linear-to-br from-slate-900 to-slate-800 p-4 shadow-2xl shadow-slate-950/30 sm:p-6 lg:p-8">
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
           {/* Sidebar Navigation */}
           <div className="lg:col-span-1">
-            <div className="bg-slate-800 rounded-lg shadow border border-slate-700">
+            <div className="premium-panel">
               <div className="p-4 border-b border-slate-700">
                 <label htmlFor="settings-section-search" className="sr-only">
                   Search settings sections
@@ -541,7 +584,7 @@ export default function Settings() {
                   value={sectionSearchQuery}
                   onChange={(e) => setSectionSearchQuery(e.target.value)}
                   placeholder="Search sections..."
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500"
+                  className="premium-input"
                 />
               </div>
               <nav className="space-y-1">
@@ -555,10 +598,10 @@ export default function Settings() {
                       key={section.section}
                       type="button"
                       onClick={() => setActiveSection(section.section)}
-                      className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${
+                      className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-medium transition-colors ${
                         activeSection === section.section
-                          ? 'bg-blue-600 text-white border-l-4 border-blue-400'
-                          : 'text-gray-300 hover:bg-slate-700 hover:text-white'
+                          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white'
+                          : 'text-gray-300 hover:bg-slate-800 hover:text-white'
                       }`}
                     >
                       <div className="font-semibold">{section.title}</div>
@@ -578,6 +621,21 @@ export default function Settings() {
             {/* dYdX Key Management Panel */}
             {activeSection === 'dydx_keys' && <DYDXKeyManager />}
 
+            {/* Codex.io Panel */}
+            {activeSection === 'codex_io' && <CodexSettings />}
+
+            {/* Access Control Panel */}
+            {activeSection === 'access_control' && user?.is_admin && <AdminAccessControlSettings />}
+
+            {/* Mailgun Panel */}
+            {activeSection === 'mailgun' && user?.is_admin && <MailgunSettings />}
+
+            {/* Telegram Panel */}
+            {activeSection === 'telegram' && user?.is_admin && <TelegramSettings />}
+
+            {/* CoinDesk News Panel */}
+            {activeSection === 'market_news' && user?.is_admin && <CoinDeskNewsSettings />}
+
             {/* Security & Session Management Panel */}
             {activeSection === 'security' && (
               <AuthSettingsComponent
@@ -589,7 +647,7 @@ export default function Settings() {
 
             {/* Bot Settings Panel */}
             {currentSection && (
-              <div className="bg-slate-800 rounded-lg shadow p-6 border border-slate-700">
+              <div className="premium-panel">
                 {/* Section Header */}
                 <div className="mb-6">
                   <h2 className="text-2xl font-bold text-white">{currentSection.title}</h2>
@@ -667,7 +725,7 @@ export default function Settings() {
                                 min={field.min_value}
                                 max={field.max_value}
                                 placeholder={field.placeholder}
-                                className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500"
+                                className="premium-input"
                               />
                             )}
 
@@ -684,7 +742,7 @@ export default function Settings() {
                               onChange={(e) =>
                                 handleFieldChange(activeSection, field.key, e.target.value)
                               }
-                              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              className="premium-input"
                             >
                               {field.options.map((option) => (
                                 <option key={option} value={option}>
@@ -746,7 +804,7 @@ export default function Settings() {
                       type="button"
                       onClick={handleSave}
                       disabled={saving || !hasUnsavedChanges}
-                      className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="premium-button premium-button-primary disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {saving ? 'Saving...' : 'Save Changes'}
                     </button>
@@ -754,7 +812,7 @@ export default function Settings() {
                       type="button"
                       onClick={handleReset}
                       disabled={saving || !hasUnsavedChanges}
-                      className="px-6 py-2 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="premium-button premium-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reset
                     </button>
@@ -763,7 +821,7 @@ export default function Settings() {
                         type="button"
                         onClick={handleTestConnection}
                         disabled={testingConnection || saving}
-                        className="px-6 py-2 bg-teal-700 text-white font-semibold rounded-lg hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="premium-button rounded-2xl bg-teal-700 text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {testingConnection ? 'Testing…' : '⚡ Test Connection'}
                       </button>
@@ -777,9 +835,9 @@ export default function Settings() {
         </div>
 
         {/* Info Box */}
-        <div className="mt-8 p-4 bg-slate-800 border border-slate-700 rounded-lg">
-          <h3 className="font-semibold text-blue-400 mb-2">⚠️ Important Notes</h3>
-          <ul className="text-sm text-gray-300 space-y-1 ml-4 list-disc">
+        <div className="premium-panel mt-8">
+          <h3 className="mb-2 font-semibold text-cyan-300">Operational Notes</h3>
+          <ul className="ml-4 list-disc space-y-1 text-sm text-gray-300">
             <li>Profile and key changes are saved immediately after confirmation.</li>
             <li>Sensitive credentials are never shown in plain text after storage.</li>
             <li>For live trading, validate all settings in testnet first.</li>

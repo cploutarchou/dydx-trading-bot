@@ -4,11 +4,13 @@ CREATE TABLE IF NOT EXISTS users
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   username        VARCHAR(50)  NOT NULL UNIQUE,
   email           VARCHAR(100) NOT NULL UNIQUE,
+  role            VARCHAR(50)  NOT NULL DEFAULT 'client',
   hashed_password VARCHAR(500) NOT NULL,
   full_name       VARCHAR(100) DEFAULT NULL,
   avatar          TEXT         DEFAULT '',
   is_active       BOOLEAN      DEFAULT NULL,
   is_admin        BOOLEAN      DEFAULT NULL,
+  password_change_required BOOLEAN NOT NULL DEFAULT FALSE,
   created_at      DATETIME     DEFAULT NULL,
   updated_at      DATETIME     DEFAULT NULL,
   last_login      DATETIME     DEFAULT NULL

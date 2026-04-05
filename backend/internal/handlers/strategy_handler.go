@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -13,7 +15,8 @@ import (
 
 // StrategyHandler handles strategy API endpoints
 type StrategyHandler struct {
-	service *services.StrategyService
+	service        *services.StrategyService
+	runtimeService *services.StrategyRuntimeService
 }
 
 type strategyPayload struct {
@@ -22,6 +25,7 @@ type strategyPayload struct {
 	Category               string  `json:"category"`
 	IsPublic               bool    `json:"is_public"`
 	IsDefault              bool    `json:"is_default"`
+	RuntimeStrategy        string  `json:"runtime_strategy"`
 	Resolution             string  `json:"resolution"`
 	CandleResolution       string  `json:"candle_resolution"`
 	ZscoreThreshold        float64 `json:"zscore_threshold"`
@@ -41,6 +45,7 @@ type strategyPayload struct {
 	MaxPositions           int     `json:"max_positions"`
 	RebalanceIntervalHours int     `json:"rebalance_interval_hours"`
 	PositionTimeoutHours   int     `json:"position_timeout_hours"`
+	StartingBalance        float64 `json:"starting_balance"`
 	InitialAmount          float64 `json:"initial_amount"`
 	TransactionFee         float64 `json:"transaction_fee"`
 	Slippage               float64 `json:"slippage"`
@@ -61,6 +66,9 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	}
 	strategy.IsPublic = req.IsPublic
 	strategy.IsDefault = req.IsDefault
+	if strings.TrimSpace(req.RuntimeStrategy) != "" {
+		strategy.RuntimeStrategy = strings.TrimSpace(req.RuntimeStrategy)
+	}
 
 	if req.CandleResolution != "" {
 		strategy.CandleResolution = req.CandleResolution
@@ -118,6 +126,12 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if req.PositionTimeoutHours > 0 {
 		strategy.PositionTimeoutHours = req.PositionTimeoutHours
 	}
+	if req.StartingBalance > 0 {
+		strategy.StartingBalance = req.StartingBalance
+		if strategy.InitialAmount <= 0 {
+			strategy.InitialAmount = req.StartingBalance
+		}
+	}
 	if req.InitialAmount > 0 {
 		strategy.InitialAmount = req.InitialAmount
 		// Keep create/edit UI budget aligned with runtime collateral defaults.
@@ -140,12 +154,16 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if req.RiskFreeRate > 0 {
 		strategy.RiskFreeRate = req.RiskFreeRate
 	}
+	if strategy.RuntimeStrategy == "" {
+		strategy.RuntimeStrategy = "cointegration"
+	}
 }
 
 // NewStrategyHandler creates a new strategy handler
-func NewStrategyHandler(service *services.StrategyService) *StrategyHandler {
+func NewStrategyHandler(service *services.StrategyService, runtimeService *services.StrategyRuntimeService) *StrategyHandler {
 	return &StrategyHandler{
-		service: service,
+		service:        service,
+		runtimeService: runtimeService,
 	}
 }
 
@@ -427,4 +445,131 @@ func (h *StrategyHandler) DeleteStrategy(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+func (h *StrategyHandler) GetStrategyRuntime(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	runtimeState, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).GetRuntimeStatus(strategy)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to get strategy runtime: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      runtimeState,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	runtimeState, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).StartRuntime(strategy, c.Query("network"))
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if strings.Contains(strings.ToLower(err.Error()), "active dydx key") || strings.Contains(strings.ToLower(err.Error()), "no active dydx key") {
+			statusCode = http.StatusBadRequest
+		}
+		c.JSON(statusCode, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to start strategy runtime: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      runtimeState,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *StrategyHandler) StopStrategyRuntime(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	force, _ := strconv.ParseBool(c.DefaultQuery("force", "false"))
+	runtimeState, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).StopRuntime(strategy, force)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to stop strategy runtime: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      runtimeState,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *StrategyHandler) getAuthorizedStrategy(c *gin.Context) (*models.BacktestStrategy, int, bool) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Invalid strategy ID",
+		})
+		return nil, 0, false
+	}
+
+	userIDValue, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Unauthorized",
+		})
+		return nil, 0, false
+	}
+	userID := userIDValue.(int)
+
+	strategy, err := h.service.GetStrategy(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to get strategy: %v", err),
+		})
+		return nil, 0, false
+	}
+	if strategy == nil {
+		c.JSON(http.StatusNotFound, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Strategy not found",
+		})
+		return nil, 0, false
+	}
+
+	if strategy.UserID != userID && c.GetBool("is_admin") != true {
+		c.JSON(http.StatusForbidden, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Forbidden: you do not own this strategy",
+		})
+		return nil, 0, false
+	}
+
+	return strategy, userID, true
 }

@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from src.shared.env_loader import load_repo_env
 
-# Load .env BEFORE importing project modules that initialize config/database.
+# Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
 
 # Import authentication modules
@@ -65,6 +65,10 @@ from src.api.realtime_serializers import (
     serialize_stats_risk_fields,
 )
 from src.api.websocket_server import WebSocketServer, manager
+from src.api.websocket_server import (
+    broadcast_strategy_status,
+    build_strategy_snapshot_message,
+)
 
 # Import database utilities
 from src.infrastructure.database import db
@@ -89,6 +93,7 @@ trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
     "trace_id", default=""
 )
 INTERNAL_ERROR_MESSAGE = "Internal server error"
+bot_manager_monitor_task: Optional[asyncio.Task] = None
 
 DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 
@@ -437,6 +442,8 @@ def _strategy_to_backtest_request(
             "transaction_fee": strategy.get("transaction_fee", 0.0005),
             "slippage": strategy.get("slippage", 0.001),
             "risk_free_rate": strategy.get("risk_free_rate", 0.02),
+            "benchmark_symbol": strategy.get("benchmark_symbol", "BTC-USD"),
+            "max_history_days": strategy.get("max_history_days", 90),
             "resolution": strategy.get(
                 "resolution",
                 strategy.get("candle_resolution", "1HOUR"),
@@ -452,7 +459,12 @@ def _strategy_to_backtest_request(
         description=request.description or strategy.get("description", ""),
         start_date=request.start_date,
         end_date=request.end_date,
-        initial_balance=float(strategy.get("initial_amount", request.initial_balance)),
+        initial_balance=float(
+            strategy.get(
+                "starting_balance",
+                strategy.get("initial_amount", request.initial_balance),
+            )
+        ),
         trading_parameters=trading_parameters,
         pairs=pairs,
     )
@@ -517,7 +529,7 @@ def custom_openapi():
         if path.startswith("/auth/") or path.startswith("/api/v1/auth"):
             continue
 
-        if not (path == "/health" or path.startswith("/api/v1/")):
+        if not (path in {"/health", "/ready"} or path.startswith("/api/v1/")):
             continue
 
         for method, operation in path_item.items():
@@ -704,6 +716,11 @@ async def create_bot_instance(
                         "trading_params": (
                             config.trading_params.model_dump()
                             if config.trading_params
+                            else {}
+                        ),
+                        "backtesting_params": (
+                            config.backtesting_params.model_dump()
+                            if config.backtesting_params
                             else {}
                         ),
                     },
@@ -1347,10 +1364,35 @@ async def health_check():
         data={
             "status": "healthy",
             "api_version": "1.0.0",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "backtest_runtime": runtime_health,
         },
         message="API is healthy",
+    )
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Strict readiness probe for orchestrators and deployment gates."""
+    service = get_backtest_service()
+    runtime_health = service.get_runtime_health()
+    ready = _bot_manager_ready()
+    status_code = 200 if ready else 503
+
+    return api_response(
+        success=ready,
+        data={
+            "status": "ready" if ready else "not_ready",
+            "bot_manager_ready": ready,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "backtest_runtime": runtime_health,
+        },
+        message=(
+            "Bot API is ready"
+            if ready
+            else "Bot API is not ready: bot manager unavailable"
+        ),
+        status_code=status_code,
     )
 
 
@@ -1872,14 +1914,22 @@ async def websocket_strategies(websocket: WebSocket):
     channel = "strategies"
     await manager.connect(websocket, channel)
     try:
-        await manager.send_personal_message(
-            {
-                "type": "strategy_channel_connected",
-                "channel": channel,
-                "timestamp": datetime.utcnow().isoformat(),
-            },
-            websocket,
-        )
+        if _bot_manager_ready():
+            await manager.send_personal_message(
+                build_strategy_snapshot_message(
+                    bot_manager.get_strategy_status_snapshot()
+                ),
+                websocket,
+            )
+        else:
+            await manager.send_personal_message(
+                {
+                    "type": "strategy_channel_connected",
+                    "channel": channel,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                websocket,
+            )
 
         while True:
             raw = await websocket.receive_text()
@@ -2576,9 +2626,28 @@ async def get_live_progress(
 # ============================================================================
 
 
+async def _bot_manager_monitor_loop():
+    """Background loop that reconciles dead processes into API-visible error states."""
+    interval_seconds = max(
+        2,
+        int(os.getenv("BOT_MANAGER_MONITOR_INTERVAL_SECONDS", "10")),
+    )
+    while True:
+        try:
+            if bot_manager is not None:
+                await bot_manager.cleanup_dead_processes()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Bot manager monitor loop failed: %s", exc)
+
+        await asyncio.sleep(interval_seconds)
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize bot manager on startup"""
+    global bot_manager_monitor_task
     logger.info("Starting Bot API Server...")
     logger.info(
         "Runtime DB target: type=%s host=%s port=%s name=%s",
@@ -2592,7 +2661,10 @@ async def startup_event():
     db.run_pending_migrations()
     InMemoryStrategyStore.ensure_seeded()
     if bot_manager is not None:
+        bot_manager.set_status_event_publisher(broadcast_strategy_status)
         await bot_manager.cleanup_dead_processes()
+        if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
+            bot_manager_monitor_task = asyncio.create_task(_bot_manager_monitor_loop())
     else:
         logger.warning(
             "Bot manager unavailable; bot-instance endpoints may be degraded"
@@ -2733,6 +2805,15 @@ async def revert_strategy_version(
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    global bot_manager_monitor_task
+    if bot_manager_monitor_task is not None:
+        bot_manager_monitor_task.cancel()
+        try:
+            await bot_manager_monitor_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            bot_manager_monitor_task = None
     """Cleanup on shutdown"""
     logger.info("Shutting down Bot API Server...")
     # Optionally stop all running instances on shutdown

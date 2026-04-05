@@ -17,9 +17,11 @@ import (
 
 // BotAPIClient handles communication with the Python bot API
 type BotAPIClient struct {
-	baseURL    string
-	token      string
-	httpClient *http.Client
+	baseURL       string
+	token         string
+	fallbackToken string
+	traceID       string
+	httpClient    *http.Client
 }
 
 // BotAPIError preserves upstream HTTP status and message for delegated routes.
@@ -110,9 +112,11 @@ func classifyTransportError(method, requestURL string, err error) *BotAPITranspo
 
 // NewBotAPIClient creates a new bot API client
 func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
+	token = strings.TrimSpace(token)
 	return &BotAPIClient{
-		baseURL: baseURL,
-		token:   token,
+		baseURL:       baseURL,
+		token:         token,
+		fallbackToken: token,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -121,7 +125,9 @@ func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 
 // SetToken sets the authentication token
 func (c *BotAPIClient) SetToken(token string) {
+	token = strings.TrimSpace(token)
 	c.token = token
+	c.fallbackToken = token
 }
 
 // BaseURL returns the configured upstream bot API base URL.
@@ -170,9 +176,11 @@ func (c *BotAPIClient) WebSocketURL(endpoint string) (string, error) {
 // Primarily intended for testing and custom transport configuration.
 func (c *BotAPIClient) WithHTTPClient(httpClient *http.Client) *BotAPIClient {
 	return &BotAPIClient{
-		baseURL:    c.baseURL,
-		token:      c.token,
-		httpClient: httpClient,
+		baseURL:       c.baseURL,
+		token:         c.token,
+		fallbackToken: c.fallbackToken,
+		traceID:       c.traceID,
+		httpClient:    httpClient,
 	}
 }
 
@@ -189,9 +197,23 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 	}
 
 	return &BotAPIClient{
-		baseURL:    c.baseURL,
-		token:      token,
-		httpClient: c.httpClient,
+		baseURL:       c.baseURL,
+		token:         token,
+		fallbackToken: c.fallbackToken,
+		traceID:       c.traceID,
+		httpClient:    c.httpClient,
+	}
+}
+
+// WithTraceID returns a new client instance that carries a request-scoped
+// trace ID to the upstream bot API.
+func (c *BotAPIClient) WithTraceID(traceID string) *BotAPIClient {
+	return &BotAPIClient{
+		baseURL:       c.baseURL,
+		token:         c.token,
+		fallbackToken: c.fallbackToken,
+		traceID:       strings.TrimSpace(traceID),
+		httpClient:    c.httpClient,
 	}
 }
 
@@ -199,13 +221,48 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (map[string]interface{}, error) {
 	requestURL := fmt.Sprintf("%s%s", c.baseURL, endpoint)
 
-	var requestBody io.Reader
+	var requestBytes []byte
 	if body != nil {
 		bodyBytes, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
-		requestBody = bytes.NewBuffer(bodyBytes)
+		requestBytes = bodyBytes
+	}
+
+	result, statusCode, respBytes, err := c.doRequest(method, requestURL, requestBytes, c.token)
+	if err != nil {
+		return nil, err
+	}
+
+	if statusCode == http.StatusUnauthorized && c.shouldRetryWithFallback(c.token) {
+		log.Printf("⚠️  Bot API auth rejected request token; retrying with configured service token: %s %s", method, requestURL)
+		result, statusCode, respBytes, err = c.doRequest(method, requestURL, requestBytes, c.fallbackToken)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if statusCode >= 400 {
+		return nil, parseBotAPIError(statusCode, respBytes)
+	}
+
+	return result, nil
+}
+
+func (c *BotAPIClient) shouldRetryWithFallback(currentToken string) bool {
+	currentToken = strings.TrimSpace(currentToken)
+	fallbackToken := strings.TrimSpace(c.fallbackToken)
+	if fallbackToken == "" {
+		return false
+	}
+	return !strings.EqualFold(currentToken, fallbackToken)
+}
+
+func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte, token string) (map[string]interface{}, int, []byte, error) {
+	var requestBody io.Reader
+	if len(requestBytes) > 0 {
+		requestBody = bytes.NewReader(requestBytes)
 	}
 
 	// Build a per-request context whose deadline mirrors the http.Client timeout.
@@ -220,12 +277,15 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, 0, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", strings.TrimSpace(token)))
+	}
+	if c.traceID != "" {
+		req.Header.Set("X-Trace-Id", c.traceID)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -233,28 +293,26 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 		transportErr := classifyTransportError(method, requestURL, err)
 		log.Printf("⚠️  Bot API transport error: %s %s → HTTP %d (%s) | cause: %v",
 			method, requestURL, transportErr.StatusCode, transportErr.Message, err)
-		return nil, transportErr
+		return nil, 0, nil, transportErr
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		return nil, parseBotAPIError(resp.StatusCode, respBytes)
+		return nil, 0, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	var result map[string]interface{}
 	if len(respBytes) == 0 {
-		return map[string]interface{}{}, nil
+		return map[string]interface{}{}, resp.StatusCode, respBytes, nil
 	}
-	if err := json.Unmarshal(respBytes, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	if resp.StatusCode < 400 {
+		if err := json.Unmarshal(respBytes, &result); err != nil {
+			return nil, 0, nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
 	}
 
-	return result, nil
+	return result, resp.StatusCode, respBytes, nil
 }
 
 func parseBotAPIError(statusCode int, respBytes []byte) error {
@@ -265,6 +323,8 @@ func parseBotAPIError(statusCode int, respBytes []byte) error {
 		if errField, ok := result["message"]; ok {
 			errorMsg = fmt.Sprintf("%v", errField)
 		} else if errField, ok := result["error"]; ok {
+			errorMsg = fmt.Sprintf("%v", errField)
+		} else if errField, ok := result["detail"]; ok {
 			errorMsg = fmt.Sprintf("%v", errField)
 		}
 	} else if trimmed := strings.TrimSpace(string(respBytes)); trimmed != "" {

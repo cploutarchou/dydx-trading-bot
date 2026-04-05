@@ -1,5 +1,6 @@
 import { Play } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useStrategyStore } from '../store/strategies';
@@ -23,6 +24,11 @@ interface TradingParameters {
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
   resolution?: string;
+  transaction_fee?: number;
+  slippage?: number;
+  risk_free_rate?: number;
+  benchmark_symbol?: string;
+  max_history_days?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
 }
 
@@ -35,6 +41,7 @@ interface BacktestRunRequest {
   max_pairs?: number;
   pairs?: string[];
   strategy_id?: number;
+  benchmark_symbol?: string;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   trading_parameters: TradingParameters;
 }
@@ -71,20 +78,29 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     start_date: '2024-01-01',
     end_date: '2024-03-31',
     name: 'ui-backtest',
+    initial_balance: 1000,
+    benchmark_symbol: 'BTC-USD',
     max_pairs: 0,
     pair_selection_mode: 'liquidity',
     trading_parameters: {
+      resolution: '1HOUR',
       zscore_threshold: 1.5,
       stats_window: 21,
       usd_per_trade: 10,
+      transaction_fee: 0.0005,
+      slippage: 0.001,
+      risk_free_rate: 0.02,
+      max_history_days: 90,
+      benchmark_symbol: 'BTC-USD',
       pair_selection_mode: 'liquidity',
     },
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [strategyName, setStrategyName] = useState('');
+
+  const runBacktestMutation = useMutation({
+    mutationFn: (payload: BacktestRunRequest) => api.runBacktest(payload),
+  });
 
   // Fetch strategies on mount
   useEffect(() => {
@@ -110,6 +126,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     'rebalance_interval_hours',
     'position_timeout_hours',
     'resolution',
+    'transaction_fee',
+    'slippage',
+    'risk_free_rate',
+    'benchmark_symbol',
+    'max_history_days',
     'pair_selection_mode',
   ]);
 
@@ -123,6 +144,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           [name]:
             name === 'stats_window' ||
             name === 'max_positions' ||
+            name === 'max_history_days' ||
             name === 'rebalance_interval_hours' ||
             name === 'position_timeout_hours'
               ? parseInt(value)
@@ -133,7 +155,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                   name === 'max_drawdown_pct' ||
                   name === 'stop_loss_pct' ||
                   name === 'take_profit_pct' ||
-                  name === 'trailing_stop_pct'
+                  name === 'trailing_stop_pct' ||
+                  name === 'transaction_fee' ||
+                  name === 'slippage' ||
+                  name === 'risk_free_rate'
                 ? parseFloat(value)
                 : value,
         },
@@ -141,7 +166,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     } else {
       setFormData((prev) => ({
         ...prev,
-        [name]: name === 'max_pairs' ? parseInt(value) : value,
+        [name]: name === 'max_pairs' || name === 'initial_balance' ? parseInt(value) : value,
       }));
     }
   };
@@ -156,9 +181,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         setFormData((prev) => ({
           ...prev,
           strategy_id: id,
+          initial_balance: strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
+          benchmark_symbol: strategy.benchmark_symbol || prev.benchmark_symbol,
           trading_parameters: {
             ...prev.trading_parameters,
-            resolution: strategy.resolution,
+            resolution: strategy.candle_resolution || strategy.resolution,
             zscore_threshold: strategy.zscore_threshold,
             stats_window: strategy.stats_window,
             max_half_life: strategy.max_half_life,
@@ -176,6 +203,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             trailing_stop_pct: strategy.trailing_stop_pct,
             rebalance_interval_hours: strategy.rebalance_interval_hours,
             position_timeout_hours: strategy.position_timeout_hours,
+            transaction_fee: strategy.transaction_fee,
+            slippage: strategy.slippage,
+            risk_free_rate: strategy.risk_free_rate,
+            benchmark_symbol: strategy.benchmark_symbol,
+            max_history_days: strategy.max_history_days,
             pair_selection_mode: strategy.pair_selection_mode,
           },
         }));
@@ -185,17 +217,22 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
-    setSuccess(false);
 
     try {
+      if (formData.start_date > formData.end_date) {
+        setError('Start date must be before end date');
+        return;
+      }
+
       const tp = formData.trading_parameters;
       const cleanedData = {
         start_date: formData.start_date,
         end_date: formData.end_date,
         name: formData.name || 'ui-backtest',
+        initial_balance: Number(formData.initial_balance),
         max_pairs: Number(formData.max_pairs),
+        benchmark_symbol: formData.benchmark_symbol,
         pair_selection_mode: tp.pair_selection_mode || formData.pair_selection_mode || 'liquidity',
         trading_parameters: {
           ...(tp.zscore_threshold !== undefined && {
@@ -233,14 +270,28 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           ...(tp.position_timeout_hours !== undefined && {
             position_timeout_hours: Number(tp.position_timeout_hours),
           }),
+          ...(tp.transaction_fee !== undefined && {
+            transaction_fee: Number(tp.transaction_fee),
+          }),
+          ...(tp.slippage !== undefined && { slippage: Number(tp.slippage) }),
+          ...(tp.risk_free_rate !== undefined && {
+            risk_free_rate: Number(tp.risk_free_rate),
+          }),
           ...(tp.resolution !== undefined && { resolution: tp.resolution }),
+          ...(tp.benchmark_symbol !== undefined && {
+            benchmark_symbol: tp.benchmark_symbol,
+          }),
+          ...(tp.max_history_days !== undefined && {
+            max_history_days: Number(tp.max_history_days),
+          }),
           ...(tp.pair_selection_mode !== undefined && {
             pair_selection_mode: tp.pair_selection_mode,
           }),
         },
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
-      };
-      const result = await api.runBacktest(cleanedData);
+      } satisfies BacktestRunRequest;
+      setLoading(true);
+      const result = await runBacktestMutation.mutateAsync(cleanedData);
       const runId = extractRunId(result);
 
       if (onBacktestComplete) {
@@ -250,57 +301,13 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       if (runId) {
         navigate(`/backtest/${runId}`);
       } else {
-        setSuccess(true);
-        setShowSaveDialog(true);
+        setError('Backtest started but no run ID was returned by the API');
       }
     } catch (err: unknown) {
       console.error('❌ BacktestRunner: Error:', err);
       setError(getErrorMessage(err, 'Failed to start backtest'));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSaveAsStrategy = async () => {
-    if (!strategyName.trim()) {
-      setError('Strategy name is required');
-      return;
-    }
-
-    try {
-      await useStrategyStore.getState().createStrategy({
-        name: strategyName,
-        category: 'pairs_trading',
-        description: `Backtest results from ${formData.start_date} to ${formData.end_date}`,
-        is_public: false,
-        // All strategy parameters from nested trading_parameters
-        zscore_threshold: Number(formData.trading_parameters.zscore_threshold || 1.5),
-        stats_window: Number(formData.trading_parameters.stats_window || 21),
-        max_half_life: Number(formData.trading_parameters.max_half_life || 24),
-        usd_per_trade: Number(formData.trading_parameters.usd_per_trade || 10.0),
-        usd_min_collateral: Number(formData.trading_parameters.usd_min_collateral || 100.0),
-        close_at_zscore_cross: formData.trading_parameters.close_at_zscore_cross !== false,
-        find_cointegrated_pairs: formData.trading_parameters.find_cointegrated_pairs !== false,
-        manage_exits: formData.trading_parameters.manage_exits !== false,
-        place_trades: formData.trading_parameters.place_trades !== false,
-        abort_all_positions: formData.trading_parameters.abort_all_positions || false,
-        max_positions: Number(formData.trading_parameters.max_positions || 5),
-        max_drawdown_pct: Number(formData.trading_parameters.max_drawdown_pct || 15.0),
-        stop_loss_pct: Number(formData.trading_parameters.stop_loss_pct || 2.0),
-        take_profit_pct: Number(formData.trading_parameters.take_profit_pct || 5.0),
-        trailing_stop_pct: Number(formData.trading_parameters.trailing_stop_pct || 1.0),
-        rebalance_interval_hours: Number(
-          formData.trading_parameters.rebalance_interval_hours || 24
-        ),
-        position_timeout_hours: Number(formData.trading_parameters.position_timeout_hours || 72),
-        pair_selection_mode: formData.trading_parameters.pair_selection_mode || 'liquidity',
-      });
-      setShowSaveDialog(false);
-      setStrategyName('');
-      await fetchStrategies();
-    } catch (err: unknown) {
-      setError('Failed to save strategy');
-      console.error(err);
     }
   };
 
@@ -311,12 +318,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       {error && (
         <div className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200">
           {error}
-        </div>
-      )}
-
-      {success && (
-        <div className="mb-4 p-4 bg-green-900 border border-green-700 rounded text-green-200">
-          ✅ Backtest started successfully! Check the results below.
         </div>
       )}
 
@@ -475,46 +476,131 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Starting Balance
+            </label>
+            <input
+              type="number"
+              name="initial_balance"
+              value={formData.initial_balance ?? 1000}
+              onChange={handleChange}
+              step="100"
+              min="100"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Candle Resolution
+            </label>
+            <select
+              name="resolution"
+              value={formData.trading_parameters.resolution || '1HOUR'}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  trading_parameters: {
+                    ...prev.trading_parameters,
+                    resolution: e.target.value,
+                  },
+                }))
+              }
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            >
+              <option value="15MINS">15 Minutes</option>
+              <option value="30MINS">30 Minutes</option>
+              <option value="1HOUR">1 Hour</option>
+              <option value="4HOUR">4 Hours</option>
+              <option value="1DAY">1 Day</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Transaction Fee
+            </label>
+            <input
+              type="number"
+              name="transaction_fee"
+              value={formData.trading_parameters.transaction_fee ?? 0.0005}
+              onChange={handleChange}
+              step="0.0001"
+              min="0"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Slippage</label>
+            <input
+              type="number"
+              name="slippage"
+              value={formData.trading_parameters.slippage ?? 0.001}
+              onChange={handleChange}
+              step="0.0001"
+              min="0"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Benchmark Symbol
+            </label>
+            <input
+              type="text"
+              name="benchmark_symbol"
+              value={formData.benchmark_symbol || formData.trading_parameters.benchmark_symbol || 'BTC-USD'}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  benchmark_symbol: e.target.value,
+                  trading_parameters: {
+                    ...prev.trading_parameters,
+                    benchmark_symbol: e.target.value,
+                  },
+                }))
+              }
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Risk-Free Rate
+            </label>
+            <input
+              type="number"
+              name="risk_free_rate"
+              value={formData.trading_parameters.risk_free_rate ?? 0.02}
+              onChange={handleChange}
+              step="0.001"
+              min="0"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Max History Days
+            </label>
+            <input
+              type="number"
+              name="max_history_days"
+              value={formData.trading_parameters.max_history_days ?? 90}
+              onChange={handleChange}
+              min="1"
+              max="3650"
+              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+            />
+          </div>
         </div>
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || runBacktestMutation.isPending}
           className="w-full mt-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2"
         >
           <Play className="w-4 h-4" />
-          {loading ? 'Running Backtest...' : 'Start Backtest'}
+          {loading || runBacktestMutation.isPending ? 'Running Backtest...' : 'Start Backtest'}
         </button>
       </form>
-
-      {showSaveDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4 border border-slate-700">
-            <h4 className="text-lg font-bold text-white mb-4">Save Results as Strategy?</h4>
-            <input
-              type="text"
-              placeholder="Strategy name"
-              value={strategyName}
-              onChange={(e) => setStrategyName(e.target.value)}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white mb-4"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowSaveDialog(false)}
-                className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded"
-              >
-                Skip
-              </button>
-              <button
-                onClick={handleSaveAsStrategy}
-                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -8,17 +8,19 @@ import (
 // ==================== USER MODELS ====================
 
 type User struct {
-	ID        int        `db:"id" json:"id"`
-	Username  string     `db:"username" json:"username"`
-	Email     string     `db:"email" json:"email"`
-	FullName  string     `db:"full_name" json:"full_name"`
-	Avatar    string     `db:"avatar" json:"avatar"`
-	IsActive  bool       `db:"is_active" json:"is_active"`
-	IsAdmin   bool       `db:"is_admin" json:"is_admin"`
-	Password  string     `db:"password" json:"-"`
-	LastLogin *time.Time `db:"last_login" json:"last_login"`
-	CreatedAt time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
+	ID                     int        `db:"id" json:"id"`
+	Username               string     `db:"username" json:"username"`
+	Email                  string     `db:"email" json:"email"`
+	Role                   string     `db:"role" json:"role"`
+	FullName               string     `db:"full_name" json:"full_name"`
+	Avatar                 string     `db:"avatar" json:"avatar"`
+	IsActive               bool       `db:"is_active" json:"is_active"`
+	IsAdmin                bool       `db:"is_admin" json:"is_admin"`
+	PasswordChangeRequired bool       `db:"password_change_required" json:"password_change_required"`
+	Password               string     `db:"password" json:"-"`
+	LastLogin              *time.Time `db:"last_login" json:"last_login"`
+	CreatedAt              time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt              time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 // ==================== DYDX KEY MODELS ====================
@@ -29,6 +31,8 @@ type DYDXKey struct {
 	Network         string    `db:"network" json:"network"`
 	ChainAddress    string    `db:"chain_address" json:"chain_address"`
 	EncryptedSecret string    `db:"encrypted_secret" json:"-"`
+	SecretHash      string    `db:"secret_hash" json:"-"`
+	SecretMasked    string    `db:"secret_masked" json:"secret_masked"`
 	IsActive        bool      `db:"is_active" json:"is_active"`
 	CreatedAt       time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
@@ -43,6 +47,19 @@ type DYDXKeySettings struct {
 	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
 }
 
+type ExternalAPICredential struct {
+	ID              int       `db:"id" json:"id"`
+	UserID          int       `db:"user_id" json:"user_id"`
+	Provider        string    `db:"provider" json:"provider"`
+	Label           string    `db:"label" json:"label"`
+	EncryptedAPIKey string    `db:"encrypted_api_key" json:"-"`
+	APIKeyHash      string    `db:"api_key_hash" json:"-"`
+	APIKeyMasked    string    `db:"api_key_masked" json:"api_key_masked"`
+	IsActive        bool      `db:"is_active" json:"is_active"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+}
+
 // ==================== STRATEGY MODELS ====================
 
 type BacktestStrategy struct {
@@ -53,6 +70,7 @@ type BacktestStrategy struct {
 	Category               string     `db:"category" json:"category"`
 	IsPublic               bool       `db:"is_public" json:"is_public"`
 	IsDefault              bool       `db:"is_default" json:"is_default"`
+	RuntimeStrategy        string     `db:"runtime_strategy" json:"runtime_strategy"`
 	ZscoreThreshold        float64    `db:"zscore_threshold" json:"zscore_threshold"`
 	StatsWindow            int        `db:"stats_window" json:"stats_window"`
 	MaxHalfLife            float64    `db:"max_half_life" json:"max_half_life"`

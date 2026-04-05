@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Validate the shared repo-root .env file for dev/prod stack startup."""
+"""Validate the structured JSON config profile used by the app stack."""
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
+
+from secure_config import load_json, normalize_environment_name, resolve_profile_file
 
 REQUIRED_KEYS = [
     "POSTGRES_PORT",
@@ -23,12 +26,6 @@ REQUIRED_KEYS = [
 ]
 
 OPTIONAL_KEYS = [
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_CHAT_ID",
-    "DYDX_TESTNET_ADDRESS",
-    "DYDX_TESTNET_MNEMONIC",
-    "DYDX_MAINNET_ADDRESS",
-    "DYDX_MAINNET_MNEMONIC",
     "LOKI_ENABLED",
     "LOKI_URL",
     "LOKI_USERNAME",
@@ -48,15 +45,37 @@ PLACEHOLDER_TOKENS = (
 )
 
 
-def parse_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+def flatten_config(tree: dict) -> dict[str, str]:
+    flattened: dict[str, str] = {}
+
+    def walk(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            if isinstance(value, dict):
+                walk(value)
+                continue
+            if value is None:
+                flattened[key] = ""
+            elif isinstance(value, bool):
+                flattened[key] = "true" if value else "false"
+            elif isinstance(value, (int, float, str)):
+                flattened[key] = str(value)
+            else:
+                flattened[key] = str(value)
+
+    for section, value in tree.items():
+        if section == "metadata":
             continue
-        key, val = line.split("=", 1)
-        values[key.strip()] = val.strip()
-    return values
+        walk(value)
+
+    return flattened
+
+
+def load_structured_environment(environment: str) -> tuple[dict[str, str], Path]:
+    profile_path = resolve_profile_file(environment, None)
+    config = load_json(profile_path)
+    return flatten_config(config), profile_path
 
 
 def is_placeholder(value: str) -> bool:
@@ -84,25 +103,26 @@ def validate_prod_rules(env: dict[str, str]) -> tuple[list[str], list[str]]:
         errors.append("API_BYPASS_AUTH must be false in production mode")
 
     is_testnet = env.get("IS_TESTNET", "true").strip().lower() == "true"
-    if not is_testnet:
-        mainnet_address = env.get("DYDX_MAINNET_ADDRESS", "")
-        mainnet_mnemonic = env.get("DYDX_MAINNET_MNEMONIC", "")
-        if is_placeholder(mainnet_address):
-            errors.append(
-                "DYDX_MAINNET_ADDRESS is required and must not be a placeholder when IS_TESTNET=false"
-            )
-        if is_placeholder(mainnet_mnemonic):
-            errors.append(
-                "DYDX_MAINNET_MNEMONIC is required and must not be a placeholder when IS_TESTNET=false"
-            )
-    else:
-        warnings.append("IS_TESTNET=true; skipping mainnet credential checks")
+    if is_testnet:
+        warnings.append("IS_TESTNET=true; live trading credentials are expected from encrypted app settings")
 
     return errors, warnings
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate stack environment variables")
+    parser = argparse.ArgumentParser(description="Validate structured stack configuration")
+    parser.add_argument(
+        "--environment",
+        choices=("development", "production"),
+        default=normalize_environment_name(
+            os.getenv("APP_CONFIG_ENV")
+            or os.getenv("CONFIG_ENV")
+            or os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or "development"
+        ),
+        help="Structured config environment profile to validate",
+    )
     parser.add_argument(
         "--strict-prod",
         action="store_true",
@@ -110,28 +130,33 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    env_path = Path(".env")
-    if not env_path.exists():
-        print("❌ Missing .env. Run: make stack-env", file=sys.stderr)
+    try:
+        env, profile_path = load_structured_environment(args.environment)
+    except FileNotFoundError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
         return 1
-
-    env = parse_env(env_path)
+    except Exception as exc:
+        print(f"❌ Failed to load structured config: {exc}", file=sys.stderr)
+        return 1
 
     missing = [k for k in REQUIRED_KEYS if k not in env]
     empty = [k for k in REQUIRED_KEYS if k in env and env[k] == ""]
 
     if missing or empty:
-        print("❌ .env validation failed", file=sys.stderr)
+        print("❌ Structured config validation failed", file=sys.stderr)
         if missing:
             print(f"   Missing keys: {', '.join(missing)}", file=sys.stderr)
         if empty:
             print(f"   Empty keys: {', '.join(empty)}", file=sys.stderr)
-        print("   Tip: copy defaults from .env.example", file=sys.stderr)
+        print(
+            "   Tip: edit config/profiles with `make dev-config` or `make prod-config`",
+            file=sys.stderr,
+        )
         return 1
 
     optional_empty = [k for k in OPTIONAL_KEYS if env.get(k, "") == ""]
 
-    print("✅ .env contains all required keys")
+    print(f"✅ Structured config is valid: {profile_path}")
     if optional_empty:
         print(
             "ℹ️ Optional keys not set (expected in non-live mode): "

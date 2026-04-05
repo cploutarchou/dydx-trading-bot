@@ -39,6 +39,23 @@ func (s *BotInstanceService) WithAuthToken(token string) *BotInstanceService {
 	}
 }
 
+// WithTraceID returns a request-scoped service copy that forwards the provided
+// trace ID to the downstream bot API.
+func (s *BotInstanceService) WithTraceID(traceID string) *BotInstanceService {
+	if s == nil {
+		return nil
+	}
+
+	if s.apiClient == nil {
+		return s
+	}
+
+	return &BotInstanceService{
+		repo:      s.repo,
+		apiClient: s.apiClient.WithTraceID(traceID),
+	}
+}
+
 // CreateBotInstance creates a new bot instance
 func (s *BotInstanceService) CreateBotInstance(instance *models.BotInstance) error {
 	return s.repo.CreateBotInstance(instance)
@@ -165,6 +182,15 @@ func (s *BotInstanceService) GetBotInstanceStats(instanceID string) (map[string]
 	}
 
 	return s.apiClient.GetBotInstanceStats(instanceID)
+}
+
+// GetRemoteBotInstance retrieves a bot instance directly from the upstream bot API.
+func (s *BotInstanceService) GetRemoteBotInstance(instanceID string) (map[string]interface{}, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("bot API client not configured")
+	}
+
+	return s.apiClient.GetBotInstance(instanceID)
 }
 
 // GetBotInstanceTrades gets trades for a bot instance using upstream status filtering.

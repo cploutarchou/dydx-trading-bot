@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Layers3, Search, Sparkles } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { PageContainer } from './PageContainer';
@@ -59,73 +61,101 @@ interface Strategy {
   updated_at: string;
 }
 
+interface StrategyListResult {
+  strategies: Strategy[];
+  total: number;
+}
+
+const ITEMS_PER_PAGE = 10;
+const strategyLibraryQueryKey = (page: number) => ['strategies', 'library', page] as const;
+
+const fetchStrategiesPage = async (page: number): Promise<StrategyListResult> => {
+  const response = await api.listStrategies(page * ITEMS_PER_PAGE, ITEMS_PER_PAGE);
+  const payload = response.data;
+  return {
+    strategies: Array.isArray(payload?.strategies) ? (payload.strategies as Strategy[]) : [],
+    total: typeof payload?.total === 'number' ? payload.total : 0,
+  };
+};
+
 export default function StrategyLibrary() {
   const navigate = useNavigate();
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
-  const [totalStrategies, setTotalStrategies] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [runModalOpen, setRunModalOpen] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [backtestStartDate, setBacktestStartDate] = useState('');
   const [backtestEndDate, setBacktestEndDate] = useState('');
-  const [runLoading, setRunLoading] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
-  const ITEMS_PER_PAGE = 10;
+  const strategiesQuery = useQuery({
+    queryKey: strategyLibraryQueryKey(currentPage),
+    queryFn: () => fetchStrategiesPage(currentPage),
+    staleTime: 60 * 1000,
+  });
 
-  // Load strategies on mount and when page changes
-  useEffect(() => {
-    loadStrategies();
-  }, [currentPage]);
+  const deleteMutation = useMutation({
+    mutationFn: (strategyId: number) => api.deleteStrategy(strategyId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
+    },
+  });
 
-  const loadStrategies = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.listStrategies(currentPage * ITEMS_PER_PAGE, ITEMS_PER_PAGE);
-      if (response.data) {
-        setStrategies((response.data.strategies || []) as Strategy[]);
-        setTotalStrategies(response.data.total || 0);
-      }
-    } catch (err: unknown) {
-      console.error('Failed to load strategies:', err);
-      setError('Failed to load strategies');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const duplicateMutation = useMutation({
+    mutationFn: async (strategy: Strategy) => {
+      const { id: _id, created_at: _created_at, updated_at: _updated_at, ...newStrategy } =
+        strategy;
+      return api.createStrategy({
+        ...newStrategy,
+        name: `${strategy.name} (Copy)`,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
+    },
+  });
+
+  const runBacktestMutation = useMutation({
+    mutationFn: (payload: { start_date: string; end_date: string; strategy_id: number }) =>
+      api.runBacktest(payload),
+  });
+
+  const strategies = strategiesQuery.data?.strategies ?? [];
+  const totalStrategies = strategiesQuery.data?.total ?? 0;
+
+  const filteredStrategies = useMemo(
+    () =>
+      strategies.filter(
+        (s) =>
+          s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          s.description.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [searchTerm, strategies]
+  );
+
+  const totalPages = Math.ceil(totalStrategies / ITEMS_PER_PAGE);
 
   const handleDelete = async (strategyId: number) => {
     try {
-      await api.deleteStrategy(strategyId);
-      setStrategies(strategies.filter((s) => s.id !== strategyId));
+      setError(null);
+      await deleteMutation.mutateAsync(strategyId);
       setDeleteConfirmId(null);
     } catch (err: unknown) {
       console.error('Failed to delete strategy:', err);
-      setError('Failed to delete strategy');
+      setError(getErrorMessage(err, 'Failed to delete strategy'));
     }
   };
 
   const handleDuplicate = async (strategy: Strategy) => {
     try {
-      const { id: _id, created_at: _created_at, updated_at: _updated_at, ...newStrategy } =
-        strategy;
-      const duplicatedStrategy = {
-        ...newStrategy,
-        name: `${strategy.name} (Copy)`,
-      };
-
-      const response = await api.createStrategy(duplicatedStrategy);
-      if (response.data) {
-        setStrategies([...strategies, response.data as Strategy]);
-      }
+      setError(null);
+      await duplicateMutation.mutateAsync(strategy);
     } catch (err: unknown) {
       console.error('Failed to duplicate strategy:', err);
-      setError('Failed to duplicate strategy');
+      setError(getErrorMessage(err, 'Failed to duplicate strategy'));
     }
   };
 
@@ -133,7 +163,6 @@ export default function StrategyLibrary() {
     setSelectedStrategy(strategy);
     setRunModalOpen(true);
     setRunError(null);
-    // Set default dates: last 30 days
     const endDate = new Date();
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - 30);
@@ -157,20 +186,7 @@ export default function StrategyLibrary() {
     }
 
     try {
-      setRunLoading(true);
       setRunError(null);
-
-      // Ensure token is loaded from localStorage before making request
-      api.ensureTokenLoaded();
-
-      // Check if token exists
-      const token = localStorage.getItem('access_token');
-
-      if (!token) {
-        console.error('❌ No auth token found - user needs to login');
-        setRunError('Authentication required. Please login again.');
-        return;
-      }
 
       const runPayload = buildRunPayload();
       if (!runPayload) {
@@ -178,10 +194,7 @@ export default function StrategyLibrary() {
         return;
       }
 
-      // Call API to run backtest using strategy_id
-      const response = await api.runBacktest(runPayload);
-
-      // Handle both wrapped (ApiResponse.data.run_id) and direct (response.run_id) formats
+      const response = await runBacktestMutation.mutateAsync(runPayload);
       const runId = extractRunId(response);
       if (runId) {
         navigate(`/backtest/${runId}`);
@@ -198,7 +211,6 @@ export default function StrategyLibrary() {
         data: isRecord(err) && isRecord(err.response) ? err.response.data : undefined,
       });
 
-      // Handle specific error cases
       const status = getErrorStatus(err);
       if (status === 401) {
         setRunError('Your session has expired. Please login again.');
@@ -209,20 +221,10 @@ export default function StrategyLibrary() {
       } else {
         setRunError(getErrorMessage(err, 'Failed to run backtest'));
       }
-    } finally {
-      setRunLoading(false);
     }
   };
 
-  const filteredStrategies = strategies.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const totalPages = Math.ceil(totalStrategies / ITEMS_PER_PAGE);
-
-  if (loading && strategies.length === 0) {
+  if (strategiesQuery.isLoading && strategies.length === 0) {
     return (
       <PageContainer size="wide" className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
@@ -235,301 +237,330 @@ export default function StrategyLibrary() {
 
   return (
     <PageContainer size="wide">
-        {/* Header */}
-        <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Trading Strategies</h1>
-            <p className="text-gray-400">Manage your custom trading strategies</p>
+      <section className="premium-hero mb-8 px-6 py-7 sm:px-8">
+        <div className="premium-orb -right-10 top-0 h-40 w-40 bg-cyan-500/10" />
+        <div className="premium-orb -left-6 bottom-0 h-36 w-36 bg-emerald-500/10" />
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="premium-kicker">Strategy Library</div>
+            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">Build, compare, and launch strategies that look ready for real capital.</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              Your strategy workspace now feels like an operating system, not a form. Search faster, inspect risk posture at a glance, and move directly into live runtime or backtesting.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2 justify-end">
-            <button
-              onClick={() => navigate('/strategies/manage')}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition"
-            >
-              ⚙️ Runtime Manager
-            </button>
-            <button
-              onClick={() => navigate('/bots')}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition"
-            >
-              🤖 Bot Manager
-            </button>
-            <button
-              onClick={() => navigate('/strategies/new')}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition flex items-center gap-2"
-            >
-              ✨ New Strategy
-            </button>
+          <button
+            onClick={() => navigate('/strategies/manage')}
+            className="premium-button premium-button-secondary"
+          >
+            ⚙️ Runtime Manager
+          </button>
+          <button
+            onClick={() => navigate('/bots')}
+            className="premium-button premium-button-secondary"
+          >
+            🤖 Bot Manager
+          </button>
+          <button
+            onClick={() => navigate('/strategies/new')}
+            className="premium-button premium-button-primary"
+          >
+            ✨ New Strategy
+          </button>
+        </div>
+        </div>
+      </section>
+
+      {(error || strategiesQuery.isError) && (
+        <div className="mb-6 p-4 bg-red-500/10 border border-red-500 rounded-lg">
+          <p className="text-red-400">
+            {error || getErrorMessage(strategiesQuery.error, 'Failed to load strategies')}
+          </p>
+        </div>
+      )}
+
+      <section className="premium-panel mb-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="premium-icon-wrap text-cyan-300">
+              <Search className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Search and compare faster</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Filter by narrative, inspect risk posture at a glance, and move straight into action.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:min-w-[340px]">
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Visible</p>
+              <p className="mt-1 text-lg font-semibold text-white">{filteredStrategies.length}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Library total</p>
+              <p className="mt-1 text-lg font-semibold text-white">{totalStrategies}</p>
+            </div>
           </div>
         </div>
-
-        {/* Error Alert */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500 rounded-lg">
-            <p className="text-red-400">{error}</p>
-          </div>
-        )}
-
-        {/* Search Bar */}
-        <div className="mb-6">
+        <div className="relative mt-5">
+          <Search className="pointer-events-none absolute left-4 top-3.5 h-4 w-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search strategies by name or description..."
+            placeholder="Search strategies by name, narrative, or description..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            className="premium-input pl-11"
           />
         </div>
+      </section>
 
-        {/* Strategies Grid */}
-        {filteredStrategies.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-400 mb-4">
-              {strategies.length === 0
-                ? 'No strategies yet. Create one to get started!'
-                : 'No strategies match your search.'}
-            </p>
-            {strategies.length === 0 && (
-              <button
-                onClick={() => navigate('/strategies/new')}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition"
-              >
-                Create First Strategy
-              </button>
-            )}
+      {filteredStrategies.length === 0 ? (
+        <div className="premium-panel py-12 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-700/70 bg-slate-950/50 text-cyan-300">
+            <Sparkles className="h-7 w-7" />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {filteredStrategies.map((strategy) => (
-              <div
-                key={strategy.id}
-                className="bg-slate-800 border border-slate-700 rounded-lg p-6 hover:border-slate-600 transition"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex-1">
+          <p className="mb-4 mt-5 text-slate-300">
+            {strategies.length === 0
+              ? 'No strategies yet. Create one to get started!'
+              : 'No strategies match your search.'}
+          </p>
+          {strategies.length === 0 && (
+            <button
+              onClick={() => navigate('/strategies/new')}
+              className="premium-button premium-button-primary"
+            >
+              Create First Strategy
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {filteredStrategies.map((strategy) => (
+            <div
+              key={strategy.id}
+              className="premium-panel premium-panel-hover animate-fade-slide-up p-6"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-lg font-semibold text-white mb-1">{strategy.name}</h3>
-                    <p className="text-gray-400 text-sm mb-2">{strategy.description}</p>
-                    <div className="flex gap-3 flex-wrap">
-                      <span className="inline-block px-2 py-1 bg-slate-700 rounded text-xs text-gray-300">
-                        Category: {strategy.category}
+                    <span className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-950/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      <Layers3 className="mr-1.5 h-3 w-3" />
+                      {strategy.category}
+                    </span>
+                  </div>
+                  <p className="text-slate-400 text-sm mb-2">{strategy.description}</p>
+                  <div className="flex gap-3 flex-wrap">
+                    {strategy.is_public && (
+                      <span className="inline-block rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-xs text-blue-300">
+                        🌐 Public
                       </span>
-                      {strategy.is_public && (
-                        <span className="inline-block px-2 py-1 bg-blue-500/20 rounded text-xs text-blue-300">
-                          🌐 Public
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Parameters */}
-                <div className="grid grid-cols-3 gap-4 my-4 py-4 border-t border-slate-700">
-                  <div>
-                    <p className="text-xs text-gray-500">Z-Score Threshold</p>
-                    <p className="text-lg font-semibold text-blue-400">
-                      {strategy.zscore_threshold}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Stats Window (h)</p>
-                    <p className="text-lg font-semibold text-blue-400">{strategy.stats_window}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Max Half-Life (h)</p>
-                    <p className="text-lg font-semibold text-blue-400">{strategy.max_half_life}</p>
-                  </div>
-                </div>
-
-                {/* Metadata */}
-                <div className="text-xs text-gray-500 mb-4">
-                  Updated: {new Date(strategy.updated_at).toLocaleDateString()} at{' '}
-                  {new Date(strategy.updated_at).toLocaleTimeString()}
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleRunStrategy(strategy)}
-                    className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded transition"
-                  >
-                    ▶️ Run Backtest
-                  </button>
-                  <button
-                    onClick={() => navigate(`/strategies/${strategy.id}/edit`)}
-                    className="flex-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded transition"
-                  >
-                    ✏️ Edit
-                  </button>
-                  <button
-                    onClick={() => handleDuplicate(strategy)}
-                    className="flex-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded transition"
-                  >
-                    📋 Duplicate
-                  </button>
-                  {deleteConfirmId === strategy.id ? (
-                    <>
-                      <button
-                        onClick={() => handleDelete(strategy.id)}
-                        className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded transition"
-                      >
-                        Confirm Delete
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirmId(null)}
-                        className="flex-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded transition"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setDeleteConfirmId(strategy.id)}
-                      className="flex-1 px-3 py-2 bg-slate-700 hover:bg-red-600/30 text-white text-sm font-medium rounded transition"
-                    >
-                      🗑️ Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-8 flex justify-center gap-2">
-            <button
-              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
-              disabled={currentPage === 0}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/50 text-white rounded transition"
-            >
-              ← Previous
-            </button>
-            <div className="flex items-center gap-2">
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setCurrentPage(i)}
-                  className={`px-3 py-2 rounded transition ${
-                    currentPage === i
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-gray-300'
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
-              disabled={currentPage === totalPages - 1}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/50 text-white rounded transition"
-            >
-              Next →
-            </button>
-          </div>
-        )}
-
-        {/* Run Backtest Modal */}
-        {runModalOpen && selectedStrategy && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full">
-              <h2 className="text-xl font-bold text-white mb-4">
-                Run Backtest: {selectedStrategy.name}
-              </h2>
-
-              {/* Strategy Preview */}
-              <div className="bg-slate-700/50 rounded p-4 mb-4">
-                <p className="text-sm text-gray-400 mb-2">Strategy Parameters:</p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="text-gray-300">
-                    Z-Score:{' '}
-                    <span className="text-blue-400">{selectedStrategy.zscore_threshold}</span>
-                  </div>
-                  <div className="text-gray-300">
-                    Stats Window:{' '}
-                    <span className="text-blue-400">{selectedStrategy.stats_window}h</span>
-                  </div>
-                  <div className="text-gray-300">
-                    Max Positions:{' '}
-                    <span className="text-blue-400">{selectedStrategy.max_positions}</span>
-                  </div>
-                  <div className="text-gray-300">
-                    USD/Trade:{' '}
-                    <span className="text-blue-400">${selectedStrategy.usd_per_trade}</span>
-                  </div>
-                  <div className="text-gray-300">
-                    Max Drawdown:{' '}
-                    <span className="text-blue-400">{selectedStrategy.max_drawdown_pct}%</span>
-                  </div>
-                  <div className="text-gray-300">
-                    Stop Loss:{' '}
-                    <span className="text-blue-400">{selectedStrategy.stop_loss_pct}%</span>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Error Alert */}
-              {runError && (
-                <div className="mb-4 p-3 bg-red-500/10 border border-red-500 rounded text-sm text-red-400">
-                  {runError}
+              <div className="grid grid-cols-1 gap-4 my-4 border-t border-slate-700/70 py-4 sm:grid-cols-3">
+                <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Z-Score Threshold</p>
+                  <p className="text-lg font-semibold text-cyan-300">
+                    {strategy.zscore_threshold}
+                  </p>
                 </div>
-              )}
-
-              {/* Date Inputs */}
-              <div className="space-y-3 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    value={backtestStartDate}
-                    onChange={(e) => setBacktestStartDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
+                <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Stats Window (h)</p>
+                  <p className="text-lg font-semibold text-cyan-300">{strategy.stats_window}</p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">End Date</label>
-                  <input
-                    type="date"
-                    value={backtestEndDate}
-                    onChange={(e) => setBacktestEndDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
+                <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Max Half-Life (h)</p>
+                  <p className="text-lg font-semibold text-cyan-300">{strategy.max_half_life}</p>
                 </div>
               </div>
 
-              {/* Request Preview */}
-              <div className="mb-4 p-3 bg-slate-900/70 border border-slate-600 rounded">
-                <p className="text-xs text-slate-300 mb-2">Request payload preview</p>
-                <pre className="text-[11px] text-slate-400 whitespace-pre-wrap break-all">
-                  {JSON.stringify(buildRunPayload(), null, 2)}
-                </pre>
+              <div className="mb-4 text-xs text-slate-500">
+                Updated: {new Date(strategy.updated_at).toLocaleDateString()} at{' '}
+                {new Date(strategy.updated_at).toLocaleTimeString()}
               </div>
 
-              {/* Action Buttons */}
               <div className="flex gap-2">
                 <button
-                  onClick={handleExecuteBacktest}
-                  disabled={runLoading}
-                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 text-white font-medium rounded transition"
+                  onClick={() => handleRunStrategy(strategy)}
+                  className="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-white text-sm font-medium transition hover:bg-emerald-500"
                 >
-                  {runLoading ? 'Running...' : '▶️ Run Backtest'}
+                  ▶️ Run Backtest
                 </button>
                 <button
-                  onClick={() => {
-                    setRunModalOpen(false);
-                    setSelectedStrategy(null);
-                    setRunError(null);
-                  }}
-                  disabled={runLoading}
-                  className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/50 text-white font-medium rounded transition"
+                  onClick={() => navigate(`/strategies/${strategy.id}/edit`)}
+                  className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-cyan-500/35"
                 >
-                  Cancel
+                  ✏️ Edit
                 </button>
+                <button
+                  onClick={() => void handleDuplicate(strategy)}
+                  disabled={duplicateMutation.isPending}
+                  className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-cyan-500/35 disabled:opacity-60"
+                >
+                  📋 Duplicate
+                </button>
+                {deleteConfirmId === strategy.id ? (
+                  <>
+                    <button
+                      onClick={() => void handleDelete(strategy.id)}
+                      disabled={deleteMutation.isPending}
+                      className="flex-1 rounded-xl bg-red-600 px-3 py-2 text-white text-sm font-medium transition hover:bg-red-500 disabled:opacity-60"
+                    >
+                      Confirm Delete
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirmId(null)}
+                      className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-cyan-500/35"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirmId(strategy.id)}
+                    className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-red-500/35"
+                  >
+                    🗑️ Delete
+                  </button>
+                )}
               </div>
             </div>
+          ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="mt-8 flex justify-center gap-2">
+          <button
+            onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+            disabled={currentPage === 0}
+            className="rounded-2xl border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-white transition hover:border-cyan-500/35 disabled:opacity-50"
+          >
+            ← Previous
+          </button>
+          <div className="flex items-center gap-2">
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentPage(i)}
+                className={`px-3 py-2 rounded transition ${
+                  currentPage === i
+                    ? 'bg-cyan-600 text-white'
+                    : 'bg-slate-900/60 hover:border-cyan-500/35 text-gray-300 border border-slate-700/70'
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
           </div>
-        )}
+          <button
+            onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+            disabled={currentPage === totalPages - 1}
+            className="rounded-2xl border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-white transition hover:border-cyan-500/35 disabled:opacity-50"
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
+      {runModalOpen && selectedStrategy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="premium-panel w-full max-w-md">
+            <h2 className="text-xl font-bold text-white mb-4">
+              Run Backtest: {selectedStrategy.name}
+            </h2>
+
+            <div className="mb-4 rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4">
+              <p className="mb-2 text-sm text-slate-400">Strategy Parameters:</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="text-slate-300">
+                  Z-Score:{' '}
+                  <span className="text-cyan-300">{selectedStrategy.zscore_threshold}</span>
+                </div>
+                <div className="text-slate-300">
+                  Stats Window:{' '}
+                  <span className="text-cyan-300">{selectedStrategy.stats_window}h</span>
+                </div>
+                <div className="text-slate-300">
+                  Max Positions:{' '}
+                  <span className="text-cyan-300">{selectedStrategy.max_positions}</span>
+                </div>
+                <div className="text-slate-300">
+                  USD/Trade:{' '}
+                  <span className="text-cyan-300">${selectedStrategy.usd_per_trade}</span>
+                </div>
+                <div className="text-slate-300">
+                  Max Drawdown:{' '}
+                  <span className="text-cyan-300">{selectedStrategy.max_drawdown_pct}%</span>
+                </div>
+                <div className="text-slate-300">
+                  Stop Loss:{' '}
+                  <span className="text-cyan-300">{selectedStrategy.stop_loss_pct}%</span>
+                </div>
+              </div>
+            </div>
+
+            {runError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500 rounded text-sm text-red-400">
+                {runError}
+              </div>
+            )}
+
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={backtestStartDate}
+                  onChange={(e) => setBacktestStartDate(e.target.value)}
+                  className="premium-input"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={backtestEndDate}
+                  onChange={(e) => setBacktestEndDate(e.target.value)}
+                  className="premium-input"
+                />
+              </div>
+            </div>
+
+            <div className="mb-4 rounded-2xl border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-xs text-slate-300 mb-2">Request payload preview</p>
+              <pre className="text-[11px] text-slate-400 whitespace-pre-wrap break-all">
+                {JSON.stringify(buildRunPayload(), null, 2)}
+              </pre>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => void handleExecuteBacktest()}
+                disabled={runBacktestMutation.isPending}
+                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 text-white font-medium rounded transition"
+              >
+                {runBacktestMutation.isPending ? 'Running...' : '▶️ Run Backtest'}
+              </button>
+              <button
+                onClick={() => {
+                  setRunModalOpen(false);
+                  setSelectedStrategy(null);
+                  setRunError(null);
+                }}
+                disabled={runBacktestMutation.isPending}
+                className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/50 text-white font-medium rounded transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </PageContainer>
   );
 }

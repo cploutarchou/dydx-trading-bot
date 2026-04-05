@@ -16,20 +16,27 @@ PostgreSQL and Redis provide shared persistence, state, and caching.
 
 ## Shared environment
 
-Use the repo-root `.env` for all three services.
+All three services load the same repo-root `run.json` during local startup.
 
-- `frontend` reads `VITE_*` values from the repo root
-- `backend` loads the repo-root `.env`
-- `bot` entrypoints and config load the repo-root `.env`
+- encrypted source profiles live in `config/profiles/`
+- `make dev` decrypts `config/profiles/development.config.enc.json` into `run.json`
+- `make prod` decrypts `config/profiles/production.config.enc.json` into `run.json`
+- services prefer `run.json`, with `APP_RUN_CONFIG_FILE` available as an explicit override
 
-You generally should not need `backend/.env`, `bot/.env`, or `frontend/.env.local` for normal local development.
+Preferred workflow:
+
+- encrypted runtime profile in `config/profiles/development.config.enc.json` or `config/profiles/production.config.enc.json`
+- example profile in `config/profiles/example.config.json`
+- repo key in `.configkey.bin`
 
 ## Quick start
 
 ### Service-first development
 
 ```bash
-make stack-env
+make config-keygen
+make dev-config
+make dev
 make infra-up
 ```
 
@@ -49,7 +56,9 @@ make infra-down
 ### Full integration stack
 
 ```bash
-make stack-env
+make config-keygen
+make dev-config
+make dev
 make stack-up-dev
 make stack-ps
 make stack-logs
@@ -91,7 +100,8 @@ Default proxy entry point: <http://localhost:8080>
 ## Common commands
 
 ```bash
-make stack-env
+make config-keygen
+make dev-config
 make infra-up
 make infra-down
 make stack-up-dev
@@ -116,9 +126,10 @@ There are no committed service-specific `.code-workspace` files in this checkout
 
 ## Troubleshooting
 
-### Missing `.env`
+### Missing Structured Config
 
-Run `make stack-env`, then fill in any required secrets before non-local use.
+Run `make config-keygen` once, then `make dev-config`, then fill in any required secrets before non-local use.
+Then run `make dev` to regenerate `run.json`.
 
 ### Docker or stack issues
 

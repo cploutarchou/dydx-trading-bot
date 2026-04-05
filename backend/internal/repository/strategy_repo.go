@@ -3,6 +3,8 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -10,7 +12,11 @@ import (
 
 // StrategyRepository handles strategy database operations
 type StrategyRepository struct {
-	db *sql.DB
+	db                      *sql.DB
+	strategySchemaMu        sync.Mutex
+	strategySchemaSet       bool
+	executionStateSchemaMu  sync.Mutex
+	executionStateSchemaSet bool
 }
 
 // NewStrategyRepository creates a new strategy repository
@@ -18,13 +24,148 @@ func NewStrategyRepository(db *sql.DB) *StrategyRepository {
 	return &StrategyRepository{db: db}
 }
 
+func (r *StrategyRepository) ensureStrategySchema() error {
+	r.strategySchemaMu.Lock()
+	defer r.strategySchemaMu.Unlock()
+
+	if r.strategySchemaSet {
+		return nil
+	}
+
+	rows, err := r.db.Query(`SELECT * FROM backtest_strategies LIMIT 0`)
+	if err != nil {
+		return fmt.Errorf("failed to inspect backtest strategy schema: %w", err)
+	}
+	defer rows.Close()
+
+	columnNames, err := rows.Columns()
+	if err != nil {
+		return fmt.Errorf("failed to read backtest strategy columns: %w", err)
+	}
+
+	columns := make(map[string]struct{}, len(columnNames))
+	for _, name := range columnNames {
+		columns[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
+	}
+
+	if _, exists := columns["runtime_strategy"]; !exists {
+		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN runtime_strategy TEXT NOT NULL DEFAULT 'cointegration'`); err != nil {
+			return fmt.Errorf("failed to add backtest strategy runtime_strategy column: %w", err)
+		}
+	}
+
+	r.strategySchemaSet = true
+	return nil
+}
+
+func (r *StrategyRepository) ensureExecutionStateSchema() error {
+	r.executionStateSchemaMu.Lock()
+	defer r.executionStateSchemaMu.Unlock()
+
+	if r.executionStateSchemaSet {
+		return nil
+	}
+
+	rows, err := r.db.Query(`SELECT * FROM strategy_execution_states LIMIT 0`)
+	if err != nil {
+		return fmt.Errorf("failed to inspect strategy execution state schema: %w", err)
+	}
+	defer rows.Close()
+
+	columnNames, err := rows.Columns()
+	if err != nil {
+		return fmt.Errorf("failed to read strategy execution state columns: %w", err)
+	}
+
+	columns := make(map[string]struct{}, len(columnNames))
+	for _, name := range columnNames {
+		columns[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
+	}
+
+	type columnRepair struct {
+		name        string
+		addSQL      string
+		backfillSQL string
+	}
+
+	repairs := []columnRepair{
+		{
+			name:   "is_running",
+			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN is_running BOOLEAN DEFAULT 0`,
+			backfillSQL: `UPDATE strategy_execution_states
+				SET is_running = CASE
+					WHEN is_running IS NOT NULL THEN is_running
+					WHEN enabled IS NOT NULL THEN enabled
+					WHEN LOWER(COALESCE(status, '')) IN ('running', 'starting') THEN 1
+					ELSE 0
+				END`,
+		},
+		{
+			name:   "last_run_at",
+			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN last_run_at TIMESTAMP NULL`,
+			backfillSQL: `UPDATE strategy_execution_states
+				SET last_run_at = COALESCE(last_run_at, last_started, last_trade_at)`,
+		},
+		{
+			name:        "next_run_at",
+			addSQL:      `ALTER TABLE strategy_execution_states ADD COLUMN next_run_at TIMESTAMP NULL`,
+			backfillSQL: ``,
+		},
+		{
+			name:   "state",
+			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN state TEXT`,
+			backfillSQL: `UPDATE strategy_execution_states
+				SET state = COALESCE(
+					NULLIF(state, ''),
+					NULLIF(status, ''),
+					CASE
+						WHEN COALESCE(is_running, enabled, 0) = 1 THEN 'running'
+						ELSE 'stopped'
+					END
+				)`,
+		},
+	}
+
+	for _, repair := range repairs {
+		if _, exists := columns[repair.name]; exists {
+			continue
+		}
+		if _, err := r.db.Exec(repair.addSQL); err != nil {
+			return fmt.Errorf("failed to add strategy execution state column %s: %w", repair.name, err)
+		}
+		if strings.TrimSpace(repair.backfillSQL) != "" {
+			if _, err := r.db.Exec(repair.backfillSQL); err != nil {
+				return fmt.Errorf("failed to backfill strategy execution state column %s: %w", repair.name, err)
+			}
+		}
+	}
+
+	if _, err := r.db.Exec(`UPDATE strategy_execution_states SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)`); err != nil {
+		return fmt.Errorf("failed to backfill strategy execution state created_at: %w", err)
+	}
+
+	if _, err := r.db.Exec(`UPDATE strategy_execution_states SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`); err != nil {
+		return fmt.Errorf("failed to backfill strategy execution state updated_at: %w", err)
+	}
+
+	r.executionStateSchemaSet = true
+	return nil
+}
+
 // ============ BacktestStrategy Operations ============
 
 // CreateStrategy creates a new backtest strategy
 func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) error {
+	if err := r.ensureStrategySchema(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(strategy.RuntimeStrategy) == "" {
+		strategy.RuntimeStrategy = "cointegration"
+	}
+
 	query := `
 		INSERT INTO backtest_strategies (
-			user_id, name, description, category, is_public, is_default,
+			user_id, name, description, category, is_public, is_default, runtime_strategy,
 			zscore_threshold, stats_window, max_half_life, usd_per_trade,
 			usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 			manage_exits, place_trades, abort_all_positions, max_positions,
@@ -32,7 +173,7 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 			rebalance_interval_hours, position_timeout_hours, transaction_fee,
 			slippage, starting_balance, candle_resolution, max_history_days,
 			benchmark_symbol, risk_free_rate, initial_amount, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -40,7 +181,7 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 	err := r.db.QueryRow(
 		query,
 		strategy.UserID, strategy.Name, strategy.Description, strategy.Category,
-		strategy.IsPublic, strategy.IsDefault, strategy.ZscoreThreshold,
+		strategy.IsPublic, strategy.IsDefault, strategy.RuntimeStrategy, strategy.ZscoreThreshold,
 		strategy.StatsWindow, strategy.MaxHalfLife, strategy.UsdPerTrade,
 		strategy.UsdMinCollateral, strategy.CloseAtZscoreCross, strategy.FindCointegratedPairs,
 		strategy.ManageExits, strategy.PlaceTrades, strategy.AbortAllPositions,
@@ -61,8 +202,12 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 
 // GetStrategyByID retrieves a strategy by ID
 func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, error) {
+	if err := r.ensureStrategySchema(); err != nil {
+		return nil, err
+	}
+
 	query := `
-		SELECT id, user_id, name, description, category, is_public, is_default,
+		SELECT id, user_id, name, description, category, is_public, is_default, runtime_strategy,
 		       zscore_threshold, stats_window, max_half_life, usd_per_trade,
 		       usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 		       manage_exits, place_trades, abort_all_positions, max_positions,
@@ -79,7 +224,7 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 	strategy := &models.BacktestStrategy{}
 	err := r.db.QueryRow(query, id).Scan(
 		&strategy.ID, &strategy.UserID, &strategy.Name, &strategy.Description,
-		&strategy.Category, &strategy.IsPublic, &strategy.IsDefault,
+		&strategy.Category, &strategy.IsPublic, &strategy.IsDefault, &strategy.RuntimeStrategy,
 		&strategy.ZscoreThreshold, &strategy.StatsWindow, &strategy.MaxHalfLife,
 		&strategy.UsdPerTrade, &strategy.UsdMinCollateral, &strategy.CloseAtZscoreCross,
 		&strategy.FindCointegratedPairs, &strategy.ManageExits, &strategy.PlaceTrades,
@@ -104,8 +249,12 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 
 // GetStrategiesByUser retrieves all strategies for a user
 func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestStrategy, error) {
+	if err := r.ensureStrategySchema(); err != nil {
+		return nil, err
+	}
+
 	query := `
-		SELECT id, user_id, name, description, category, is_public, is_default,
+		SELECT id, user_id, name, description, category, is_public, is_default, runtime_strategy,
 		       zscore_threshold, stats_window, max_half_life, usd_per_trade,
 		       usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 		       manage_exits, place_trades, abort_all_positions, max_positions,
@@ -130,7 +279,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 		strategy := models.BacktestStrategy{}
 		err := rows.Scan(
 			&strategy.ID, &strategy.UserID, &strategy.Name, &strategy.Description,
-			&strategy.Category, &strategy.IsPublic, &strategy.IsDefault,
+			&strategy.Category, &strategy.IsPublic, &strategy.IsDefault, &strategy.RuntimeStrategy,
 			&strategy.ZscoreThreshold, &strategy.StatsWindow, &strategy.MaxHalfLife,
 			&strategy.UsdPerTrade, &strategy.UsdMinCollateral, &strategy.CloseAtZscoreCross,
 			&strategy.FindCointegratedPairs, &strategy.ManageExits, &strategy.PlaceTrades,
@@ -153,31 +302,42 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 
 // UpdateStrategy updates an existing strategy
 func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) error {
+	if err := r.ensureStrategySchema(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(strategy.RuntimeStrategy) == "" {
+		strategy.RuntimeStrategy = "cointegration"
+	}
+
 	query := `
 		UPDATE backtest_strategies
 		SET name = $1, description = $2, category = $3, is_public = $4,
-		    zscore_threshold = $5, stats_window = $6, max_half_life = $7,
-		    usd_per_trade = $8, usd_min_collateral = $9, close_at_zscore_cross = $10,
-		    find_cointegrated_pairs = $11, manage_exits = $12, place_trades = $13,
-		    abort_all_positions = $14, max_positions = $15, max_drawdown_pct = $16,
-		    stop_loss_pct = $17, take_profit_pct = $18, trailing_stop_pct = $19,
-		    rebalance_interval_hours = $20, position_timeout_hours = $21,
-		    transaction_fee = $22, slippage = $23, candle_resolution = $24,
-		    initial_amount = $25, usage_count = $26, last_used_at = $27, updated_at = $28
-		WHERE id = $29
+		    runtime_strategy = $5, zscore_threshold = $6, stats_window = $7, max_half_life = $8,
+		    usd_per_trade = $9, usd_min_collateral = $10, close_at_zscore_cross = $11,
+		    find_cointegrated_pairs = $12, manage_exits = $13, place_trades = $14,
+		    abort_all_positions = $15, max_positions = $16, max_drawdown_pct = $17,
+		    stop_loss_pct = $18, take_profit_pct = $19, trailing_stop_pct = $20,
+		    rebalance_interval_hours = $21, position_timeout_hours = $22,
+		    transaction_fee = $23, slippage = $24, starting_balance = $25,
+		    candle_resolution = $26, max_history_days = $27, benchmark_symbol = $28,
+		    risk_free_rate = $29, initial_amount = $30, usage_count = $31, last_used_at = $32,
+		    updated_at = $33
+		WHERE id = $34
 	`
 
 	result, err := r.db.Exec(
 		query,
 		strategy.Name, strategy.Description, strategy.Category, strategy.IsPublic,
-		strategy.ZscoreThreshold, strategy.StatsWindow, strategy.MaxHalfLife,
+		strategy.RuntimeStrategy, strategy.ZscoreThreshold, strategy.StatsWindow, strategy.MaxHalfLife,
 		strategy.UsdPerTrade, strategy.UsdMinCollateral, strategy.CloseAtZscoreCross,
 		strategy.FindCointegratedPairs, strategy.ManageExits, strategy.PlaceTrades,
 		strategy.AbortAllPositions, strategy.MaxPositions, strategy.MaxDrawdownPct,
 		strategy.StopLossPct, strategy.TakeProfitPct, strategy.TrailingStopPct,
 		strategy.RebalanceIntervalHours, strategy.PositionTimeoutHours,
-		strategy.TransactionFee, strategy.Slippage, strategy.CandleResolution,
-		strategy.InitialAmount, strategy.UsageCount, strategy.LastUsedAt, time.Now(), strategy.ID,
+		strategy.TransactionFee, strategy.Slippage, strategy.StartingBalance,
+		strategy.CandleResolution, strategy.MaxHistoryDays, strategy.BenchmarkSymbol,
+		strategy.RiskFreeRate, strategy.InitialAmount, strategy.UsageCount, strategy.LastUsedAt,
+		time.Now(), strategy.ID,
 	)
 
 	if err != nil {
@@ -221,6 +381,10 @@ func (r *StrategyRepository) DeleteStrategy(id int) error {
 
 // GetExecutionState retrieves execution state for a strategy
 func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.StrategyExecutionState, error) {
+	if err := r.ensureExecutionStateSchema(); err != nil {
+		return nil, err
+	}
+
 	query := `
 		SELECT id, strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at
 		FROM strategy_execution_states
@@ -246,6 +410,10 @@ func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.Strategy
 
 // CreateExecutionState creates a new execution state
 func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutionState) error {
+	if err := r.ensureExecutionStateSchema(); err != nil {
+		return err
+	}
+
 	query := `
 		INSERT INTO strategy_execution_states (strategy_id, is_running, created_at, updated_at)
 		VALUES ($1, $2, $3, $4)
@@ -266,6 +434,10 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 
 // UpdateExecutionState updates execution state
 func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutionState) error {
+	if err := r.ensureExecutionStateSchema(); err != nil {
+		return err
+	}
+
 	query := `
 		UPDATE strategy_execution_states
 		SET is_running = $1, last_run_at = $2, next_run_at = $3, state = $4, updated_at = $5

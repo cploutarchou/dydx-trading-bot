@@ -38,11 +38,13 @@ func setupTransportRouter(t *testing.T, botAPIBaseURL string, botHTTPClient *htt
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		email TEXT NOT NULL UNIQUE,
+		role TEXT NOT NULL DEFAULT 'client',
 		full_name TEXT,
 		avatar TEXT,
 		hashed_password TEXT NOT NULL,
 		is_active BOOLEAN NOT NULL DEFAULT 1,
 		is_admin BOOLEAN NOT NULL DEFAULT 0,
+		password_change_required BOOLEAN NOT NULL DEFAULT 0,
 		last_login DATETIME,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL
@@ -77,6 +79,7 @@ func setupTransportRouter(t *testing.T, botAPIBaseURL string, botHTTPClient *htt
 	}
 
 	router := gin.New()
+	router.Use(middleware.RequestTraceMiddleware())
 	RegisterAuthRoutes(router, dbConn)
 	RegisterBotAPIDelegateRoutes(router, apiClient)
 
@@ -251,6 +254,52 @@ func TestDelegatedRoute_UpstreamStatus_StillPassedThrough(t *testing.T) {
 	}
 	if body["message"] != "upstream forbidden" {
 		t.Fatalf("unexpected passthrough message: %v", body)
+	}
+}
+
+func TestDelegatedRoute_PropagatesTraceHeader(t *testing.T) {
+	upstreamTraceCh := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamTraceCh <- r.Header.Get("X-Trace-Id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"healthy":true}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	router, dbConn := setupTransportRouter(t, upstream.URL, nil)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginTransportTestUser(t, backendServer.URL)
+
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/system/status", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Trace-Id", "req-route-trace")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("execute request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-Trace-Id"); got != "req-route-trace" {
+		t.Fatalf("expected response trace header to echo inbound trace, got %q", got)
+	}
+
+	select {
+	case got := <-upstreamTraceCh:
+		if got != "req-route-trace" {
+			t.Fatalf("expected upstream trace header, got %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream trace header")
 	}
 }
 

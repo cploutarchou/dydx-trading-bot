@@ -18,12 +18,6 @@ class BotStatus(str, Enum):
     ERROR = "error"
 
 
-class TradingStrategy(str, Enum):
-    """Supported strategy enum for bot instances."""
-
-    MEAN_REVERSION = "mean_reversion"
-
-
 class TradingParameters(BaseModel):
     """Trading parameters used by bot instances."""
 
@@ -33,13 +27,32 @@ class TradingParameters(BaseModel):
     place_trades: bool = True
     abort_all_positions: bool = False
     resolution_timeframe: str = "1HOUR"
-    strategy: TradingStrategy = TradingStrategy.MEAN_REVERSION
+    strategy: str = "cointegration"
     stats_window: int = 21
     max_half_life: int = 24
     zscore_threshold: float = 1.5
     usd_per_trade: float = 10.0
     usd_min_collateral: float = 100.0
     close_at_zscore_cross: bool = True
+    max_positions: int = 5
+    max_drawdown_pct: float = 15.0
+    stop_loss_pct: float = 2.0
+    take_profit_pct: float = 5.0
+    trailing_stop_pct: float = 1.0
+    rebalance_interval_hours: int = 24
+    position_timeout_hours: int = 72
+
+
+class BacktestingParameters(BaseModel):
+    """Backtesting defaults stored alongside runtime-managed instances."""
+
+    candle_resolution: str = "1HOUR"
+    max_history_days: int = 90
+    starting_balance: float = 1000.0
+    transaction_fee: float = 0.0005
+    slippage: float = 0.001
+    benchmark_symbol: str = "BTC-USD"
+    risk_free_rate: float = 0.02
 
 
 class BotCredentials(BaseModel):
@@ -50,6 +63,13 @@ class BotCredentials(BaseModel):
     mnemonic: str
 
 
+class TelegramConfig(BaseModel):
+    """Shared Telegram notification settings for runtime-managed instances."""
+
+    token: str = ""
+    chat_id: str = ""
+
+
 class BotInstanceConfig(BaseModel):
     """Bot instance configuration payload."""
 
@@ -58,7 +78,9 @@ class BotInstanceConfig(BaseModel):
         None, description="Human-friendly instance name"
     )
     credentials: BotCredentials
+    telegram: Optional[TelegramConfig] = None
     trading_params: TradingParameters
+    backtesting_params: Optional[BacktestingParameters] = None
 
 
 class BotInstanceStatus(BaseModel):

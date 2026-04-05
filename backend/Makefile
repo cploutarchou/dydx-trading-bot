@@ -83,24 +83,9 @@ dev:
 		exit 1; \
 	fi
 
-## dev-env: Create or overwrite .env for development|production (usage: make dev-env MODE=development)
+## dev-env: Deprecated: backend now reads config/profiles directly
 dev-env:
-	@MODE_VALUE="$(MODE)"; \
-	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
-		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
-		exit 1; \
-	fi; \
-	if [ -f .env ]; then \
-		printf "$(YELLOW).env already exists. Overwrite for %s? [y/N] $(NC)" "$$MODE_VALUE"; \
-		read answer; \
-		case "$$answer" in \
-			y|Y|yes|YES) ;; \
-			*) echo "$(YELLOW)Cancelled$(NC)"; exit 1;; \
-		esac; \
-	fi; \
-	cp .env.example .env; \
-	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('.env'); lines=p.read_text().splitlines(); updates={'BOT_API_URL':'http://127.0.0.1:8889'}; updates.update({'BOT_API_USE_SERVICE_TOKEN':'true','BOT_API_TOKEN':'dev-local-service-token','APP_ENV':'development','IS_TESTNET':'true'} if mode=='development' else {'BOT_API_USE_SERVICE_TOKEN':'true','BOT_API_TOKEN':'change-me-service-token','APP_ENV':'production','IS_TESTNET':'false'}); out=[]; [out.append(line if (not line or line.lstrip().startswith('#') or '=' not in line or line.split('=',1)[0] not in updates) else f\"{line.split('=',1)[0]}={updates[line.split('=',1)[0]]}\") for line in lines]; p.write_text('\\n'.join(out)+'\\n'); print(f'Created {p} for {mode}')";
-	@echo "$(GREEN)✓ .env generated for $(MODE)$(NC)"
+	@echo "$(YELLOW)⚠ dev-env is deprecated. Use make dev-config or make prod-config from repo root.$(NC)"
 
 ## test: Run all tests
 test:
@@ -251,7 +236,10 @@ docker-build:
 ## docker-run: Run application in Docker
 docker-run:
 	@echo "$(CYAN)Running Docker container...$(NC)"
-	docker run -p 8888:8888 --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker run -p 8888:8888 \
+		-e APP_CONFIG_ENV=$(MODE) \
+		-v $(PWD)/../config:/app/config:ro \
+		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 ## deps: Download dependencies
 deps:

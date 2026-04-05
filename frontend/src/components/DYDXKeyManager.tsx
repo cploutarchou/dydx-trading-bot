@@ -6,6 +6,7 @@ interface DYDXKey {
   id: number;
   network: 'testnet' | 'mainnet';
   chain_address: string;
+  secret_masked?: string;
   is_active?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -37,6 +38,7 @@ export const DYDXKeyManager: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [formSubmitting, setFormSubmitting] = useState(false);
+  const [confirmDeleteNetwork, setConfirmDeleteNetwork] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<CreateKeyPayload>({
@@ -178,19 +180,12 @@ export const DYDXKeyManager: React.FC = () => {
    * Handle deleting a key
    */
   const handleDeleteKey = async (network: string) => {
-    if (
-      !confirm(
-        `🗑️  Are you sure you want to delete the ${network} key?\n\nThis action cannot be undone.`
-      )
-    ) {
-      return;
-    }
-
     setDeleting(network);
     setError(null);
 
     try {
       await api.deleteKey(network);
+      setConfirmDeleteNetwork(null);
       setSuccessMessage(`✅ ${network} key deleted successfully!`);
       await loadKeys();
     } catch (err) {
@@ -265,7 +260,9 @@ export const DYDXKeyManager: React.FC = () => {
           onSubmit={handleAddKey}
           className="bg-slate-900 rounded-lg border border-slate-700 p-6"
         >
-          <h3 className="text-lg font-bold text-white mb-4">Add New Key</h3>
+          <h3 className="text-lg font-bold text-white mb-4">
+            {keys.some((key) => key.network === formData.network) ? 'Update Stored Key' : 'Add New Key'}
+          </h3>
 
           {/* Network Selection */}
           <div className="mb-6">
@@ -300,6 +297,9 @@ export const DYDXKeyManager: React.FC = () => {
                   <p className="text-slate-400 text-xs mt-1">
                     {net === 'testnet' ? 'For testing and development' : 'For production trading'}
                   </p>
+                  {keys.some((key) => key.network === net) && (
+                    <p className="mt-2 text-xs text-cyan-300">Existing stored secret will be updated</p>
+                  )}
                 </label>
               ))}
             </div>
@@ -439,6 +439,10 @@ export const DYDXKeyManager: React.FC = () => {
                           ? `${new Date(key.created_at).toLocaleDateString()} at ${new Date(key.created_at).toLocaleTimeString()}`
                           : 'Unknown'}
                       </p>
+                      <p className="mt-2 text-xs text-slate-500">Masked secret</p>
+                      <p className="font-mono text-xs text-slate-300">
+                        {key.secret_masked || 'Stored and masked'}
+                      </p>
                     </div>
                   </div>
 
@@ -452,17 +456,40 @@ export const DYDXKeyManager: React.FC = () => {
                     )}
 
                     {/* Delete Button */}
-                    <button
-                      onClick={() => handleDeleteKey(key.network)}
-                      disabled={deleting === key.network}
-                      className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
-                        deleting === key.network
-                          ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                          : 'bg-red-900/50 hover:bg-red-900 border border-red-700 text-red-300 hover:text-red-200'
-                      }`}
-                    >
-                      {deleting === key.network ? 'Deleting...' : '🗑️ Delete'}
-                    </button>
+                    {confirmDeleteNetwork === key.network ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => void handleDeleteKey(key.network)}
+                          disabled={deleting === key.network}
+                          className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+                            deleting === key.network
+                              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                              : 'bg-red-700 hover:bg-red-800 border border-red-600 text-white'
+                          }`}
+                        >
+                          {deleting === key.network ? 'Deleting...' : 'Confirm Delete'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteNetwork(null)}
+                          disabled={deleting === key.network}
+                          className="px-3 py-1 rounded-lg text-sm font-medium transition-all bg-slate-700 hover:bg-slate-600 text-white"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteNetwork(key.network)}
+                        disabled={deleting === key.network}
+                        className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+                          deleting === key.network
+                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                            : 'bg-red-900/50 hover:bg-red-900 border border-red-700 text-red-300 hover:text-red-200'
+                        }`}
+                      >
+                        🗑️ Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -481,9 +508,7 @@ export const DYDXKeyManager: React.FC = () => {
           <li className="flex gap-2">
             <span className="text-green-400 font-bold">✓</span>
             <span>
-              Keys are encrypted with{' '}
-              <code className="bg-slate-800 px-2 py-1 rounded text-xs">Fernet</code> symmetric
-              encryption
+              Keys are encrypted at rest and stored with an additional one-way fingerprint for safer operational handling
             </span>
           </li>
           <li className="flex gap-2">

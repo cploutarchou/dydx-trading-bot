@@ -76,7 +76,8 @@ All routes below use the standard envelope unless noted. Required keys are liste
 | `GET /api/v1/backtests/sync-health` | `status` plus runtime counters (for example `queue_depth`, `active_jobs`, `total_runs`) | Runtime counters come from backtest service health output. |
 | `POST /api/v1/bots` | operation payload object (bot lifecycle result) | Wrapped in standard envelope for API consumers. |
 | `GET /api/v1/bots` | `bots`, `total` | Bot list endpoint for control plane UI. |
-| `GET /health` | `status`, `api_version`, `timestamp`, `backtest_runtime` | Health is also wrapped in the standard envelope. |
+| `GET /health` | `status`, `api_version`, `timestamp`, `backtest_runtime` | Liveness endpoint wrapped in the standard envelope. |
+| `GET /ready` | `status`, `bot_manager_ready`, `timestamp`, `backtest_runtime` | Readiness endpoint returns HTTP `503` when the bot manager is unavailable. |
 
 For auth routes (`/auth/*`, `/api/v1/auth/*`), use the auth-specific payload contracts above.
 
@@ -84,6 +85,7 @@ For auth routes (`/auth/*`, `/api/v1/auth/*`), use the auth-specific payload con
 
 - Failures use `success: false` with a descriptive `message`.
 - Trace propagation is request-scoped; if client sends `X-Trace-Id`, it is reused.
+- Backend now forwards `X-Trace-Id` to both delegated HTTP calls and strategy websocket connections so a single operator action can be correlated across frontend, backend, and bot logs.
 - In development mode, request logs include method, path, status, duration, client, and trace id.
 
 ## WebSocket Auth
@@ -93,6 +95,26 @@ WebSocket routes require bearer auth unless `API_BYPASS_AUTH=true`.
 Supported token sources:
 - `Authorization: Bearer <token>` header
 - `access_token` query parameter
+
+## Strategy Runtime WebSocket
+
+`GET /ws/strategies` is the live strategy-runtime channel consumed through the backend websocket proxy.
+
+Behavior:
+- on connect, the channel now sends a `strategy_status_snapshot` message containing the current strategy-managed runtime states
+- lifecycle transitions then stream as `strategy_status` messages
+- strategy-managed instances are identified by deterministic instance ids of the form `strategy-<user_id>-<strategy_id>`
+
+Realtime payload keys used by the frontend/backend flow:
+- `strategyId`
+- `instance_id`
+- `status`
+- `bot_status`
+- `updatedAt`
+- `network`
+- optional `lastError`
+
+This channel is advisory and low-latency; HTTP polling remains the source of truth for recovery and missed-message scenarios.
 
 ## Update Rule
 
@@ -105,4 +127,3 @@ If any response shape or required key changes:
    - `tasks.md`
    - `../backend/tasks.md`
    - `../frontend/tasks.md`
-

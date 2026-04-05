@@ -18,8 +18,8 @@ func NewKeyRepository(db *sql.DB) *KeyRepository {
 
 func (r *KeyRepository) CreateKey(key *models.DYDXKey) error {
 	query := `
-		INSERT INTO dydx_keys (user_id, network, chain_address, encrypted_secret, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO dydx_keys (user_id, network, chain_address, encrypted_secret, secret_hash, secret_masked, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -30,6 +30,8 @@ func (r *KeyRepository) CreateKey(key *models.DYDXKey) error {
 		key.Network,
 		key.ChainAddress,
 		key.EncryptedSecret,
+		key.SecretHash,
+		key.SecretMasked,
 		true,
 		now,
 		now,
@@ -44,7 +46,7 @@ func (r *KeyRepository) CreateKey(key *models.DYDXKey) error {
 
 func (r *KeyRepository) GetKeyByUserAndNetwork(userID int, network string) (*models.DYDXKey, error) {
 	query := `
-		SELECT id, user_id, network, chain_address, encrypted_secret, is_active, created_at, updated_at
+		SELECT id, user_id, network, chain_address, encrypted_secret, COALESCE(secret_hash, ''), COALESCE(secret_masked, ''), is_active, created_at, updated_at
 		FROM dydx_keys
 		WHERE user_id = $1 AND network = $2 AND is_active = true
 		LIMIT 1
@@ -57,6 +59,8 @@ func (r *KeyRepository) GetKeyByUserAndNetwork(userID int, network string) (*mod
 		&key.Network,
 		&key.ChainAddress,
 		&key.EncryptedSecret,
+		&key.SecretHash,
+		&key.SecretMasked,
 		&key.IsActive,
 		&key.CreatedAt,
 		&key.UpdatedAt,
@@ -74,7 +78,7 @@ func (r *KeyRepository) GetKeyByUserAndNetwork(userID int, network string) (*mod
 
 func (r *KeyRepository) GetActiveKeysByUser(userID int) ([]models.DYDXKey, error) {
 	query := `
-		SELECT id, user_id, network, chain_address, encrypted_secret, is_active, created_at, updated_at
+		SELECT id, user_id, network, chain_address, encrypted_secret, COALESCE(secret_hash, ''), COALESCE(secret_masked, ''), is_active, created_at, updated_at
 		FROM dydx_keys
 		WHERE user_id = $1 AND is_active = true
 		ORDER BY created_at DESC
@@ -95,6 +99,8 @@ func (r *KeyRepository) GetActiveKeysByUser(userID int) ([]models.DYDXKey, error
 			&key.Network,
 			&key.ChainAddress,
 			&key.EncryptedSecret,
+			&key.SecretHash,
+			&key.SecretMasked,
 			&key.IsActive,
 			&key.CreatedAt,
 			&key.UpdatedAt,
@@ -115,8 +121,8 @@ func (r *KeyRepository) GetActiveKeysByUser(userID int) ([]models.DYDXKey, error
 func (r *KeyRepository) UpdateKey(key *models.DYDXKey) error {
 	query := `
 		UPDATE dydx_keys
-		SET chain_address = $1, encrypted_secret = $2, updated_at = $3
-		WHERE id = $4 AND user_id = $5
+		SET chain_address = $1, encrypted_secret = $2, secret_hash = $3, secret_masked = $4, updated_at = $5
+		WHERE id = $6 AND user_id = $7
 		RETURNING updated_at
 	`
 
@@ -125,6 +131,8 @@ func (r *KeyRepository) UpdateKey(key *models.DYDXKey) error {
 		query,
 		key.ChainAddress,
 		key.EncryptedSecret,
+		key.SecretHash,
+		key.SecretMasked,
 		now,
 		key.ID,
 		key.UserID,

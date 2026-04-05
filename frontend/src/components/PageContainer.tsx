@@ -22,7 +22,7 @@ export const PageContainer: React.FC<PageContainerProps> = ({
 }) => {
   return (
     <div
-      className={`mx-auto w-full ${sizeClasses[size]} px-4 py-6 sm:px-6 sm:py-7 lg:px-8 lg:py-8 ${className}`.trim()}
+      className={`page-reveal mx-auto w-full ${sizeClasses[size]} px-4 py-6 sm:px-6 sm:py-7 lg:px-8 lg:py-10 ${className}`.trim()}
     >
       {children}
     </div>

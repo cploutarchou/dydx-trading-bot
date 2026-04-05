@@ -461,6 +461,8 @@ export function useBacktestProgress(runId: string) {
     progressPercent: normalizeProgressPercent(query.data),
     currentPair: extractCurrentPair(query.data),
     etaSeconds: extractEtaSeconds(query.data),
+    progressSource:
+      typeof query.data?.progress_source === 'string' ? query.data.progress_source : 'default',
   };
 }
 

@@ -101,6 +101,12 @@ const formatUtcDate = (value?: string): string => {
   return parsed.toISOString().substring(0, 10);
 };
 
+const normalizePercent = (value: number | undefined | null): number | null => {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) return null;
+  const numeric = Number(value);
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+};
+
 export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger = 0 }) => {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<BacktestRun[]>([]);
@@ -290,8 +296,9 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   });
 
   const formatPct = (value: number | undefined | null) => {
-    if (value === undefined || value === null || Number.isNaN(Number(value))) return 'N/A';
-    return `${Number(value).toFixed(1)}%`;
+    const normalized = normalizePercent(value);
+    if (normalized === null) return 'N/A';
+    return `${normalized.toFixed(1)}%`;
   };
 
   const maxDdValue = (run: BacktestRun) =>

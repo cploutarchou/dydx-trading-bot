@@ -130,6 +130,10 @@ celerybeat.pid
 # Environments
 .env
 .venv
+config/profiles/*.config.json
+!config/profiles/example.config.json
+.envrc
+.direnv/
 env/
 venv/
 ENV/
@@ -208,3 +212,23 @@ build/
 
 .github/copilot-instructions-fullstack.md.backup
 .github/copilot-instructions.md.backup
+frontend/.codex
+run.json
+.configkey.bin
+.configkey.bin.bak
+
+# Sensitive keys, certs, and local credential artifacts
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Generated runtime state that can contain credentials or operational secrets
+bot/dydx_bot
+bot/bot_states/*.json
+bot/bot_states/*.yaml
+bot/bot_states/*.yml
+bot/bot_states/*.log
+bot/bot_states/instances.json

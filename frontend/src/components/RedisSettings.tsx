@@ -65,6 +65,7 @@ const RedisSettings: React.FC = () => {
   const [flushingCache, setFlushingCache] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedSettings, setEditedSettings] = useState<Partial<RedisSettings>>({});
+  const [confirmFlush, setConfirmFlush] = useState(false);
 
   useEffect(() => {
     fetchRedisStatus();
@@ -123,16 +124,14 @@ const RedisSettings: React.FC = () => {
   };
 
   const handleFlushCache = async () => {
-    if (!window.confirm('Are you sure? This will clear all Redis cache data.')) {
-      return;
-    }
-
     try {
       setFlushingCache(true);
+      setConfirmFlush(false);
       const response = await api.flushRedis();
 
       if (response.success) {
         setCacheStats({ enabled: true, total_keys: 0 });
+        setError(null);
       } else {
         setError(response.message || 'Failed to flush cache');
       }
@@ -481,14 +480,33 @@ const RedisSettings: React.FC = () => {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-white">Cache Statistics</h2>
             <button
-              onClick={handleFlushCache}
+              onClick={() => {
+                if (!confirmFlush) {
+                  setConfirmFlush(true);
+                  return;
+                }
+                void handleFlushCache();
+              }}
               disabled={flushingCache}
               className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition disabled:opacity-50"
             >
               <Trash2 className="w-4 h-4" />
-              Flush Cache
+              {flushingCache ? 'Flushing...' : confirmFlush ? 'Confirm Flush' : 'Flush Cache'}
             </button>
           </div>
+
+          {confirmFlush && !flushingCache && (
+            <div className="mb-4 rounded-lg border border-red-700 bg-red-900/20 px-4 py-3 text-sm text-red-200">
+              Flushing Redis will clear all cached data immediately.
+              <button
+                type="button"
+                onClick={() => setConfirmFlush(false)}
+                className="ml-3 underline underline-offset-2 hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-700/50 rounded-lg">

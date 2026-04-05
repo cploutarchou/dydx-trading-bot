@@ -2,6 +2,14 @@
 // Adds all missing bot and backtest management endpoints
 
 import apiClient from '../api';
+import {
+  MOCK_ALERTS,
+  MOCK_BOT_INSTANCES,
+  MOCK_BOT_STATS,
+  MOCK_POSITIONS,
+  shouldUseDevMocks,
+} from './mockData';
+import { attachTraceHeader } from './trace';
 import type { User } from './types';
 
 type Entity = Record<string, unknown>;
@@ -23,6 +31,48 @@ const withDataFallback = <T>(result: unknown, fallback: T): T => {
   return fallback;
 };
 
+const shouldServeDevMocks = (): boolean => import.meta.env.DEV && shouldUseDevMocks();
+
+const toListResponse = (result: unknown, listKeys: string[] = []): ListResponse => {
+  const payload = withDataFallback<unknown>(result, {});
+  if (Array.isArray(payload)) {
+    return { count: payload.length, data: payload as Entity[] };
+  }
+
+  if (!isRecord(payload)) {
+    return { count: 0, data: [] };
+  }
+
+  for (const key of listKeys) {
+    const candidate = payload[key];
+    if (Array.isArray(candidate)) {
+      return {
+        count:
+          typeof payload.count === 'number'
+            ? payload.count
+            : typeof payload.total === 'number'
+              ? payload.total
+              : candidate.length,
+        data: candidate as Entity[],
+      };
+    }
+  }
+
+  if (Array.isArray(payload.data)) {
+    return {
+      count:
+        typeof payload.count === 'number'
+          ? payload.count
+          : typeof payload.total === 'number'
+            ? payload.total
+            : payload.data.length,
+      data: payload.data as Entity[],
+    };
+  }
+
+  return { count: 0, data: [] };
+};
+
 // Enhanced API client with additional methods
 class EnhancedAPIClient {
   private baseClient = apiClient;
@@ -38,6 +88,7 @@ class EnhancedAPIClient {
   private buildAuthHeaders(existingHeaders?: unknown): Headers {
     const headers = new Headers((existingHeaders ?? {}) as Record<string, string>);
     headers.set('Content-Type', 'application/json');
+    attachTraceHeader(headers);
 
     const token = this.getAccessToken();
     if (token) {
@@ -125,35 +176,16 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return withDataFallback<ListResponse>(result, { count: 0, data: [] });
+      return toListResponse(result, ['bots', 'items']);
     } catch (error) {
       console.error('listBotInstances error:', error);
-      // Fallback to mock data for development
-      return {
-        count: 2,
-        data: [
-          {
-            instance_id: 'bot-001',
-            name: 'BTC-ETH Pairs Bot',
-            status: 'RUNNING',
-            total_trades: 45,
-            win_rate: 68.5,
-            pnl: 125.5,
-            uptime_seconds: 86400,
-            created_at: new Date().toISOString(),
-          },
-          {
-            instance_id: 'bot-002',
-            name: 'Multi-Pair Bot',
-            status: 'STOPPED',
-            total_trades: 23,
-            win_rate: 72.1,
-            pnl: 89.25,
-            uptime_seconds: 43200,
-            created_at: new Date().toISOString(),
-          },
-        ],
-      };
+      if (shouldServeDevMocks()) {
+        return {
+          count: MOCK_BOT_INSTANCES.length,
+          data: MOCK_BOT_INSTANCES.map((bot) => ({ ...bot })),
+        };
+      }
+      throw error;
     }
   }
 
@@ -174,24 +206,22 @@ class EnhancedAPIClient {
       return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getBotInstance error:', error);
-      // Fallback mock data
-      return {
-        instance_id: instanceId,
-        name: 'Sample Bot',
-        status: 'RUNNING',
-        total_trades: 45,
-        win_rate: 68.5,
-        pnl: 125.5,
-        uptime_seconds: 86400,
-        created_at: new Date().toISOString(),
-        credentials: { address: '0x...' },
-        trading_params: {
-          is_testnet: true,
-          zscore_threshold: 1.5,
-          max_half_life: 24,
-          usd_per_trade: 10.0,
-        },
-      };
+      if (shouldServeDevMocks()) {
+        return {
+          instance_id: instanceId,
+          instance_name: instanceId,
+          status: 'RUNNING',
+          configuration: {
+            trading_params: {
+              is_testnet: true,
+              zscore_threshold: 1.5,
+              max_half_life: 24,
+              usd_per_trade: 10.0,
+            },
+          },
+        };
+      }
+      throw error;
     }
   }
 
@@ -212,19 +242,13 @@ class EnhancedAPIClient {
       return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getBotStats error:', error);
-      return {
-        total_trades: 45,
-        winning_trades: 31,
-        losing_trades: 14,
-        win_rate: 68.9,
-        total_pnl: 125.5,
-        daily_pnl: 12.5,
-        weekly_pnl: 45.25,
-        sharpe_ratio: 1.85,
-        sortino_ratio: 2.15,
-        max_drawdown_percent: -8.5,
-        profit_factor: 2.1,
-      };
+      if (shouldServeDevMocks()) {
+        const mockStats = MOCK_BOT_STATS[instanceId];
+        if (mockStats) {
+          return { ...mockStats };
+        }
+      }
+      throw error;
     }
   }
 
@@ -252,27 +276,13 @@ class EnhancedAPIClient {
       }
 
       const result = await response.json();
-      return withDataFallback<ListResponse>(result, { count: 0, data: [] });
+      return toListResponse(result, ['trades', 'items']);
     } catch (error) {
       console.error('getBotTrades error:', error);
-      return {
-        count: 3,
-        data: [
-          {
-            trade_id: 'trade-001',
-            market_1: 'BTC-USD',
-            market_2: 'ETH-USD',
-            side_1: 'BUY',
-            side_2: 'SELL',
-            size_1: 0.01,
-            size_2: 0.15,
-            pnl: 15.25,
-            pnl_percent: 2.5,
-            status: 'FILLED',
-            entry_time: new Date().toISOString(),
-          },
-        ],
-      };
+      if (shouldServeDevMocks()) {
+        return { count: 0, data: [] };
+      }
+      throw error;
     }
   }
 
@@ -420,10 +430,13 @@ class EnhancedAPIClient {
       });
 
       const result = await response.json();
-      return withDataFallback<Entity[]>(result, []);
+      return toListResponse(result, ['positions', 'items']).data;
     } catch (error) {
       console.error('getCurrentPositions error:', error);
-      return [];
+      if (shouldServeDevMocks()) {
+        return MOCK_POSITIONS.map((position) => ({ ...position }));
+      }
+      throw error;
     }
   }
 
@@ -440,7 +453,11 @@ class EnhancedAPIClient {
       return withDataFallback<Entity | null>(result, null);
     } catch (error) {
       console.error('getPosition error:', error);
-      return null;
+      if (shouldServeDevMocks()) {
+        const mockPosition = MOCK_POSITIONS.find((position) => position.position_id === positionId);
+        return mockPosition ? { ...mockPosition } : null;
+      }
+      throw error;
     }
   }
 
@@ -454,28 +471,24 @@ class EnhancedAPIClient {
       });
 
       const result = await response.json();
-      return (
-        result.data || {
-          uptime_seconds: 86400,
-          total_trades: 45,
-          trades_today: 5,
-          open_positions: 3,
-          total_pnl: 125.5,
-          daily_pnl: 12.5,
-          win_rate: 68.9,
-        }
-      );
+      return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getRealtimeStats error:', error);
-      return {
-        uptime_seconds: 86400,
-        total_trades: 45,
-        trades_today: 5,
-        open_positions: 3,
-        total_pnl: 125.5,
-        daily_pnl: 12.5,
-        win_rate: 68.9,
-      };
+      if (shouldServeDevMocks()) {
+        const mockStats = MOCK_BOT_STATS[instanceId];
+        if (mockStats) {
+          return {
+            uptime_seconds: 86400,
+            total_trades: mockStats.total_trades,
+            trades_today: 5,
+            open_positions: mockStats.open_positions,
+            total_pnl: mockStats.total_pnl,
+            daily_pnl: mockStats.realized_pnl,
+            win_rate: mockStats.win_rate,
+          };
+        }
+      }
+      throw error;
     }
   }
 
@@ -489,10 +502,13 @@ class EnhancedAPIClient {
       });
 
       const result = await response.json();
-      return result.data || {};
+      return withDataFallback<Record<string, unknown>>(result, {});
     } catch (error) {
       console.error('getMarketData error:', error);
-      return {};
+      if (shouldServeDevMocks()) {
+        return {};
+      }
+      throw error;
     }
   }
 
@@ -516,10 +532,16 @@ class EnhancedAPIClient {
       );
 
       const result = await response.json();
-      return withDataFallback<ListResponse>(result, { count: 0, data: [] });
+      return toListResponse(result, ['alerts', 'items']);
     } catch (error) {
       console.error('getAlerts error:', error);
-      return { count: 0, data: [] };
+      if (shouldServeDevMocks()) {
+        return {
+          count: MOCK_ALERTS.length,
+          data: MOCK_ALERTS.map((alert) => ({ ...alert })),
+        };
+      }
+      throw error;
     }
   }
 
@@ -547,6 +569,7 @@ class EnhancedAPIClient {
     progress_percent: number;
     current_pair?: string;
     estimated_completion_seconds?: number;
+    progress_source?: 'details' | 'list_fallback' | 'default';
   }> {
     const parseProgress = (value: unknown): number | null => {
       if (typeof value !== 'number' && typeof value !== 'string') {
@@ -602,6 +625,8 @@ class EnhancedAPIClient {
     let progress = detailsStatusProgress.progress;
     let currentPair = detailsStatusProgress.currentPair;
     let etaSeconds = detailsStatusProgress.etaSeconds;
+    let progressSource: 'details' | 'list_fallback' | 'default' =
+      detailsStatusProgress.progress !== undefined ? 'details' : 'default';
 
     // Fallback: list endpoint carries live progress_pct in this backend integration.
     if (progress === undefined || (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))) {
@@ -620,6 +645,7 @@ class EnhancedAPIClient {
           status = fallbackStatusProgress.status ?? status;
           if (fallbackStatusProgress.progress !== undefined) {
             progress = fallbackStatusProgress.progress;
+            progressSource = 'list_fallback';
           }
           currentPair = fallbackStatusProgress.currentPair ?? currentPair;
           etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
@@ -638,6 +664,7 @@ class EnhancedAPIClient {
       progress_percent: computedProgress,
       current_pair: currentPair,
       estimated_completion_seconds: etaSeconds,
+      progress_source: progressSource,
     };
   }
 

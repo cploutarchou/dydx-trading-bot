@@ -167,6 +167,15 @@ func (s *BotInstanceService) GetBotInstanceStats(instanceID string) (map[string]
 	return s.apiClient.GetBotInstanceStats(instanceID)
 }
 
+// GetRemoteBotInstance retrieves a bot instance directly from the upstream bot API.
+func (s *BotInstanceService) GetRemoteBotInstance(instanceID string) (map[string]interface{}, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("bot API client not configured")
+	}
+
+	return s.apiClient.GetBotInstance(instanceID)
+}
+
 // GetBotInstanceTrades gets trades for a bot instance using upstream status filtering.
 func (s *BotInstanceService) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {
 	if s.apiClient == nil {

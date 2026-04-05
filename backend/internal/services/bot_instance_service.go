@@ -39,6 +39,23 @@ func (s *BotInstanceService) WithAuthToken(token string) *BotInstanceService {
 	}
 }
 
+// WithTraceID returns a request-scoped service copy that forwards the provided
+// trace ID to the downstream bot API.
+func (s *BotInstanceService) WithTraceID(traceID string) *BotInstanceService {
+	if s == nil {
+		return nil
+	}
+
+	if s.apiClient == nil {
+		return s
+	}
+
+	return &BotInstanceService{
+		repo:      s.repo,
+		apiClient: s.apiClient.WithTraceID(traceID),
+	}
+}
+
 // CreateBotInstance creates a new bot instance
 func (s *BotInstanceService) CreateBotInstance(instance *models.BotInstance) error {
 	return s.repo.CreateBotInstance(instance)

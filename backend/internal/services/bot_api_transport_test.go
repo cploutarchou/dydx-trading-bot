@@ -192,3 +192,27 @@ func TestMakeRequest_UpstreamHTTPError_ReturnsBotAPIError(t *testing.T) {
 		t.Fatalf("want 401, got %d", apiErr.StatusCode)
 	}
 }
+
+func TestMakeRequest_PropagatesTraceHeader(t *testing.T) {
+	traceHeaderCh := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		traceHeaderCh <- r.Header.Get("X-Trace-Id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	client := NewBotAPIClient(upstream.URL, "").WithTraceID("req-test-trace")
+	if _, err := client.HealthCheck(); err != nil {
+		t.Fatalf("health check failed: %v", err)
+	}
+
+	select {
+	case got := <-traceHeaderCh:
+		if got != "req-test-trace" {
+			t.Fatalf("expected propagated trace header, got %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for propagated trace header")
+	}
+}

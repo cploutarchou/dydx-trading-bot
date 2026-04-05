@@ -16,8 +16,8 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	_ "modernc.org/sqlite"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
@@ -109,6 +109,7 @@ func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
 	})
 
 	router := gin.New()
+	router.Use(middleware.RequestTraceMiddleware())
 	RegisterAuthRoutes(router, dbConn)
 	apiClient := services.NewBotAPIClient(upstreamServer.URL, "")
 	RegisterBotAPIDelegateRoutes(router, apiClient)
@@ -191,6 +192,7 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
 
 	upstreamAuthHeaderCh := make(chan string, 1)
+	upstreamTraceHeaderCh := make(chan string, 1)
 	strategyPayload := map[string]interface{}{
 		"type":       "strategy_status",
 		"strategyId": 101,
@@ -202,6 +204,7 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/ws/strategies", func(w http.ResponseWriter, r *http.Request) {
 		upstreamAuthHeaderCh <- r.Header.Get("Authorization")
+		upstreamTraceHeaderCh <- r.Header.Get("X-Trace-Id")
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -269,6 +272,7 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 	})
 
 	router := gin.New()
+	router.Use(middleware.RequestTraceMiddleware())
 	RegisterAuthRoutes(router, dbConn)
 	apiClient := services.NewBotAPIClient(upstreamServer.URL, "")
 	RegisterBotAPIDelegateRoutes(router, apiClient)
@@ -308,7 +312,9 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(backendServer.URL, "http") +
 		"/ws/strategies?access_token=" + tokenResp.AccessToken
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	requestHeaders := http.Header{}
+	requestHeaders.Set("X-Trace-Id", "req-strategy-ws-smoke")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, requestHeaders)
 	if err != nil {
 		t.Fatalf("dial backend strategy websocket proxy: %v", err)
 	}
@@ -336,5 +342,14 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for upstream strategy auth header")
+	}
+
+	select {
+	case traceHeader := <-upstreamTraceHeaderCh:
+		if traceHeader != "req-strategy-ws-smoke" {
+			t.Fatalf("unexpected upstream strategy websocket trace header: %q", traceHeader)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream strategy trace header")
 	}
 }

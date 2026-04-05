@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -438,7 +439,7 @@ func (h *StrategyHandler) GetStrategyRuntime(c *gin.Context) {
 		return
 	}
 
-	runtimeState, err := h.runtimeService.WithAuthToken(extractAuthToken(c)).GetRuntimeStatus(strategy)
+	runtimeState, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).GetRuntimeStatus(strategy)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -461,7 +462,7 @@ func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
 		return
 	}
 
-	runtimeState, err := h.runtimeService.WithAuthToken(extractAuthToken(c)).StartRuntime(strategy, c.Query("network"))
+	runtimeState, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).StartRuntime(strategy, c.Query("network"))
 	if err != nil {
 		statusCode := http.StatusInternalServerError
 		if strings.Contains(strings.ToLower(err.Error()), "active dydx key") || strings.Contains(strings.ToLower(err.Error()), "no active dydx key") {
@@ -489,7 +490,7 @@ func (h *StrategyHandler) StopStrategyRuntime(c *gin.Context) {
 	}
 
 	force, _ := strconv.ParseBool(c.DefaultQuery("force", "false"))
-	runtimeState, err := h.runtimeService.WithAuthToken(extractAuthToken(c)).StopRuntime(strategy, force)
+	runtimeState, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).StopRuntime(strategy, force)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,

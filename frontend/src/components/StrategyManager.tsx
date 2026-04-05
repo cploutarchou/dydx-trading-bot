@@ -181,17 +181,30 @@ export default function StrategyManager() {
 
         ws.onmessage = (event) => {
           try {
-            const update: StrategyStatus = JSON.parse(event.data);
-            setStrategyStatuses((prev) => {
-              const newMap = new Map(prev);
-              newMap.set(update.strategyId, update);
-              // Count running strategies
-              const running = Array.from(newMap.values()).filter(
-                (s: StrategyStatus) => s.status === 'running'
-              ).length;
-              setRunningCount(running);
-              return newMap;
-            });
+            const payload = JSON.parse(event.data) as {
+              type?: string;
+              strategyId?: number;
+              status?: string;
+              data?: Array<Record<string, unknown>>;
+            };
+
+            if (payload.type === 'strategy_status_snapshot' && Array.isArray(payload.data)) {
+              const snapshotStatuses = payload.data
+                .filter(
+                  (item): item is Record<string, unknown> =>
+                    typeof item?.strategyId === 'number' && typeof item?.status === 'string'
+                )
+                .map((item) => toStrategyStatus(item.strategyId as number, item));
+
+              if (snapshotStatuses.length > 0) {
+                applyStrategyStatuses(snapshotStatuses);
+              }
+              return;
+            }
+
+            if (typeof payload.strategyId === 'number' && typeof payload.status === 'string') {
+              mergeStrategyStatus(toStrategyStatus(payload.strategyId, payload as Record<string, unknown>));
+            }
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
           }

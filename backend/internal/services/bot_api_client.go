@@ -19,6 +19,7 @@ import (
 type BotAPIClient struct {
 	baseURL    string
 	token      string
+	traceID    string
 	httpClient *http.Client
 }
 
@@ -172,6 +173,7 @@ func (c *BotAPIClient) WithHTTPClient(httpClient *http.Client) *BotAPIClient {
 	return &BotAPIClient{
 		baseURL:    c.baseURL,
 		token:      c.token,
+		traceID:    c.traceID,
 		httpClient: httpClient,
 	}
 }
@@ -191,6 +193,18 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 	return &BotAPIClient{
 		baseURL:    c.baseURL,
 		token:      token,
+		traceID:    c.traceID,
+		httpClient: c.httpClient,
+	}
+}
+
+// WithTraceID returns a new client instance that carries a request-scoped
+// trace ID to the upstream bot API.
+func (c *BotAPIClient) WithTraceID(traceID string) *BotAPIClient {
+	return &BotAPIClient{
+		baseURL:    c.baseURL,
+		token:      c.token,
+		traceID:    strings.TrimSpace(traceID),
 		httpClient: c.httpClient,
 	}
 }
@@ -226,6 +240,9 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 	req.Header.Set("Content-Type", "application/json")
 	if c.token != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	}
+	if c.traceID != "" {
+		req.Header.Set("X-Trace-Id", c.traceID)
 	}
 
 	resp, err := c.httpClient.Do(req)

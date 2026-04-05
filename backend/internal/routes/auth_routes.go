@@ -64,6 +64,7 @@ type UserResponse struct {
 	ID        int    `json:"id"`
 	Username  string `json:"username"`
 	Email     string `json:"email"`
+	Role      string `json:"role"`
 	FullName  string `json:"full_name"`
 	Avatar    string `json:"avatar"`
 	IsActive  bool   `json:"is_active"`
@@ -82,6 +83,7 @@ func toUserResponse(user *models.User) UserResponse {
 		ID:        user.ID,
 		Username:  user.Username,
 		Email:     user.Email,
+		Role:      models.NormalizeUserRole(user.Role, user.IsAdmin),
 		FullName:  user.FullName,
 		Avatar:    user.Avatar,
 		IsActive:  user.IsActive,
@@ -148,6 +150,7 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 		user := &models.User{
 			Username: req.Username,
 			Email:    req.Email,
+			Role:     models.NormalizeUserRole("", false),
 			Password: string(hashedPassword),
 			IsActive: true,
 			IsAdmin:  false,
@@ -284,7 +287,8 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		// Generate tokens
-		accessToken, err := services.GenerateAccessToken(user.ID, user.Username, user.IsAdmin)
+		role := models.NormalizeUserRole(user.Role, user.IsAdmin)
+		accessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			log.Printf("Failed to generate access token: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -294,7 +298,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		refreshToken, err := services.GenerateRefreshToken(user.ID, user.Username)
+		refreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			log.Printf("Failed to generate refresh token: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -390,7 +394,8 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		newAccessToken, err := services.GenerateAccessToken(user.ID, user.Username, user.IsAdmin)
+		role := models.NormalizeUserRole(user.Role, user.IsAdmin)
+		newAccessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
@@ -399,7 +404,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		newRefreshToken, err := services.GenerateRefreshToken(user.ID, user.Username)
+		newRefreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,

@@ -44,6 +44,8 @@ type CodexStatus struct {
 	Configured         bool              `json:"configured"`
 	SharedKeyAvailable bool              `json:"shared_key_available"`
 	UserKeyAvailable   bool              `json:"user_key_available"`
+	SharedKeyMasked    string            `json:"shared_key_masked"`
+	UserKeyMasked      string            `json:"user_key_masked"`
 	ActiveKeySource    string            `json:"active_key_source"`
 	BaseURL            string            `json:"base_url"`
 	Capabilities       CodexCapabilities `json:"capabilities"`
@@ -250,9 +252,15 @@ func (s *CodexService) Status(userID int) (CodexStatus, error) {
 		Configured:         strings.TrimSpace(resolved.key) != "",
 		SharedKeyAvailable: resolved.sharedKeyAvailable,
 		UserKeyAvailable:   resolved.userKeyAvailable,
+		SharedKeyMasked:    maskSecretValue(s.sharedAPIKey),
 		ActiveKeySource:    resolved.activeSource,
 		BaseURL:            s.baseURL,
 		Capabilities:       defaultCapabilities(),
+	}
+	if s.credentials != nil {
+		if info, infoErr := s.credentials.Get(userID, ExternalAPIProviderCodexIO); infoErr == nil && info != nil {
+			status.UserKeyMasked = info.MaskedValue
+		}
 	}
 	if status.Configured {
 		if status.ActiveKeySource == "user" {

@@ -34,6 +34,7 @@ func setupRegistrationRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		email TEXT NOT NULL UNIQUE,
+		role TEXT NOT NULL DEFAULT 'client',
 		full_name TEXT,
 		avatar TEXT,
 		hashed_password TEXT NOT NULL,

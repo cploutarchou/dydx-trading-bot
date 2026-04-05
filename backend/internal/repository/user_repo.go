@@ -20,9 +20,10 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 
 // Create inserts a new user
 func (r *UserRepository) Create(user *models.User) error {
+	user.Role = models.NormalizeUserRole(user.Role, user.IsAdmin)
 	query := `
-		INSERT INTO users (username, email, full_name, avatar, hashed_password, is_active, is_admin, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -31,6 +32,7 @@ func (r *UserRepository) Create(user *models.User) error {
 		query,
 		user.Username,
 		user.Email,
+		user.Role,
 		user.FullName,
 		user.Avatar,
 		user.Password,
@@ -50,7 +52,7 @@ func (r *UserRepository) Create(user *models.User) error {
 // GetByID retrieves a user by ID
 func (r *UserRepository) GetByID(id int) (*models.User, error) {
 	query := `
-		SELECT id, username, email, full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
+		SELECT id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -60,6 +62,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 		&user.ID,
 		&user.Username,
 		&user.Email,
+		&user.Role,
 		&user.FullName,
 		&user.Avatar,
 		&user.Password,
@@ -83,7 +86,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 // GetByUsername retrieves a user by username
 func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 	query := `
-		SELECT id, username, email, full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
+		SELECT id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
 		FROM users
 		WHERE username = $1
 	`
@@ -93,6 +96,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 		&user.ID,
 		&user.Username,
 		&user.Email,
+		&user.Role,
 		&user.FullName,
 		&user.Avatar,
 		&user.Password,
@@ -116,7 +120,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 // GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	query := `
-		SELECT id, username, email, full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
+		SELECT id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -126,6 +130,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 		&user.ID,
 		&user.Username,
 		&user.Email,
+		&user.Role,
 		&user.FullName,
 		&user.Avatar,
 		&user.Password,
@@ -149,7 +154,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 // List retrieves all users
 func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 	query := `
-		SELECT id, username, email, full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
+		SELECT id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), full_name, avatar, hashed_password, is_active, is_admin, last_login, created_at, updated_at
 		FROM users
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -168,6 +173,7 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 			&user.ID,
 			&user.Username,
 			&user.Email,
+			&user.Role,
 			&user.FullName,
 			&user.Avatar,
 			&user.Password,
@@ -186,13 +192,31 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 	return users, rows.Err()
 }
 
+// CountActiveAdmins returns the number of active admin users.
+func (r *UserRepository) CountActiveAdmins() (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM users
+		WHERE is_active = TRUE
+		  AND (is_admin = TRUE OR COALESCE(role, '') = 'admin')
+	`
+
+	var count int
+	if err := r.db.QueryRow(query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count active admins: %w", err)
+	}
+
+	return count, nil
+}
+
 // Update updates an existing user
 func (r *UserRepository) Update(user *models.User) error {
+	user.Role = models.NormalizeUserRole(user.Role, user.IsAdmin)
 	query := `
 		UPDATE users
-		SET username = $1, email = $2, full_name = $3, avatar = $4, hashed_password = $5,
-		    is_active = $6, is_admin = $7, last_login = $8, updated_at = $9
-		WHERE id = $10
+		SET username = $1, email = $2, role = $3, full_name = $4, avatar = $5, hashed_password = $6,
+		    is_active = $7, is_admin = $8, last_login = $9, updated_at = $10
+		WHERE id = $11
 	`
 
 	now := time.Now()
@@ -200,6 +224,7 @@ func (r *UserRepository) Update(user *models.User) error {
 		query,
 		user.Username,
 		user.Email,
+		user.Role,
 		user.FullName,
 		user.Avatar,
 		user.Password,

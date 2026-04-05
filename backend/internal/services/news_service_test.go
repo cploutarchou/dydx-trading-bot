@@ -29,6 +29,8 @@ func setupNewsCredentialService(t *testing.T) *ExternalAPICredentialService {
 			provider TEXT NOT NULL,
 			label TEXT NOT NULL DEFAULT '',
 			encrypted_api_key TEXT NOT NULL,
+			api_key_hash TEXT NOT NULL DEFAULT '',
+			api_key_masked TEXT NOT NULL DEFAULT '',
 			is_active BOOLEAN NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

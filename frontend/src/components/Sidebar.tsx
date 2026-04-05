@@ -161,6 +161,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <p className="text-xs text-gray-400 mb-1">Logged in as</p>
             <p className="text-sm font-semibold text-white truncate">{user?.username}</p>
             <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+            {user?.role && (
+              <div className="mt-3 inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-300">
+                {user.role}
+              </div>
+            )}
           </div>
 
           {/* Logout Button */}

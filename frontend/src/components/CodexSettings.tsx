@@ -117,10 +117,17 @@ export function CodexSettings() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr,0.9fr]">
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5">
-          <h3 className="text-lg font-semibold text-white">Save personal API key</h3>
+          <h3 className="text-lg font-semibold text-white">{status?.user_key_available ? 'Update personal API key' : 'Save personal API key'}</h3>
           <p className="mt-1 text-sm text-slate-400">
             Your personal key overrides the shared backend key for your account only.
           </p>
+
+          {status?.user_key_available && (
+            <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Current saved key</p>
+              <p className="mt-2 font-mono text-sm text-slate-200">{status.user_key_masked || 'Masked key on file'}</p>
+            </div>
+          )}
 
           <div className="mt-5 space-y-4">
             <div>
@@ -145,7 +152,7 @@ export function CodexSettings() {
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500/60"
-                placeholder="Paste your Codex.io API key"
+                placeholder={status?.user_key_available ? 'Paste a new Codex.io API key to replace the current one' : 'Paste your Codex.io API key'}
               />
             </div>
             <button
@@ -155,7 +162,7 @@ export function CodexSettings() {
               className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-              Save Codex.io key
+              {status?.user_key_available ? 'Update Codex.io key' : 'Save Codex.io key'}
             </button>
           </div>
         </div>

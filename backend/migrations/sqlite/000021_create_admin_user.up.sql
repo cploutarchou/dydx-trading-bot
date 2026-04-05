@@ -3,9 +3,10 @@
 
 -- Insert admin user (password is bcrypt hash of "admin123")
 -- Hash generated using: bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
-INSERT INTO users (username, email, full_name, avatar, is_active, is_admin, hashed_password, created_at, updated_at)
+INSERT INTO users (username, email, role, full_name, avatar, is_active, is_admin, hashed_password, created_at, updated_at)
 VALUES ('admin',
         'admin@dydx-trading-bot.local',
+        'admin',
         'Administrator',
         '',
         true,

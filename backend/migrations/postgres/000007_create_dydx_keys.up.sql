@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS dydx_keys
   network          VARCHAR(50)  NOT NULL,
   chain_address    VARCHAR(255) NOT NULL,
   encrypted_secret TEXT         NOT NULL,
+  secret_hash      TEXT         NOT NULL DEFAULT '',
+  secret_masked    TEXT         NOT NULL DEFAULT '',
   is_active        BOOLEAN      NOT NULL,
   created_at       TIMESTAMP     NOT NULL,
   updated_at       TIMESTAMP     NOT NULL,

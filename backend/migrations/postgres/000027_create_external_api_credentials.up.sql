@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS external_api_credentials (
     provider TEXT NOT NULL,
     label TEXT NOT NULL DEFAULT '',
     encrypted_api_key TEXT NOT NULL,
+    api_key_hash TEXT NOT NULL DEFAULT '',
+    api_key_masked TEXT NOT NULL DEFAULT '',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

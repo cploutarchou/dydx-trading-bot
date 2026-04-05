@@ -205,6 +205,7 @@ func main() {
 
 	// Register auth routes (bypasses strict validation)
 	routes.RegisterAuthRoutes(router, database.DB)
+	routes.RegisterAdminUserRoutes(router, database.DB)
 
 	// Initialize bot API client for delegating calls to Python bot API
 	botAPIToken := os.Getenv("BOT_API_TOKEN")

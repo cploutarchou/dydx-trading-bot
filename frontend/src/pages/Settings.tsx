@@ -14,6 +14,7 @@
 import { Loader } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api';
+import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
 import { CodexSettings } from '../components/CodexSettings';
 import { CoinDeskNewsSettings } from '../components/CoinDeskNewsSettings';
@@ -101,9 +102,11 @@ const MANUAL_SECTION_IDS = new Set([
   'profile',
   'dydx_keys',
   'security',
+  'access_control',
   'botsettings',
   'backtesting',
   'bot_settings',
+  'platform',
 ]);
 
 const parseFieldInputValue = (field: SettingField, rawValue: string): SettingValue => {
@@ -247,7 +250,10 @@ export default function Settings() {
       { section: 'dydx_keys', title: '🔑 dYdX Keys', description: 'Testnet & Mainnet' },
       { section: 'codex_io', title: '📈 Codex.io', description: 'Market Intel Key' },
       ...(user?.is_admin
-        ? [{ section: 'market_news', title: '📰 Market News', description: 'CoinDesk Feed' }]
+        ? [
+            { section: 'access_control', title: '🧭 Access Control', description: 'Roles & Registration' },
+            { section: 'market_news', title: '📰 Market News', description: 'CoinDesk Feed' },
+          ]
         : []),
       { section: 'security', title: '🛡️ Security', description: '2FA & Session Controls' },
     ];
@@ -612,6 +618,9 @@ export default function Settings() {
 
             {/* Codex.io Panel */}
             {activeSection === 'codex_io' && <CodexSettings />}
+
+            {/* Access Control Panel */}
+            {activeSection === 'access_control' && user?.is_admin && <AdminAccessControlSettings />}
 
             {/* CoinDesk News Panel */}
             {activeSection === 'market_news' && user?.is_admin && <CoinDeskNewsSettings />}

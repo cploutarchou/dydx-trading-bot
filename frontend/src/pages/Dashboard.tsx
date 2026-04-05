@@ -10,18 +10,23 @@
 import {
   Activity,
   AlertCircle,
+  ArrowRight,
   BarChart2,
   ChevronDown,
   ChevronUp,
   Clock,
+  Layers3,
   Play,
   Rocket,
+  ShieldCheck,
+  Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api';
 import { devFallback, MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
@@ -29,19 +34,20 @@ import { BacktestRunner } from '../components/BacktestRunner';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
 import { SyncHealthPanel } from '../components/SyncHealthPanel';
+import {
+  buildIntelligence,
+  type BacktestRun,
+  formatCurrency as formatIntelligenceCurrency,
+  formatPercent as formatIntelligencePercent,
+} from '../features/backtests/intelligence';
 import { useAuthStore } from '../store/auth';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface BacktestRunSummary {
-  run_id: string;
-  name?: string;
-  status: string;
+interface BacktestRunSummary extends BacktestRun {
   total_pnl: number;
   win_rate: number;
-  sharpe_ratio?: number;
   total_trades: number;
-  created_at: string;
   progress_pct?: number;
   current_pair?: string;
 }
@@ -186,6 +192,65 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
   );
 };
 
+const StrategySpotlightCard: React.FC<{
+  title: string;
+  subtitle: string;
+  href: string;
+  icon: React.ReactNode;
+  accentClass: string;
+  titleValue?: string;
+  primaryMetric?: string;
+  secondaryMetric?: string;
+  emptyMessage: string;
+}> = ({
+  title,
+  subtitle,
+  href,
+  icon,
+  accentClass,
+  titleValue,
+  primaryMetric,
+  secondaryMetric,
+  emptyMessage,
+}) => (
+  <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5 backdrop-blur-sm">
+    <div className="mb-4 flex items-start justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <div className={`rounded-xl p-2 ${accentClass}`}>{icon}</div>
+        <div>
+          <p className="text-sm font-semibold text-white">{title}</p>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+      </div>
+      <Link
+        to={href}
+        className="inline-flex items-center gap-1 text-xs font-medium text-blue-300 transition hover:text-blue-200"
+      >
+        Open
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+
+    {titleValue ? (
+      <>
+        <p className="text-lg font-semibold text-white">{titleValue}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <p className="text-slate-500">Primary</p>
+            <p className="font-semibold text-slate-200">{primaryMetric}</p>
+          </div>
+          <div>
+            <p className="text-slate-500">Secondary</p>
+            <p className="font-semibold text-slate-200">{secondaryMetric}</p>
+          </div>
+        </div>
+      </>
+    ) : (
+      <p className="text-sm text-slate-400">{emptyMessage}</p>
+    )}
+  </div>
+);
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const toRecord = (v: unknown): Record<string, unknown> =>
@@ -289,6 +354,7 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
 export const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [runs, setRuns] = useState<BacktestRunSummary[]>([]);
   const [stats, setStats] = useState<DashboardStats>({
     total: 0, completed: 0, running: 0, failed: 0,
     totalPnl: 0, bestWinRate: 0, bestSharpe: 0,
@@ -337,6 +403,7 @@ export const DashboardPage: React.FC = () => {
               : [];
 
       const runs = devFallback(rawRuns, MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
+      setRuns(runs);
       setUsingMockData(shouldUseDevMocks() && rawRuns.length === 0 && runs.length > 0);
       setStats(buildDashboardStats(runs));
     } catch (error) {
@@ -348,6 +415,7 @@ export const DashboardPage: React.FC = () => {
           console.warn('🔧 Dashboard: API unavailable, using mock stats in development.', error);
           hasWarnedMockRef.current = true;
         }
+        setRuns(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
         setUsingMockData(true);
         setStats(buildDashboardStats(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]));
       } else {
@@ -403,6 +471,10 @@ export const DashboardPage: React.FC = () => {
 
   const pnlTimeSeries = useMemo(() => stats.pnlTimeSeries, [stats.pnlTimeSeries]);
   const pnlColor = stats.totalPnl >= 0 ? '#22c55e' : '#ef4444';
+  const intelligence = useMemo(
+    () => buildIntelligence(runs, new Map<number, string>()),
+    [runs]
+  );
 
   return (
     <PageContainer size="wide" className="space-y-6">
@@ -491,6 +563,91 @@ export const DashboardPage: React.FC = () => {
           value={statsLoading ? '—' : fmtN(countTrades)}
           subtitle="Across all runs" color="cyan" animDelay={420} />
       </div>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+        <StrategySpotlightCard
+          title="Best Strategy"
+          subtitle="Highest blended score"
+          href="/backtests"
+          icon={<Sparkles className="h-5 w-5 text-emerald-300" />}
+          accentClass="bg-emerald-500/10"
+          titleValue={intelligence.bestStrategy?.label}
+          primaryMetric={
+            intelligence.bestStrategy
+              ? `P&L ${formatIntelligenceCurrency(intelligence.bestStrategy.totalPnl)}`
+              : undefined
+          }
+          secondaryMetric={
+            intelligence.bestStrategy
+              ? `Sharpe ${intelligence.bestStrategy.avgSharpe.toFixed(2)}`
+              : undefined
+          }
+          emptyMessage="Run a few completed backtests to rank your top-performing setup."
+        />
+        <StrategySpotlightCard
+          title="Safest Strategy"
+          subtitle="Lowest drawdown among viable runs"
+          href="/backtests"
+          icon={<ShieldCheck className="h-5 w-5 text-cyan-300" />}
+          accentClass="bg-cyan-500/10"
+          titleValue={intelligence.safestStrategy?.label}
+          primaryMetric={
+            intelligence.safestStrategy
+              ? `Drawdown ${formatIntelligencePercent(intelligence.safestStrategy.avgDrawdownPct)}`
+              : undefined
+          }
+          secondaryMetric={
+            intelligence.safestStrategy
+              ? `Sharpe ${intelligence.safestStrategy.avgSharpe.toFixed(2)}`
+              : undefined
+          }
+          emptyMessage="Safety rankings appear once completed runs have drawdown data."
+        />
+        <StrategySpotlightCard
+          title="Most Consistent"
+          subtitle="Best profitability discipline"
+          href="/backtests"
+          icon={<Layers3 className="h-5 w-5 text-amber-300" />}
+          accentClass="bg-amber-500/10"
+          titleValue={intelligence.mostConsistentStrategy?.label}
+          primaryMetric={
+            intelligence.mostConsistentStrategy
+              ? `Hit rate ${formatIntelligencePercent(intelligence.mostConsistentStrategy.profitabilityRatePct)}`
+              : undefined
+          }
+          secondaryMetric={
+            intelligence.mostConsistentStrategy
+              ? `${intelligence.mostConsistentStrategy.completedRuns} completed runs`
+              : undefined
+          }
+          emptyMessage="Consistency scoring needs a few completed runs before it becomes meaningful."
+        />
+        <div
+          className="relative overflow-hidden rounded-2xl border border-slate-700/60 p-5"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(15,23,42,.96) 0%, rgba(30,41,59,.92) 55%, rgba(30,64,175,.18) 100%)',
+          }}
+        >
+          <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-blue-500/10 blur-3xl" />
+          <div className="relative">
+            <div className="mb-3 inline-flex rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
+              New
+            </div>
+            <h2 className="text-lg font-semibold text-white">Codex Workspace</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Ask for dashboard interpretation, strategy reviews, or runtime debugging help without leaving the app.
+            </p>
+            <Link
+              to="/codex"
+              className="mt-5 inline-flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/15 px-4 py-2 text-sm font-medium text-blue-100 transition hover:bg-blue-500/20"
+            >
+              Open Codex
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {/* ── Equity curve ────────────────────────────────────────────── */}
       <div

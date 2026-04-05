@@ -83,15 +83,9 @@ dev:
 		exit 1; \
 	fi
 
-## dev-env: Render the shared repo-root .env from config profiles (usage: make dev-env MODE=development)
+## dev-env: Deprecated: backend now reads config/profiles directly
 dev-env:
-	@MODE_VALUE="$(MODE)"; \
-	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
-		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
-		exit 1; \
-	fi; \
-	@python3 ../scripts/render_env.py --environment $(MODE) --output ../.env
-	@echo "$(GREEN)✓ Repo-root .env rendered for $(MODE)$(NC)"
+	@echo "$(YELLOW)⚠ dev-env is deprecated. Use make dev-config or make prod-config from repo root.$(NC)"
 
 ## test: Run all tests
 test:
@@ -242,7 +236,10 @@ docker-build:
 ## docker-run: Run application in Docker
 docker-run:
 	@echo "$(CYAN)Running Docker container...$(NC)"
-	docker run -p 8888:8888 --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker run -p 8888:8888 \
+		-e APP_CONFIG_ENV=$(MODE) \
+		-v $(PWD)/../config:/app/config:ro \
+		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 ## deps: Download dependencies
 deps:

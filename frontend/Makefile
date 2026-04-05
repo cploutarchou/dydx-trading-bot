@@ -81,23 +81,14 @@ install: ## Install project dependencies using npm
 
 setup: install ## Complete project setup (install dependencies and configure environment)
 	@echo "$(BLUE)🔧 Setting up project environment...$(NC)"
-	@if [ ! -f ../.env ]; then \
-		echo "$(YELLOW)⚠ Repo-root .env not found - create ../.env before starting the frontend$(NC)"; \
-	else \
-		echo "$(GREEN)✓ Using repo-root .env as the frontend environment source$(NC)"; \
-	fi
+	@echo "$(GREEN)✓ Frontend reads shared runtime config from ../run.json$(NC)"
 	@echo "$(BLUE)📋 Environment configuration:$(NC)"
-	@echo "  API_URL: $$(grep '^VITE_API_URL=' ../.env 2>/dev/null || echo 'VITE_API_URL=$(API_URL)')"
+	@echo "  API_URL: $$(python3 - <<'PY'\nimport json\nfrom pathlib import Path\npath = Path('../run.json')\nif path.exists():\n    data = json.loads(path.read_text())\n    print(data.get('frontend', {}).get('VITE_API_URL', '$(API_URL)'))\nelse:\n    print('$(API_URL)')\nPY)"
 	@echo "$(GREEN)✓ Project setup complete!$(NC)"
 
-dev-env: ## Render the shared repo-root .env from config profiles (usage: make dev-env MODE=development)
+dev-env: ## Deprecated: frontend now reads config/profiles directly
 	@MODE_VALUE="$(MODE)"; \
-	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
-		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
-		exit 1; \
-	fi; \
-	@python3 ../scripts/render_env.py --environment $(MODE) --output ../.env
-	@echo "$(GREEN)✓ Repo-root .env rendered for $(MODE)$(NC)"
+	echo "$(YELLOW)⚠ dev-env is deprecated. Use make dev-config or make prod-config from repo root.$(NC)"
 
 # ============================================================================
 # DEVELOPMENT
@@ -234,7 +225,7 @@ clean: ## Remove all generated files and caches
 
 clean-all: clean docker-clean ## Deep clean: remove all generated files, caches, and Docker resources
 	@echo "$(BLUE)🧹 Performing deep clean...$(NC)"
-	@echo "  Keeping repo-root .env untouched (single source of truth)"
+	@echo "  Keeping config/profiles untouched (secure source of truth)"
 	@echo "$(GREEN)✓ Deep cleanup complete$(NC)"
 
 reset: clean install ## Reset project to clean state (remove and reinstall dependencies)
@@ -265,12 +256,13 @@ check-env: ## Verify environment configuration and dependencies
 	@echo "  Node: $$(node --version)"
 	@echo "  npm: $$(npm --version)"
 	@echo ""
-	@echo "$(BLUE)Checking repo-root .env configuration:$(NC)"
-	@if [ -f ../.env ]; then \
-		echo "  $(GREEN)✓ ../.env exists$(NC)"; \
-		grep -E '^VITE_' ../.env || echo "  $(YELLOW)⚠ No VITE_ variables found$(NC)"; \
+	@echo "$(BLUE)Checking shared runtime configuration:$(NC)"
+	@if [ -f ../run.json ]; then \
+		echo "  $(GREEN)✓ ../run.json exists$(NC)"; \
+		python3 - <<'PY'\nimport json\nfrom pathlib import Path\npath = Path('../run.json')\ndata = json.loads(path.read_text())\nfrontend = data.get('frontend', {})\nfor key, value in frontend.items():\n    if str(key).startswith('VITE_'):\n        print(f'  {key}={value}')\nPY \
+		|| echo "  $(YELLOW)⚠ Unable to parse run.json$(NC)"; \
 	else \
-		echo "  $(YELLOW)⚠ ../.env not found - create the repo-root .env first$(NC)"; \
+		echo "  $(YELLOW)⚠ ../run.json not found - run 'make dev' from the repo root$(NC)"; \
 	fi
 	@echo ""
 	@echo "$(BLUE)Checking important files:$(NC)"

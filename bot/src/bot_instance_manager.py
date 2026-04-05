@@ -258,8 +258,16 @@ class BotInstanceManager:
             "is_testnet": config.trading_params.is_testnet,
             "environment": os.getenv("ENVIRONMENT", "development"),
             "telegram": {
-                "token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
-                "chat_id": os.getenv("TELEGRAM_CHAT_ID", ""),
+                "token": (
+                    config.telegram.token
+                    if config.telegram and getattr(config.telegram, "token", "")
+                    else os.getenv("TELEGRAM_BOT_TOKEN", "")
+                ),
+                "chat_id": (
+                    config.telegram.chat_id
+                    if config.telegram and getattr(config.telegram, "chat_id", "")
+                    else os.getenv("TELEGRAM_CHAT_ID", "")
+                ),
             },
             "botSettings": {
                 "abortAllPositions": config.trading_params.abort_all_positions,
@@ -460,6 +468,9 @@ class BotInstanceManager:
                     "BOT_PAIRS_FILE": str(files["cointegrated_pairs"]),
                 }
             )
+            if instance.config.telegram:
+                bot_env["TELEGRAM_BOT_TOKEN"] = instance.config.telegram.token or ""
+                bot_env["TELEGRAM_CHAT_ID"] = instance.config.telegram.chat_id or ""
 
             # Start bot process
             bot_python = os.getenv("BOT_PYTHON_PATH") or sys.executable

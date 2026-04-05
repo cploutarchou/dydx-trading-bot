@@ -63,6 +63,13 @@ class BotCredentials(BaseModel):
     mnemonic: str
 
 
+class TelegramConfig(BaseModel):
+    """Shared Telegram notification settings for runtime-managed instances."""
+
+    token: str = ""
+    chat_id: str = ""
+
+
 class BotInstanceConfig(BaseModel):
     """Bot instance configuration payload."""
 
@@ -71,6 +78,7 @@ class BotInstanceConfig(BaseModel):
         None, description="Human-friendly instance name"
     )
     credentials: BotCredentials
+    telegram: Optional[TelegramConfig] = None
     trading_params: TradingParameters
     backtesting_params: Optional[BacktestingParameters] = None
 

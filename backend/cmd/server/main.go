@@ -18,7 +18,6 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 )
 
 func probeJSONEndpoint(url string, timeout time.Duration) (int, map[string]interface{}, string) {
@@ -57,7 +56,7 @@ func findRepoRoot(start string) string {
 	}
 }
 
-func loadRootEnv() {
+func loadStructuredConfigEnv() {
 	lookupStarts := make([]string, 0, 2)
 	if wd, err := os.Getwd(); err == nil && strings.TrimSpace(wd) != "" {
 		lookupStarts = append(lookupStarts, wd)
@@ -77,27 +76,21 @@ func loadRootEnv() {
 		}
 		seen[repoRoot] = struct{}{}
 
-		envPath := filepath.Join(repoRoot, ".env")
-		if _, err := os.Stat(envPath); err != nil {
-			log.Printf("Warning: repo root detected at %s but %s was not found", repoRoot, envPath)
-			continue
-		}
-
-		if err := godotenv.Load(envPath); err != nil {
-			log.Printf("Warning: failed to load env file %s: %v", envPath, err)
+		profilePath, err := config.LoadStructuredConfigEnv(repoRoot, true)
+		if err != nil {
+			log.Printf("Warning: failed to load structured config from repo root %s: %v", repoRoot, err)
 			return
 		}
 
-		log.Printf("Loaded environment from %s", envPath)
+		log.Printf("Loaded structured config from %s", profilePath)
 		return
 	}
 
-	log.Printf("Warning: repo-root .env not found; using process environment variables")
+	log.Printf("Warning: structured config not found; using existing process environment variables")
 }
 
 func main() {
-	// Load environment variables from the repo root only.
-	loadRootEnv()
+	loadStructuredConfigEnv()
 
 	config.LoadConfig()
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
@@ -261,6 +254,7 @@ func main() {
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)
 	routes.RegisterMailgunRoutes(router, database)
+	routes.RegisterTelegramRoutes(router, database)
 	routes.RegisterCodexRoutes(router, database)
 	routes.RegisterNewsRoutes(router, database)
 	routes.RegisterStrategyRoutes(router, database)

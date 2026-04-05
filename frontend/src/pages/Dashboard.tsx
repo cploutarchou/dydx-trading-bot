@@ -7,41 +7,50 @@
  * ─ Full BacktestList
  */
 
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   AlertCircle,
+  ArrowRight,
   BarChart2,
   ChevronDown,
   ChevronUp,
   Clock,
+  Layers3,
   Play,
   Rocket,
+  ShieldCheck,
+  Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api';
 import { devFallback, MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
+import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
 import { SyncHealthPanel } from '../components/SyncHealthPanel';
+import {
+  buildIntelligence,
+  type BacktestRun,
+  formatCurrency as formatIntelligenceCurrency,
+  formatPercent as formatIntelligencePercent,
+} from '../features/backtests/intelligence';
+import { buildCodexAssetContextRequest, formatPct as formatCodexPct, formatUsd as formatCodexUsd } from '../features/codex/marketIntel';
 import { useAuthStore } from '../store/auth';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface BacktestRunSummary {
-  run_id: string;
-  name?: string;
-  status: string;
+interface BacktestRunSummary extends BacktestRun {
   total_pnl: number;
   win_rate: number;
-  sharpe_ratio?: number;
   total_trades: number;
-  created_at: string;
   progress_pct?: number;
   current_pair?: string;
 }
@@ -186,6 +195,65 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
   );
 };
 
+const StrategySpotlightCard: React.FC<{
+  title: string;
+  subtitle: string;
+  href: string;
+  icon: React.ReactNode;
+  accentClass: string;
+  titleValue?: string;
+  primaryMetric?: string;
+  secondaryMetric?: string;
+  emptyMessage: string;
+}> = ({
+  title,
+  subtitle,
+  href,
+  icon,
+  accentClass,
+  titleValue,
+  primaryMetric,
+  secondaryMetric,
+  emptyMessage,
+}) => (
+  <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5 backdrop-blur-sm">
+    <div className="mb-4 flex items-start justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <div className={`rounded-xl p-2 ${accentClass}`}>{icon}</div>
+        <div>
+          <p className="text-sm font-semibold text-white">{title}</p>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+      </div>
+      <Link
+        to={href}
+        className="inline-flex items-center gap-1 text-xs font-medium text-blue-300 transition hover:text-blue-200"
+      >
+        Open
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+
+    {titleValue ? (
+      <>
+        <p className="text-lg font-semibold text-white">{titleValue}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <p className="text-slate-500">Primary</p>
+            <p className="font-semibold text-slate-200">{primaryMetric}</p>
+          </div>
+          <div>
+            <p className="text-slate-500">Secondary</p>
+            <p className="font-semibold text-slate-200">{secondaryMetric}</p>
+          </div>
+        </div>
+      </>
+    ) : (
+      <p className="text-sm text-slate-400">{emptyMessage}</p>
+    )}
+  </div>
+);
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const toRecord = (v: unknown): Record<string, unknown> =>
@@ -194,6 +262,11 @@ const toRecord = (v: unknown): Record<string, unknown> =>
 const safeNum = (v: unknown, fallback = 0): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+};
+
+const normalizePercent = (value: unknown): number => {
+  const numeric = safeNum(value, 0);
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
 };
 
 const parseTimestamp = (value: unknown): number | null => {
@@ -254,7 +327,7 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
   const failed = runs.filter((r) => norm(r.status) === 'FAILED' || norm(r.status) === 'CANCELLED');
 
   const totalPnl = completed.reduce((acc, r) => acc + safeNum(r.total_pnl), 0);
-  const bestWinRate = completed.reduce((max, r) => Math.max(max, safeNum(r.win_rate)), 0);
+  const bestWinRate = completed.reduce((max, r) => Math.max(max, normalizePercent(r.win_rate)), 0);
   const bestSharpe = completed.reduce((max, r) => Math.max(max, safeNum(r.sharpe_ratio)), 0);
   const totalTrades = runs.reduce((acc, r) => acc + safeNum(r.total_trades), 0);
   const avgPnlPerRun = completed.length > 0 ? totalPnl / completed.length : 0;
@@ -284,6 +357,7 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
 export const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [runs, setRuns] = useState<BacktestRunSummary[]>([]);
   const [stats, setStats] = useState<DashboardStats>({
     total: 0, completed: 0, running: 0, failed: 0,
     totalPnl: 0, bestWinRate: 0, bestSharpe: 0,
@@ -332,6 +406,7 @@ export const DashboardPage: React.FC = () => {
               : [];
 
       const runs = devFallback(rawRuns, MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
+      setRuns(runs);
       setUsingMockData(shouldUseDevMocks() && rawRuns.length === 0 && runs.length > 0);
       setStats(buildDashboardStats(runs));
     } catch (error) {
@@ -343,6 +418,7 @@ export const DashboardPage: React.FC = () => {
           console.warn('🔧 Dashboard: API unavailable, using mock stats in development.', error);
           hasWarnedMockRef.current = true;
         }
+        setRuns(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
         setUsingMockData(true);
         setStats(buildDashboardStats(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]));
       } else {
@@ -398,6 +474,50 @@ export const DashboardPage: React.FC = () => {
 
   const pnlTimeSeries = useMemo(() => stats.pnlTimeSeries, [stats.pnlTimeSeries]);
   const pnlColor = stats.totalPnl >= 0 ? '#22c55e' : '#ef4444';
+  const strategiesQuery = useQuery({
+    queryKey: ['strategies', 'dashboard-lookup'],
+    queryFn: async (): Promise<Array<{ id: number; name?: string; benchmark_symbol?: string }>> => {
+      const response = await api.listStrategies(0, 500);
+      return Array.isArray(response.data?.strategies)
+        ? (response.data?.strategies as Array<{ id: number; name?: string; benchmark_symbol?: string }>)
+        : [];
+    },
+    staleTime: 60_000,
+  });
+  const intelligence = useMemo(
+    () => buildIntelligence(runs, new Map<number, string>()),
+    [runs]
+  );
+  const spotlightIntelRequest = useMemo(() => {
+    const strategiesById = new Map(
+      (strategiesQuery.data ?? [])
+        .filter((strategy) => Number.isInteger(strategy.id) && strategy.id > 0)
+        .map((strategy) => [strategy.id, strategy])
+    );
+
+    return buildCodexAssetContextRequest(
+      [
+        intelligence.bestStrategy,
+        intelligence.safestStrategy,
+        intelligence.mostConsistentStrategy,
+      ]
+        .filter((strategy): strategy is NonNullable<typeof strategy> => Boolean(strategy))
+        .map((aggregate) => ({
+          label: aggregate.label,
+          symbol: strategiesById.get(aggregate.strategyId ?? -1)?.benchmark_symbol,
+        })),
+      1
+    );
+  }, [intelligence.bestStrategy, intelligence.mostConsistentStrategy, intelligence.safestStrategy, strategiesQuery.data]);
+
+  const codexOverviewQuery = useQuery({
+    queryKey: ['codex', 'dashboard-overview'],
+    queryFn: async () => {
+      const response = await api.getCodexMarketOverview(1, 3);
+      return response.data;
+    },
+    staleTime: 30_000,
+  });
 
   return (
     <PageContainer size="wide" className="space-y-6">
@@ -486,6 +606,111 @@ export const DashboardPage: React.FC = () => {
           value={statsLoading ? '—' : fmtN(countTrades)}
           subtitle="Across all runs" color="cyan" animDelay={420} />
       </div>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+        <StrategySpotlightCard
+          title="Best Strategy"
+          subtitle="Highest blended score"
+          href="/backtests"
+          icon={<Sparkles className="h-5 w-5 text-emerald-300" />}
+          accentClass="bg-emerald-500/10"
+          titleValue={intelligence.bestStrategy?.label}
+          primaryMetric={
+            intelligence.bestStrategy
+              ? `P&L ${formatIntelligenceCurrency(intelligence.bestStrategy.totalPnl)}`
+              : undefined
+          }
+          secondaryMetric={
+            intelligence.bestStrategy
+              ? `Sharpe ${intelligence.bestStrategy.avgSharpe.toFixed(2)}`
+              : undefined
+          }
+          emptyMessage="Run a few completed backtests to rank your top-performing setup."
+        />
+        <StrategySpotlightCard
+          title="Safest Strategy"
+          subtitle="Lowest drawdown among viable runs"
+          href="/backtests"
+          icon={<ShieldCheck className="h-5 w-5 text-cyan-300" />}
+          accentClass="bg-cyan-500/10"
+          titleValue={intelligence.safestStrategy?.label}
+          primaryMetric={
+            intelligence.safestStrategy
+              ? `Drawdown ${formatIntelligencePercent(intelligence.safestStrategy.avgDrawdownPct)}`
+              : undefined
+          }
+          secondaryMetric={
+            intelligence.safestStrategy
+              ? `Sharpe ${intelligence.safestStrategy.avgSharpe.toFixed(2)}`
+              : undefined
+          }
+          emptyMessage="Safety rankings appear once completed runs have drawdown data."
+        />
+        <StrategySpotlightCard
+          title="Most Consistent"
+          subtitle="Best profitability discipline"
+          href="/backtests"
+          icon={<Layers3 className="h-5 w-5 text-amber-300" />}
+          accentClass="bg-amber-500/10"
+          titleValue={intelligence.mostConsistentStrategy?.label}
+          primaryMetric={
+            intelligence.mostConsistentStrategy
+              ? `Hit rate ${formatIntelligencePercent(intelligence.mostConsistentStrategy.profitabilityRatePct)}`
+              : undefined
+          }
+          secondaryMetric={
+            intelligence.mostConsistentStrategy
+              ? `${intelligence.mostConsistentStrategy.completedRuns} completed runs`
+              : undefined
+          }
+          emptyMessage="Consistency scoring needs a few completed runs before it becomes meaningful."
+        />
+        <div
+          className="relative overflow-hidden rounded-2xl border border-slate-700/60 p-5"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(15,23,42,.96) 0%, rgba(30,41,59,.92) 55%, rgba(30,64,175,.18) 100%)',
+          }}
+        >
+          <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-blue-500/10 blur-3xl" />
+          <div className="relative">
+            <div className="mb-3 inline-flex rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
+              Market Intel
+            </div>
+            <h2 className="text-lg font-semibold text-white">Codex.io Snapshot</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Keep one eye on fast movers and another on liquid, safer setups before you jump from analysis into action.
+            </p>
+            <div className="mt-4 space-y-3">
+              {[...(codexOverviewQuery.data?.movers ?? []).slice(0, 1), ...(codexOverviewQuery.data?.safe_movers ?? []).slice(0, 1)].map((token) => (
+                <div key={token.id} className="rounded-xl border border-slate-700/60 bg-slate-950/45 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{token.symbol}</p>
+                      <p className="text-xs text-slate-500">{formatCodexUsd(token.price_usd)}</p>
+                    </div>
+                    <p className={`text-sm font-semibold ${token.price_change_pct_24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatCodexPct(token.price_change_pct_24h)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Link
+              to="/codex"
+              className="mt-5 inline-flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/15 px-4 py-2 text-sm font-medium text-blue-100 transition hover:bg-blue-500/20"
+            >
+              Open Market Intel
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <CodexAssetIntelStrip
+        title="Strategy Asset Context"
+        request={spotlightIntelRequest}
+      />
 
       {/* ── Equity curve ────────────────────────────────────────────── */}
       <div

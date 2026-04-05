@@ -196,9 +196,9 @@ func main() {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "ready",
-			"ready":   true,
-			"bot_api": botSnapshot,
+			"status":         "ready",
+			"ready":          true,
+			"bot_api":        botSnapshot,
 			"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
 		})
 	})
@@ -221,6 +221,7 @@ func main() {
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)
+	routes.RegisterCodexRoutes(router, database)
 	routes.RegisterStrategyRoutes(router, database)
 	routes.RegisterTradeLogRoutes(router, database)
 	routes.RegisterAuditLogRoutes(router, database)

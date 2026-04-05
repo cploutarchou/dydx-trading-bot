@@ -164,6 +164,128 @@ interface SettingsUpdate extends Record<string, unknown> {
   [key: string]: unknown;
 }
 
+export interface CodexCapabilities extends Record<string, unknown> {
+  query_only: boolean;
+  supports_websockets: boolean;
+  supports_webhooks: boolean;
+  supports_wallet_pnl: boolean;
+  supports_wallet_balances: boolean;
+  requests_per_second: number;
+  monthly_requests: number;
+}
+
+export interface CodexStatusResponse extends Record<string, unknown> {
+  configured: boolean;
+  provider: string;
+  base_url: string;
+  shared_key_available: boolean;
+  user_key_available: boolean;
+  active_key_source: 'user' | 'shared' | 'none';
+  capabilities: CodexCapabilities;
+  message: string;
+}
+
+export interface CodexTokenSummary extends Record<string, unknown> {
+  id: string;
+  address: string;
+  network_id: number;
+  name: string;
+  symbol: string;
+  price_usd: number;
+  price_change_pct_1h: number;
+  price_change_pct_4h: number;
+  price_change_pct_24h: number;
+  liquidity_usd: number;
+  volume_usd_24h: number;
+  market_cap_usd: number;
+  transactions_24h: number;
+  is_scam: boolean;
+  exchanges: string[];
+  confidence_hint: 'high' | 'medium' | 'low' | 'flagged';
+  resolution_confidence?: 'high' | 'medium';
+}
+
+export interface CodexMarketOverviewResponse extends Record<string, unknown> {
+  network_id: number;
+  movers: CodexTokenSummary[];
+  safe_movers: CodexTokenSummary[];
+  generated_at: string;
+}
+
+export interface CodexTokenSearchResponse extends Record<string, unknown> {
+  results: CodexTokenSummary[];
+  count: number;
+  query: string;
+}
+
+export interface CodexPairSummary extends Record<string, unknown> {
+  pair_id: string;
+  pair_address: string;
+  exchange_name: string;
+  exchange_id: string;
+  protocol: string;
+  liquidity_usd: number;
+  volume_usd_24h: number;
+  price_usd: number;
+  price_change_pct_24h: number;
+  backing_token: string;
+}
+
+export interface CodexTokenDetailResponse extends Record<string, unknown> {
+  token: CodexTokenSummary;
+  description: string;
+  image_small_url: string;
+  image_large_url: string;
+  image_banner_url: string;
+  circulating_supply: number;
+  total_supply: number;
+  top_pairs: CodexPairSummary[];
+}
+
+export interface CodexChartPoint extends Record<string, unknown> {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume_usd: number;
+  liquidity_usd: number;
+  transactions: number;
+}
+
+export interface CodexTokenChartResponse extends Record<string, unknown> {
+  token_id: string;
+  interval: string;
+  points: CodexChartPoint[];
+  generated_at: string;
+}
+
+export interface CodexAssetContextRequest extends Record<string, unknown> {
+  network_id?: number;
+  assets: Array<{
+    label?: string;
+    symbol?: string;
+    address?: string;
+    network_id?: number;
+  }>;
+}
+
+export interface CodexAssetIntel extends Record<string, unknown> {
+  label: string;
+  resolved: boolean;
+  resolution_reason?: string;
+  token?: CodexTokenSummary;
+}
+
+export interface CodexAssetContextResponse extends Record<string, unknown> {
+  items: CodexAssetIntel[];
+}
+
+export interface CodexKeyPayload extends Record<string, unknown> {
+  api_key: string;
+  label?: string;
+}
+
 interface DYDXKey extends Record<string, unknown> {
   id?: number;
   network: string;
@@ -1541,6 +1663,65 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response =
       await this.client.get<ApiResponse<Record<string, unknown>>>('/api/v1/settings/redis');
+    return response.data;
+  }
+
+  async getCodexStatus(): Promise<ApiResponse<CodexStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexStatusResponse>>('/api/v1/codex/status');
+    return response.data;
+  }
+
+  async saveCodexKey(data: CodexKeyPayload): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/codex/key', data);
+    return response.data;
+  }
+
+  async deleteCodexKey(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/codex/key');
+    return response.data;
+  }
+
+  async getCodexMarketOverview(network = 1, limit = 6): Promise<ApiResponse<CodexMarketOverviewResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexMarketOverviewResponse>>('/api/v1/codex/market/overview', {
+      params: { network, limit },
+    });
+    return response.data;
+  }
+
+  async searchCodexTokens(query: string, network?: number, limit = 8): Promise<ApiResponse<CodexTokenSearchResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexTokenSearchResponse>>('/api/v1/codex/tokens/search', {
+      params: { q: query, network, limit },
+    });
+    return response.data;
+  }
+
+  async getCodexTokenDetail(network: number, address: string): Promise<ApiResponse<CodexTokenDetailResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexTokenDetailResponse>>(`/api/v1/codex/tokens/${network}/${address}`);
+    return response.data;
+  }
+
+  async getCodexTokenChart(
+    network: number,
+    address: string,
+    interval: '1h' | '4h' | '1d' = '1d',
+    points = 60
+  ): Promise<ApiResponse<CodexTokenChartResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexTokenChartResponse>>(`/api/v1/codex/tokens/${network}/${address}/chart`, {
+      params: { interval, points },
+    });
+    return response.data;
+  }
+
+  async resolveCodexAssetContext(data: CodexAssetContextRequest): Promise<ApiResponse<CodexAssetContextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<CodexAssetContextResponse>>('/api/v1/codex/assets/context', data);
     return response.data;
   }
 }

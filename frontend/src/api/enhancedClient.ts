@@ -9,6 +9,7 @@ import {
   MOCK_POSITIONS,
   shouldUseDevMocks,
 } from './mockData';
+import { attachTraceHeader } from './trace';
 import type { User } from './types';
 
 type Entity = Record<string, unknown>;
@@ -87,6 +88,7 @@ class EnhancedAPIClient {
   private buildAuthHeaders(existingHeaders?: unknown): Headers {
     const headers = new Headers((existingHeaders ?? {}) as Record<string, string>);
     headers.set('Content-Type', 'application/json');
+    attachTraceHeader(headers);
 
     const token = this.getAccessToken();
     if (token) {

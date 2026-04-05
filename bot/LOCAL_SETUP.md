@@ -116,6 +116,7 @@ When the API is running on port `8889`:
 - ReDoc: <http://localhost:8889/redoc>
 - OpenAPI JSON: <http://localhost:8889/openapi.json>
 - Health: <http://localhost:8889/health>
+- Readiness: <http://localhost:8889/ready>
 
 ## API contract notes
 
@@ -134,6 +135,7 @@ Most non-auth HTTP endpoints return the standardized envelope below:
 Notes:
 
 - `trace_id` is mirrored in the `X-Trace-Id` response header.
+- `X-Trace-Id` sent by the frontend/backend is preserved by the bot API for cross-service correlation.
 - Auth routes under `/auth/*` and `/api/v1/auth/*` keep auth-specific payloads.
 - See [`API_CONTRACT.md`](API_CONTRACT.md) for the locked response shapes and compatibility rules.
 - The workspace OpenAPI snapshot lives at [`openapi.json`](openapi.json).
@@ -178,6 +180,24 @@ Start the instance:
 ```bash
 curl -X POST http://localhost:8889/api/v1/bots/test-bot-1/start
 ```
+
+Each managed bot instance now writes subprocess stdout/stderr to a per-instance log file under `bot_states/`, for example:
+
+```bash
+tail -f bot_states/bot_test-bot-1.log
+```
+
+This avoids runtime deadlocks from unconsumed subprocess pipes and gives operators a stable place to inspect startup failures.
+
+## Live strategy runtime updates
+
+The strategy dashboard subscribes to runtime lifecycle updates through:
+
+```text
+/ws/strategies
+```
+
+On connect, the API sends a full `strategy_status_snapshot`, followed by `strategy_status` updates for starts, stops, crashes, and dead-process cleanup.
 
 ## Authentication for local testing
 

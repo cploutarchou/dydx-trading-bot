@@ -42,7 +42,7 @@ func HeaderLoggingMiddleware() gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		method := c.Request.Method
 		path := c.Request.URL.Path
-		log.Printf("Headers: %s %s from %s - %v", method, path, clientIP, headers)
+		log.Printf("Headers: trace_id=%s %s %s from %s - %v", GetTraceID(c), method, path, clientIP, headers)
 
 		// Continue to next handler
 		c.Next()

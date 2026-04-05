@@ -70,6 +70,7 @@ type BacktestStrategy struct {
 	Category               string     `db:"category" json:"category"`
 	IsPublic               bool       `db:"is_public" json:"is_public"`
 	IsDefault              bool       `db:"is_default" json:"is_default"`
+	RuntimeStrategy        string     `db:"runtime_strategy" json:"runtime_strategy"`
 	ZscoreThreshold        float64    `db:"zscore_threshold" json:"zscore_threshold"`
 	StatsWindow            int        `db:"stats_window" json:"stats_window"`
 	MaxHalfLife            float64    `db:"max_half_life" json:"max_half_life"`

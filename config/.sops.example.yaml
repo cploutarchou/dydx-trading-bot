@@ -1,0 +1,3 @@
+creation_rules:
+  - path_regex: config/secrets/.*\.secrets\.sops\.json$
+    age: age1replace-with-your-team-age-recipient

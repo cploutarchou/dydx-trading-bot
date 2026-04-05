@@ -20,7 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func setupStrategyRuntimeRouter(t *testing.T, upstream http.Handler) (*gin.Engine, *sql.DB, *httptest.Server) {
+func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream http.Handler, legacyExecutionStateSchema bool) (*gin.Engine, *sql.DB, *httptest.Server) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -40,7 +40,7 @@ func setupStrategyRuntimeRouter(t *testing.T, upstream http.Handler) (*gin.Engin
 		},
 	})
 
-	dbConn, err := sql.Open("sqlite", ":memory:")
+	dbConn, err := sql.Open("sqlite", "file:strategy-runtime-test?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatalf("open sqlite memory db: %v", err)
 	}
@@ -101,12 +101,7 @@ func setupStrategyRuntimeRouter(t *testing.T, upstream http.Handler) (*gin.Engin
 		`CREATE TABLE strategy_execution_states (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			strategy_id INTEGER NOT NULL UNIQUE,
-			is_running BOOLEAN NOT NULL DEFAULT 0,
-			last_run_at DATETIME,
-			next_run_at DATETIME,
-			state TEXT,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL
+			%s
 		);`,
 		`CREATE TABLE dydx_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +138,38 @@ func setupStrategyRuntimeRouter(t *testing.T, upstream http.Handler) (*gin.Engin
 			created_at DATETIME,
 			updated_at DATETIME
 		);`,
+	}
+	if legacyExecutionStateSchema {
+		schema[2] = fmt.Sprintf(schema[2],
+			`enabled BOOLEAN DEFAULT NULL,
+			status TEXT DEFAULT NULL,
+			trades_executed INTEGER DEFAULT NULL,
+			pnl REAL DEFAULT NULL,
+			pnl_pct REAL DEFAULT NULL,
+			last_error TEXT DEFAULT NULL,
+			error_count INTEGER DEFAULT NULL,
+			last_error_at DATETIME DEFAULT NULL,
+			config_snapshot JSON DEFAULT NULL,
+			last_started DATETIME DEFAULT NULL,
+			last_stopped DATETIME DEFAULT NULL,
+			last_trade_at DATETIME DEFAULT NULL,
+			uptime_seconds INTEGER DEFAULT NULL,
+			last_cointegration_check DATETIME DEFAULT NULL,
+			active_pairs_count INTEGER DEFAULT NULL,
+			open_positions_count INTEGER DEFAULT NULL,
+			max_drawdown REAL DEFAULT NULL,
+			sharpe_ratio REAL DEFAULT NULL,
+			win_rate REAL DEFAULT NULL,
+			created_at DATETIME DEFAULT NULL,
+			updated_at DATETIME DEFAULT NULL`)
+	} else {
+		schema[2] = fmt.Sprintf(schema[2],
+			`is_running BOOLEAN NOT NULL DEFAULT 0,
+			last_run_at DATETIME,
+			next_run_at DATETIME,
+			state TEXT,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL`)
 	}
 	for _, statement := range schema {
 		if _, err := dbConn.Exec(statement); err != nil {
@@ -229,6 +256,10 @@ func setupStrategyRuntimeRouter(t *testing.T, upstream http.Handler) (*gin.Engin
 	RegisterStrategyRoutes(router, &db.Database{DB: dbConn})
 
 	return router, dbConn, upstreamServer
+}
+
+func setupStrategyRuntimeRouter(t *testing.T, upstream http.Handler) (*gin.Engine, *sql.DB, *httptest.Server) {
+	return setupStrategyRuntimeRouterWithExecutionStateSchema(t, upstream, false)
 }
 
 func loginStrategyRuntimeUser(t *testing.T, backendURL string) string {
@@ -400,5 +431,61 @@ func TestStrategyRuntimeStartRequiresActiveKey(t *testing.T) {
 		var payload map[string]interface{}
 		_ = json.NewDecoder(resp.Body).Decode(&payload)
 		t.Fatalf("expected 400 when no key is configured, got %d payload=%v", resp.StatusCode, payload)
+	}
+}
+
+func TestStrategyRuntimeGetRepairsLegacyExecutionStateSchema(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"running","config":{"trading_params":{"is_testnet":true}}}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouterWithExecutionStateSchema(t, upstreamMux, true)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO strategy_execution_states (strategy_id, enabled, status, last_started, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		101,
+		true,
+		"running",
+		time.Now().UTC(),
+		time.Now().UTC(),
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("seed legacy execution state: %v", err)
+	}
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/101/runtime", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request legacy runtime: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected 200 after legacy schema repair, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode runtime payload: %v", err)
+	}
+
+	data, _ := payload["data"].(map[string]interface{})
+	if data["bot_status"] != "running" {
+		t.Fatalf("expected repaired runtime bot_status to be running, got %v", data["bot_status"])
+	}
+	if data["is_running"] != true {
+		t.Fatalf("expected repaired runtime is_running=true, got %v", data["is_running"])
 	}
 }

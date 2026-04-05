@@ -3,6 +3,8 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -10,12 +12,108 @@ import (
 
 // StrategyRepository handles strategy database operations
 type StrategyRepository struct {
-	db *sql.DB
+	db                      *sql.DB
+	executionStateSchemaMu  sync.Mutex
+	executionStateSchemaSet bool
 }
 
 // NewStrategyRepository creates a new strategy repository
 func NewStrategyRepository(db *sql.DB) *StrategyRepository {
 	return &StrategyRepository{db: db}
+}
+
+func (r *StrategyRepository) ensureExecutionStateSchema() error {
+	r.executionStateSchemaMu.Lock()
+	defer r.executionStateSchemaMu.Unlock()
+
+	if r.executionStateSchemaSet {
+		return nil
+	}
+
+	rows, err := r.db.Query(`SELECT * FROM strategy_execution_states LIMIT 0`)
+	if err != nil {
+		return fmt.Errorf("failed to inspect strategy execution state schema: %w", err)
+	}
+	defer rows.Close()
+
+	columnNames, err := rows.Columns()
+	if err != nil {
+		return fmt.Errorf("failed to read strategy execution state columns: %w", err)
+	}
+
+	columns := make(map[string]struct{}, len(columnNames))
+	for _, name := range columnNames {
+		columns[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
+	}
+
+	type columnRepair struct {
+		name        string
+		addSQL      string
+		backfillSQL string
+	}
+
+	repairs := []columnRepair{
+		{
+			name:   "is_running",
+			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN is_running BOOLEAN DEFAULT 0`,
+			backfillSQL: `UPDATE strategy_execution_states
+				SET is_running = CASE
+					WHEN is_running IS NOT NULL THEN is_running
+					WHEN enabled IS NOT NULL THEN enabled
+					WHEN LOWER(COALESCE(status, '')) IN ('running', 'starting') THEN 1
+					ELSE 0
+				END`,
+		},
+		{
+			name:   "last_run_at",
+			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN last_run_at TIMESTAMP NULL`,
+			backfillSQL: `UPDATE strategy_execution_states
+				SET last_run_at = COALESCE(last_run_at, last_started, last_trade_at)`,
+		},
+		{
+			name:        "next_run_at",
+			addSQL:      `ALTER TABLE strategy_execution_states ADD COLUMN next_run_at TIMESTAMP NULL`,
+			backfillSQL: ``,
+		},
+		{
+			name:   "state",
+			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN state TEXT`,
+			backfillSQL: `UPDATE strategy_execution_states
+				SET state = COALESCE(
+					NULLIF(state, ''),
+					NULLIF(status, ''),
+					CASE
+						WHEN COALESCE(is_running, enabled, 0) = 1 THEN 'running'
+						ELSE 'stopped'
+					END
+				)`,
+		},
+	}
+
+	for _, repair := range repairs {
+		if _, exists := columns[repair.name]; exists {
+			continue
+		}
+		if _, err := r.db.Exec(repair.addSQL); err != nil {
+			return fmt.Errorf("failed to add strategy execution state column %s: %w", repair.name, err)
+		}
+		if strings.TrimSpace(repair.backfillSQL) != "" {
+			if _, err := r.db.Exec(repair.backfillSQL); err != nil {
+				return fmt.Errorf("failed to backfill strategy execution state column %s: %w", repair.name, err)
+			}
+		}
+	}
+
+	if _, err := r.db.Exec(`UPDATE strategy_execution_states SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)`); err != nil {
+		return fmt.Errorf("failed to backfill strategy execution state created_at: %w", err)
+	}
+
+	if _, err := r.db.Exec(`UPDATE strategy_execution_states SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`); err != nil {
+		return fmt.Errorf("failed to backfill strategy execution state updated_at: %w", err)
+	}
+
+	r.executionStateSchemaSet = true
+	return nil
 }
 
 // ============ BacktestStrategy Operations ============
@@ -221,6 +319,10 @@ func (r *StrategyRepository) DeleteStrategy(id int) error {
 
 // GetExecutionState retrieves execution state for a strategy
 func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.StrategyExecutionState, error) {
+	if err := r.ensureExecutionStateSchema(); err != nil {
+		return nil, err
+	}
+
 	query := `
 		SELECT id, strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at
 		FROM strategy_execution_states
@@ -246,6 +348,10 @@ func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.Strategy
 
 // CreateExecutionState creates a new execution state
 func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutionState) error {
+	if err := r.ensureExecutionStateSchema(); err != nil {
+		return err
+	}
+
 	query := `
 		INSERT INTO strategy_execution_states (strategy_id, is_running, created_at, updated_at)
 		VALUES ($1, $2, $3, $4)
@@ -266,6 +372,10 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 
 // UpdateExecutionState updates execution state
 func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutionState) error {
+	if err := r.ensureExecutionStateSchema(); err != nil {
+		return err
+	}
+
 	query := `
 		UPDATE strategy_execution_states
 		SET is_running = $1, last_run_at = $2, next_run_at = $3, state = $4, updated_at = $5

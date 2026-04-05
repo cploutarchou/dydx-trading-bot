@@ -292,6 +292,24 @@ interface StrategyListResponse extends Record<string, unknown> {
   total: number;
 }
 
+interface StrategyRuntimeResponse extends Record<string, unknown> {
+  strategy_id: number;
+  strategy_name?: string;
+  instance_id?: string;
+  network?: string;
+  status: string;
+  bot_status?: string;
+  is_running: boolean;
+  process_id?: number | null;
+  last_error?: string;
+  started_at?: string;
+  stopped_at?: string;
+  last_run_at?: string;
+  next_run_at?: string;
+  updated_at?: string;
+  last_synced_at?: string;
+}
+
 const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
   const normalized: StrategyRequest = { ...data };
 
@@ -994,6 +1012,47 @@ class ApiClient {
           : [],
       },
     };
+  }
+
+  async getStrategyRuntime(strategyId: number): Promise<ApiResponse<StrategyRuntimeResponse>> {
+    try {
+      const response = await this.client.get<ApiResponse<StrategyRuntimeResponse>>(
+        `/api/v1/strategies/${strategyId}/runtime`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async startStrategyRuntime(
+    strategyId: number,
+    network?: 'testnet' | 'mainnet'
+  ): Promise<ApiResponse<StrategyRuntimeResponse>> {
+    try {
+      const query = network ? `?network=${encodeURIComponent(network)}` : '';
+      const response = await this.client.post<ApiResponse<StrategyRuntimeResponse>>(
+        `/api/v1/strategies/${strategyId}/start${query}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async stopStrategyRuntime(
+    strategyId: number,
+    force: boolean = false
+  ): Promise<ApiResponse<StrategyRuntimeResponse>> {
+    try {
+      const query = force ? '?force=true' : '';
+      const response = await this.client.post<ApiResponse<StrategyRuntimeResponse>>(
+        `/api/v1/strategies/${strategyId}/stop${query}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   // Strategy version control

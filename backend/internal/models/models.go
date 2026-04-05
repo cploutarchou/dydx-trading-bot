@@ -43,6 +43,17 @@ type DYDXKeySettings struct {
 	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
 }
 
+type ExternalAPICredential struct {
+	ID              int       `db:"id" json:"id"`
+	UserID          int       `db:"user_id" json:"user_id"`
+	Provider        string    `db:"provider" json:"provider"`
+	Label           string    `db:"label" json:"label"`
+	EncryptedAPIKey string    `db:"encrypted_api_key" json:"-"`
+	IsActive        bool      `db:"is_active" json:"is_active"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+}
+
 // ==================== STRATEGY MODELS ====================
 
 type BacktestStrategy struct {

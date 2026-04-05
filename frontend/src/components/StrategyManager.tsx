@@ -21,7 +21,9 @@ import {
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api';
+import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
+import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
 import { PageContainer } from './PageContainer';
 
 interface StrategyStatus {
@@ -506,6 +508,12 @@ export default function StrategyManager() {
         Runtime control is live through the backend strategy execution service.
         An active dYdX key is still required before a strategy can start, and statuses are reconciled every 15 seconds.
       </div>
+
+      <CodexAssetIntelStrip
+        title="Strategy Benchmark Context"
+        request={buildStrategyIntelRequest(strategies, 1)}
+        compact
+      />
 
       {/* Messages */}
       {message && (

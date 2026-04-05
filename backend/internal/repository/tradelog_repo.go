@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -93,7 +94,11 @@ func (r *TradeLogRepository) GetTradeLogsByResult(resultIDFK int) ([]models.Trad
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trade logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close trade log rows: %v", closeErr)
+		}
+	}()
 
 	var tradeLogs []models.TradeLog
 	for rows.Next() {
@@ -187,7 +192,11 @@ func (r *TradeLogRepository) GetTradeLogsByBacktestRun(runID int) ([]models.Trad
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trade logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close run trade log rows: %v", closeErr)
+		}
+	}()
 
 	var tradeLogs []models.TradeLog
 	for rows.Next() {

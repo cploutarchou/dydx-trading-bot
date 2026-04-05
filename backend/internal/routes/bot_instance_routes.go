@@ -96,8 +96,8 @@ func RegisterBotInstanceRoutes(router *gin.Engine, database *db.Database) {
 				}
 
 				c.JSON(200, gin.H{
-					"success": true,
-					"data":    data,
+					"success":   true,
+					"data":      data,
 					"timestamp": time.Now().UTC().Format(time.RFC3339),
 				})
 			})
@@ -139,8 +139,8 @@ func RegisterBotInstanceRoutes(router *gin.Engine, database *db.Database) {
 				}
 
 				c.JSON(200, gin.H{
-					"success": true,
-					"data":    trade,
+					"success":   true,
+					"data":      trade,
 					"timestamp": time.Now().UTC().Format(time.RFC3339),
 				})
 			})

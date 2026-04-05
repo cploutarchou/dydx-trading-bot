@@ -280,6 +280,7 @@ func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	//nolint:sqlclosecheck // callers own the returned *sql.Rows lifecycle
 	return d.DB.QueryContext(ctx, query, args...)
 }
 
@@ -489,12 +490,12 @@ func runMigrations(cfg Config) error {
 
 		ver, _, vErr := m.Version()
 		if vErr != nil {
-			return fmt.Errorf("migration failed and could not read version: %w (original: %v)", vErr, err)
+			return fmt.Errorf("migration failed and could not read version: %w", errors.Join(vErr, err))
 		}
 
 		log.Printf("⚠️  Recoverable migration issue at version %d (attempt %d/%d): %v", ver, attempt, maxRecoveryAttempts, err)
 		if fErr := m.Force(int(ver)); fErr != nil {
-			return fmt.Errorf("failed to force migration version %d: %w (original: %v)", ver, fErr, err)
+			return fmt.Errorf("failed to force migration version %d: %w", ver, errors.Join(fErr, err))
 		}
 		log.Printf("⚠️  Forced migration version %d, retrying up...", ver)
 	}

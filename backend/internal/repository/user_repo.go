@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -24,10 +25,17 @@ func (r *UserRepository) hasPasswordChangeRequiredColumn() bool {
 	if err != nil {
 		return false
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close user schema rows: %v", closeErr)
+		}
+	}()
 
 	columns, err := rows.Columns()
 	if err != nil {
+		return false
+	}
+	if err := rows.Err(); err != nil {
 		return false
 	}
 
@@ -224,7 +232,11 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close user rows: %v", closeErr)
+		}
+	}()
 
 	users := []*models.User{}
 	for rows.Next() {

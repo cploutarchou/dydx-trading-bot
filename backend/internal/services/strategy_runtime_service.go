@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -146,7 +147,8 @@ func (s *StrategyRuntimeService) StartRuntime(strategy *models.BacktestStrategy,
 		}
 		if existsLocally {
 			if _, createErr := s.botService.GetRemoteBotInstance(runtimeState.InstanceID); createErr != nil {
-				if _, ok := createErr.(*BotAPIError); ok {
+				var apiErr *BotAPIError
+				if errors.As(createErr, &apiErr) {
 					if createRemoteErr := s.botService.CreateBotInstanceWithConfig(instanceRecord, createPayload); createRemoteErr != nil {
 						return nil, fmt.Errorf("failed to create runtime instance: %w", createRemoteErr)
 					}
@@ -486,7 +488,8 @@ func (s *StrategyRuntimeService) fetchRemoteRuntimeStatus(instanceID string) (ma
 
 	result, err := s.botService.GetRemoteBotInstance(instanceID)
 	if err != nil {
-		if apiErr, ok := err.(*BotAPIError); ok && apiErr.StatusCode == 404 {
+		var apiErr *BotAPIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("failed to query bot runtime instance %s: %w", instanceID, err)

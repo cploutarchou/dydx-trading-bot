@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -21,8 +22,16 @@ import (
 )
 
 func probeJSONEndpoint(url string, timeout time.Duration) (int, map[string]interface{}, string) {
-	httpClient := &http.Client{Timeout: timeout}
-	resp, err := httpClient.Get(url)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, nil, err.Error()
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, nil, err.Error()
 	}
@@ -118,7 +127,7 @@ func main() {
 	defer func(database *db.Database) {
 		err := database.Close()
 		if err != nil {
-			log.Fatalf("Failed to close database: %v", err)
+			log.Printf("Failed to close database: %v", err)
 		}
 	}(database)
 

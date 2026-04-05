@@ -12,12 +12,12 @@ import (
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-// testNetTimeout is a net.Error whose Timeout() returns true.
-type testNetTimeout struct{ msg string }
+// testNetTimeoutError is a net.Error whose Timeout() returns true.
+type testNetTimeoutError struct{ msg string }
 
-func (e *testNetTimeout) Error() string   { return e.msg }
-func (e *testNetTimeout) Timeout() bool   { return true }
-func (e *testNetTimeout) Temporary() bool { return false }
+func (e *testNetTimeoutError) Error() string   { return e.msg }
+func (e *testNetTimeoutError) Timeout() bool   { return true }
+func (e *testNetTimeoutError) Temporary() bool { return false }
 
 // ── classifyTransportError unit tests ────────────────────────────────────────
 
@@ -33,7 +33,7 @@ func TestClassifyTransportError_ContextDeadline_Returns504(t *testing.T) {
 }
 
 func TestClassifyTransportError_NetTimeout_Returns504(t *testing.T) {
-	netErr := &net.OpError{Op: "dial", Net: "tcp", Err: &testNetTimeout{msg: "i/o timeout"}}
+	netErr := &net.OpError{Op: "dial", Net: "tcp", Err: &testNetTimeoutError{msg: "i/o timeout"}}
 	got := classifyTransportError("POST", "http://127.0.0.1:8889/api/v1/backtests", netErr)
 
 	if got.StatusCode != http.StatusGatewayTimeout {

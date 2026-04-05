@@ -24,7 +24,6 @@ func RegisterSettingsRoutes(router *gin.Engine, database *db.Database) {
 			settings.POST("/initialize", settingsHandler.Initialize)
 			settings.GET("/schema", settingsHandler.GetSchema)
 
-
 			// Get all settings
 			settings.GET("", settingsHandler.GetSettings)
 			settings.PUT("", settingsHandler.UpdateSettings)

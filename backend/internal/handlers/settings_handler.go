@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -769,7 +770,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 
 		// Create all defaults
 		for _, setting := range defaultSettings {
-			h.service.CreateBotSetting(
+			if _, err := h.service.CreateBotSetting(
 				setting.section,
 				setting.key,
 				setting.value,
@@ -777,7 +778,14 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 				setting.description,
 				setting.defaultValue,
 				setting.isActive,
-			)
+			); err != nil {
+				c.JSON(http.StatusInternalServerError, APIResponse{
+					Success:   false,
+					Timestamp: time.Now().UTC().Format(time.RFC3339),
+					Error:     fmt.Sprintf("Failed to create default setting %s.%s: %v", setting.section, setting.key, err),
+				})
+				return
+			}
 		}
 
 		// Fetch again after creation
@@ -956,7 +964,11 @@ func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
 	}
 
 	client := redis.NewClient(opts)
-	defer client.Close()
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			log.Printf("Failed to close Redis test client: %v", closeErr)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()

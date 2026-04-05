@@ -562,7 +562,7 @@ func (h *StrategyHandler) getAuthorizedStrategy(c *gin.Context) (*models.Backtes
 		return nil, 0, false
 	}
 
-	if strategy.UserID != userID && c.GetBool("is_admin") != true {
+	if strategy.UserID != userID && !c.GetBool("is_admin") {
 		c.JSON(http.StatusForbidden, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),

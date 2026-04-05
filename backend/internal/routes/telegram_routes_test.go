@@ -125,7 +125,11 @@ func seedTelegramAdmin(t *testing.T, dbConn *sql.DB) string {
 
 func TestTelegramRoutes_SaveAndStatus(t *testing.T) {
 	router, dbConn := setupTelegramRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	authHeader := seedTelegramAdmin(t, dbConn)
 

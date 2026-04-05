@@ -40,6 +40,7 @@ export interface User {
   id: number;
   username: string;
   email: string;
+  role: string;
   full_name?: string;
   avatar?: string;
   is_active: boolean;

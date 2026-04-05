@@ -114,11 +114,37 @@ interface UserProfile extends Record<string, unknown> {
   id: number;
   username: string;
   email: string;
+  role: string;
   is_active: boolean;
   is_admin: boolean;
   created_at: string;
   avatar?: string;
   full_name?: string;
+}
+
+export interface AdminUser extends UserProfile {
+  updated_at: string;
+}
+
+export interface AdminUserListResponse extends Record<string, unknown> {
+  users: AdminUser[];
+  roles: string[];
+}
+
+export interface CreateAdminUserPayload extends Record<string, unknown> {
+  username: string;
+  email: string;
+  password: string;
+  role: string;
+  full_name?: string;
+  is_active?: boolean;
+}
+
+export interface UpdateAdminUserPayload extends Record<string, unknown> {
+  email?: string;
+  full_name?: string;
+  role?: string;
+  is_active?: boolean;
 }
 
 interface BacktestRequest extends Record<string, unknown> {
@@ -185,6 +211,8 @@ export interface CodexStatusResponse extends Record<string, unknown> {
   base_url: string;
   shared_key_available: boolean;
   user_key_available: boolean;
+  shared_key_masked?: string;
+  user_key_masked?: string;
   active_key_source: 'user' | 'shared' | 'none';
   capabilities: CodexCapabilities;
   message: string;
@@ -315,6 +343,8 @@ export interface CoinDeskNewsResponse extends Record<string, unknown> {
 export interface CoinDeskNewsConfigStatus extends Record<string, unknown> {
   provider: string;
   shared_key_present: boolean;
+  shared_key_masked?: string;
+  shared_key_label?: string;
   feed_url: string;
   source: string;
   configured_by_admin: boolean;
@@ -329,6 +359,7 @@ interface DYDXKey extends Record<string, unknown> {
   id?: number;
   network: string;
   chain_address: string;
+  secret_masked?: string;
   encrypted_secret?: string;
   is_active?: boolean;
   created_at?: string;
@@ -1029,6 +1060,32 @@ class ApiClient {
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
+  }
+
+  async listAdminUsers(): Promise<ApiResponse<AdminUserListResponse>> {
+    const response = await this.client.get<ApiResponse<AdminUserListResponse>>('/api/v1/admin/users');
+    return response.data;
+  }
+
+  async createAdminUser(
+    data: CreateAdminUserPayload
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
+    const response = await this.client.post<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+      '/api/v1/admin/users',
+      data
+    );
+    return response.data;
+  }
+
+  async updateAdminUser(
+    userId: number,
+    data: UpdateAdminUserPayload
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
+    const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+      `/api/v1/admin/users/${userId}`,
+      data
+    );
+    return response.data;
   }
 
   async initializeSettings(): Promise<ApiResponse> {

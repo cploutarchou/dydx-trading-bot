@@ -110,8 +110,17 @@ export function CoinDeskNewsSettings() {
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
         <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-5">
-          <h3 className="text-lg font-semibold text-white">Save shared API key</h3>
+          <h3 className="text-lg font-semibold text-white">{config?.shared_key_present ? 'Update shared API key' : 'Save shared API key'}</h3>
           <div className="mt-5 space-y-4">
+            {config?.shared_key_present && (
+              <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Current shared key</p>
+                <p className="mt-2 font-mono text-sm text-slate-200">{config.shared_key_masked || 'Masked key on file'}</p>
+                {config.shared_key_label && (
+                  <p className="mt-1 text-xs text-slate-500">Label: {config.shared_key_label}</p>
+                )}
+              </div>
+            )}
             <div>
               <label htmlFor="coindesk-key-label" className="mb-2 block text-sm font-medium text-slate-200">
                 Label
@@ -133,7 +142,7 @@ export function CoinDeskNewsSettings() {
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
-                placeholder="Paste your CoinDesk API key"
+                placeholder={config?.shared_key_present ? 'Paste a new CoinDesk API key to replace the current one' : 'Paste your CoinDesk API key'}
               />
             </div>
             <button
@@ -143,7 +152,7 @@ export function CoinDeskNewsSettings() {
               className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-              Save shared key
+              {config?.shared_key_present ? 'Update shared key' : 'Save shared key'}
             </button>
           </div>
         </div>

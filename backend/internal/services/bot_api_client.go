@@ -283,6 +283,8 @@ func parseBotAPIError(statusCode int, respBytes []byte) error {
 			errorMsg = fmt.Sprintf("%v", errField)
 		} else if errField, ok := result["error"]; ok {
 			errorMsg = fmt.Sprintf("%v", errField)
+		} else if errField, ok := result["detail"]; ok {
+			errorMsg = fmt.Sprintf("%v", errField)
 		}
 	} else if trimmed := strings.TrimSpace(string(respBytes)); trimmed != "" {
 		errorMsg = trimmed

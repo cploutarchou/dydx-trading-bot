@@ -16,7 +16,7 @@ PostgreSQL and Redis provide shared persistence, state, and caching.
 
 ## Shared environment
 
-Use the repo-root `.env` for all three services.
+Use the repo-root `.env` for all three services, generated from the root `example.env` template.
 
 - `frontend` reads `VITE_*` values from the repo root
 - `backend` loads the repo-root `.env`

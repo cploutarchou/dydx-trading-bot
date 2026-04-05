@@ -44,7 +44,7 @@ make stack-env
 If you need to create the file manually instead:
 
 ```bash
-cp ../.env.example ../.env
+cp ../example.env ../.env
 ```
 
 Typical local settings include:

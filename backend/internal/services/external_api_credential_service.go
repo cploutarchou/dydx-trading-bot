@@ -11,6 +11,7 @@ import (
 
 const ExternalAPIProviderCodexIO = "codex_io"
 const ExternalAPIProviderMailgun = "mailgun"
+const ExternalAPIProviderTelegramBot = "telegram_bot"
 const SharedCredentialUserID = 0
 
 type ExternalAPICredentialInfo struct {

@@ -1,69 +1,16 @@
 #!/usr/bin/env python3
-"""Render the shared repo-root .env from structured JSON config sources."""
+"""Compatibility helper to render a flat .env from the repo-owned encrypted config."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
-import subprocess
 import sys
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-ENVIRONMENTS_DIR = ROOT / "config" / "environments"
-SECRETS_DIR = ROOT / "config" / "secrets"
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    def decrypt_with_sops() -> dict[str, Any]:
-        if shutil.which("sops") is None:
-            raise RuntimeError(
-                f"sops is required to decrypt {path}, but it is not installed"
-            )
-        result = subprocess.run(
-            ["sops", "-d", str(path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return json.loads(result.stdout, object_pairs_hook=OrderedDict)
-
-    if path.name.endswith(".sops.json"):
-        return decrypt_with_sops()
-
-    parsed = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=OrderedDict)
-    if isinstance(parsed, dict) and "sops" in parsed:
-        return decrypt_with_sops()
-    return parsed
-
-
-def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged: dict[str, Any] = OrderedDict(base)
-    for key, value in override.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def resolve_secret_file(environment: str, explicit: str | None) -> Path | None:
-    if explicit:
-        candidate = Path(explicit).resolve()
-        return candidate if candidate.exists() else None
-
-    candidates = [
-        SECRETS_DIR / f"{environment}.secrets.sops.json",
-        SECRETS_DIR / f"{environment}.secrets.json",
-        SECRETS_DIR / f"{environment}.secrets.example.json",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
+from secure_config import ROOT, load_json, normalize_environment_name, resolve_profile_file
 
 
 def normalize_scalar(value: Any) -> str:
@@ -98,17 +45,11 @@ def collect_env_entries(tree: dict[str, Any]) -> OrderedDict[str, list[tuple[str
     return sections
 
 
-def render_env_text(
-    environment: str,
-    profile_path: Path,
-    secret_path: Path | None,
-    config: dict[str, Any],
-) -> str:
+def render_env_text(environment: str, profile_path: Path, config: dict[str, Any]) -> str:
     lines = [
         f"# Generated for {environment}",
-        f"# Base profile: {profile_path.relative_to(ROOT)}",
-        f"# Secrets layer: {secret_path.relative_to(ROOT) if secret_path else 'none'}",
-        "# Edit the JSON sources in config/ instead of editing this file directly.",
+        f"# Source profile: {profile_path.relative_to(ROOT)}",
+        "# Edit the encrypted profile in config/profiles/ instead of editing this file directly.",
         "",
     ]
 
@@ -123,7 +64,7 @@ def render_env_text(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render root .env from JSON profiles")
+    parser = argparse.ArgumentParser(description="Render .env from a structured config profile")
     parser.add_argument(
         "--environment",
         choices=["development", "production"],
@@ -136,26 +77,17 @@ def main() -> int:
         help="Output file path",
     )
     parser.add_argument(
-        "--secrets-file",
+        "--config-file",
         default=None,
-        help="Optional explicit secrets JSON or SOPS JSON file",
+        help="Optional explicit config JSON or encrypted config file",
     )
     args = parser.parse_args()
 
-    profile_path = ENVIRONMENTS_DIR / f"{args.environment}.env.json"
-    if not profile_path.exists():
-        print(f"Missing environment profile: {profile_path}", file=sys.stderr)
-        return 1
-
     try:
+        environment = normalize_environment_name(args.environment)
+        profile_path = resolve_profile_file(environment, args.config_file)
         config = load_json(profile_path)
-        secret_path = resolve_secret_file(args.environment, args.secrets_file)
-        if secret_path is not None:
-            config = deep_merge(config, load_json(secret_path))
-        output_text = render_env_text(args.environment, profile_path, secret_path, config)
-    except subprocess.CalledProcessError as exc:
-        print(exc.stderr.strip() or str(exc), file=sys.stderr)
-        return 1
+        output_text = render_env_text(environment, profile_path, config)
     except Exception as exc:
         print(f"Failed to render env: {exc}", file=sys.stderr)
         return 1

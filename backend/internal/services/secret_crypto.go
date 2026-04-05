@@ -18,7 +18,7 @@ func loadEncryptionSecret() string {
 	secret := os.Getenv("ENCRYPTION_KEY")
 	if secret == "" {
 		log.Printf("WARNING: ENCRYPTION_KEY is not set. Using insecure default key. " +
-			"Set ENCRYPTION_KEY in your .env file before storing real credentials.")
+			"Set ENCRYPTION_KEY in config/profiles before storing real credentials.")
 		secret = "default-secret-key-change-in-production"
 	}
 	if len(secret) < 32 {

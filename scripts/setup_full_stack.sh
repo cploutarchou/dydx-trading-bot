@@ -36,46 +36,22 @@ check_prerequisites() {
     echo ""
 }
 
-# Create environment files
+# Validate structured config files
 setup_env_files() {
-    echo "${BLUE}Setting up environment files...${NC}"
-    
-    # Shared repo-root .env
-    if [ ! -f .env ]; then
-        cat > .env << EOF
-# Shared monorepo environment
-ENVIRONMENT=development
-POSTGRES_PORT=5432
-REDIS_PORT=6379
-API_PORT=8888
-POSTGRES_USER=dydx_bot
-POSTGRES_PASSWORD=change-me-db-password
-POSTGRES_DB=dydx_bot
-SECRET_KEY=change-me-jwt-secret-min-32-chars
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-DB_TYPE=postgres
-DB_HOST=postgres
-DB_PORT=5432
-DB_NAME=dydx_bot
-DB_USER=dydx_bot
-DB_PASSWORD=change-me-db-password
-REDIS_ENABLED=true
-REDIS_HOST=localhost
-REDIS_DB=0
-BOT_API_URL=http://localhost:8889
-BOT_API_HOST=0.0.0.0
-BOT_API_PORT=8889
-VITE_API_URL=http://localhost:8888
-EOF
-        echo "✓ Created .env"
-    else
-        echo "✓ .env already exists"
+    echo "${BLUE}Checking structured config...${NC}"
+
+    if [ ! -f run.json ]; then
+        echo "run.json not found. Generating with 'make dev'..."
+        PATH="$HOME/.local/bin:$PATH" make dev
     fi
 
-    echo "✓ Backend, bot, and frontend all use the repo-root .env"
-    
+    if ! python3 scripts/validate_stack_env.py --environment development; then
+        echo "❌ Structured config is invalid"
+        echo "   Run 'make dev-config' and then 'make dev' first"
+        exit 1
+    fi
+
+    echo "✓ Backend, bot, and frontend all load run.json"
     echo ""
 }
 

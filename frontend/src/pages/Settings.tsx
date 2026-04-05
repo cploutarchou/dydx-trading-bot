@@ -6,7 +6,6 @@
  * - dYdX Key Management (testnet/mainnet keys)
  * - Logging (log level, Loki integration)
  * - Telegram (notification settings)
- * - dYdX Connection (testnet/mainnet, chain ID, mnemonic)
  *
  * NOTE: Bot Settings and Backtesting moved to Strategies page for per-strategy configuration
  */
@@ -23,6 +22,7 @@ import { useToastStore } from '../components/ErrorBoundary';
 import { MailgunSettings } from '../components/MailgunSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
+import { TelegramSettings } from '../components/TelegramSettings';
 import { useAuthStore } from '../store/auth';
 
 type SettingValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[];
@@ -101,6 +101,7 @@ const MANUAL_SECTION_IDS = new Set([
   'codex_io',
   'market_news',
   'mailgun',
+  'telegram',
   'profile',
   'dydx_keys',
   'security',
@@ -254,6 +255,7 @@ export default function Settings() {
       ...(user?.is_admin
         ? [
             { section: 'access_control', title: '🧭 Access Control', description: 'Roles & Registration' },
+            { section: 'telegram', title: '💬 Telegram', description: 'Shared Notifications' },
             { section: 'mailgun', title: '✉️ Mailgun', description: 'Onboarding Email' },
             { section: 'market_news', title: '📰 Market News', description: 'CoinDesk Feed' },
           ]
@@ -627,6 +629,9 @@ export default function Settings() {
 
             {/* Mailgun Panel */}
             {activeSection === 'mailgun' && user?.is_admin && <MailgunSettings />}
+
+            {/* Telegram Panel */}
+            {activeSection === 'telegram' && user?.is_admin && <TelegramSettings />}
 
             {/* CoinDesk News Panel */}
             {activeSection === 'market_news' && user?.is_admin && <CoinDeskNewsSettings />}

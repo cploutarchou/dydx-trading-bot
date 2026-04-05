@@ -132,12 +132,12 @@ func LoadConfig() {
 	dydx := DYDX{
 		IsTestnet: getEnvBool("IS_TESTNET", false),
 		DYDXTestnetSettings: DYDXTestnetSettings{
-			Address: getEnvAny([]string{"DYDX_TESTNET_ADDRESS"}, ""),
-			Secret:  getEnvAny([]string{"DYDX_TESTNET_SECRET", "DYDX_TESTNET_MNEMONIC"}, ""),
+			Address: "",
+			Secret:  "",
 		},
 		DYDXMainnetSettings: DYDXMainnetSettings{
-			Address: getEnvAny([]string{"DYDX_MAINNET_ADDRESS"}, ""),
-			Secret:  getEnvAny([]string{"DYDX_MAINNET_SECRET", "DYDX_MAINNET_MNEMONIC"}, ""),
+			Address: "",
+			Secret:  "",
 		},
 	}
 

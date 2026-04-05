@@ -31,6 +31,7 @@ export interface Strategy {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  benchmark_symbol?: string;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   created_at?: string;
   updated_at?: string;
@@ -80,6 +81,7 @@ const buildStrategyPayload = (data: Partial<Strategy>) => ({
   trailing_stop_pct: data.trailing_stop_pct,
   rebalance_interval_hours: data.rebalance_interval_hours,
   position_timeout_hours: data.position_timeout_hours,
+  benchmark_symbol: data.benchmark_symbol,
   pair_selection_mode: data.pair_selection_mode,
 });
 

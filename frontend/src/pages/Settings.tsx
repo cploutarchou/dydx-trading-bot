@@ -15,6 +15,7 @@ import { Loader } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api';
 import { AuthSettingsComponent } from '../components/AuthSettings';
+import { CodexSettings } from '../components/CodexSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { useToastStore } from '../components/ErrorBoundary';
 import { PageContainer } from '../components/PageContainer';
@@ -93,6 +94,7 @@ const getSettingsFieldDomId = (section: string, fieldKey: string): string =>
 const getSettingsFieldRefKey = (section: string, fieldKey: string): string => `${section}.${fieldKey}`;
 
 const MANUAL_SECTION_IDS = new Set([
+  'codex_io',
   'profile',
   'dydx_keys',
   'security',
@@ -239,6 +241,7 @@ export default function Settings() {
     const manualSections: SidebarSectionItem[] = [
       { section: 'profile', title: '👤 Profile', description: 'Account & Avatar' },
       { section: 'dydx_keys', title: '🔑 dYdX Keys', description: 'Testnet & Mainnet' },
+      { section: 'codex_io', title: '📈 Codex.io', description: 'Market Intel Key' },
       { section: 'security', title: '🛡️ Security', description: '2FA & Session Controls' },
     ];
 
@@ -577,6 +580,9 @@ export default function Settings() {
 
             {/* dYdX Key Management Panel */}
             {activeSection === 'dydx_keys' && <DYDXKeyManager />}
+
+            {/* Codex.io Panel */}
+            {activeSection === 'codex_io' && <CodexSettings />}
 
             {/* Security & Session Management Panel */}
             {activeSection === 'security' && (

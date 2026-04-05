@@ -5,6 +5,7 @@ Repository classes for realtime data operations
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from internal.domain.models_realtime import Position, MarketData, BotStats, Alert, PositionStatusEnum
+from src.shared.time_utils import utc_now
 
 
 class PositionRepository:
@@ -60,11 +61,10 @@ class PositionRepository:
 
     def close_position(self, position_id: str):
         """Close a position"""
-        from datetime import datetime
         position = self.session.query(Position).filter(Position.position_id == position_id).first()
         if position:
             position.status = PositionStatusEnum.CLOSED
-            position.closed_at = datetime.utcnow()
+            position.closed_at = utc_now()
             self.session.commit()
 
 
@@ -200,11 +200,10 @@ class AlertRepository:
 
     def acknowledge_alert(self, alert_id: int):
         """Mark an alert as acknowledged"""
-        from datetime import datetime
         alert = self.session.query(Alert).filter(Alert.id == alert_id).first()
         if alert:
             alert.acknowledged = True
-            alert.acknowledged_at = datetime.utcnow()
+            alert.acknowledged_at = utc_now()
             self.session.commit()
 
 

@@ -30,8 +30,8 @@ func (h *BacktestHandler) ListBacktests(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, APIResponse{
-			Success:   false, Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "User ID not found in context",
+			Success: false, Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error: "User ID not found in context",
 		})
 		return
 	}

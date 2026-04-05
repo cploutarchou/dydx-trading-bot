@@ -13,6 +13,8 @@ This guide covers the supported frontend workflow for local development on macOS
 ### Local frontend setup
 
 ```bash
+make config-keygen
+make dev
 npm install
 npm run dev
 ```
@@ -24,13 +26,17 @@ Visit <http://localhost:5173>
 From the repo root:
 
 ```bash
-make stack-env
+make config-keygen
+make dev-config
+make dev
 make infra-up
 ```
 
 For full-stack verification:
 
 ```bash
+make config-keygen
+make dev
 make stack-up-dev
 ```
 
@@ -72,7 +78,7 @@ npm run qa:screenshots:sync
 Repo-root integration commands:
 
 ```bash
-make stack-env
+make dev-config
 make infra-up
 make infra-down
 make stack-up-dev
@@ -82,7 +88,7 @@ make stack-logs
 
 ## Environment variables
 
-Keep shared values in the repo-root `.env`:
+The frontend reads from repo-root `run.json`, generated from the encrypted profile:
 
 ```bash
 VITE_API_URL=http://localhost:8888

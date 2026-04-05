@@ -176,6 +176,24 @@ export interface MailgunConfigPayload extends Record<string, unknown> {
   region?: 'us' | 'eu' | string;
 }
 
+export interface TelegramStatusResponse extends Record<string, unknown> {
+  provider: string;
+  configured: boolean;
+  shared_token_present: boolean;
+  shared_token_masked?: string;
+  shared_token_label?: string;
+  chat_id?: string;
+  chat_id_masked?: string;
+  delivery_mode?: string;
+  message?: string;
+}
+
+export interface TelegramConfigPayload extends Record<string, unknown> {
+  bot_token?: string;
+  chat_id: string;
+  label?: string;
+}
+
 interface BacktestRequest extends Record<string, unknown> {
   start_date: string;
   end_date: string;
@@ -1908,6 +1926,24 @@ class ApiClient {
   async getMailgunStatus(): Promise<ApiResponse<MailgunStatusResponse>> {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
+    return response.data;
+  }
+
+  async getTelegramStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/status');
+    return response.data;
+  }
+
+  async saveTelegramConfig(data: TelegramConfigPayload): Promise<ApiResponse<TelegramStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/config', data);
+    return response.data;
+  }
+
+  async deleteTelegramConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/config');
     return response.data;
   }
 

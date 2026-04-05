@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -36,11 +37,18 @@ func (r *StrategyRepository) ensureStrategySchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to inspect backtest strategy schema: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close strategy schema rows: %v", closeErr)
+		}
+	}()
 
 	columnNames, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("failed to read backtest strategy columns: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to inspect backtest strategy schema rows: %w", err)
 	}
 
 	columns := make(map[string]struct{}, len(columnNames))
@@ -70,11 +78,18 @@ func (r *StrategyRepository) ensureExecutionStateSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to inspect strategy execution state schema: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close execution state schema rows: %v", closeErr)
+		}
+	}()
 
 	columnNames, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("failed to read strategy execution state columns: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to inspect strategy execution state schema rows: %w", err)
 	}
 
 	columns := make(map[string]struct{}, len(columnNames))
@@ -272,7 +287,11 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 	if err != nil {
 		return nil, fmt.Errorf("failed to query strategies: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close strategy rows: %v", closeErr)
+		}
+	}()
 
 	var strategies []models.BacktestStrategy
 	for rows.Next() {
@@ -502,7 +521,11 @@ func (r *StrategyRepository) GetVersionHistoryByStrategy(strategyID int) ([]mode
 	if err != nil {
 		return nil, fmt.Errorf("failed to query version history: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close strategy version history rows: %v", closeErr)
+		}
+	}()
 
 	var history []models.StrategyVersionHistory
 	for rows.Next() {

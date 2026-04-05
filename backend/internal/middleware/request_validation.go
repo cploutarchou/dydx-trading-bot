@@ -294,7 +294,7 @@ func ValidateBacktestParams(params map[string]interface{}) error {
 	// Validate date format (YYYY-MM-DD)
 	if startDate, ok := params["start_date"].(string); ok {
 		if _, err := time.Parse("2006-01-02", startDate); err != nil {
-			return fmt.Errorf("invalid start_date format, expected YYYY-MM-DD: %v", err)
+			return fmt.Errorf("invalid start_date format, expected YYYY-MM-DD: %w", err)
 		}
 	} else {
 		return fmt.Errorf("start_date must be a string")
@@ -302,7 +302,7 @@ func ValidateBacktestParams(params map[string]interface{}) error {
 
 	if endDate, ok := params["end_date"].(string); ok {
 		if _, err := time.Parse("2006-01-02", endDate); err != nil {
-			return fmt.Errorf("invalid end_date format, expected YYYY-MM-DD: %v", err)
+			return fmt.Errorf("invalid end_date format, expected YYYY-MM-DD: %w", err)
 		}
 	} else {
 		return fmt.Errorf("end_date must be a string")

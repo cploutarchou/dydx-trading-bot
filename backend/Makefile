@@ -1,6 +1,6 @@
 # Makefile for dYdX Trading Bot Backend
 
-.PHONY: help help-check build run test clean lint fmt vet install-tools docker-build docker-run migrate-up migrate-down dev dev-env tasks-summary tasks-validate tasks-governance
+.PHONY: help help-check build run test clean lint lint-full fmt vet install-tools docker-build docker-run migrate-up migrate-down dev dev-env tasks-summary tasks-validate tasks-governance
 
 # Variables
 BINARY_NAME=dydx-bot
@@ -8,6 +8,10 @@ MAIN_PATH=./cmd/server
 GO=go
 GOFLAGS=-v
 GOLANGCI_LINT=golangci-lint
+GOLANGCI_LINT_VERSION=v1.64.8
+GOLANGCI_LINT_PKG=github.com/golangci/golangci-lint/cmd/golangci-lint
+GOLANGCI_LINT_RELEASE_CONFIG=.golangci.release.yml
+GOLANGCI_LINT_FULL_CONFIG=.golangci.yml
 MIGRATE=migrate
 DOCKER_IMAGE=dydx-trading-bot
 DOCKER_TAG=latest
@@ -83,15 +87,9 @@ dev:
 		exit 1; \
 	fi
 
-## dev-env: Render the shared repo-root .env from config profiles (usage: make dev-env MODE=development)
+## dev-env: Deprecated: backend now reads config/profiles directly
 dev-env:
-	@MODE_VALUE="$(MODE)"; \
-	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
-		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
-		exit 1; \
-	fi; \
-	@python3 ../scripts/render_env.py --environment $(MODE) --output ../.env
-	@echo "$(GREEN)✓ Repo-root .env rendered for $(MODE)$(NC)"
+	@echo "$(YELLOW)⚠ dev-env is deprecated. Use make dev-config or make prod-config from repo root.$(NC)"
 
 ## test: Run all tests
 test:
@@ -114,22 +112,34 @@ bench:
 lint:
 	@echo "$(CYAN)Running linter...$(NC)"
 	@if command -v $(GOLANGCI_LINT) > /dev/null; then \
-		$(GOLANGCI_LINT) run --config .golangci.yml ./...; \
+		$(GOLANGCI_LINT) run --config $(GOLANGCI_LINT_RELEASE_CONFIG) ./... && \
 		echo "$(GREEN)✓ Linting complete$(NC)"; \
 	else \
-		echo "$(RED)golangci-lint not installed. Run: make install-tools$(NC)"; \
-		exit 1; \
+		echo "$(CYAN)golangci-lint not installed; running pinned go tool $(GOLANGCI_LINT_VERSION)...$(NC)"; \
+		$(GO) run $(GOLANGCI_LINT_PKG)@$(GOLANGCI_LINT_VERSION) run --config $(GOLANGCI_LINT_RELEASE_CONFIG) ./... && \
+		echo "$(GREEN)✓ Linting complete$(NC)"; \
+	fi
+
+## lint-full: Run the full legacy golangci-lint backlog profile
+lint-full:
+	@echo "$(CYAN)Running full lint backlog profile...$(NC)"
+	@if command -v $(GOLANGCI_LINT) > /dev/null; then \
+		$(GOLANGCI_LINT) run --config $(GOLANGCI_LINT_FULL_CONFIG) ./...; \
+	else \
+		echo "$(CYAN)golangci-lint not installed; running pinned go tool $(GOLANGCI_LINT_VERSION)...$(NC)"; \
+		$(GO) run $(GOLANGCI_LINT_PKG)@$(GOLANGCI_LINT_VERSION) run --config $(GOLANGCI_LINT_FULL_CONFIG) ./...; \
 	fi
 
 ## lint-fix: Run golangci-lint and auto-fix issues
 lint-fix:
 	@echo "$(CYAN)Running linter with auto-fix...$(NC)"
 	@if command -v $(GOLANGCI_LINT) > /dev/null; then \
-		$(GOLANGCI_LINT) run --config .golangci.yml --fix ./...; \
+		$(GOLANGCI_LINT) run --config $(GOLANGCI_LINT_RELEASE_CONFIG) --fix ./... && \
 		echo "$(GREEN)✓ Linting with fixes complete$(NC)"; \
 	else \
-		echo "$(RED)golangci-lint not installed. Run: make install-tools$(NC)"; \
-		exit 1; \
+		echo "$(CYAN)golangci-lint not installed; running pinned go tool $(GOLANGCI_LINT_VERSION) with --fix...$(NC)"; \
+		$(GO) run $(GOLANGCI_LINT_PKG)@$(GOLANGCI_LINT_VERSION) run --config $(GOLANGCI_LINT_RELEASE_CONFIG) --fix ./... && \
+		echo "$(GREEN)✓ Linting with fixes complete$(NC)"; \
 	fi
 
 ## fmt: Format code with gofmt
@@ -163,7 +173,7 @@ install-tools:
 	@echo "$(CYAN)Installing development tools...$(NC)"
 	@echo "Installing golangci-lint..."
 	@if ! command -v golangci-lint > /dev/null; then \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin v1.55.2; \
+		go install $(GOLANGCI_LINT_PKG)@$(GOLANGCI_LINT_VERSION); \
 	fi
 	@echo "Installing air (hot reload)..."
 	@if ! command -v air > /dev/null; then \
@@ -242,7 +252,10 @@ docker-build:
 ## docker-run: Run application in Docker
 docker-run:
 	@echo "$(CYAN)Running Docker container...$(NC)"
-	docker run -p 8888:8888 --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker run -p 8888:8888 \
+		-e APP_CONFIG_ENV=$(MODE) \
+		-v $(PWD)/../config:/app/config:ro \
+		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 ## deps: Download dependencies
 deps:

@@ -2,7 +2,7 @@
 Repository classes for core bot operations
 """
 
-from datetime import datetime
+from datetime import timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from internal.domain.models import (
@@ -16,6 +16,7 @@ from internal.domain.models import (
     JobStatusEnum,
     TradeStatusEnum,
 )
+from src.shared.time_utils import utc_now
 
 
 class BotRepository:
@@ -121,12 +122,10 @@ class JobRepository:
 
     def start_job(self, job_id: str, process_id: Optional[int] = None):
         """Start a job"""
-        from datetime import datetime
-
         job = self.get_by_job_id(job_id)
         if job:
             job.status = JobStatusEnum.RUNNING
-            job.started_at = datetime.utcnow()
+            job.started_at = utc_now()
             if process_id is not None:
                 # Assuming Job has process_id, but it doesn't. Maybe add it.
                 pass
@@ -139,31 +138,25 @@ class JobRepository:
         execution_time_ms: Optional[int] = None,
     ):
         """Complete a job"""
-        from datetime import datetime
-
         job = self.get_by_job_id(job_id)
         if job:
             job.status = JobStatusEnum.COMPLETED
             job.result = result
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now()
             self.session.commit()
 
     def fail_job(self, job_id: str, error_message: str, error_traceback: Optional[str] = None):
         """Fail a job"""
-        from datetime import datetime
-
         job = self.get_by_job_id(job_id)
         if job:
             job.status = JobStatusEnum.FAILED
             job.error_message = error_message
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now()
             self.session.commit()
 
     def get_job_history(self, bot_id: int, days: int = 7) -> List[Job]:
         """Get job history for a bot within the last N days"""
-        from datetime import datetime, timedelta
-
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = utc_now() - timedelta(days=days)
         return (
             self.session.query(Job)
             .filter(Job.bot_id == bot_id, Job.created_at >= cutoff_date)
@@ -179,8 +172,6 @@ class JobRepository:
         error_message: Optional[str] = None,
     ):
         """Update job status"""
-        from datetime import datetime
-
         job = self.get_by_id(job_id)
         if job:
             job.status = status
@@ -189,13 +180,13 @@ class JobRepository:
             if error_message is not None:
                 job.error_message = error_message
             if status == JobStatusEnum.RUNNING and not job.started_at:
-                job.started_at = datetime.utcnow()
+                job.started_at = utc_now()
             elif status in [
                 JobStatusEnum.COMPLETED,
                 JobStatusEnum.FAILED,
                 JobStatusEnum.CANCELLED,
             ]:
-                job.completed_at = datetime.utcnow()
+                job.completed_at = utc_now()
             self.session.commit()
 
 
@@ -256,8 +247,6 @@ class TradeRepository:
         exit_size2: Optional[float] = None,
     ):
         """Close a trade"""
-        from datetime import datetime
-
         trade = self.get_by_position_id(trade_id)
         if trade:
             if exit_price1 is not None:
@@ -282,7 +271,7 @@ class TradeRepository:
                     )
                 ) * 100
             trade.status = TradeStatusEnum.CLOSED
-            trade.closed_at = datetime.utcnow()
+            trade.closed_at = utc_now()
             self.session.commit()
 
     def get_trade_statistics(self, bot_id: int) -> dict:
@@ -319,8 +308,6 @@ class TradeRepository:
         realized_pnl_pct: float = 0.0,
     ):
         """Update trade exit information"""
-        from datetime import datetime
-
         trade = self.get_by_position_id(position_id)
         if trade:
             if exit_price1 is not None:
@@ -334,7 +321,7 @@ class TradeRepository:
             trade.realized_pnl = realized_pnl
             trade.realized_pnl_pct = realized_pnl_pct
             trade.status = TradeStatusEnum.CLOSED
-            trade.closed_at = datetime.utcnow()
+            trade.closed_at = utc_now()
             self.session.commit()
 
 
@@ -372,9 +359,7 @@ class EventRepository:
 
     def get_bot_events(self, bot_instance_id: int, days: int = 7) -> List[Event]:
         """Get events for a bot within the last N days"""
-        from datetime import datetime, timedelta
-
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = utc_now() - timedelta(days=days)
         return (
             self.session.query(Event)
             .filter(
@@ -387,9 +372,7 @@ class EventRepository:
 
     def get_all_events(self, days: int = 7) -> List[Event]:
         """Get all events within the last N days"""
-        from datetime import datetime, timedelta
-
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = utc_now() - timedelta(days=days)
         return (
             self.session.query(Event)
             .filter(Event.created_at >= cutoff_date)
@@ -635,7 +618,7 @@ class StrategyRepository:
         )
         if not strategy:
             return False
-        strategy.deleted_at = datetime.utcnow()
+        strategy.deleted_at = utc_now()
         self.session.commit()
         return True
 

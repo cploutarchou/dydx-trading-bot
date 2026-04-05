@@ -31,7 +31,11 @@ func TestAuth_LoginTokenValidWhenOnlySecretKeyAliasIsSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite memory db: %v", err)
 	}
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	if _, err := dbConn.Exec(`
 	CREATE TABLE users (

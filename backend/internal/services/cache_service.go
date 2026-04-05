@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -58,7 +59,7 @@ func (cs *CacheService) GetCache(key string) (interface{}, error) {
 	ctx := context.Background()
 
 	val, err := cs.client.Get(ctx, key).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, nil // Key doesn't exist
 	}
 	if err != nil {
@@ -79,7 +80,7 @@ func (cs *CacheService) GetCacheString(key string) (string, error) {
 	ctx := context.Background()
 
 	val, err := cs.client.Get(ctx, key).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return "", nil
 	}
 	if err != nil {
@@ -190,7 +191,7 @@ func (cs *CacheService) GetCounter(key string) (int64, error) {
 	ctx := context.Background()
 
 	val, err := cs.client.Get(ctx, key).Int64()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return 0, nil
 	}
 	if err != nil {

@@ -8,7 +8,8 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
@@ -28,7 +29,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from src.shared.env_loader import load_repo_env
 
-# Load .env BEFORE importing project modules that initialize config/database.
+# Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
 
 # Import authentication modules
@@ -69,6 +70,7 @@ from src.api.websocket_server import (
     broadcast_strategy_status,
     build_strategy_snapshot_message,
 )
+from src.shared.time_utils import utc_now_iso
 
 # Import database utilities
 from src.infrastructure.database import db
@@ -576,6 +578,48 @@ def custom_openapi():
     return app.openapi_schema
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Manage startup and shutdown lifecycle for the Bot API."""
+    global bot_manager_monitor_task
+
+    logger.info("Starting Bot API Server...")
+    logger.info(
+        "Runtime DB target: type=%s host=%s port=%s name=%s",
+        os.getenv("DB_TYPE", "sqlite"),
+        os.getenv("DB_HOST", "localhost"),
+        os.getenv("DB_PORT", "5432"),
+        os.getenv("DB_NAME", "trading_bot.db"),
+    )
+    db.create_all_tables()
+    db.ensure_schema_compatibility()
+    db.run_pending_migrations()
+    InMemoryStrategyStore.ensure_seeded()
+    if bot_manager is not None:
+        bot_manager.set_status_event_publisher(broadcast_strategy_status)
+        await bot_manager.cleanup_dead_processes()
+        if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
+            bot_manager_monitor_task = asyncio.create_task(_bot_manager_monitor_loop())
+    else:
+        logger.warning(
+            "Bot manager unavailable; bot-instance endpoints may be degraded"
+        )
+    logger.info("Bot API Server ready")
+
+    try:
+        yield
+    finally:
+        if bot_manager_monitor_task is not None:
+            bot_manager_monitor_task.cancel()
+            try:
+                await bot_manager_monitor_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                bot_manager_monitor_task = None
+        logger.info("Shutting down Bot API Server...")
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="dYdX Trading Bot API",
@@ -583,6 +627,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Set custom OpenAPI schema
@@ -620,7 +665,7 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
         "success": success,
         "message": message,
         "data": data,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": utc_now_iso(),
         "trace_id": trace_id,
     }
     response = JSONResponse(
@@ -1926,7 +1971,7 @@ async def websocket_strategies(websocket: WebSocket):
                 {
                     "type": "strategy_channel_connected",
                     "channel": channel,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": utc_now_iso(),
                 },
                 websocket,
             )
@@ -1940,7 +1985,7 @@ async def websocket_strategies(websocket: WebSocket):
 
             if message.get("type") == "ping":
                 await manager.send_personal_message(
-                    {"type": "pong", "timestamp": datetime.utcnow().isoformat()},
+                    {"type": "pong", "timestamp": utc_now_iso()},
                     websocket,
                 )
     except WebSocketDisconnect:
@@ -2053,7 +2098,7 @@ async def create_backtest(
         ):
             message = {
                 "type": "backtest_progress",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now_iso(),
                 "run_id": run_id,
                 "progress_pct": progress,
                 "current_pair": current_pair,
@@ -2644,34 +2689,6 @@ async def _bot_manager_monitor_loop():
         await asyncio.sleep(interval_seconds)
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize bot manager on startup"""
-    global bot_manager_monitor_task
-    logger.info("Starting Bot API Server...")
-    logger.info(
-        "Runtime DB target: type=%s host=%s port=%s name=%s",
-        os.getenv("DB_TYPE", "sqlite"),
-        os.getenv("DB_HOST", "localhost"),
-        os.getenv("DB_PORT", "5432"),
-        os.getenv("DB_NAME", "trading_bot.db"),
-    )
-    db.create_all_tables()
-    db.ensure_schema_compatibility()
-    db.run_pending_migrations()
-    InMemoryStrategyStore.ensure_seeded()
-    if bot_manager is not None:
-        bot_manager.set_status_event_publisher(broadcast_strategy_status)
-        await bot_manager.cleanup_dead_processes()
-        if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
-            bot_manager_monitor_task = asyncio.create_task(_bot_manager_monitor_loop())
-    else:
-        logger.warning(
-            "Bot manager unavailable; bot-instance endpoints may be degraded"
-        )
-    logger.info("Bot API Server ready")
-
-
 # ============================================================================
 # STRATEGY ENDPOINTS
 # ============================================================================
@@ -2801,23 +2818,6 @@ async def revert_strategy_version(
             status_code=404,
         )
     return api_response(success=True, data=strategy, message="Strategy reverted")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global bot_manager_monitor_task
-    if bot_manager_monitor_task is not None:
-        bot_manager_monitor_task.cancel()
-        try:
-            await bot_manager_monitor_task
-        except asyncio.CancelledError:
-            pass
-        finally:
-            bot_manager_monitor_task = None
-    """Cleanup on shutdown"""
-    logger.info("Shutting down Bot API Server...")
-    # Optionally stop all running instances on shutdown
-    # This could be configurable behavior
 
 
 # ============================================================================

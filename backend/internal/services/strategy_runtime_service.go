@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -27,6 +28,7 @@ type StrategyRuntimeState struct {
 type StrategyRuntimeService struct {
 	strategyService *StrategyService
 	keyService      *KeyManagementService
+	telegramService *TelegramService
 	botService      *BotInstanceService
 	botRepo         *repository.BotInstanceRepository
 }
@@ -34,12 +36,14 @@ type StrategyRuntimeService struct {
 func NewStrategyRuntimeService(
 	strategyService *StrategyService,
 	keyService *KeyManagementService,
+	telegramService *TelegramService,
 	botService *BotInstanceService,
 	botRepo *repository.BotInstanceRepository,
 ) *StrategyRuntimeService {
 	return &StrategyRuntimeService{
 		strategyService: strategyService,
 		keyService:      keyService,
+		telegramService: telegramService,
 		botService:      botService,
 		botRepo:         botRepo,
 	}
@@ -53,6 +57,7 @@ func (s *StrategyRuntimeService) WithAuthToken(token string) *StrategyRuntimeSer
 	return &StrategyRuntimeService{
 		strategyService: s.strategyService,
 		keyService:      s.keyService,
+		telegramService: s.telegramService,
 		botService:      s.botService.WithAuthToken(token),
 		botRepo:         s.botRepo,
 	}
@@ -66,6 +71,7 @@ func (s *StrategyRuntimeService) WithTraceID(traceID string) *StrategyRuntimeSer
 	return &StrategyRuntimeService{
 		strategyService: s.strategyService,
 		keyService:      s.keyService,
+		telegramService: s.telegramService,
 		botService:      s.botService.WithTraceID(traceID),
 		botRepo:         s.botRepo,
 	}
@@ -141,7 +147,8 @@ func (s *StrategyRuntimeService) StartRuntime(strategy *models.BacktestStrategy,
 		}
 		if existsLocally {
 			if _, createErr := s.botService.GetRemoteBotInstance(runtimeState.InstanceID); createErr != nil {
-				if _, ok := createErr.(*BotAPIError); ok {
+				var apiErr *BotAPIError
+				if errors.As(createErr, &apiErr) {
 					if createRemoteErr := s.botService.CreateBotInstanceWithConfig(instanceRecord, createPayload); createRemoteErr != nil {
 						return nil, fmt.Errorf("failed to create runtime instance: %w", createRemoteErr)
 					}
@@ -350,8 +357,38 @@ func (s *StrategyRuntimeService) buildBotCreatePayload(
 			"address":  runtimeKey.ChainAddress,
 			"mnemonic": runtimeKey.SecretPhrase,
 		},
+		"telegram":           s.buildTelegramParams(),
 		"trading_params":     s.buildTradingParams(strategy, runtimeKey.Network),
 		"backtesting_params": s.buildBacktestingParams(strategy),
+	}
+}
+
+func (s *StrategyRuntimeService) buildTelegramParams() map[string]interface{} {
+	if s.telegramService == nil {
+		return map[string]interface{}{
+			"token":   "",
+			"chat_id": "",
+		}
+	}
+
+	config, configured, err := s.telegramService.ResolveSharedConfig()
+	if err != nil {
+		log.Printf("⚠️ failed to resolve Telegram settings for runtime payload: %v", err)
+		return map[string]interface{}{
+			"token":   "",
+			"chat_id": "",
+		}
+	}
+	if !configured || config == nil {
+		return map[string]interface{}{
+			"token":   "",
+			"chat_id": "",
+		}
+	}
+
+	return map[string]interface{}{
+		"token":   config.BotToken,
+		"chat_id": config.ChatID,
 	}
 }
 
@@ -451,7 +488,8 @@ func (s *StrategyRuntimeService) fetchRemoteRuntimeStatus(instanceID string) (ma
 
 	result, err := s.botService.GetRemoteBotInstance(instanceID)
 	if err != nil {
-		if apiErr, ok := err.(*BotAPIError); ok && apiErr.StatusCode == 404 {
+		var apiErr *BotAPIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("failed to query bot runtime instance %s: %w", instanceID, err)

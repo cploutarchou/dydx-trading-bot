@@ -90,15 +90,14 @@ setup: install ## Complete project setup (install dependencies and configure env
 	@echo "  API_URL: $$(grep '^VITE_API_URL=' ../.env 2>/dev/null || echo 'VITE_API_URL=$(API_URL)')"
 	@echo "$(GREEN)✓ Project setup complete!$(NC)"
 
-dev-env: ## Update repo-root .env frontend settings for development|production (usage: make dev-env MODE=development)
+dev-env: ## Render the shared repo-root .env from config profiles (usage: make dev-env MODE=development)
 	@MODE_VALUE="$(MODE)"; \
 	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
 		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
 		exit 1; \
 	fi; \
-	@if [ ! -f ../.env ]; then touch ../.env; fi; \
-	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('../.env'); lines=p.read_text().splitlines() if p.exists() else []; updates={'VITE_API_URL':('http://localhost:8888' if mode=='development' else 'https://your-backend-domain.example')}; out=[]; keys_done=set();\nfor line in lines:\n    if not line or line.lstrip().startswith('#') or '=' not in line:\n        out.append(line);\n        continue\n    key=line.split('=',1)[0]\n    if key in updates:\n        out.append(f'{key}={updates[key]}'); keys_done.add(key)\n    else:\n        out.append(line)\nfor key, value in updates.items():\n    if key not in keys_done and not any(existing.startswith(f'{key}=') for existing in out):\n        out.append(f'{key}={value}')\np.write_text('\\n'.join(out).rstrip() + '\\n'); print(f'Updated {p} for {mode}')";
-	@echo "$(GREEN)✓ Repo-root .env updated for $(MODE)$(NC)"
+	@python3 ../scripts/render_env.py --environment $(MODE) --output ../.env
+	@echo "$(GREEN)✓ Repo-root .env rendered for $(MODE)$(NC)"
 
 # ============================================================================
 # DEVELOPMENT

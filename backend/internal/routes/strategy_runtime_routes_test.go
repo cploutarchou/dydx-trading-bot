@@ -69,6 +69,7 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 			category TEXT,
 			is_public BOOLEAN NOT NULL DEFAULT 0,
 			is_default BOOLEAN NOT NULL DEFAULT 0,
+			runtime_strategy TEXT NOT NULL DEFAULT 'cointegration',
 			zscore_threshold REAL NOT NULL,
 			stats_window INTEGER NOT NULL,
 			max_half_life REAL NOT NULL,
@@ -203,6 +204,7 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 	if _, err := dbConn.Exec(
 		`INSERT INTO backtest_strategies (
 			id, user_id, name, description, category, is_public, is_default,
+			runtime_strategy,
 			zscore_threshold, stats_window, max_half_life, usd_per_trade,
 			usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 			manage_exits, place_trades, abort_all_positions, max_positions,
@@ -210,7 +212,7 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 			rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
 			starting_balance, candle_resolution, max_history_days, benchmark_symbol,
 			risk_free_rate, initial_amount, usage_count, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		101,
 		1,
 		"Runtime Strategy",
@@ -218,6 +220,7 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 		"pairs_trading",
 		false,
 		false,
+		"cointegration",
 		1.5,
 		21,
 		24.0,
@@ -392,6 +395,19 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 		tradingParams, _ := createPayload["trading_params"].(map[string]interface{})
 		if tradingParams["is_testnet"] != true {
 			t.Fatalf("expected testnet runtime payload, got %+v", tradingParams)
+		}
+		if tradingParams["strategy"] != "cointegration" {
+			t.Fatalf("expected runtime strategy to be forwarded, got %+v", tradingParams)
+		}
+		if tradingParams["max_positions"] != float64(5) {
+			t.Fatalf("expected live risk fields in trading payload, got %+v", tradingParams)
+		}
+		backtestingParams, _ := createPayload["backtesting_params"].(map[string]interface{})
+		if backtestingParams["starting_balance"] != float64(1000) {
+			t.Fatalf("expected backtesting defaults in create payload, got %+v", backtestingParams)
+		}
+		if backtestingParams["benchmark_symbol"] != "BTC-USD" {
+			t.Fatalf("expected benchmark symbol in create payload, got %+v", backtestingParams)
 		}
 	default:
 		t.Fatal("expected upstream create payload")

@@ -2,6 +2,7 @@ import asyncio
 
 from src.bot_instance_manager import BotInstanceManager
 from src.infrastructure.domain.bot_api_models import (
+    BacktestingParameters,
     BotCredentials,
     BotInstanceConfig,
     BotStatus,
@@ -23,6 +24,23 @@ def _strategy_config(instance_id: str = "strategy-1-101") -> BotInstanceConfig:
             manage_exits=False,
             find_cointegrated_pairs=False,
             abort_all_positions=False,
+            strategy="cointegration",
+            max_positions=3,
+            max_drawdown_pct=8.0,
+            stop_loss_pct=1.2,
+            take_profit_pct=4.5,
+            trailing_stop_pct=0.8,
+            rebalance_interval_hours=12,
+            position_timeout_hours=36,
+        ),
+        backtesting_params=BacktestingParameters(
+            candle_resolution="4HOUR",
+            max_history_days=120,
+            starting_balance=5000.0,
+            transaction_fee=0.0007,
+            slippage=0.0015,
+            benchmark_symbol="ETH-USD",
+            risk_free_rate=0.03,
         ),
     )
 
@@ -109,3 +127,19 @@ def test_cleanup_dead_processes_publishes_error_for_crashed_strategy(tmp_path):
     assert manager.instances["strategy-1-101"].status == BotStatus.ERROR
     assert published[-1]["strategyId"] == 101
     assert published[-1]["status"] == "error"
+
+
+def test_create_instance_persists_runtime_and_backtest_parameters_to_yaml(tmp_path):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    result = asyncio.run(manager.create_instance(_strategy_config()))
+
+    assert result.success is True
+
+    config_path = tmp_path / "config_strategy-1-101.yaml"
+    contents = config_path.read_text(encoding="utf-8")
+
+    assert "strategy: cointegration" in contents
+    assert "maxPositions: 3" in contents
+    assert "startingBalance: 5000.0" in contents
+    assert "benchmarkSymbol: ETH-USD" in contents

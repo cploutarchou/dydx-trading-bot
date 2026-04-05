@@ -18,7 +18,7 @@ SECRETS_DIR = ROOT / "config" / "secrets"
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    if path.name.endswith(".sops.json"):
+    def decrypt_with_sops() -> dict[str, Any]:
         if shutil.which("sops") is None:
             raise RuntimeError(
                 f"sops is required to decrypt {path}, but it is not installed"
@@ -31,7 +31,13 @@ def load_json(path: Path) -> dict[str, Any]:
         )
         return json.loads(result.stdout, object_pairs_hook=OrderedDict)
 
-    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=OrderedDict)
+    if path.name.endswith(".sops.json"):
+        return decrypt_with_sops()
+
+    parsed = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=OrderedDict)
+    if isinstance(parsed, dict) and "sops" in parsed:
+        return decrypt_with_sops()
+    return parsed
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

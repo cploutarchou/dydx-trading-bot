@@ -83,24 +83,15 @@ dev:
 		exit 1; \
 	fi
 
-## dev-env: Update repo-root .env backend settings for development|production (usage: make dev-env MODE=development)
+## dev-env: Render the shared repo-root .env from config profiles (usage: make dev-env MODE=development)
 dev-env:
 	@MODE_VALUE="$(MODE)"; \
 	if [ "$$MODE_VALUE" != "development" ] && [ "$$MODE_VALUE" != "production" ]; then \
 		echo "$(RED)Invalid MODE='$$MODE_VALUE'. Use MODE=development or MODE=production$(NC)"; \
 		exit 1; \
 	fi; \
-	if [ -f ../.env ]; then \
-		printf "$(YELLOW)../.env already exists. Update backend values for %s? [y/N] $(NC)" "$$MODE_VALUE"; \
-		read answer; \
-		case "$$answer" in \
-			y|Y|yes|YES) ;; \
-			*) echo "$(YELLOW)Cancelled$(NC)"; exit 1;; \
-		esac; \
-	fi; \
-	if [ ! -f ../.env ]; then cp ../example.env ../.env 2>/dev/null || cp ../.env.example ../.env; fi; \
-	MODE_VALUE="$$MODE_VALUE" python3 -c "from pathlib import Path; import os; mode=os.environ['MODE_VALUE']; p=Path('../.env'); lines=p.read_text().splitlines() if p.exists() else []; updates={'BOT_API_URL':'http://127.0.0.1:8889','BOT_API_USE_SERVICE_TOKEN':'true'}; updates.update({'BOT_API_TOKEN':'dev-local-service-token','APP_ENV':'development','ENVIRONMENT':'development','IS_TESTNET':'true','API_PORT':'8888'} if mode=='development' else {'BOT_API_TOKEN':'change-me-service-token','APP_ENV':'production','ENVIRONMENT':'production','IS_TESTNET':'false','API_PORT':'8888'}); out=[]; keys_done=set();\nfor line in lines:\n    if not line or line.lstrip().startswith('#') or '=' not in line:\n        out.append(line);\n        continue\n    key=line.split('=',1)[0]\n    if key in updates:\n        out.append(f'{key}={updates[key]}'); keys_done.add(key)\n    else:\n        out.append(line)\nfor key, value in updates.items():\n    if key not in keys_done and not any(existing.startswith(f'{key}=') for existing in out):\n        out.append(f'{key}={value}')\np.write_text('\\n'.join(out).rstrip() + '\\n'); print(f'Updated {p} for {mode}')";
-	@echo "$(GREEN)✓ Repo-root .env updated for $(MODE)$(NC)"
+	@python3 ../scripts/render_env.py --environment $(MODE) --output ../.env
+	@echo "$(GREEN)✓ Repo-root .env rendered for $(MODE)$(NC)"
 
 ## test: Run all tests
 test:

@@ -222,6 +222,7 @@ func main() {
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)
+	routes.RegisterMailgunRoutes(router, database)
 	routes.RegisterCodexRoutes(router, database)
 	routes.RegisterNewsRoutes(router, database)
 	routes.RegisterStrategyRoutes(router, database)

@@ -3,11 +3,11 @@
 
 import apiClient from '../api';
 import {
-  MOCK_ALERTS,
-  MOCK_BOT_INSTANCES,
-  MOCK_BOT_STATS,
-  MOCK_POSITIONS,
-  shouldUseDevMocks,
+    MOCK_ALERTS,
+    MOCK_BOT_INSTANCES,
+    MOCK_BOT_STATS,
+    MOCK_POSITIONS,
+    shouldUseDevMocks,
 } from './mockData';
 import { attachTraceHeader } from './trace';
 import type { User } from './types';
@@ -16,8 +16,42 @@ type Entity = Record<string, unknown>;
 type QueryParams = object;
 type ListResponse = { count: number; data: Entity[] };
 
+const RAW_API_BASE_URL = String(import.meta.env.VITE_API_URL || 'http://localhost:8888');
+
+export const resolveEnhancedApiUrl = (
+  input: string,
+  baseUrl: string = RAW_API_BASE_URL
+): string => {
+  if (/^https?:\/\//i.test(input)) {
+    return input;
+  }
+
+  if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
+    return input;
+  }
+
+  return new URL(input, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
+
+export const parseJsonResponse = async (response: Response): Promise<unknown> => {
+  const rawText = await response.text();
+  if (!rawText) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    const contentType = response.headers.get('content-type') || 'unknown content type';
+    const preview = rawText.replace(/\s+/g, ' ').slice(0, 120);
+    throw new Error(
+      `Expected JSON from API but received ${contentType}${response.url ? ` at ${response.url}` : ''}: ${preview}`
+    );
+  }
+};
 
 const withDataFallback = <T>(result: unknown, fallback: T): T => {
   if (isRecord(result) && 'data' in result && result.data !== undefined) {
@@ -106,11 +140,14 @@ class EnhancedAPIClient {
     retryOnUnauthorized: boolean = true
   ): Promise<Response> {
     const headers = this.buildAuthHeaders((init as { headers?: unknown }).headers);
-    const response = await fetch(input, {
+    const requestUrl = resolveEnhancedApiUrl(input);
+    const response = await fetch(requestUrl, {
       ...(init as object),
       credentials: 'include',
       headers,
     });
+
+    response.json = async () => parseJsonResponse(response);
 
     if (response.status === 401 && retryOnUnauthorized) {
       try {
@@ -442,12 +479,15 @@ class EnhancedAPIClient {
 
   async getPosition(instanceId: string, positionId: string): Promise<Entity | null> {
     try {
-      const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/positions/${positionId}`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      const response = await this.fetchWithAuth(
+        `/api/v1/bots/${instanceId}/positions/${positionId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
       const result = await response.json();
       return withDataFallback<Entity | null>(result, null);
@@ -561,9 +601,7 @@ class EnhancedAPIClient {
     return (result.data as Entity | undefined) ?? {};
   }
 
-  async getBacktestStatus(
-    runId: string
-  ): Promise<{
+  async getBacktestStatus(runId: string): Promise<{
     run_id: string;
     status: string;
     progress_percent: number;
@@ -603,8 +641,7 @@ class EnhancedAPIClient {
           ? currentPairRaw
           : undefined;
 
-      const etaRaw =
-        run.estimated_completion_seconds ?? run.eta_seconds ?? run.remaining_seconds;
+      const etaRaw = run.estimated_completion_seconds ?? run.eta_seconds ?? run.remaining_seconds;
       const etaParsed =
         typeof etaRaw === 'number' || typeof etaRaw === 'string' ? Number(etaRaw) : Number.NaN;
       const etaSeconds = Number.isFinite(etaParsed) && etaParsed >= 0 ? etaParsed : undefined;
@@ -629,7 +666,10 @@ class EnhancedAPIClient {
       detailsStatusProgress.progress !== undefined ? 'details' : 'default';
 
     // Fallback: list endpoint carries live progress_pct in this backend integration.
-    if (progress === undefined || (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))) {
+    if (
+      progress === undefined ||
+      (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))
+    ) {
       try {
         const listResult = await this.baseClient.listBacktests(0, 200);
         const listData = (listResult.data ?? {}) as { backtests?: unknown[] };
@@ -651,12 +691,14 @@ class EnhancedAPIClient {
           etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
         }
       } catch (error) {
-        console.warn('📊 enhancedClient.ts: failed to fetch list fallback for backtest status', error);
+        console.warn(
+          '📊 enhancedClient.ts: failed to fetch list fallback for backtest status',
+          error
+        );
       }
     }
 
-    const computedProgress =
-      progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;
+    const computedProgress = progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;
 
     return {
       run_id: runId,

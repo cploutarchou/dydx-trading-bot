@@ -257,6 +257,57 @@ func TestDelegatedRoute_UpstreamStatus_StillPassedThrough(t *testing.T) {
 	}
 }
 
+func TestDelegatedRoute_ServiceTokenModeSkipsCallerJWT(t *testing.T) {
+	t.Setenv("BOT_API_USE_SERVICE_TOKEN", "true")
+	t.Setenv("BOT_API_TOKEN", "shared-service-token")
+
+	authHeaders := make(chan string, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeaders <- r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authorization") != "Bearer shared-service-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"detail":"Invalid token"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"healthy":true}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	router, dbConn := setupTransportRouter(t, upstream.URL, nil)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginTransportTestUser(t, backendServer.URL)
+
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/system/status", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("execute request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	first := <-authHeaders
+	if first != "Bearer shared-service-token" {
+		t.Fatalf("expected upstream request to use configured service token directly, got %q", first)
+	}
+	select {
+	case extra := <-authHeaders:
+		t.Fatalf("expected a single upstream auth attempt, got extra header %q", extra)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func TestDelegatedRoute_PropagatesTraceHeader(t *testing.T) {
 	upstreamTraceCh := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

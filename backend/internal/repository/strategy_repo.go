@@ -37,18 +37,18 @@ func (r *StrategyRepository) ensureStrategySchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to inspect backtest strategy schema: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("failed to close strategy schema rows: %v", closeErr)
-		}
-	}()
 
 	columnNames, err := rows.Columns()
 	if err != nil {
+		_ = rows.Close()
 		return fmt.Errorf("failed to read backtest strategy columns: %w", err)
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return fmt.Errorf("failed to inspect backtest strategy schema rows: %w", err)
+	}
+	if closeErr := rows.Close(); closeErr != nil {
+		log.Printf("failed to close strategy schema rows: %v", closeErr)
 	}
 
 	columns := make(map[string]struct{}, len(columnNames))
@@ -78,18 +78,18 @@ func (r *StrategyRepository) ensureExecutionStateSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to inspect strategy execution state schema: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("failed to close execution state schema rows: %v", closeErr)
-		}
-	}()
 
 	columnNames, err := rows.Columns()
 	if err != nil {
+		_ = rows.Close()
 		return fmt.Errorf("failed to read strategy execution state columns: %w", err)
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return fmt.Errorf("failed to inspect strategy execution state schema rows: %w", err)
+	}
+	if closeErr := rows.Close(); closeErr != nil {
+		log.Printf("failed to close execution state schema rows: %v", closeErr)
 	}
 
 	columns := make(map[string]struct{}, len(columnNames))
@@ -440,15 +440,21 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 	`
 
 	now := time.Now()
-	err := r.db.QueryRow(query, state.StrategyID, state.IsRunning, now, now).Scan(
-		&state.ID, &state.CreatedAt, &state.UpdatedAt,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to create execution state: %w", err)
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = r.db.QueryRow(query, state.StrategyID, state.IsRunning, now, now).Scan(
+			&state.ID, &state.CreatedAt, &state.UpdatedAt,
+		)
+		if err == nil {
+			return nil
+		}
+		if !isSQLiteBusyError(err) {
+			return fmt.Errorf("failed to create execution state: %w", err)
+		}
+		time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
 	}
 
-	return nil
+	return fmt.Errorf("failed to create execution state: %w", err)
 }
 
 // UpdateExecutionState updates execution state
@@ -463,10 +469,23 @@ func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutio
 		WHERE id = $6
 	`
 
-	result, err := r.db.Exec(
-		query,
-		state.IsRunning, state.LastRunAt, state.NextRunAt, state.State, time.Now(), state.ID,
+	var (
+		result sql.Result
+		err    error
 	)
+	for attempt := 0; attempt < 5; attempt++ {
+		result, err = r.db.Exec(
+			query,
+			state.IsRunning, state.LastRunAt, state.NextRunAt, state.State, time.Now(), state.ID,
+		)
+		if err == nil {
+			break
+		}
+		if !isSQLiteBusyError(err) {
+			return fmt.Errorf("failed to update execution state: %w", err)
+		}
+		time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
+	}
 
 	if err != nil {
 		return fmt.Errorf("failed to update execution state: %w", err)
@@ -482,6 +501,14 @@ func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutio
 	}
 
 	return nil
+}
+
+func isSQLiteBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "database is locked") || strings.Contains(message, "sqlite_busy")
 }
 
 // ============ StrategyVersionHistory Operations ============

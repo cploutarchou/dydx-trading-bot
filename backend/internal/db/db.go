@@ -388,11 +388,24 @@ func validateConfig(cfg *Config) error {
 
 // setConfigDefaults sets default values for configuration
 func setConfigDefaults(cfg *Config) {
+	isSQLite := strings.Contains(runtimeSQLDriver(cfg.Driver), sqliteRuntimeDriver)
+
 	if cfg.MaxOpenConns == 0 {
-		cfg.MaxOpenConns = 25
+		if isSQLite {
+			cfg.MaxOpenConns = 1
+		} else {
+			cfg.MaxOpenConns = 25
+		}
 	}
 	if cfg.MaxIdleConns == 0 {
-		cfg.MaxIdleConns = 5
+		if isSQLite {
+			cfg.MaxIdleConns = 1
+		} else {
+			cfg.MaxIdleConns = 5
+		}
+	}
+	if cfg.MaxIdleConns > cfg.MaxOpenConns && cfg.MaxOpenConns > 0 {
+		cfg.MaxIdleConns = cfg.MaxOpenConns
 	}
 	if cfg.ConnMaxLifetime == 0 {
 		cfg.ConnMaxLifetime = 5 * time.Minute
@@ -417,6 +430,15 @@ func configureConnectionPool(conn *sql.DB, cfg Config) {
 	conn.SetMaxIdleConns(cfg.MaxIdleConns)
 	conn.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	conn.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
+
+	if strings.Contains(runtimeSQLDriver(cfg.Driver), sqliteRuntimeDriver) {
+		if _, err := conn.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
+			log.Printf("⚠️ failed to set SQLite busy_timeout pragma: %v", err)
+		}
+		if _, err := conn.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+			log.Printf("⚠️ failed to enable SQLite foreign_keys pragma: %v", err)
+		}
+	}
 }
 
 // runMigrations runs database migrations

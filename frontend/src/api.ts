@@ -164,6 +164,31 @@ interface SettingsUpdate extends Record<string, unknown> {
   [key: string]: unknown;
 }
 
+interface CodexStatusResponse extends Record<string, unknown> {
+  configured: boolean;
+  provider: string;
+  model: string;
+  base_url: string;
+  reasoning_effort: string;
+  message: string;
+}
+
+interface CodexPromptRequest extends Record<string, unknown> {
+  prompt: string;
+  context?: string;
+  mode?: 'general' | 'dashboard' | 'strategy-review' | 'runtime-debug';
+}
+
+interface CodexPromptResponse extends Record<string, unknown> {
+  response_id: string;
+  model: string;
+  output_text: string;
+  reasoning_effort: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+}
+
 interface DYDXKey extends Record<string, unknown> {
   id?: number;
   network: string;
@@ -1542,6 +1567,22 @@ class ApiClient {
     const response =
       await this.client.get<ApiResponse<Record<string, unknown>>>('/api/v1/settings/redis');
     return response.data;
+  }
+
+  async getCodexStatus(): Promise<ApiResponse<CodexStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<CodexStatusResponse>>('/api/v1/codex/status');
+    return response.data;
+  }
+
+  async requestCodexResponse(data: CodexPromptRequest): Promise<ApiResponse<CodexPromptResponse>> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.post<ApiResponse<CodexPromptResponse>>('/api/v1/codex/respond', data);
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 }
 

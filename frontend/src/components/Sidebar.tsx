@@ -3,7 +3,7 @@
  * Persistent left sidebar with navigation links, user info, and logout
  */
 
-import { BarChart3, Bot, Home, Library, LogOut, PlayCircle, Settings, Target, X } from 'lucide-react';
+import { BarChart3, Bot, Home, Library, LogOut, PlayCircle, Settings, Sparkles, Target, X } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
@@ -53,6 +53,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       label: 'Backtests',
       path: '/backtests',
       icon: <Target className="w-5 h-5" />,
+      exact: true,
+    },
+    {
+      label: 'Codex',
+      path: '/codex',
+      icon: <Sparkles className="w-5 h-5" />,
       exact: true,
     },
     {

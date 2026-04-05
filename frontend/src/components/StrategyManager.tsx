@@ -26,11 +26,14 @@ import { PageContainer } from './PageContainer';
 
 interface StrategyStatus {
   strategyId: number;
-  status: 'stopped' | 'running' | 'paused' | 'error';
+  status: 'stopped' | 'starting' | 'running' | 'stopping' | 'paused' | 'error';
   lastError?: string;
   tradesExecuted?: number;
   pnl?: number;
   updatedAt: string;
+  botStatus?: string;
+  instanceId?: string;
+  network?: string;
 }
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
@@ -49,6 +52,7 @@ export default function StrategyManager() {
   const navigate = useNavigate();
   const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } = useStrategyStore();
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
+  const [runtimePending, setRuntimePending] = useState<Record<number, 'start' | 'stop' | undefined>>({});
   const [editingConfig, setEditingConfig] = useState<Partial<Strategy> | null>(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configErrors, setConfigErrors] = useState<Record<string, string>>({});
@@ -60,6 +64,102 @@ export default function StrategyManager() {
   useEffect(() => {
     fetchStrategies();
   }, [fetchStrategies]);
+
+  const applyStrategyStatuses = (nextStatuses: StrategyStatus[]) => {
+    setStrategyStatuses(() => {
+      const nextMap = new Map<number, StrategyStatus>();
+      nextStatuses.forEach((status) => {
+        nextMap.set(status.strategyId, status);
+      });
+      const running = nextStatuses.filter((status) => status.status === 'running').length;
+      setRunningCount(running);
+      return nextMap;
+    });
+  };
+
+  const mergeStrategyStatus = (nextStatus: StrategyStatus) => {
+    setStrategyStatuses((prev) => {
+      const nextMap = new Map(prev);
+      nextMap.set(nextStatus.strategyId, nextStatus);
+      const running = Array.from(nextMap.values()).filter((status) => status.status === 'running').length;
+      setRunningCount(running);
+      return nextMap;
+    });
+  };
+
+  const toStrategyStatus = (strategyId: number, runtimeData: Record<string, unknown> | undefined): StrategyStatus => {
+    const normalizedStatus = typeof runtimeData?.status === 'string' ? runtimeData.status.toLowerCase() : 'stopped';
+    const status =
+      normalizedStatus === 'running' ||
+      normalizedStatus === 'starting' ||
+      normalizedStatus === 'stopping' ||
+      normalizedStatus === 'paused' ||
+      normalizedStatus === 'error'
+        ? normalizedStatus
+        : 'stopped';
+
+    return {
+      strategyId,
+      status,
+      lastError: typeof runtimeData?.last_error === 'string' ? runtimeData.last_error : undefined,
+      updatedAt:
+        typeof runtimeData?.last_synced_at === 'string'
+          ? runtimeData.last_synced_at
+          : typeof runtimeData?.updated_at === 'string'
+            ? runtimeData.updated_at
+            : new Date().toISOString(),
+      botStatus: typeof runtimeData?.bot_status === 'string' ? runtimeData.bot_status : undefined,
+      instanceId: typeof runtimeData?.instance_id === 'string' ? runtimeData.instance_id : undefined,
+      network: typeof runtimeData?.network === 'string' ? runtimeData.network : undefined,
+    };
+  };
+
+  useEffect(() => {
+    if (strategies.length === 0) {
+      applyStrategyStatuses([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncStrategyRuntimeStatuses = async () => {
+      const settledStatuses = await Promise.allSettled(
+        strategies.map(async (strategy) => {
+          const response = await apiClient.getStrategyRuntime(strategy.id);
+          return toStrategyStatus(strategy.id, response.data);
+        })
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      const nextStatuses = settledStatuses.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return result.value;
+        }
+
+        return {
+          strategyId: strategies[index].id,
+          status: 'error' as const,
+          lastError: getErrorMessage(result.reason, 'Failed to load runtime status'),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+
+      applyStrategyStatuses(nextStatuses);
+    };
+
+    void syncStrategyRuntimeStatuses();
+    const intervalId = window.setInterval(() => {
+      void syncStrategyRuntimeStatuses();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [strategies]);
 
   // Setup WebSocket for real-time strategy status
   useEffect(() => {
@@ -122,14 +222,64 @@ export default function StrategyManager() {
     setTimeout(() => setMessage(null), timeoutMs);
   };
 
-  const handleRuntimeToggleUnavailable = (strategy: Strategy) => {
-    showTransientMessage(
-      {
-        type: 'error',
-        text: `❌ Live strategy start/stop is not available until the backend runtime endpoint is implemented for "${strategy.name}".`,
-      },
-      6000
-    );
+  const handleRuntimeToggle = async (strategy: Strategy) => {
+    const currentStatus = strategyStatuses.get(strategy.id);
+    const shouldStop = currentStatus?.status === 'running' || currentStatus?.status === 'starting';
+
+    setRuntimePending((prev) => ({
+      ...prev,
+      [strategy.id]: shouldStop ? 'stop' : 'start',
+    }));
+
+    mergeStrategyStatus({
+      strategyId: strategy.id,
+      status: shouldStop ? 'stopping' : 'starting',
+      lastError: undefined,
+      updatedAt: new Date().toISOString(),
+      instanceId: currentStatus?.instanceId,
+      network: currentStatus?.network,
+      botStatus: shouldStop ? 'stopping' : 'starting',
+    });
+
+    try {
+      const response = shouldStop
+        ? await apiClient.stopStrategyRuntime(strategy.id)
+        : await apiClient.startStrategyRuntime(strategy.id);
+
+      mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
+      showTransientMessage(
+        {
+          type: 'success',
+          text: shouldStop
+            ? `✅ Stopped strategy "${strategy.name}"`
+            : `✅ Started strategy "${strategy.name}"`,
+        },
+        4000
+      );
+    } catch (error: unknown) {
+      mergeStrategyStatus({
+        strategyId: strategy.id,
+        status: 'error',
+        lastError: getErrorMessage(error, 'Failed to update strategy runtime'),
+        updatedAt: new Date().toISOString(),
+        instanceId: currentStatus?.instanceId,
+        network: currentStatus?.network,
+      });
+      showTransientMessage(
+        {
+          type: 'error',
+          text: shouldStop
+            ? `❌ Failed to stop strategy: ${getErrorMessage(error, 'Unknown error')}`
+            : `❌ Failed to start strategy: ${getErrorMessage(error, 'Unknown error')}`,
+        },
+        6000
+      );
+    } finally {
+      setRuntimePending((prev) => ({
+        ...prev,
+        [strategy.id]: undefined,
+      }));
+    }
   };
 
   const validateConfig = (): boolean => {
@@ -270,6 +420,8 @@ export default function StrategyManager() {
     switch (status) {
       case 'running':
         return 'text-green-400';
+      case 'starting':
+      case 'stopping':
       case 'paused':
         return 'text-yellow-400';
       case 'error':
@@ -283,6 +435,8 @@ export default function StrategyManager() {
     switch (status) {
       case 'running':
         return 'bg-green-900/30 border-green-700';
+      case 'starting':
+      case 'stopping':
       case 'paused':
         return 'bg-yellow-900/30 border-yellow-700';
       case 'error':
@@ -335,9 +489,9 @@ export default function StrategyManager() {
         </div>
       </div>
 
-      <div className="p-4 rounded-lg border bg-amber-900/20 border-amber-700 text-amber-200">
-        Runtime control is not connected to a backend execution endpoint yet.
-        Configuration updates and backtest launches are live; start/stop controls remain disabled to avoid false success states.
+      <div className="p-4 rounded-lg border bg-blue-900/20 border-blue-700 text-blue-200">
+        Runtime control is live through the backend strategy execution service.
+        An active dYdX key is still required before a strategy can start, and statuses are reconciled every 15 seconds.
       </div>
 
       {/* Messages */}
@@ -397,6 +551,8 @@ export default function StrategyManager() {
                       className={`w-2 h-2 rounded-full ${
                         status.status === 'running'
                           ? 'bg-green-400 animate-pulse'
+                          : status.status === 'starting' || status.status === 'stopping'
+                            ? 'bg-yellow-400 animate-pulse'
                           : status.status === 'error'
                             ? 'bg-red-400'
                             : 'bg-gray-400'
@@ -478,14 +634,39 @@ export default function StrategyManager() {
                 {/* Action Buttons */}
                 <div className="flex flex-wrap gap-2">
                   {/* Toggle Button */}
-                  <button
-                    onClick={() => handleRuntimeToggleUnavailable(strategy)}
-                    disabled
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors bg-slate-700 text-slate-400 disabled:opacity-80 disabled:cursor-not-allowed"
-                    title="Runtime start/stop is not implemented by the backend yet"
-                  >
-                    Runtime Unavailable
-                  </button>
+                  {(() => {
+                    const pendingAction = runtimePending[strategy.id];
+                    const isRunning = status.status === 'running' || status.status === 'starting';
+                    const buttonLabel =
+                      pendingAction === 'start'
+                        ? 'Starting...'
+                        : pendingAction === 'stop'
+                          ? 'Stopping...'
+                          : isRunning
+                            ? 'Stop Strategy'
+                            : 'Start Strategy';
+                    const buttonClass =
+                      pendingAction === 'start' || pendingAction === 'stop'
+                        ? 'bg-slate-700 text-slate-200 cursor-wait'
+                        : isRunning
+                          ? 'bg-red-600 hover:bg-red-700 text-white'
+                          : 'bg-green-600 hover:bg-green-700 text-white';
+
+                    return (
+                      <button
+                        onClick={() => void handleRuntimeToggle(strategy)}
+                        disabled={pendingAction !== undefined}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-80 disabled:cursor-not-allowed ${buttonClass}`}
+                        title={
+                          status.network
+                            ? `Runtime network: ${status.network}`
+                            : 'Requires an active dYdX key before startup'
+                        }
+                      >
+                        {buttonLabel}
+                      </button>
+                    );
+                  })()}
 
                   {/* Configure Button */}
                   <button

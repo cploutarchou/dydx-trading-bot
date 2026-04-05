@@ -97,7 +97,11 @@ func loginForTokens(t *testing.T, router *gin.Engine) TokenResponse {
 
 func TestAuthRefresh_ValidRefreshTokenReturnsNewTokens(t *testing.T) {
 	router, dbConn := setupAuthTestRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 	tokens := loginForTokens(t, router)
 
 	refreshBody, _ := json.Marshal(map[string]string{"refresh_token": tokens.RefreshToken})
@@ -113,7 +117,11 @@ func TestAuthRefresh_ValidRefreshTokenReturnsNewTokens(t *testing.T) {
 
 func TestAuthRefresh_AccessTokenRejectedForRefresh(t *testing.T) {
 	router, dbConn := setupAuthTestRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 	tokens := loginForTokens(t, router)
 
 	refreshBody, _ := json.Marshal(map[string]string{"refresh_token": tokens.AccessToken})
@@ -135,7 +143,11 @@ func TestAuthRefresh_AccessTokenRejectedForRefresh(t *testing.T) {
 
 func TestAuthRefresh_NonPositiveUserIDFallsBackToUserNotFound(t *testing.T) {
 	router, dbConn := setupAuthTestRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	mgr := auth.NewManager(auth.JWTConfig{
 		Secret:            refreshTestJWTSecret,
@@ -166,7 +178,11 @@ func TestAuthRefresh_NonPositiveUserIDFallsBackToUserNotFound(t *testing.T) {
 
 func TestAuthRefresh_MalformedTokenDoesNotUseLegacyPayloadError(t *testing.T) {
 	router, dbConn := setupAuthTestRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	refreshBody, _ := json.Marshal(map[string]string{"refresh_token": "not.a.valid.jwt"})
 	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewReader(refreshBody))

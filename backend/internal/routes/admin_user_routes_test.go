@@ -108,7 +108,11 @@ func issueAdminBearerToken(t *testing.T, userID int, username, role string) stri
 
 func TestAdminUserRoutes_ListUsers(t *testing.T) {
 	router, dbConn := setupAdminUserRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
 	seedAdminUser(t, dbConn, "client1", "client1@example.local", "client", true)
@@ -141,7 +145,11 @@ func TestAdminUserRoutes_ListUsers(t *testing.T) {
 
 func TestAdminUserRoutes_CreateUser(t *testing.T) {
 	router, dbConn := setupAdminUserRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
 
@@ -174,7 +182,11 @@ func TestAdminUserRoutes_CreateUser(t *testing.T) {
 
 func TestAdminUserRoutes_PreventLastAdminRemoval(t *testing.T) {
 	router, dbConn := setupAdminUserRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
 

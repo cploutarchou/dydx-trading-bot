@@ -57,7 +57,11 @@ func setupPasswordChangeRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 
 func TestChangePassword_ClearsRotationRequirement(t *testing.T) {
 	router, dbConn := setupPasswordChangeRouter(t)
-	defer dbConn.Close()
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("TempPass123"), bcrypt.DefaultCost)
 	if err != nil {

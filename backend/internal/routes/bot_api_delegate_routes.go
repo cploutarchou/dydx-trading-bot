@@ -50,7 +50,8 @@ func respondBotAPIError(c *gin.Context, err error) {
 		c.JSON(status, gin.H{"error": transportErr.Message, "message": transportErr.Message, "trace_id": traceID})
 		return
 	}
-	if apiErr, ok := err.(*services.BotAPIError); ok {
+	var apiErr *services.BotAPIError
+	if errors.As(err, &apiErr) {
 		status := apiErr.StatusCode
 		if status <= 0 {
 			status = http.StatusBadGateway
@@ -400,7 +401,10 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			requestHeaders.Set(middleware.TraceIDHeader, traceID)
 		}
 
-		upstreamConn, _, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
+		upstreamConn, upstreamResp, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
+		if upstreamResp != nil && upstreamResp.Body != nil {
+			defer func() { _ = upstreamResp.Body.Close() }()
+		}
 		if err != nil {
 			_ = clientConn.WriteMessage(
 				websocket.CloseMessage,

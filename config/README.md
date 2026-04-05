@@ -42,22 +42,46 @@ or:
 make stack-env
 ```
 
+Open and edit the active config profile with:
+
+```bash
+make dev-config
+make prod-config
+```
+
+Those commands open the profile in your editor, let you edit the matching secrets file, and then re-render the repo-root `.env` after the editor closes.
+
 ## SOPS usage
 
-If `sops` is installed and `config/secrets/<environment>.secrets.sops.json` exists, the render script will decrypt it automatically.
+If `sops` is installed and the selected secrets file is SOPS-encrypted, the render script will decrypt it automatically.
 
 Typical flow:
 
 1. Copy `config/secrets/development.secrets.example.json` to `config/secrets/development.secrets.json`
 2. Fill in the real values
-3. Encrypt it with your own SOPS/age or KMS setup
-4. Remove the plain JSON copy once the encrypted file exists
+3. Copy `config/.sops.example.yaml` to `.sops.yaml` and replace the age recipient with your own
+4. Encrypt it with your own SOPS/age or KMS setup
+   Example: `sops --encrypt --in-place config/secrets/development.secrets.json`
+5. Remove the plain JSON copy once the encrypted file exists
+
+To install local tooling:
+
+```bash
+make install-sops
+```
+
+That command now:
+
+- installs `sops`, `age`, and `age-keygen` into `~/.local/bin` when needed
+- creates `~/.config/sops/age/keys.txt` if it does not already exist
+- prints your public age recipient
+- bootstraps repo-root `.sops.yaml` from the example template if it is missing
 
 The render order is:
 
 1. base profile from `config/environments/<environment>.env.json`
 2. encrypted secrets from `config/secrets/<environment>.secrets.sops.json`
-3. plain secrets from `config/secrets/<environment>.secrets.json`
+3. local secrets from `config/secrets/<environment>.secrets.json`
 4. example secrets from `config/secrets/<environment>.secrets.example.json`
 
 Earlier layers are overridden by later ones.

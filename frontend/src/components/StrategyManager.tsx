@@ -50,6 +50,19 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
+const RUNTIME_STRATEGY_OPTIONS = [
+  { value: 'cointegration', label: 'Cointegration' },
+  { value: 'mean_reversion', label: 'Mean Reversion' },
+];
+
+const RESOLUTION_OPTIONS = [
+  { value: '15MINS', label: '15 Minutes' },
+  { value: '30MINS', label: '30 Minutes' },
+  { value: '1HOUR', label: '1 Hour' },
+  { value: '4HOUR', label: '4 Hours' },
+  { value: '1DAY', label: '1 Day' },
+];
+
 export default function StrategyManager() {
   const navigate = useNavigate();
   const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } = useStrategyStore();
@@ -62,6 +75,10 @@ export default function StrategyManager() {
   const [webSocketConnected, setWebSocketConnected] = useState(false);
   const [runningCount, setRunningCount] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+
+  const updateEditingConfig = (patch: Partial<Strategy>) => {
+    setEditingConfig((current) => (current ? { ...current, ...patch } : current));
+  };
 
   // Load strategies on mount
   useEffect(() => {
@@ -315,6 +332,18 @@ export default function StrategyManager() {
       errors.max_drawdown_pct = 'Max drawdown cannot exceed 100%';
     }
 
+    if (editingConfig.transaction_fee !== undefined && editingConfig.transaction_fee < 0) {
+      errors.transaction_fee = 'Transaction fee cannot be negative';
+    }
+
+    if (editingConfig.slippage !== undefined && editingConfig.slippage < 0) {
+      errors.slippage = 'Slippage cannot be negative';
+    }
+
+    if (editingConfig.starting_balance !== undefined && editingConfig.starting_balance < 100) {
+      errors.starting_balance = 'Starting balance must be at least $100';
+    }
+
     setConfigErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -327,10 +356,35 @@ export default function StrategyManager() {
     try {
       const updatePayload = {
         name: editingConfig.name || 'Untitled Strategy',
+        category: editingConfig.category,
         description: editingConfig.description,
+        runtime_strategy: editingConfig.runtime_strategy || 'cointegration',
+        resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
+        candle_resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
         zscore_threshold: editingConfig.zscore_threshold,
+        stats_window: editingConfig.stats_window,
         max_half_life: editingConfig.max_half_life,
         usd_per_trade: editingConfig.usd_per_trade,
+        usd_min_collateral: editingConfig.usd_min_collateral,
+        close_at_zscore_cross: editingConfig.close_at_zscore_cross,
+        find_cointegrated_pairs: editingConfig.find_cointegrated_pairs,
+        manage_exits: editingConfig.manage_exits,
+        place_trades: editingConfig.place_trades,
+        abort_all_positions: editingConfig.abort_all_positions,
+        max_positions: editingConfig.max_positions,
+        max_drawdown_pct: editingConfig.max_drawdown_pct,
+        stop_loss_pct: editingConfig.stop_loss_pct,
+        take_profit_pct: editingConfig.take_profit_pct,
+        trailing_stop_pct: editingConfig.trailing_stop_pct,
+        rebalance_interval_hours: editingConfig.rebalance_interval_hours,
+        position_timeout_hours: editingConfig.position_timeout_hours,
+        transaction_fee: editingConfig.transaction_fee,
+        slippage: editingConfig.slippage,
+        starting_balance: editingConfig.starting_balance,
+        max_history_days: editingConfig.max_history_days,
+        benchmark_symbol: editingConfig.benchmark_symbol,
+        risk_free_rate: editingConfig.risk_free_rate,
+        initial_amount: editingConfig.initial_amount,
       };
       await apiClient.updateStrategy(editingConfig.id, updatePayload);
 
@@ -790,131 +844,381 @@ export default function StrategyManager() {
 
             {/* Modal Content */}
             <div className="p-6 space-y-6">
-              {/* Z-Score Threshold */}
-              <div>
-                <label className="block text-white font-medium mb-2">
-                  Z-Score Threshold
-                  {configErrors.zscore_threshold && (
-                    <span className="text-red-400 text-sm ml-2">
-                      • {configErrors.zscore_threshold}
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="5"
-                  value={editingConfig.zscore_threshold || 1.5}
-                  onChange={(e) =>
-                    setEditingConfig({
-                      ...editingConfig,
-                      zscore_threshold: parseFloat(e.target.value),
-                    })
-                  }
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-gray-400 text-xs mt-1">
-                  Entry trigger when |Z-score| exceeds this
-                </p>
-              </div>
+              <section className="space-y-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Identity</p>
+                  <h3 className="mt-2 text-lg font-semibold text-white">Strategy profile</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Name</label>
+                    <input
+                      type="text"
+                      value={editingConfig.name || ''}
+                      onChange={(e) => updateEditingConfig({ name: e.target.value })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Category</label>
+                    <input
+                      type="text"
+                      value={editingConfig.category || ''}
+                      onChange={(e) => updateEditingConfig({ category: e.target.value })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-white font-medium">Description</label>
+                    <textarea
+                      value={editingConfig.description || ''}
+                      onChange={(e) => updateEditingConfig({ description: e.target.value })}
+                      rows={3}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </section>
 
-              {/* USD Per Trade */}
-              <div>
-                <label className="block text-white font-medium mb-2">
-                  USD Per Trade
-                  {configErrors.usd_per_trade && (
-                    <span className="text-red-400 text-sm ml-2">
-                      • {configErrors.usd_per_trade}
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  value={editingConfig.usd_per_trade || 10}
-                  onChange={(e) =>
-                    setEditingConfig({
-                      ...editingConfig,
-                      usd_per_trade: parseFloat(e.target.value),
-                    })
-                  }
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-gray-400 text-xs mt-1">Position size per paired trade</p>
-              </div>
+              <section className="space-y-4 border-t border-slate-700 pt-6">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Runtime</p>
+                  <h3 className="mt-2 text-lg font-semibold text-white">Live bot parameters</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Runtime strategy</label>
+                    <select
+                      value={editingConfig.runtime_strategy || 'cointegration'}
+                      onChange={(e) => updateEditingConfig({ runtime_strategy: e.target.value })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    >
+                      {RUNTIME_STRATEGY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Resolution</label>
+                    <select
+                      value={editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'}
+                      onChange={(e) =>
+                        updateEditingConfig({
+                          resolution: e.target.value,
+                          candle_resolution: e.target.value,
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    >
+                      {RESOLUTION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">
+                      Z-Score threshold
+                      {configErrors.zscore_threshold && (
+                        <span className="ml-2 text-sm text-red-400">
+                          • {configErrors.zscore_threshold}
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="5"
+                      value={editingConfig.zscore_threshold ?? 1.5}
+                      onChange={(e) =>
+                        updateEditingConfig({ zscore_threshold: parseFloat(e.target.value) })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Stats window</label>
+                    <input
+                      type="number"
+                      min="5"
+                      max="365"
+                      value={editingConfig.stats_window ?? 21}
+                      onChange={(e) => updateEditingConfig({ stats_window: parseInt(e.target.value, 10) })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Max half-life</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editingConfig.max_half_life ?? 24}
+                      onChange={(e) => updateEditingConfig({ max_half_life: parseFloat(e.target.value) })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">
+                      USD per trade
+                      {configErrors.usd_per_trade && (
+                        <span className="ml-2 text-sm text-red-400">• {configErrors.usd_per_trade}</span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={editingConfig.usd_per_trade ?? 10}
+                      onChange={(e) => updateEditingConfig({ usd_per_trade: parseFloat(e.target.value) })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">USD min collateral</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={editingConfig.usd_min_collateral ?? 100}
+                      onChange={(e) =>
+                        updateEditingConfig({ usd_min_collateral: parseFloat(e.target.value) })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="md:col-span-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {[
+                      ['place_trades', 'Place trades'],
+                      ['manage_exits', 'Manage exits'],
+                      ['abort_all_positions', 'Abort all positions on start'],
+                      ['find_cointegrated_pairs', 'Find cointegrated pairs'],
+                      ['close_at_zscore_cross', 'Close at Z-score cross'],
+                    ].map(([field, label]) => (
+                      <label
+                        key={field}
+                        className="flex items-center gap-3 rounded-2xl border border-slate-700/70 bg-slate-950/35 px-4 py-3 text-sm text-slate-200"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(editingConfig[field as keyof Strategy])}
+                          onChange={(e) =>
+                            updateEditingConfig({
+                              [field]: e.target.checked,
+                            } as Partial<Strategy>)
+                          }
+                          className="h-4 w-4 rounded border-slate-500 bg-slate-800"
+                        />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </section>
 
-              {/* Max Positions */}
-              <div>
-                <label className="block text-white font-medium mb-2">
-                  Max Concurrent Positions
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  max="100"
-                  value={editingConfig.max_positions || 5}
-                  onChange={(e) =>
-                    setEditingConfig({
-                      ...editingConfig,
-                      max_positions: parseInt(e.target.value),
-                    })
-                  }
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-gray-400 text-xs mt-1">Maximum open pair positions</p>
-              </div>
+              <section className="space-y-4 border-t border-slate-700 pt-6">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Risk</p>
+                  <h3 className="mt-2 text-lg font-semibold text-white">Execution guardrails</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Max positions</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={editingConfig.max_positions ?? 5}
+                      onChange={(e) => updateEditingConfig({ max_positions: parseInt(e.target.value, 10) })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">
+                      Max drawdown %
+                      {configErrors.max_drawdown_pct && (
+                        <span className="ml-2 text-sm text-red-400">• {configErrors.max_drawdown_pct}</span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      value={editingConfig.max_drawdown_pct ?? 15}
+                      onChange={(e) =>
+                        updateEditingConfig({ max_drawdown_pct: parseFloat(e.target.value) })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Stop loss %</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={editingConfig.stop_loss_pct ?? 2}
+                      onChange={(e) => updateEditingConfig({ stop_loss_pct: parseFloat(e.target.value) })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Take profit %</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={editingConfig.take_profit_pct ?? 5}
+                      onChange={(e) =>
+                        updateEditingConfig({ take_profit_pct: parseFloat(e.target.value) })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Trailing stop %</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={editingConfig.trailing_stop_pct ?? 1}
+                      onChange={(e) =>
+                        updateEditingConfig({ trailing_stop_pct: parseFloat(e.target.value) })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Rebalance interval (hours)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editingConfig.rebalance_interval_hours ?? 24}
+                      onChange={(e) =>
+                        updateEditingConfig({
+                          rebalance_interval_hours: parseInt(e.target.value, 10),
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Position timeout (hours)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editingConfig.position_timeout_hours ?? 72}
+                      onChange={(e) =>
+                        updateEditingConfig({
+                          position_timeout_hours: parseInt(e.target.value, 10),
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </section>
 
-              {/* Max Drawdown */}
-              <div>
-                <label className="block text-white font-medium mb-2">
-                  Max Drawdown %
-                  {configErrors.max_drawdown_pct && (
-                    <span className="text-red-400 text-sm ml-2">
-                      • {configErrors.max_drawdown_pct}
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  value={editingConfig.max_drawdown_pct || 10}
-                  onChange={(e) =>
-                    setEditingConfig({
-                      ...editingConfig,
-                      max_drawdown_pct: parseFloat(e.target.value),
-                    })
-                  }
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-gray-400 text-xs mt-1">
-                  Stop if account drawdown exceeds this %
-                </p>
-              </div>
-
-              {/* Take Profit */}
-              <div>
-                <label className="block text-white font-medium mb-2">Take Profit %</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  value={editingConfig.take_profit_pct || 5}
-                  onChange={(e) =>
-                    setEditingConfig({
-                      ...editingConfig,
-                      take_profit_pct: parseFloat(e.target.value),
-                    })
-                  }
-                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-gray-400 text-xs mt-1">Close position when P&L reaches this %</p>
-              </div>
+              <section className="space-y-4 border-t border-slate-700 pt-6">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Backtesting</p>
+                  <h3 className="mt-2 text-lg font-semibold text-white">Simulation defaults</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-white font-medium">
+                      Starting balance
+                      {configErrors.starting_balance && (
+                        <span className="ml-2 text-sm text-red-400">• {configErrors.starting_balance}</span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="100"
+                      min="100"
+                      value={editingConfig.starting_balance ?? editingConfig.initial_amount ?? 1000}
+                      onChange={(e) =>
+                        updateEditingConfig({
+                          starting_balance: parseFloat(e.target.value),
+                          initial_amount: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">
+                      Transaction fee
+                      {configErrors.transaction_fee && (
+                        <span className="ml-2 text-sm text-red-400">• {configErrors.transaction_fee}</span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0"
+                      value={editingConfig.transaction_fee ?? 0.0005}
+                      onChange={(e) =>
+                        updateEditingConfig({ transaction_fee: parseFloat(e.target.value) })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">
+                      Slippage
+                      {configErrors.slippage && (
+                        <span className="ml-2 text-sm text-red-400">• {configErrors.slippage}</span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0"
+                      value={editingConfig.slippage ?? 0.001}
+                      onChange={(e) => updateEditingConfig({ slippage: parseFloat(e.target.value) })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Max history days</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="3650"
+                      value={editingConfig.max_history_days ?? 90}
+                      onChange={(e) =>
+                        updateEditingConfig({ max_history_days: parseInt(e.target.value, 10) })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Benchmark symbol</label>
+                    <input
+                      type="text"
+                      value={editingConfig.benchmark_symbol ?? 'BTC-USD'}
+                      onChange={(e) => updateEditingConfig({ benchmark_symbol: e.target.value })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Risk-free rate</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={editingConfig.risk_free_rate ?? 0.02}
+                      onChange={(e) => updateEditingConfig({ risk_free_rate: parseFloat(e.target.value) })}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </section>
 
               {/* Buttons */}
               <div className="flex gap-3 pt-4 border-t border-slate-700">

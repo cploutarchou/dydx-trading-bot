@@ -197,6 +197,7 @@ interface StrategyRequest extends Record<string, unknown> {
   description?: string;
   is_public?: boolean;
   user_id?: number;
+  runtime_strategy?: string;
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -216,6 +217,13 @@ interface StrategyRequest extends Record<string, unknown> {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  transaction_fee?: number;
+  slippage?: number;
+  starting_balance?: number;
+  max_history_days?: number;
+  benchmark_symbol?: string;
+  risk_free_rate?: number;
+  initial_amount?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
 }
 
@@ -490,6 +498,7 @@ interface StrategyResponse extends Record<string, unknown> {
   name: string;
   category?: string;
   description?: string;
+  runtime_strategy?: string;
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -509,6 +518,13 @@ interface StrategyResponse extends Record<string, unknown> {
   trailing_stop_pct?: number;
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
+  transaction_fee?: number;
+  slippage?: number;
+  starting_balance?: number;
+  max_history_days?: number;
+  benchmark_symbol?: string;
+  risk_free_rate?: number;
+  initial_amount?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   is_public?: boolean;
   created_at?: string;

@@ -312,9 +312,11 @@ func (s *StrategyRuntimeService) buildBotInstanceRecord(
 ) *models.BotInstance {
 	tradingParamsRaw, _ := json.Marshal(s.buildTradingParams(strategy, runtimeKey.Network))
 	configRaw, _ := json.Marshal(map[string]interface{}{
-		"strategy_id":   strategy.ID,
-		"strategy_name": strategy.Name,
-		"managed_by":    "strategy_runtime",
+		"strategy_id":        strategy.ID,
+		"strategy_name":      strategy.Name,
+		"managed_by":         "strategy_runtime",
+		"runtime_strategy":   resolvedRuntimeStrategy(strategy),
+		"backtesting_params": s.buildBacktestingParams(strategy),
 	})
 
 	return &models.BotInstance{
@@ -323,7 +325,7 @@ func (s *StrategyRuntimeService) buildBotInstanceRecord(
 		UserID:       strategy.UserID,
 		Status:       "stopped",
 		Network:      runtimeKey.Network,
-		Strategy:     "mean_reversion",
+		Strategy:     resolvedRuntimeStrategy(strategy),
 		Config: sql.NullString{
 			String: string(configRaw),
 			Valid:  len(configRaw) > 0,
@@ -348,26 +350,54 @@ func (s *StrategyRuntimeService) buildBotCreatePayload(
 			"address":  runtimeKey.ChainAddress,
 			"mnemonic": runtimeKey.SecretPhrase,
 		},
-		"trading_params": s.buildTradingParams(strategy, runtimeKey.Network),
+		"trading_params":     s.buildTradingParams(strategy, runtimeKey.Network),
+		"backtesting_params": s.buildBacktestingParams(strategy),
 	}
 }
 
 func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStrategy, network string) map[string]interface{} {
 	return map[string]interface{}{
-		"is_testnet":              !strings.EqualFold(network, "mainnet"),
-		"find_cointegrated_pairs": strategy.FindCointegratedPairs,
-		"manage_exits":            strategy.ManageExits,
-		"place_trades":            strategy.PlaceTrades,
-		"abort_all_positions":     strategy.AbortAllPositions,
-		"resolution_timeframe":    strategy.CandleResolution,
-		"strategy":                "mean_reversion",
-		"stats_window":            strategy.StatsWindow,
-		"max_half_life":           int(strategy.MaxHalfLife),
-		"zscore_threshold":        strategy.ZscoreThreshold,
-		"usd_per_trade":           strategy.UsdPerTrade,
-		"usd_min_collateral":      strategy.UsdMinCollateral,
-		"close_at_zscore_cross":   strategy.CloseAtZscoreCross,
+		"is_testnet":               !strings.EqualFold(network, "mainnet"),
+		"find_cointegrated_pairs":  strategy.FindCointegratedPairs,
+		"manage_exits":             strategy.ManageExits,
+		"place_trades":             strategy.PlaceTrades,
+		"abort_all_positions":      strategy.AbortAllPositions,
+		"resolution_timeframe":     strategy.CandleResolution,
+		"strategy":                 resolvedRuntimeStrategy(strategy),
+		"stats_window":             strategy.StatsWindow,
+		"max_half_life":            int(strategy.MaxHalfLife),
+		"zscore_threshold":         strategy.ZscoreThreshold,
+		"usd_per_trade":            strategy.UsdPerTrade,
+		"usd_min_collateral":       strategy.UsdMinCollateral,
+		"close_at_zscore_cross":    strategy.CloseAtZscoreCross,
+		"max_positions":            strategy.MaxPositions,
+		"max_drawdown_pct":         strategy.MaxDrawdownPct,
+		"stop_loss_pct":            strategy.StopLossPct,
+		"take_profit_pct":          strategy.TakeProfitPct,
+		"trailing_stop_pct":        strategy.TrailingStopPct,
+		"rebalance_interval_hours": strategy.RebalanceIntervalHours,
+		"position_timeout_hours":   strategy.PositionTimeoutHours,
 	}
+}
+
+func (s *StrategyRuntimeService) buildBacktestingParams(strategy *models.BacktestStrategy) map[string]interface{} {
+	return map[string]interface{}{
+		"candle_resolution": strategy.CandleResolution,
+		"max_history_days":  strategy.MaxHistoryDays,
+		"starting_balance":  strategy.StartingBalance,
+		"transaction_fee":   strategy.TransactionFee,
+		"slippage":          strategy.Slippage,
+		"benchmark_symbol":  strategy.BenchmarkSymbol,
+		"risk_free_rate":    strategy.RiskFreeRate,
+	}
+}
+
+func resolvedRuntimeStrategy(strategy *models.BacktestStrategy) string {
+	runtimeStrategy := strings.TrimSpace(strategy.RuntimeStrategy)
+	if runtimeStrategy == "" {
+		return "cointegration"
+	}
+	return runtimeStrategy
 }
 
 func (s *StrategyRuntimeService) reconcileRuntimeState(

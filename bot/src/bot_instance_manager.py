@@ -267,13 +267,57 @@ class BotInstanceManager:
                 "manageExits": config.trading_params.manage_exits,
                 "placeTrades": config.trading_params.place_trades,
                 "resolutionTimeframe": config.trading_params.resolution_timeframe,
-                "strategy": config.trading_params.strategy.value,
+                "strategy": config.trading_params.strategy,
                 "statsWindow": config.trading_params.stats_window,
                 "maxHalfLife": config.trading_params.max_half_life,
                 "ZScoreThreshold": config.trading_params.zscore_threshold,
                 "usdPerTrade": config.trading_params.usd_per_trade,
                 "usdMinCollateral": config.trading_params.usd_min_collateral,
                 "closeAtZscoreCross": config.trading_params.close_at_zscore_cross,
+                "maxPositions": config.trading_params.max_positions,
+                "maxDrawdownPct": config.trading_params.max_drawdown_pct,
+                "stopLossPct": config.trading_params.stop_loss_pct,
+                "takeProfitPct": config.trading_params.take_profit_pct,
+                "trailingStopPct": config.trading_params.trailing_stop_pct,
+                "rebalanceIntervalHours": config.trading_params.rebalance_interval_hours,
+                "positionTimeoutHours": config.trading_params.position_timeout_hours,
+            },
+            "backtesting": {
+                "candleResolution": (
+                    config.backtesting_params.candle_resolution
+                    if config.backtesting_params
+                    else os.getenv("BACKTEST_CANDLE_RESOLUTION", "1HOUR")
+                ),
+                "maxHistoryDays": (
+                    config.backtesting_params.max_history_days
+                    if config.backtesting_params
+                    else int(os.getenv("BACKTEST_MAX_HISTORY_DAYS", "90"))
+                ),
+                "startingBalance": (
+                    config.backtesting_params.starting_balance
+                    if config.backtesting_params
+                    else float(os.getenv("BACKTEST_STARTING_BALANCE", "1000.0"))
+                ),
+                "transactionFee": (
+                    config.backtesting_params.transaction_fee
+                    if config.backtesting_params
+                    else float(os.getenv("BACKTEST_TRANSACTION_FEE", "0.0005"))
+                ),
+                "slippage": (
+                    config.backtesting_params.slippage
+                    if config.backtesting_params
+                    else float(os.getenv("BACKTEST_SLIPPAGE", "0.001"))
+                ),
+                "benchmarkSymbol": (
+                    config.backtesting_params.benchmark_symbol
+                    if config.backtesting_params
+                    else os.getenv("BACKTEST_BENCHMARK_SYMBOL", "BTC-USD")
+                ),
+                "riskFreeRate": (
+                    config.backtesting_params.risk_free_rate
+                    if config.backtesting_params
+                    else float(os.getenv("BACKTEST_RISK_FREE_RATE", "0.02"))
+                ),
             },
             "dydx_testnet": {
                 "dydx_chain_address": (

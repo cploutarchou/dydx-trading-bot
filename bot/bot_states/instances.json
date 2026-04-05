@@ -23,14 +23,22 @@
           "zscore_threshold": 1.5,
           "usd_per_trade": 10.0,
           "usd_min_collateral": 100.0,
-          "close_at_zscore_cross": true
-        }
+          "close_at_zscore_cross": true,
+          "max_positions": 5,
+          "max_drawdown_pct": 15.0,
+          "stop_loss_pct": 2.0,
+          "take_profit_pct": 5.0,
+          "trailing_stop_pct": 1.0,
+          "rebalance_interval_hours": 24,
+          "position_timeout_hours": 72
+        },
+        "backtesting_params": null
       },
       "trading_stats": {
         "active_positions": 0
       },
       "created_at": "2026-03-14T13:05:51.727169",
-      "last_update": "2026-04-05T21:35:17.340013"
+      "last_update": "2026-04-05T22:13:20.472281"
     },
     {
       "instance_id": "ui-smoke-bot-2",
@@ -55,14 +63,22 @@
           "zscore_threshold": 1.4,
           "usd_per_trade": 15.0,
           "usd_min_collateral": 100.0,
-          "close_at_zscore_cross": true
-        }
+          "close_at_zscore_cross": true,
+          "max_positions": 5,
+          "max_drawdown_pct": 15.0,
+          "stop_loss_pct": 2.0,
+          "take_profit_pct": 5.0,
+          "trailing_stop_pct": 1.0,
+          "rebalance_interval_hours": 24,
+          "position_timeout_hours": 72
+        },
+        "backtesting_params": null
       },
       "trading_stats": {
         "active_positions": 0
       },
       "created_at": "2026-03-14T13:12:00.911044",
-      "last_update": "2026-04-05T21:35:17.340035"
+      "last_update": "2026-04-05T22:13:20.472315"
     },
     {
       "instance_id": "ui-verify-1773495013",
@@ -87,13 +103,21 @@
           "zscore_threshold": 1.5,
           "usd_per_trade": 10.0,
           "usd_min_collateral": 100.0,
-          "close_at_zscore_cross": true
-        }
+          "close_at_zscore_cross": true,
+          "max_positions": 5,
+          "max_drawdown_pct": 15.0,
+          "stop_loss_pct": 2.0,
+          "take_profit_pct": 5.0,
+          "trailing_stop_pct": 1.0,
+          "rebalance_interval_hours": 24,
+          "position_timeout_hours": 72
+        },
+        "backtesting_params": null
       },
       "trading_stats": {},
       "created_at": "2026-03-14T13:30:13.973101",
-      "last_update": "2026-04-05T21:35:17.340043"
+      "last_update": "2026-04-05T22:13:20.472330"
     }
   ],
-  "last_saved": "2026-04-05T21:41:07.926264"
+  "last_saved": "2026-04-05T22:14:52.057792"
 }

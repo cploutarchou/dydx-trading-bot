@@ -444,7 +444,23 @@ func (s *StrategyRuntimeService) reconcileRuntimeState(
 ) (StrategyRuntimeState, bool, error) {
 	remoteStatus, remoteExists, err := s.fetchRemoteRuntimeStatus(runtimeState.InstanceID)
 	if err != nil {
-		return runtimeState, false, err
+		if !shouldGracefullyDegradeRuntimeSyncError(err) {
+			return runtimeState, false, err
+		}
+
+		runtimeState.Status = "error"
+		runtimeState.BotStatus = "unavailable"
+		runtimeState.LastError = runtimeSyncErrorMessage(err)
+		if persistErr := s.persistRuntimeState(executionState, runtimeState, false); persistErr != nil {
+			return runtimeState, false, persistErr
+		}
+		log.Printf(
+			"⚠️ strategy runtime sync degraded strategy_id=%d instance_id=%s: %s",
+			strategy.ID,
+			runtimeState.InstanceID,
+			runtimeState.LastError,
+		)
+		return runtimeState, false, nil
 	}
 
 	if remoteExists {
@@ -508,7 +524,7 @@ func (s *StrategyRuntimeService) persistRuntimeState(
 	if isRunning && runtimeState.StartedAt == nil {
 		runtimeState.StartedAt = &now
 	}
-	if !isRunning && runtimeState.StoppedAt == nil {
+	if !isRunning && runtimeState.StoppedAt == nil && strings.EqualFold(runtimeState.Status, "stopped") {
 		runtimeState.StoppedAt = &now
 	}
 
@@ -528,6 +544,34 @@ func (s *StrategyRuntimeService) persistRuntimeState(
 	}
 
 	return s.strategyService.UpdateExecutionState(executionState)
+}
+
+func shouldGracefullyDegradeRuntimeSyncError(err error) bool {
+	var transportErr *BotAPITransportError
+	if errors.As(err, &transportErr) {
+		return true
+	}
+
+	var apiErr *BotAPIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 401 || apiErr.StatusCode == 403 || apiErr.StatusCode >= 500
+	}
+
+	return false
+}
+
+func runtimeSyncErrorMessage(err error) string {
+	var transportErr *BotAPITransportError
+	if errors.As(err, &transportErr) {
+		return transportErr.Message
+	}
+
+	var apiErr *BotAPIError
+	if errors.As(err, &apiErr) && strings.TrimSpace(apiErr.Message) != "" {
+		return apiErr.Message
+	}
+
+	return err.Error()
 }
 
 func decodeStrategyRuntimeState(rawState sql.NullString) StrategyRuntimeState {

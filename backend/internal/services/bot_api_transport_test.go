@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -245,5 +247,31 @@ func TestMakeRequest_401RetriesWithConfiguredServiceToken(t *testing.T) {
 	}
 	if second != "Bearer shared-service-token" {
 		t.Fatalf("expected retry to use service token, got %q", second)
+	}
+}
+
+func TestNewBotAPIClient_LoadsStructuredServiceTokenWhenEnvMissing(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "run.json")
+	configPayload := []byte(`{
+		"metadata": {"environment": "development"},
+		"backend": {
+			"BOT_API_TOKEN": "structured-service-token",
+			"BOT_API_USE_SERVICE_TOKEN": true
+		}
+	}`)
+	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
+		t.Fatalf("write temp run config: %v", err)
+	}
+
+	t.Setenv("APP_RUN_CONFIG_FILE", configPath)
+	t.Setenv("BOT_API_TOKEN", "")
+	t.Setenv("BOT_API_USE_SERVICE_TOKEN", "")
+
+	client := NewBotAPIClient("http://example.com", "")
+	if got := client.AuthToken(); got != "structured-service-token" {
+		t.Fatalf("expected client to hydrate service token from structured config, got %q", got)
+	}
+	if !UseConfiguredBotAPIServiceToken() {
+		t.Fatal("expected shared bot API service token mode to be enabled")
 	}
 }

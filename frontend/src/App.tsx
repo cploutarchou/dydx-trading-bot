@@ -15,6 +15,7 @@ import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
 import StrategyManager from './components/StrategyManager';
 import BacktestDetailsV2 from './pages/BacktestDetailsV2';
+import { BacktestsPage } from './pages/Backtests';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
 import { RegisterPage } from './pages/Register';
@@ -150,7 +151,7 @@ export const App: React.FC = () => {
               path="/backtests"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <BacktestsPage />
                 </ProtectedRoute>
               }
             />

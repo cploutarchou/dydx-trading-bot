@@ -196,6 +196,11 @@ const safeNum = (v: unknown, fallback = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const normalizePercent = (value: unknown): number => {
+  const numeric = safeNum(value, 0);
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+};
+
 const parseTimestamp = (value: unknown): number | null => {
   if (typeof value !== 'string' || value.trim().length === 0) return null;
   const normalized = value.includes(' ') ? value.replace(' ', 'T') : value;
@@ -254,7 +259,7 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
   const failed = runs.filter((r) => norm(r.status) === 'FAILED' || norm(r.status) === 'CANCELLED');
 
   const totalPnl = completed.reduce((acc, r) => acc + safeNum(r.total_pnl), 0);
-  const bestWinRate = completed.reduce((max, r) => Math.max(max, safeNum(r.win_rate)), 0);
+  const bestWinRate = completed.reduce((max, r) => Math.max(max, normalizePercent(r.win_rate)), 0);
   const bestSharpe = completed.reduce((max, r) => Math.max(max, safeNum(r.sharpe_ratio)), 0);
   const totalTrades = runs.reduce((acc, r) => acc + safeNum(r.total_trades), 0);
   const avgPnlPerRun = completed.length > 0 ? totalPnl / completed.length : 0;

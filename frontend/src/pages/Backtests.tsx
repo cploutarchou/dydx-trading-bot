@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import { devFallback, MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
+import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
 import {
   buildIntelligence,
@@ -30,6 +31,7 @@ import {
   type StrategyAggregate,
   type StrategyRef,
 } from '../features/backtests/intelligence';
+import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
 
 const StatCard: React.FC<{
   label: string;
@@ -130,6 +132,10 @@ export const BacktestsPage: React.FC = () => {
   const intelligence = useMemo(
     () => buildIntelligence(backtestsQuery.data ?? [], strategiesById),
     [backtestsQuery.data, strategiesById]
+  );
+  const backtestIntelRequest = useMemo(
+    () => buildBacktestIntelRequest(intelligence.topRuns, 1),
+    [intelligence.topRuns]
   );
 
   if (backtestsQuery.isLoading) {
@@ -269,6 +275,11 @@ export const BacktestsPage: React.FC = () => {
           secondary={intelligence.mostConsistentStrategy && intelligence.mostConsistentStrategy.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}
         />
       </section>
+
+      <CodexAssetIntelStrip
+        title="Assets Behind Your Top Runs"
+        request={backtestIntelRequest}
+      />
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
         <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-800/60 backdrop-blur-sm">

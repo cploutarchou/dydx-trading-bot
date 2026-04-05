@@ -56,7 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       exact: true,
     },
     {
-      label: 'Codex',
+      label: 'Market Intel',
       path: '/codex',
       icon: <Sparkles className="w-5 h-5" />,
       exact: true,

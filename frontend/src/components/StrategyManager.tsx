@@ -15,12 +15,11 @@ import {
     AlertTriangle,
     BarChart3,
     Copy,
-    Pause,
-    Play,
     Settings,
     Trash2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import apiClient from '../api';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { PageContainer } from './PageContainer';
@@ -47,14 +46,14 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 };
 
 export default function StrategyManager() {
-  const { strategies, fetchStrategies, loading } = useStrategyStore();
+  const navigate = useNavigate();
+  const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } = useStrategyStore();
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
   const [editingConfig, setEditingConfig] = useState<Partial<Strategy> | null>(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configErrors, setConfigErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [webSocketConnected, setWebSocketConnected] = useState(false);
-  const [toggleLoading, setToggleLoading] = useState<Record<number, boolean>>({});
   const [runningCount, setRunningCount] = useState(0);
 
   // Load strategies on mount
@@ -118,46 +117,21 @@ export default function StrategyManager() {
     };
   }, []);
 
-  /**
-   * Toggle strategy execution on/off - ASYNC, NON-BLOCKING
-   */
-  const handleToggleStrategy = async (strategy: Strategy, enable: boolean) => {
-    setToggleLoading((prev) => ({ ...prev, [strategy.id]: true }));
-
-    try {
-      // TODO: Implement backend endpoint for strategy execution
-      // For now, just update local state
-      setStrategyStatuses((prev) => {
-        const newMap = new Map(prev);
-        newMap.set(strategy.id, {
-          strategyId: strategy.id,
-          status: enable ? 'running' : 'stopped',
-          updatedAt: new Date().toISOString(),
-        });
-        return newMap;
-      });
-
-      setMessage({
-        type: 'success',
-        text: `✅ Strategy "${strategy.name}" ${enable ? 'started' : 'stopped'}`,
-      });
-
-      setTimeout(() => setMessage(null), 4000);
-    } catch (error: unknown) {
-      const errorMsg = getErrorMessage(error, 'Operation failed');
-      setMessage({
-        type: 'error',
-        text: `❌ ${errorMsg}`,
-      });
-      setTimeout(() => setMessage(null), 6000);
-    } finally {
-      setToggleLoading((prev) => ({ ...prev, [strategy.id]: false }));
-    }
+  const showTransientMessage = (nextMessage: { type: 'success' | 'error'; text: string }, timeoutMs: number) => {
+    setMessage(nextMessage);
+    setTimeout(() => setMessage(null), timeoutMs);
   };
 
-  /**
-   * Validate strategy parameters
-   */
+  const handleRuntimeToggleUnavailable = (strategy: Strategy) => {
+    showTransientMessage(
+      {
+        type: 'error',
+        text: `❌ Live strategy start/stop is not available until the backend runtime endpoint is implemented for "${strategy.name}".`,
+      },
+      6000
+    );
+  };
+
   const validateConfig = (): boolean => {
     if (!editingConfig) return false;
 
@@ -179,9 +153,6 @@ export default function StrategyManager() {
     return Object.keys(errors).length === 0;
   };
 
-  /**
-   * Save strategy configuration
-   */
   const handleSaveConfig = async () => {
     if (!editingConfig || !editingConfig.id || !validateConfig()) {
       return;
@@ -197,37 +168,28 @@ export default function StrategyManager() {
       };
       await apiClient.updateStrategy(editingConfig.id, updatePayload);
 
-      setMessage({
-        type: 'success',
-        text: '✅ Strategy configuration updated',
-      });
+      showTransientMessage({ type: 'success', text: '✅ Strategy configuration updated' }, 4000);
 
       setShowConfigModal(false);
       setEditingConfig(null);
-      fetchStrategies();
-
-      setTimeout(() => setMessage(null), 4000);
+      await fetchStrategies();
     } catch (error: unknown) {
-      setMessage({
-        type: 'error',
-        text: `❌ Failed to save configuration: ${getErrorMessage(error, 'Unknown error')}`,
-      });
-      setTimeout(() => setMessage(null), 6000);
+      showTransientMessage(
+        {
+          type: 'error',
+          text: `❌ Failed to save configuration: ${getErrorMessage(error, 'Unknown error')}`,
+        },
+        6000
+      );
     }
   };
 
-  /**
-   * Open config modal for editing
-   */
   const handleEditConfig = (strategy: Strategy) => {
     setEditingConfig({ ...strategy });
     setConfigErrors({});
     setShowConfigModal(true);
   };
 
-  /**
-   * Run backtest for strategy
-   */
   const handleRunBacktest = async (strategy: Strategy) => {
     try {
       const endDate = new Date();
@@ -240,19 +202,67 @@ export default function StrategyManager() {
         end_date: endDate.toISOString().split('T')[0],
       });
 
-      if (response.success || response.data?.run_id) {
-        setMessage({
-          type: 'success',
-          text: `✅ Backtest started for "${strategy.name}"`,
-        });
-        setTimeout(() => setMessage(null), 4000);
+      const runId = response.data?.run_id;
+      if (response.success || runId) {
+        showTransientMessage(
+          {
+            type: 'success',
+            text: `✅ Backtest started for "${strategy.name}"`,
+          },
+          4000
+        );
+        if (typeof runId === 'string' && runId.length > 0) {
+          navigate(`/backtest/${runId}`);
+        }
       }
     } catch (error: unknown) {
-      setMessage({
-        type: 'error',
-        text: `❌ Failed to start backtest: ${getErrorMessage(error, 'Unknown error')}`,
-      });
-      setTimeout(() => setMessage(null), 6000);
+      showTransientMessage(
+        {
+          type: 'error',
+          text: `❌ Failed to start backtest: ${getErrorMessage(error, 'Unknown error')}`,
+        },
+        6000
+      );
+    }
+  };
+
+  const handleDuplicateStrategy = async (strategy: Strategy) => {
+    try {
+      await duplicateStrategy(strategy);
+      showTransientMessage(
+        { type: 'success', text: `✅ Duplicated strategy "${strategy.name}"` },
+        4000
+      );
+    } catch (error: unknown) {
+      showTransientMessage(
+        {
+          type: 'error',
+          text: `❌ Failed to duplicate strategy: ${getErrorMessage(error, 'Unknown error')}`,
+        },
+        6000
+      );
+    }
+  };
+
+  const handleDeleteStrategy = async (strategy: Strategy) => {
+    if (!window.confirm(`Delete strategy "${strategy.name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await deleteStrategy(strategy.id);
+      showTransientMessage(
+        { type: 'success', text: `✅ Deleted strategy "${strategy.name}"` },
+        4000
+      );
+    } catch (error: unknown) {
+      showTransientMessage(
+        {
+          type: 'error',
+          text: `❌ Failed to delete strategy: ${getErrorMessage(error, 'Unknown error')}`,
+        },
+        6000
+      );
     }
   };
 
@@ -323,6 +333,11 @@ export default function StrategyManager() {
           />
           {webSocketConnected ? '✅ Real-time updates enabled' : '⏳ Connecting...'}
         </div>
+      </div>
+
+      <div className="p-4 rounded-lg border bg-amber-900/20 border-amber-700 text-amber-200">
+        Runtime control is not connected to a backend execution endpoint yet.
+        Configuration updates and backtest launches are live; start/stop controls remain disabled to avoid false success states.
       </div>
 
       {/* Messages */}
@@ -464,30 +479,12 @@ export default function StrategyManager() {
                 <div className="flex flex-wrap gap-2">
                   {/* Toggle Button */}
                   <button
-                    onClick={() => handleToggleStrategy(strategy, status.status !== 'running')}
-                    disabled={toggleLoading[strategy.id]}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-                      status.status === 'running'
-                        ? 'bg-red-600 hover:bg-red-700 text-white'
-                        : 'bg-green-600 hover:bg-green-700 text-white'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    onClick={() => handleRuntimeToggleUnavailable(strategy)}
+                    disabled
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors bg-slate-700 text-slate-400 disabled:opacity-80 disabled:cursor-not-allowed"
+                    title="Runtime start/stop is not implemented by the backend yet"
                   >
-                    {toggleLoading[strategy.id] ? (
-                      <>
-                        <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                        {status.status === 'running' ? 'Stopping...' : 'Starting...'}
-                      </>
-                    ) : status.status === 'running' ? (
-                      <>
-                        <Pause className="w-4 h-4" />
-                        Stop
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        Start
-                      </>
-                    )}
+                    Runtime Unavailable
                   </button>
 
                   {/* Configure Button */}
@@ -509,13 +506,19 @@ export default function StrategyManager() {
                   </button>
 
                   {/* Copy Button */}
-                  <button className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors">
+                  <button
+                    onClick={() => void handleDuplicateStrategy(strategy)}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+                  >
                     <Copy className="w-4 h-4" />
                     Duplicate
                   </button>
 
                   {/* Delete Button */}
-                  <button className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-red-900/50 text-white rounded-lg font-medium transition-colors">
+                  <button
+                    onClick={() => void handleDeleteStrategy(strategy)}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-red-900/50 text-white rounded-lg font-medium transition-colors"
+                  >
                     <Trash2 className="w-4 h-4" />
                     Delete
                   </button>

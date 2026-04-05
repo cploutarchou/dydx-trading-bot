@@ -1,5 +1,6 @@
 import { Play } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useStrategyStore } from '../store/strategies';
@@ -82,9 +83,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [strategyName, setStrategyName] = useState('');
+
+  const runBacktestMutation = useMutation({
+    mutationFn: (payload: BacktestRunRequest) => api.runBacktest(payload),
+  });
 
   // Fetch strategies on mount
   useEffect(() => {
@@ -185,11 +187,14 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
-    setSuccess(false);
 
     try {
+      if (formData.start_date > formData.end_date) {
+        setError('Start date must be before end date');
+        return;
+      }
+
       const tp = formData.trading_parameters;
       const cleanedData = {
         start_date: formData.start_date,
@@ -239,8 +244,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           }),
         },
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
-      };
-      const result = await api.runBacktest(cleanedData);
+      } satisfies BacktestRunRequest;
+      setLoading(true);
+      const result = await runBacktestMutation.mutateAsync(cleanedData);
       const runId = extractRunId(result);
 
       if (onBacktestComplete) {
@@ -250,57 +256,13 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       if (runId) {
         navigate(`/backtest/${runId}`);
       } else {
-        setSuccess(true);
-        setShowSaveDialog(true);
+        setError('Backtest started but no run ID was returned by the API');
       }
     } catch (err: unknown) {
       console.error('❌ BacktestRunner: Error:', err);
       setError(getErrorMessage(err, 'Failed to start backtest'));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSaveAsStrategy = async () => {
-    if (!strategyName.trim()) {
-      setError('Strategy name is required');
-      return;
-    }
-
-    try {
-      await useStrategyStore.getState().createStrategy({
-        name: strategyName,
-        category: 'pairs_trading',
-        description: `Backtest results from ${formData.start_date} to ${formData.end_date}`,
-        is_public: false,
-        // All strategy parameters from nested trading_parameters
-        zscore_threshold: Number(formData.trading_parameters.zscore_threshold || 1.5),
-        stats_window: Number(formData.trading_parameters.stats_window || 21),
-        max_half_life: Number(formData.trading_parameters.max_half_life || 24),
-        usd_per_trade: Number(formData.trading_parameters.usd_per_trade || 10.0),
-        usd_min_collateral: Number(formData.trading_parameters.usd_min_collateral || 100.0),
-        close_at_zscore_cross: formData.trading_parameters.close_at_zscore_cross !== false,
-        find_cointegrated_pairs: formData.trading_parameters.find_cointegrated_pairs !== false,
-        manage_exits: formData.trading_parameters.manage_exits !== false,
-        place_trades: formData.trading_parameters.place_trades !== false,
-        abort_all_positions: formData.trading_parameters.abort_all_positions || false,
-        max_positions: Number(formData.trading_parameters.max_positions || 5),
-        max_drawdown_pct: Number(formData.trading_parameters.max_drawdown_pct || 15.0),
-        stop_loss_pct: Number(formData.trading_parameters.stop_loss_pct || 2.0),
-        take_profit_pct: Number(formData.trading_parameters.take_profit_pct || 5.0),
-        trailing_stop_pct: Number(formData.trading_parameters.trailing_stop_pct || 1.0),
-        rebalance_interval_hours: Number(
-          formData.trading_parameters.rebalance_interval_hours || 24
-        ),
-        position_timeout_hours: Number(formData.trading_parameters.position_timeout_hours || 72),
-        pair_selection_mode: formData.trading_parameters.pair_selection_mode || 'liquidity',
-      });
-      setShowSaveDialog(false);
-      setStrategyName('');
-      await fetchStrategies();
-    } catch (err: unknown) {
-      setError('Failed to save strategy');
-      console.error(err);
     }
   };
 
@@ -311,12 +273,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       {error && (
         <div className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200">
           {error}
-        </div>
-      )}
-
-      {success && (
-        <div className="mb-4 p-4 bg-green-900 border border-green-700 rounded text-green-200">
-          ✅ Backtest started successfully! Check the results below.
         </div>
       )}
 
@@ -479,42 +435,13 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || runBacktestMutation.isPending}
           className="w-full mt-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2"
         >
           <Play className="w-4 h-4" />
-          {loading ? 'Running Backtest...' : 'Start Backtest'}
+          {loading || runBacktestMutation.isPending ? 'Running Backtest...' : 'Start Backtest'}
         </button>
       </form>
-
-      {showSaveDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4 border border-slate-700">
-            <h4 className="text-lg font-bold text-white mb-4">Save Results as Strategy?</h4>
-            <input
-              type="text"
-              placeholder="Strategy name"
-              value={strategyName}
-              onChange={(e) => setStrategyName(e.target.value)}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white mb-4"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowSaveDialog(false)}
-                className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded"
-              >
-                Skip
-              </button>
-              <button
-                onClick={handleSaveAsStrategy}
-                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Clock,
   Layers3,
+  Newspaper,
   Play,
   Rocket,
   ShieldCheck,
@@ -32,6 +33,7 @@ import api from '../api';
 import { devFallback, MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
+import { CoinDeskNewsPanel } from '../components/CoinDeskNewsPanel';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
@@ -606,6 +608,40 @@ export const DashboardPage: React.FC = () => {
           value={statsLoading ? '—' : fmtN(countTrades)}
           subtitle="Across all runs" color="cyan" animDelay={420} />
       </div>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+        <CoinDeskNewsPanel compact />
+        <div className="premium-panel">
+          <div className="flex items-start gap-3">
+            <div className="premium-icon-wrap text-cyan-300">
+              <Newspaper className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Market context, not just metrics</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Use the newsroom and market-intel workspace together so client-facing decisions feel informed,
+                current, and grounded in real market regime changes.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3">
+            <Link
+              to="/news"
+              className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-950/70"
+            >
+              <p className="text-sm font-semibold text-white">Open Market News</p>
+              <p className="mt-1 text-xs text-slate-400">See the full CoinDesk-powered newsroom view.</p>
+            </Link>
+            <Link
+              to="/codex"
+              className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-950/70"
+            >
+              <p className="text-sm font-semibold text-white">Open Market Intel</p>
+              <p className="mt-1 text-xs text-slate-400">Inspect movers, safer tokens, and asset context in one place.</p>
+            </Link>
+          </div>
+        </div>
+      </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
         <StrategySpotlightCard

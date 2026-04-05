@@ -1,6 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
 import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../api';
 import { useAuthStore } from '../store/auth';
 
 export const LoginPage: React.FC = () => {
@@ -10,6 +12,14 @@ export const LoginPage: React.FC = () => {
     const [password, setPassword] = useState('');
     const usernameInputRef = useRef<HTMLInputElement | null>(null);
     const errorAlertRef = useRef<HTMLDivElement | null>(null);
+    const registrationStatusQuery = useQuery({
+        queryKey: ['auth', 'registration-status'],
+        queryFn: async () => {
+            const response = await api.getRegistrationStatus();
+            return response.data;
+        },
+        staleTime: 60_000,
+    });
 
     useEffect(() => {
         usernameInputRef.current?.focus();
@@ -32,11 +42,43 @@ export const LoginPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-            <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl p-8 w-full max-w-md">
-                <h1 className="text-3xl font-bold text-center mb-8 text-white">
-                    dYdX Backtest
-                </h1>
+        <div className="auth-stage flex items-center justify-center px-4 py-10">
+            <div className="premium-orb left-[8%] top-[12%] h-48 w-48 bg-cyan-500/15" />
+            <div className="premium-orb right-[8%] bottom-[10%] h-56 w-56 bg-blue-500/15" />
+
+            <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.05fr,0.95fr] lg:items-center">
+                <div className="hidden lg:block">
+                    <div className="premium-kicker">Institutional-grade trading intelligence</div>
+                    <h1 className="mt-5 max-w-2xl text-5xl font-bold leading-tight text-white">
+                        A trading workspace that feels built for serious capital.
+                    </h1>
+                    <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
+                        Monitor strategy quality, live runtime status, market intelligence, and backtest confidence from one polished operations cockpit.
+                    </p>
+                    <div className="mt-8 grid max-w-xl grid-cols-3 gap-4">
+                        <div className="premium-panel premium-panel-hover">
+                            <p className="text-2xl font-semibold text-white">Live</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">Runtime control</p>
+                        </div>
+                        <div className="premium-panel premium-panel-hover">
+                            <p className="text-2xl font-semibold text-white">Risk</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">Aware analytics</p>
+                        </div>
+                        <div className="premium-panel premium-panel-hover">
+                            <p className="text-2xl font-semibold text-white">News</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">Market context</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="auth-panel w-full max-w-xl justify-self-center p-8 sm:p-10">
+                    <div className="mb-8">
+                        <div className="premium-kicker">Welcome back</div>
+                        <h2 className="mt-4 text-3xl font-bold text-white">Sign in to dYdX Bot</h2>
+                        <p className="mt-2 text-sm text-slate-400">
+                            Access your premium trading workspace, latest intelligence, and live execution controls.
+                        </p>
+                    </div>
 
                 {error && (
                     <div
@@ -44,7 +86,7 @@ export const LoginPage: React.FC = () => {
                         tabIndex={-1}
                         role="alert"
                         aria-live="assertive"
-                        className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200"
+                        className="mb-4 rounded-2xl border border-red-700 bg-red-950/55 p-4 text-red-200"
                     >
                         {error}
                     </div>
@@ -62,7 +104,7 @@ export const LoginPage: React.FC = () => {
                             ref={usernameInputRef}
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="premium-input"
                             required
                         />
                     </div>
@@ -77,7 +119,7 @@ export const LoginPage: React.FC = () => {
                             autoComplete="current-password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="premium-input"
                             required
                         />
                     </div>
@@ -85,23 +127,32 @@ export const LoginPage: React.FC = () => {
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
+                        className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         {loading && <Loader className="w-4 h-4 animate-spin" />}
-                        {loading ? 'Logging in...' : 'Login'}
+                        {loading ? 'Logging in...' : 'Enter Workspace'}
                     </button>
                 </form>
 
-                <p className="mt-4 text-center text-sm text-slate-400">
-                    Don&apos;t have an account?{' '}
-                    <button
-                        type="button"
-                        onClick={() => navigate('/register')}
-                        className="text-blue-400 hover:underline font-medium"
-                    >
-                        Register
-                    </button>
+                <p className="mt-5 text-center text-sm text-slate-400">
+                    {registrationStatusQuery.data?.enabled === false ? (
+                        <span className="text-slate-500">
+                            Public registration is currently disabled by the administrator.
+                        </span>
+                    ) : (
+                        <>
+                            Don&apos;t have an account?{' '}
+                            <button
+                                type="button"
+                                onClick={() => navigate('/register')}
+                                className="font-medium text-cyan-300 hover:text-cyan-200"
+                            >
+                                Register
+                            </button>
+                        </>
+                    )}
                 </p>
+            </div>
             </div>
         </div>
     );

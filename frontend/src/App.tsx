@@ -19,6 +19,7 @@ import { BacktestsPage } from './pages/Backtests';
 import { CodexPage } from './pages/Codex';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
+import { NewsPage } from './pages/News';
 import { RegisterPage } from './pages/Register';
 import SettingsPage from './pages/Settings';
 import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
@@ -153,6 +154,14 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute>
                   <CodexPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/news"
+              element={
+                <ProtectedRoute>
+                  <NewsPage />
                 </ProtectedRoute>
               }
             />

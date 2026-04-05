@@ -61,6 +61,7 @@ export default function StrategyManager() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [webSocketConnected, setWebSocketConnected] = useState(false);
   const [runningCount, setRunningCount] = useState(0);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   // Load strategies on mount
   useEffect(() => {
@@ -410,12 +411,9 @@ export default function StrategyManager() {
   };
 
   const handleDeleteStrategy = async (strategy: Strategy) => {
-    if (!window.confirm(`Delete strategy "${strategy.name}"? This cannot be undone.`)) {
-      return;
-    }
-
     try {
       await deleteStrategy(strategy.id);
+      setDeleteConfirmId(null);
       showTransientMessage(
         { type: 'success', text: `✅ Deleted strategy "${strategy.name}"` },
         4000
@@ -474,40 +472,62 @@ export default function StrategyManager() {
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      {/* Header */}
-      <div className="bg-linear-to-r from-slate-900 to-slate-800 rounded-lg border border-slate-700 p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">🎯 Strategy Manager</h1>
-            <p className="text-gray-400 mt-2">Run and manage multiple strategies simultaneously</p>
+      <section className="premium-hero px-6 py-7 sm:px-8">
+        <div className="premium-orb -right-10 top-0 h-44 w-44 bg-cyan-500/10" />
+        <div className="premium-orb -left-8 bottom-0 h-36 w-36 bg-emerald-500/10" />
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="premium-kicker">Strategy Runtime</div>
+            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+              Operate live strategies with cleaner signal and less operator friction.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              Start, stop, benchmark, and tune strategies from one premium control surface with
+              backend-synced runtime state and market context beside each setup.
+            </p>
           </div>
-          <div className="text-left sm:text-right">
-            <div className="text-4xl font-bold text-green-400">{runningCount}</div>
-            <div className="text-sm text-gray-400">Active Strategies</div>
+          <div className="grid grid-cols-2 gap-3 sm:min-w-[300px]">
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Active</p>
+              <p className="mt-1 text-3xl font-semibold text-emerald-300">{runningCount}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Strategies</p>
+              <p className="mt-1 text-3xl font-semibold text-white">{strategies.length}</p>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* WebSocket Status */}
-      <div
-        className={`p-3 rounded-lg border ${
-          webSocketConnected
-            ? 'bg-green-900/20 border-green-700 text-green-200'
-            : 'bg-yellow-900/20 border-yellow-700 text-yellow-200'
-        }`}
-      >
-        <div className="flex items-center gap-2">
-          <div
-            className={`w-2 h-2 rounded-full ${webSocketConnected ? 'bg-green-400' : 'bg-yellow-400'}`}
-          />
-          {webSocketConnected ? '✅ Real-time updates enabled' : '⏳ Connecting...'}
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[0.9fr,1.3fr]">
+        <div
+          className={`premium-panel ${
+            webSocketConnected ? 'border-emerald-500/20' : 'border-amber-500/20'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`h-2.5 w-2.5 rounded-full ${
+                webSocketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-pulse'
+              }`}
+            />
+            <div>
+              <p className="text-sm font-semibold text-white">Realtime status</p>
+              <p className={webSocketConnected ? 'text-sm text-emerald-300' : 'text-sm text-amber-300'}>
+                {webSocketConnected ? 'WebSocket connected and streaming updates' : 'Connecting to live runtime events'}
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div className="p-4 rounded-lg border bg-blue-900/20 border-blue-700 text-blue-200">
-        Runtime control is live through the backend strategy execution service.
-        An active dYdX key is still required before a strategy can start, and statuses are reconciled every 15 seconds.
-      </div>
+        <div className="premium-panel">
+          <p className="text-sm leading-6 text-slate-300">
+            Runtime control is live through the backend strategy execution service. An active dYdX
+            key is still required before a strategy can start, and statuses are reconciled every
+            15 seconds for safety.
+          </p>
+        </div>
+      </section>
 
       <CodexAssetIntelStrip
         title="Strategy Benchmark Context"
@@ -518,10 +538,10 @@ export default function StrategyManager() {
       {/* Messages */}
       {message && (
         <div
-          className={`p-4 rounded-lg border ${
+          className={`premium-panel ${
             message.type === 'success'
-              ? 'bg-green-900/30 border-green-700 text-green-200'
-              : 'bg-red-900/30 border-red-700 text-red-200'
+              ? 'border-green-500/20 text-green-200'
+              : 'border-red-500/20 text-red-200'
           }`}
         >
           {message.text}
@@ -531,7 +551,7 @@ export default function StrategyManager() {
       {/* Strategies List */}
       <div className="space-y-4">
         {strategies.length === 0 ? (
-          <div className="bg-slate-800 rounded-lg border border-slate-700 p-8 text-center">
+          <div className="premium-panel p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-500 mx-auto mb-4" />
             <p className="text-gray-400 text-lg">No strategies available</p>
           </div>
@@ -546,10 +566,10 @@ export default function StrategyManager() {
             return (
               <div
                 key={strategy.id}
-                className={`bg-slate-800 rounded-lg border transition-all duration-300 p-6 ${
+                className={`premium-panel premium-panel-hover p-6 transition-all duration-300 ${
                   status.status === 'running'
-                    ? 'border-green-600 shadow-lg shadow-green-900/50'
-                    : 'border-slate-700'
+                    ? 'border-green-500/40 shadow-lg shadow-green-900/25'
+                    : ''
                 }`}
               >
                 {/* Strategy Header */}
@@ -557,16 +577,16 @@ export default function StrategyManager() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3">
                       <h3 className="text-xl font-bold text-white">{strategy.name}</h3>
-                      <span className="px-3 py-1 bg-slate-700 text-slate-300 text-xs rounded-full">
+                      <span className="rounded-full border border-slate-700/70 bg-slate-950/45 px-3 py-1 text-xs text-slate-300">
                         {strategy.category}
                       </span>
                     </div>
-                    <p className="text-gray-400 text-sm mt-1">{strategy.description}</p>
+                    <p className="mt-1 text-sm text-slate-400">{strategy.description}</p>
                   </div>
 
                   {/* Status Badge */}
                   <div
-                    className={`px-4 py-2 rounded-lg border ${getStatusBg(status.status)} flex items-center gap-2`}
+                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2 ${getStatusBg(status.status)}`}
                   >
                     <div
                       className={`w-2 h-2 rounded-full ${
@@ -587,7 +607,7 @@ export default function StrategyManager() {
 
                 {/* Error Display */}
                 {status.lastError && (
-                  <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-lg flex gap-2">
+                  <div className="mb-4 flex gap-2 rounded-2xl border border-red-700 bg-red-900/30 p-3">
                     <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                     <div>
                       <p className="text-red-200 text-sm font-medium">Error</p>
@@ -598,20 +618,20 @@ export default function StrategyManager() {
 
                 {/* Key Parameters */}
                 <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="bg-slate-900/50 rounded p-3">
-                    <p className="text-gray-400 text-xs">Z-Score Threshold</p>
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">Z-Score Threshold</p>
                     <p className="text-white font-semibold">{strategy.zscore_threshold}</p>
                   </div>
-                  <div className="bg-slate-900/50 rounded p-3">
-                    <p className="text-gray-400 text-xs">USD Per Trade</p>
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">USD Per Trade</p>
                     <p className="text-white font-semibold">${strategy.usd_per_trade}</p>
                   </div>
-                  <div className="bg-slate-900/50 rounded p-3">
-                    <p className="text-gray-400 text-xs">Max Positions</p>
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">Max Positions</p>
                     <p className="text-white font-semibold">{strategy.max_positions}</p>
                   </div>
-                  <div className="bg-slate-900/50 rounded p-3">
-                    <p className="text-gray-400 text-xs">Max Drawdown</p>
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
+                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">Max Drawdown</p>
                     <p className="text-white font-semibold">{strategy.max_drawdown_pct}%</p>
                   </div>
                 </div>
@@ -677,7 +697,7 @@ export default function StrategyManager() {
                       <button
                         onClick={() => void handleRuntimeToggle(strategy)}
                         disabled={pendingAction !== undefined}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-80 disabled:cursor-not-allowed ${buttonClass}`}
+                        className={`flex items-center gap-2 rounded-2xl px-4 py-2 font-medium transition-colors disabled:opacity-80 disabled:cursor-not-allowed ${buttonClass}`}
                         title={
                           status.network
                             ? `Runtime network: ${status.network}`
@@ -692,7 +712,7 @@ export default function StrategyManager() {
                   {/* Configure Button */}
                   <button
                     onClick={() => handleEditConfig(strategy)}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                    className="flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
                   >
                     <Settings className="w-4 h-4" />
                     Configure
@@ -701,7 +721,7 @@ export default function StrategyManager() {
                   {/* Backtest Button */}
                   <button
                     onClick={() => handleRunBacktest(strategy)}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+                    className="flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 font-medium text-white transition-colors hover:bg-indigo-700"
                   >
                     <BarChart3 className="w-4 h-4" />
                     Backtest
@@ -710,20 +730,38 @@ export default function StrategyManager() {
                   {/* Copy Button */}
                   <button
                     onClick={() => void handleDuplicateStrategy(strategy)}
-                    className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+                    className="flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 font-medium text-white transition-colors hover:bg-slate-700"
                   >
                     <Copy className="w-4 h-4" />
                     Duplicate
                   </button>
 
                   {/* Delete Button */}
-                  <button
-                    onClick={() => void handleDeleteStrategy(strategy)}
-                    className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-red-900/50 text-white rounded-lg font-medium transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
+                  {deleteConfirmId === strategy.id ? (
+                    <>
+                      <button
+                        onClick={() => void handleDeleteStrategy(strategy)}
+                        className="flex items-center gap-2 rounded-2xl bg-red-600 px-4 py-2 font-medium text-white transition-colors hover:bg-red-500"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Confirm Delete
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmId(null)}
+                        className="flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 font-medium text-white transition-colors hover:bg-slate-700"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirmId(strategy.id)}
+                      className="flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 font-medium text-white transition-colors hover:bg-red-900/50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             );

@@ -21,6 +21,7 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 	authRoutes := router.Group("/api/v1/auth")
 	{
 		authRoutes.POST("/register", registerHandler(database))
+		authRoutes.GET("/registration-status", registrationStatusHandler(database))
 		authRoutes.POST("/login", loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
 	}
@@ -71,6 +72,11 @@ type UserResponse struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type RegistrationStatusResponse struct {
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason"`
+}
+
 func toUserResponse(user *models.User) UserResponse {
 	return UserResponse{
 		ID:        user.ID,
@@ -88,6 +94,23 @@ func toUserResponse(user *models.User) UserResponse {
 // registerHandler handles user registration
 func registerHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		enabled, err := isPublicRegistrationEnabled(database)
+		if err != nil {
+			log.Printf("Failed to resolve registration setting: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "Failed to determine registration availability",
+			})
+			return
+		}
+		if !enabled {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Public registration is currently disabled by the administrator",
+			})
+			return
+		}
+
 		var req RegisterRequest
 
 		// Bind JSON with error handling
@@ -148,6 +171,57 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 				"username": user.Username,
 			},
 		})
+	}
+}
+
+func registrationStatusHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		enabled, err := isPublicRegistrationEnabled(database)
+		if err != nil {
+			log.Printf("Failed to resolve registration status: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "Failed to determine registration availability",
+			})
+			return
+		}
+
+		reason := "Public registration is enabled"
+		if !enabled {
+			reason = "Public registration is currently disabled by the administrator"
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": RegistrationStatusResponse{
+				Enabled: enabled,
+				Reason:  reason,
+			},
+		})
+	}
+}
+
+func isPublicRegistrationEnabled(database *sql.DB) (bool, error) {
+	settingsRepo := repository.NewSettingsRepository(database)
+	setting, err := settingsRepo.GetBotSettingBySectionAndKey("platform", "allow_public_registration")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") || strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+			return true, nil
+		}
+		return false, err
+	}
+	if setting == nil {
+		return true, nil
+	}
+
+	value := strings.TrimSpace(strings.ToLower(setting.Value))
+	switch value {
+	case "", "true", "1", "yes", "on":
+		return true, nil
+	case "false", "0", "no", "off":
+		return false, nil
+	default:
+		return true, nil
 	}
 }
 

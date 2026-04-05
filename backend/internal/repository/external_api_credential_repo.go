@@ -56,10 +56,9 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 			encrypted_api_key = EXCLUDED.encrypted_api_key,
 			is_active = EXCLUDED.is_active,
 			updated_at = EXCLUDED.updated_at
-		RETURNING id, created_at, updated_at
 	`
 
-	return r.db.QueryRow(
+	if _, err := r.db.Exec(
 		query,
 		credential.UserID,
 		credential.Provider,
@@ -68,7 +67,22 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 		credential.IsActive,
 		now,
 		now,
-	).Scan(&credential.ID, &credential.CreatedAt, &credential.UpdatedAt)
+	); err != nil {
+		return fmt.Errorf("failed to upsert external api credential: %w", err)
+	}
+
+	stored, err := r.GetByUserAndProvider(credential.UserID, credential.Provider)
+	if err != nil {
+		return fmt.Errorf("failed to reload external api credential after upsert: %w", err)
+	}
+	if stored == nil {
+		return fmt.Errorf("external api credential was not found after upsert")
+	}
+
+	credential.ID = stored.ID
+	credential.CreatedAt = stored.CreatedAt
+	credential.UpdatedAt = stored.UpdatedAt
+	return nil
 }
 
 func (r *ExternalAPICredentialRepository) Deactivate(userID int, provider string) error {

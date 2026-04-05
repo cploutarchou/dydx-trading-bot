@@ -301,20 +301,22 @@ func (psm *PairStorageManager) loadJSON() ([]CointegrationResult, PairStorageMet
 	return storageData.Pairs, storageData.Metadata, nil
 }
 
-func (psm *PairStorageManager) loadCSV() ([]CointegrationResult, error) {
+func (psm *PairStorageManager) loadCSV() (pairs []CointegrationResult, err error) {
 	file, err := os.Open(psm.csvFile)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
 	if err != nil {
 		return nil, err
 	}
-
-	var pairs []CointegrationResult
 
 	// Skip header
 	for i := 1; i < len(records); i++ {
@@ -341,15 +343,24 @@ func (psm *PairStorageManager) loadCSV() ([]CointegrationResult, error) {
 	return pairs, nil
 }
 
-func (psm *PairStorageManager) saveCSV(pairs []CointegrationResult) error {
+func (psm *PairStorageManager) saveCSV(pairs []CointegrationResult) (err error) {
 	file, err := os.Create(psm.csvFile)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	writer := csv.NewWriter(file)
-	defer writer.Flush()
+	defer func() {
+		writer.Flush()
+		if flushErr := writer.Error(); flushErr != nil && err == nil {
+			err = flushErr
+		}
+	}()
 
 	// Write header
 	header := []string{

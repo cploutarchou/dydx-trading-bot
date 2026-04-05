@@ -301,7 +301,11 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/bots", func(w http.ResponseWriter, r *http.Request) {
 		upstreamAuthHeaderCh <- r.Header.Get("Authorization")
-		defer r.Body.Close()
+		defer func() {
+			if closeErr := r.Body.Close(); closeErr != nil {
+				t.Errorf("close upstream request body: %v", closeErr)
+			}
+		}()
 		var payload map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode upstream create payload: %v", err)

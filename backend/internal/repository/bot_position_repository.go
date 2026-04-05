@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -113,7 +114,11 @@ func (r *BotPositionRepository) ListBotPositionsByInstanceID(instanceID int, sta
 	if err != nil {
 		return nil, fmt.Errorf("failed to list bot positions: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close bot position rows: %v", closeErr)
+		}
+	}()
 
 	var positions []models.BotPosition
 	for rows.Next() {
@@ -133,6 +138,10 @@ func (r *BotPositionRepository) ListBotPositionsByInstanceID(instanceID int, sta
 			return nil, fmt.Errorf("failed to scan bot position: %w", err)
 		}
 		positions = append(positions, position)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating bot positions: %w", err)
 	}
 
 	return positions, nil
@@ -240,7 +249,11 @@ func (r *BotPositionRepository) GetOpenPositionsByInstanceID(instanceID int) ([]
 	if err != nil {
 		return nil, fmt.Errorf("failed to list open bot positions: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close open bot position rows: %v", closeErr)
+		}
+	}()
 
 	var positions []models.BotPosition
 	for rows.Next() {
@@ -260,6 +273,10 @@ func (r *BotPositionRepository) GetOpenPositionsByInstanceID(instanceID int) ([]
 			return nil, fmt.Errorf("failed to scan bot position: %w", err)
 		}
 		positions = append(positions, position)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating open bot positions: %w", err)
 	}
 
 	return positions, nil

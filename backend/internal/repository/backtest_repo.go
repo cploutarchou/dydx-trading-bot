@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -62,7 +63,6 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 	if filter.EndDate != nil {
 		query += fmt.Sprintf(" AND timestamp <= $%d", argNum)
 		args = append(args, filter.EndDate)
-		argNum++
 	}
 
 	query += " ORDER BY timestamp"
@@ -71,7 +71,11 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 	if err != nil {
 		return nil, fmt.Errorf("failed to query candles: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close candle rows: %v", closeErr)
+		}
+	}()
 
 	var candles []models.BacktestCandle
 	for rows.Next() {
@@ -134,7 +138,6 @@ func (r *BacktestRepository) GetPositions(filter PositionFilter) ([]models.Backt
 	if filter.Market2 != "" {
 		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
 		args = append(args, filter.Market2)
-		argNum++
 	}
 
 	query += " ORDER BY entry_timestamp"
@@ -143,7 +146,11 @@ func (r *BacktestRepository) GetPositions(filter PositionFilter) ([]models.Backt
 	if err != nil {
 		return nil, fmt.Errorf("failed to query positions: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close position rows: %v", closeErr)
+		}
+	}()
 
 	var positions []models.BacktestPosition
 	for rows.Next() {
@@ -229,7 +236,11 @@ func (r *BacktestRepository) GetTrades(filter TradeFilter) ([]models.BacktestTra
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trades: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close trade rows: %v", closeErr)
+		}
+	}()
 
 	var trades []models.BacktestTrade
 	for rows.Next() {
@@ -279,7 +290,6 @@ func (r *BacktestRepository) GetTradesCount(runID int, market1, market2 string) 
 	if market2 != "" {
 		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
 		args = append(args, market2)
-		argNum++
 	}
 
 	var count int
@@ -298,7 +308,11 @@ func (r *BacktestRepository) GetUniqueMarkets(runID int) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query markets: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close market rows: %v", closeErr)
+		}
+	}()
 
 	var markets []string
 	for rows.Next() {
@@ -335,7 +349,11 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to query backtest runs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close backtest run rows: %v", closeErr)
+		}
+	}()
 
 	var runs []models.BacktestRun
 	for rows.Next() {

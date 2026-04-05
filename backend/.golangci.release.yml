@@ -1,0 +1,44 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  build-tags:
+    - integration
+  modules-download-mode: readonly
+  go: "1.25"
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true
+  show-stats: true
+
+linters:
+  disable-all: true
+  enable:
+    - bodyclose
+    - errcheck
+    - errorlint
+    - errname
+    - gosimple
+    - govet
+    - ineffassign
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - typecheck
+    - unused
+    - wastedassign
+
+issues:
+  exclude-use-default: false
+  uniq-by-line: true
+  exclude-dirs:
+    - vendor
+    - .idea
+    - migrations
+  exclude-files:
+    - ".*\\.pb\\.go$"
+    - ".*_generated\\.go$"

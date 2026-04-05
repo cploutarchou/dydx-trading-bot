@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -98,7 +99,11 @@ func (r *BotTradeRepository) ListBotTradesByInstanceID(instanceID int, limit int
 	if err != nil {
 		return nil, fmt.Errorf("failed to list bot trades: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close bot trade rows: %v", closeErr)
+		}
+	}()
 
 	var trades []models.BotTrade
 	for rows.Next() {
@@ -115,6 +120,10 @@ func (r *BotTradeRepository) ListBotTradesByInstanceID(instanceID int, limit int
 			return nil, fmt.Errorf("failed to scan bot trade: %w", err)
 		}
 		trades = append(trades, trade)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating bot trades: %w", err)
 	}
 
 	return trades, nil

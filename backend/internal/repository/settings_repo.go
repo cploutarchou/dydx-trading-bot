@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -131,7 +132,11 @@ func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.B
 	if err != nil {
 		return nil, fmt.Errorf("failed to query bot settings: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close bot setting rows: %v", closeErr)
+		}
+	}()
 
 	var settings []models.BotSetting
 	for rows.Next() {
@@ -170,7 +175,11 @@ func (r *SettingsRepository) GetAllBotSettings() ([]models.BotSetting, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query all bot settings: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close all bot setting rows: %v", closeErr)
+		}
+	}()
 
 	var settings []models.BotSetting
 	for rows.Next() {

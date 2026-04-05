@@ -429,6 +429,44 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 	}
 }
 
+func TestStrategyRuntimeStatusHandlesUnavailableUpstream(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+
+	// Simulate the bot API being down after route wiring has captured its base URL.
+	upstreamServer.Close()
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/101/runtime", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request runtime status: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode runtime payload: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected graceful 200 when upstream is unavailable, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	data, _ := payload["data"].(map[string]interface{})
+	if data["status"] != "error" {
+		t.Fatalf("expected error runtime status when upstream is unavailable, got %v", data["status"])
+	}
+	if data["bot_status"] != "unavailable" {
+		t.Fatalf("expected bot_status=unavailable, got %v", data["bot_status"])
+	}
+}
+
 func TestStrategyRuntimeStartRequiresActiveKey(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)

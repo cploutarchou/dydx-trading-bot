@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -440,18 +439,16 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	}
 
 	withRequestScopedBotClient := func(c *gin.Context) {
-		serviceTokenMode := strings.EqualFold(strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN")), "true")
-		serviceTokenConfigured := strings.TrimSpace(os.Getenv("BOT_API_TOKEN")) != ""
+		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
 
-		if serviceTokenMode && serviceTokenConfigured {
+		if services.UseConfiguredBotAPIServiceToken() {
 			// Service-token model: keep configured BOT_API_TOKEN and do not
 			// override upstream auth with caller JWT.
-			c.Set("bot_api_client", apiClient.WithTraceID(middleware.GetTraceID(c)))
+			c.Set("bot_api_client", requestClient)
 			c.Next()
 			return
 		}
 
-		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
 		token := extractBotAuthToken(c)
 		if token != "" {
 			c.Set("bot_api_client", requestClient.WithToken(token))
@@ -1194,8 +1191,10 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	// System status endpoint
 	router.GET("/api/v1/system/status", middleware.RequireAuth(), func(c *gin.Context) {
 		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
-		if token := extractBotAuthToken(c); token != "" {
-			requestClient = requestClient.WithToken(token)
+		if !services.UseConfiguredBotAPIServiceToken() {
+			if token := extractBotAuthToken(c); token != "" {
+				requestClient = requestClient.WithToken(token)
+			}
 		}
 		c.Set("bot_api_client", requestClient)
 		delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {

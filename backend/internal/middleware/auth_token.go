@@ -37,4 +37,3 @@ func ExtractRequestAccessToken(c *gin.Context) string {
 	}
 	return strings.TrimSpace(authHeader)
 }
-

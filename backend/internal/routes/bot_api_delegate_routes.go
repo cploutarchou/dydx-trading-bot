@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -50,7 +49,8 @@ func respondBotAPIError(c *gin.Context, err error) {
 		c.JSON(status, gin.H{"error": transportErr.Message, "message": transportErr.Message, "trace_id": traceID})
 		return
 	}
-	if apiErr, ok := err.(*services.BotAPIError); ok {
+	var apiErr *services.BotAPIError
+	if errors.As(err, &apiErr) {
 		status := apiErr.StatusCode
 		if status <= 0 {
 			status = http.StatusBadGateway
@@ -400,7 +400,10 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			requestHeaders.Set(middleware.TraceIDHeader, traceID)
 		}
 
-		upstreamConn, _, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
+		upstreamConn, upstreamResp, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
+		if upstreamResp != nil && upstreamResp.Body != nil {
+			defer func() { _ = upstreamResp.Body.Close() }()
+		}
 		if err != nil {
 			_ = clientConn.WriteMessage(
 				websocket.CloseMessage,
@@ -436,18 +439,16 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	}
 
 	withRequestScopedBotClient := func(c *gin.Context) {
-		serviceTokenMode := strings.EqualFold(strings.TrimSpace(os.Getenv("BOT_API_USE_SERVICE_TOKEN")), "true")
-		serviceTokenConfigured := strings.TrimSpace(os.Getenv("BOT_API_TOKEN")) != ""
+		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
 
-		if serviceTokenMode && serviceTokenConfigured {
+		if services.UseConfiguredBotAPIServiceToken() {
 			// Service-token model: keep configured BOT_API_TOKEN and do not
 			// override upstream auth with caller JWT.
-			c.Set("bot_api_client", apiClient.WithTraceID(middleware.GetTraceID(c)))
+			c.Set("bot_api_client", requestClient)
 			c.Next()
 			return
 		}
 
-		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
 		token := extractBotAuthToken(c)
 		if token != "" {
 			c.Set("bot_api_client", requestClient.WithToken(token))
@@ -1190,8 +1191,10 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	// System status endpoint
 	router.GET("/api/v1/system/status", middleware.RequireAuth(), func(c *gin.Context) {
 		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
-		if token := extractBotAuthToken(c); token != "" {
-			requestClient = requestClient.WithToken(token)
+		if !services.UseConfiguredBotAPIServiceToken() {
+			if token := extractBotAuthToken(c); token != "" {
+				requestClient = requestClient.WithToken(token)
+			}
 		}
 		c.Set("bot_api_client", requestClient)
 		delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
@@ -1236,9 +1239,6 @@ func normalizeRealtimeBotInstanceID(instanceID string) (string, error) {
 	trimmed := strings.TrimSpace(instanceID)
 	if trimmed == "" {
 		return "", fmt.Errorf("instance_id is required")
-	}
-	if _, err := strconv.Atoi(trimmed); err != nil {
-		return "", fmt.Errorf("instance_id '%s' must be numeric for this realtime delegated endpoint", trimmed)
 	}
 	return trimmed, nil
 }

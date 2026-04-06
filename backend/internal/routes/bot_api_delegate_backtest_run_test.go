@@ -188,7 +188,7 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 func setupDelegatedBacktestAuthRouterWithSync(t *testing.T, upstream http.Handler) (*gin.Engine, *sql.DB) {
 	t.Helper()
 
-	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstream)
+	_, dbConn := setupDelegatedBacktestAuthRouter(t, upstream)
 	upstreamServer := httptest.NewServer(upstream)
 	t.Cleanup(upstreamServer.Close)
 
@@ -196,7 +196,7 @@ func setupDelegatedBacktestAuthRouterWithSync(t *testing.T, upstream http.Handle
 	backtestSyncRepo := repository.NewBacktestSyncRepository(dbConn)
 	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
 
-	router = gin.New()
+	router := gin.New()
 	RegisterAuthRoutes(router, dbConn)
 	RegisterBotAPIDelegateRoutesWithSync(router, apiClient, backtestSyncService)
 

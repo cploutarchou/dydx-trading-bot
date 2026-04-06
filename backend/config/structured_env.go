@@ -30,6 +30,56 @@ func ResolveAppConfigEnvironment() string {
 	return "development"
 }
 
+func FindRepoRoot(start string) string {
+	current := filepath.Clean(start)
+
+	for {
+		githubPath := filepath.Join(current, ".github")
+		agentsPath := filepath.Join(current, "AGENTS.md")
+		if info, err := os.Stat(githubPath); err == nil && info.IsDir() {
+			if _, err := os.Stat(agentsPath); err == nil {
+				return current
+			}
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+}
+
+func AutoLoadStructuredConfigEnv(override bool) (string, error) {
+	lookupStarts := make([]string, 0, 2)
+	if wd, err := os.Getwd(); err == nil && strings.TrimSpace(wd) != "" {
+		lookupStarts = append(lookupStarts, wd)
+	}
+	if execPath, err := os.Executable(); err == nil && strings.TrimSpace(execPath) != "" {
+		lookupStarts = append(lookupStarts, filepath.Dir(execPath))
+	}
+
+	seen := make(map[string]struct{}, len(lookupStarts))
+	for _, start := range lookupStarts {
+		repoRoot := FindRepoRoot(start)
+		if repoRoot == "" {
+			continue
+		}
+		if _, exists := seen[repoRoot]; exists {
+			continue
+		}
+		seen[repoRoot] = struct{}{}
+
+		profilePath, err := LoadStructuredConfigEnv(repoRoot, override)
+		if err != nil {
+			return "", err
+		}
+		return profilePath, nil
+	}
+
+	return "", fmt.Errorf("structured config not found from working directory or executable path")
+}
+
 func LoadStructuredConfigEnv(repoRoot string, override bool) (string, error) {
 	profilePath, environment, err := resolveStructuredRuntimePath(repoRoot)
 	if err != nil {
@@ -49,7 +99,9 @@ func LoadStructuredConfigEnv(repoRoot string, override bool) (string, error) {
 	}
 
 	if strings.TrimSpace(os.Getenv("APP_CONFIG_ENV")) == "" || override {
-		_ = os.Setenv("APP_CONFIG_ENV", environment)
+		if err := os.Setenv("APP_CONFIG_ENV", environment); err != nil {
+			return "", fmt.Errorf("set env APP_CONFIG_ENV: %w", err)
+		}
 	}
 
 	return profilePath, nil
@@ -231,7 +283,10 @@ func normalizeStructuredScalar(value any) string {
 	case float64:
 		return strconv.FormatFloat(typed, 'f', -1, 64)
 	case []any, map[string]any:
-		raw, _ := json.Marshal(typed)
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprintf("%v", typed)
+		}
 		return string(raw)
 	default:
 		return fmt.Sprintf("%v", typed)

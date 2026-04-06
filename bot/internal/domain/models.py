@@ -3,7 +3,7 @@ Core database models for the trading bot system
 """
 
 import enum
-from datetime import datetime
+from src.shared.time_utils import utc_now
 from sqlalchemy import (
     Column,
     Integer,
@@ -53,8 +53,8 @@ class Bot(Base):
     config = Column(JSON, nullable=False)
     status = Column(Enum(BotStatusEnum), default=BotStatusEnum.CREATED)
     process_id = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     jobs = relationship("Job", back_populates="bot", cascade="all, delete-orphan")
@@ -74,7 +74,7 @@ class Job(Base):
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -107,8 +107,8 @@ class Trade(Base):
     profit_loss_percentage = Column(Float, default=0.0)  # Alias for realized_pnl_pct
     unrealized_pnl = Column(Float, default=0.0)
     unrealized_pnl_pct = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     closed_at = Column(DateTime, nullable=True)
 
     # Relationships
@@ -127,7 +127,7 @@ class Event(Base):
     user_id = Column(String(128), nullable=True)
     related_job_id = Column(String(64), nullable=True)
     related_trade_id = Column(String(64), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utc_now, index=True)
 
     # Relationships
     # bot = relationship("Bot", back_populates="events")  # Uncomment if needed
@@ -171,8 +171,8 @@ class Strategy(Base):
     initial_amount = Column(Float, nullable=False, default=1000.0)
     usage_count = Column(Integer, nullable=True, default=0)
     last_used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
 
     versions = relationship(
@@ -197,7 +197,7 @@ class StrategyVersion(Base):
     change_description = Column(String(255), nullable=True)
     config_snapshot = Column(JSON, nullable=False)
     changes = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=True)
     created_by_user_id = Column(Integer, nullable=True)
     backtest_count = Column(Integer, nullable=True)
     best_backtest_pnl = Column(Float, nullable=True)

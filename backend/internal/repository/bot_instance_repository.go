@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -20,7 +21,8 @@ func NewBotInstanceRepository(db *sql.DB) *BotInstanceRepository {
 }
 
 func isUndefinedColumnError(err error) bool {
-	if pqErr, ok := err.(*pq.Error); ok {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
 		return pqErr.Code == "42703"
 	}
 	return false
@@ -121,7 +123,8 @@ func (r *BotInstanceRepository) CreateBotInstance(instance *models.BotInstance) 
 	}
 
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) {
 			if pqErr.Code == "23505" { // Unique constraint
 				return fmt.Errorf("instance_id already exists: %s", instance.InstanceID)
 			}
@@ -253,7 +256,11 @@ func (r *BotInstanceRepository) ListBotInstancesByUserID(userID int, limit int, 
 			return nil, fmt.Errorf("failed to list bot instances: %w", err)
 		}
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("Error closing bot instance rows: %v", closeErr)
+		}
+	}()
 
 	var instances []models.BotInstance
 	for rows.Next() {
@@ -270,6 +277,10 @@ func (r *BotInstanceRepository) ListBotInstancesByUserID(userID int, limit int, 
 			return nil, fmt.Errorf("failed to scan bot instance: %w", err)
 		}
 		instances = append(instances, instance)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating bot instances: %w", err)
 	}
 
 	return instances, nil

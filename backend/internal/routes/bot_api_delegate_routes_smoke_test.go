@@ -20,6 +20,33 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func closeTestDB(t *testing.T, dbConn *sql.DB) {
+	t.Helper()
+	if err := dbConn.Close(); err != nil {
+		t.Errorf("close db: %v", err)
+	}
+}
+
+func closeHTTPResponseBody(t *testing.T, resp *http.Response, label string) {
+	t.Helper()
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("close %s response body: %v", label, err)
+	}
+}
+
+func closeWebSocketConn(t *testing.T, conn *websocket.Conn, label string) {
+	t.Helper()
+	if conn == nil {
+		return
+	}
+	if err := conn.Close(); err != nil {
+		t.Errorf("close %s websocket: %v", label, err)
+	}
+}
+
 func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -46,7 +73,7 @@ func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer closeWebSocketConn(t, conn, "upstream backtest")
 
 		payload, _ := json.Marshal(upstreamPayload)
 		_ = conn.WriteMessage(websocket.TextMessage, payload)
@@ -59,7 +86,7 @@ func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite memory db: %v", err)
 	}
-	defer dbConn.Close()
+	t.Cleanup(func() { closeTestDB(t, dbConn) })
 
 	createUsersTable := `
 	CREATE TABLE users (
@@ -132,7 +159,7 @@ func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login request: %v", err)
 	}
-	defer loginResp.Body.Close()
+	defer closeHTTPResponseBody(t, loginResp, "login")
 
 	if loginResp.StatusCode != http.StatusOK {
 		t.Fatalf("unexpected login status: %d", loginResp.StatusCode)
@@ -151,11 +178,12 @@ func TestSmoke_LoginAndDelegatedBacktestLiveWS(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(backendServer.URL, "http") +
 		"/api/v1/backtests/smoke-run/live?access_token=" + tokenResp.AccessToken
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeHTTPResponseBody(t, resp, "backend websocket dial")
 	if err != nil {
 		t.Fatalf("dial backend websocket proxy: %v", err)
 	}
-	defer conn.Close()
+	defer closeWebSocketConn(t, conn, "backend backtest")
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
@@ -211,7 +239,7 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer closeWebSocketConn(t, conn, "upstream strategy")
 
 		payload, _ := json.Marshal(strategyPayload)
 		_ = conn.WriteMessage(websocket.TextMessage, payload)
@@ -224,7 +252,7 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite memory db: %v", err)
 	}
-	defer dbConn.Close()
+	t.Cleanup(func() { closeTestDB(t, dbConn) })
 
 	createUsersTable := `
 	CREATE TABLE users (
@@ -297,7 +325,7 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login request: %v", err)
 	}
-	defer loginResp.Body.Close()
+	defer closeHTTPResponseBody(t, loginResp, "login")
 
 	if loginResp.StatusCode != http.StatusOK {
 		t.Fatalf("unexpected login status: %d", loginResp.StatusCode)
@@ -318,11 +346,12 @@ func TestSmoke_LoginAndDelegatedStrategyWS(t *testing.T) {
 
 	requestHeaders := http.Header{}
 	requestHeaders.Set("X-Trace-Id", "req-strategy-ws-smoke")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, requestHeaders)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, requestHeaders)
+	defer closeHTTPResponseBody(t, resp, "backend strategy websocket dial")
 	if err != nil {
 		t.Fatalf("dial backend strategy websocket proxy: %v", err)
 	}
-	defer conn.Close()
+	defer closeWebSocketConn(t, conn, "backend strategy")
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()

@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -146,7 +147,8 @@ func (s *StrategyRuntimeService) StartRuntime(strategy *models.BacktestStrategy,
 		}
 		if existsLocally {
 			if _, createErr := s.botService.GetRemoteBotInstance(runtimeState.InstanceID); createErr != nil {
-				if _, ok := createErr.(*BotAPIError); ok {
+				var apiErr *BotAPIError
+				if errors.As(createErr, &apiErr) {
 					if createRemoteErr := s.botService.CreateBotInstanceWithConfig(instanceRecord, createPayload); createRemoteErr != nil {
 						return nil, fmt.Errorf("failed to create runtime instance: %w", createRemoteErr)
 					}
@@ -442,7 +444,23 @@ func (s *StrategyRuntimeService) reconcileRuntimeState(
 ) (StrategyRuntimeState, bool, error) {
 	remoteStatus, remoteExists, err := s.fetchRemoteRuntimeStatus(runtimeState.InstanceID)
 	if err != nil {
-		return runtimeState, false, err
+		if !shouldGracefullyDegradeRuntimeSyncError(err) {
+			return runtimeState, false, err
+		}
+
+		runtimeState.Status = "error"
+		runtimeState.BotStatus = "unavailable"
+		runtimeState.LastError = runtimeSyncErrorMessage(err)
+		if persistErr := s.persistRuntimeState(executionState, runtimeState, false); persistErr != nil {
+			return runtimeState, false, persistErr
+		}
+		log.Printf(
+			"⚠️ strategy runtime sync degraded strategy_id=%d instance_id=%s: %s",
+			strategy.ID,
+			runtimeState.InstanceID,
+			runtimeState.LastError,
+		)
+		return runtimeState, false, nil
 	}
 
 	if remoteExists {
@@ -486,7 +504,8 @@ func (s *StrategyRuntimeService) fetchRemoteRuntimeStatus(instanceID string) (ma
 
 	result, err := s.botService.GetRemoteBotInstance(instanceID)
 	if err != nil {
-		if apiErr, ok := err.(*BotAPIError); ok && apiErr.StatusCode == 404 {
+		var apiErr *BotAPIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("failed to query bot runtime instance %s: %w", instanceID, err)
@@ -505,7 +524,7 @@ func (s *StrategyRuntimeService) persistRuntimeState(
 	if isRunning && runtimeState.StartedAt == nil {
 		runtimeState.StartedAt = &now
 	}
-	if !isRunning && runtimeState.StoppedAt == nil {
+	if !isRunning && runtimeState.StoppedAt == nil && strings.EqualFold(runtimeState.Status, "stopped") {
 		runtimeState.StoppedAt = &now
 	}
 
@@ -525,6 +544,34 @@ func (s *StrategyRuntimeService) persistRuntimeState(
 	}
 
 	return s.strategyService.UpdateExecutionState(executionState)
+}
+
+func shouldGracefullyDegradeRuntimeSyncError(err error) bool {
+	var transportErr *BotAPITransportError
+	if errors.As(err, &transportErr) {
+		return true
+	}
+
+	var apiErr *BotAPIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 401 || apiErr.StatusCode == 403 || apiErr.StatusCode >= 500
+	}
+
+	return false
+}
+
+func runtimeSyncErrorMessage(err error) string {
+	var transportErr *BotAPITransportError
+	if errors.As(err, &transportErr) {
+		return transportErr.Message
+	}
+
+	var apiErr *BotAPIError
+	if errors.As(err, &apiErr) && strings.TrimSpace(apiErr.Message) != "" {
+		return apiErr.Message
+	}
+
+	return err.Error()
 }
 
 func decodeStrategyRuntimeState(rawState sql.NullString) StrategyRuntimeState {

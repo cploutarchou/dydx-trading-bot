@@ -6,18 +6,20 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-// testNetTimeout is a net.Error whose Timeout() returns true.
-type testNetTimeout struct{ msg string }
+// testNetTimeoutError is a net.Error whose Timeout() returns true.
+type testNetTimeoutError struct{ msg string }
 
-func (e *testNetTimeout) Error() string   { return e.msg }
-func (e *testNetTimeout) Timeout() bool   { return true }
-func (e *testNetTimeout) Temporary() bool { return false }
+func (e *testNetTimeoutError) Error() string   { return e.msg }
+func (e *testNetTimeoutError) Timeout() bool   { return true }
+func (e *testNetTimeoutError) Temporary() bool { return false }
 
 // ── classifyTransportError unit tests ────────────────────────────────────────
 
@@ -33,7 +35,7 @@ func TestClassifyTransportError_ContextDeadline_Returns504(t *testing.T) {
 }
 
 func TestClassifyTransportError_NetTimeout_Returns504(t *testing.T) {
-	netErr := &net.OpError{Op: "dial", Net: "tcp", Err: &testNetTimeout{msg: "i/o timeout"}}
+	netErr := &net.OpError{Op: "dial", Net: "tcp", Err: &testNetTimeoutError{msg: "i/o timeout"}}
 	got := classifyTransportError("POST", "http://127.0.0.1:8889/api/v1/backtests", netErr)
 
 	if got.StatusCode != http.StatusGatewayTimeout {
@@ -245,5 +247,31 @@ func TestMakeRequest_401RetriesWithConfiguredServiceToken(t *testing.T) {
 	}
 	if second != "Bearer shared-service-token" {
 		t.Fatalf("expected retry to use service token, got %q", second)
+	}
+}
+
+func TestNewBotAPIClient_LoadsStructuredServiceTokenWhenEnvMissing(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "run.json")
+	configPayload := []byte(`{
+		"metadata": {"environment": "development"},
+		"backend": {
+			"BOT_API_TOKEN": "structured-service-token",
+			"BOT_API_USE_SERVICE_TOKEN": true
+		}
+	}`)
+	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
+		t.Fatalf("write temp run config: %v", err)
+	}
+
+	t.Setenv("APP_RUN_CONFIG_FILE", configPath)
+	t.Setenv("BOT_API_TOKEN", "")
+	t.Setenv("BOT_API_USE_SERVICE_TOKEN", "")
+
+	client := NewBotAPIClient("http://example.com", "")
+	if got := client.AuthToken(); got != "structured-service-token" {
+		t.Fatalf("expected client to hydrate service token from structured config, got %q", got)
+	}
+	if !UseConfiguredBotAPIServiceToken() {
+		t.Fatal("expected shared bot API service token mode to be enabled")
 	}
 }

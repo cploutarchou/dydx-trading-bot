@@ -122,7 +122,7 @@ class BotAgent:
         """
         # Print status
         logger.info(
-            "%s: Placing first order | side=%s size=%s price=%s",
+            "{}: Placing first order | side={} size={} price={}",
             self.market_1,
             self.base_side,
             self.base_size,

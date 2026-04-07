@@ -135,7 +135,7 @@ class BotInstanceManager:
                     continue
 
                 status = self._coerce_record_status(record.status)
-                payload = record.config if isinstance(record.config, dict) else {}
+                payload = self._coerce_record_config_payload(getattr(record, "config", None))
                 runtime_state = payload.get("runtime_state") or {}
                 process_info = {}
                 if getattr(record, "process_id", None) is not None:
@@ -192,9 +192,25 @@ class BotInstanceManager:
                 logger.error(f"Error loading instances: {e}")
                 self.recovery_diagnostics["last_error"] = str(e)
 
+    @staticmethod
+    def _coerce_record_config_payload(raw_config: Any) -> dict[str, Any]:
+        """Normalize persisted bot config payloads from dict or JSON-string forms."""
+        if isinstance(raw_config, dict):
+            return dict(raw_config)
+        if isinstance(raw_config, str):
+            raw = raw_config.strip()
+            if not raw:
+                return {}
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                return {}
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        return {}
+
     def _build_instance_config_from_record(self, record) -> Optional[BotInstanceConfig]:
         """Reconstruct the runtime config shape from the persisted DB payload."""
-        payload = record.config if isinstance(record.config, dict) else {}
+        payload = self._coerce_record_config_payload(getattr(record, "config", None))
         credentials_payload = payload.get("credentials") or {}
         trading_payload = payload.get("trading_params") or {}
         backtesting_payload = payload.get("backtesting_params") or None
@@ -203,7 +219,10 @@ class BotInstanceManager:
         address = str(credentials_payload.get("address") or "").strip()
         mnemonic = str(credentials_payload.get("mnemonic") or "").strip()
         if not address or not mnemonic:
-            skip_reason = "persisted credentials are incomplete"
+            skip_reason = (
+                "persisted credentials are incomplete; recreate or resync the runtime instance "
+                "so backend/bot metadata stores credentials in config"
+            )
             logger.warning(
                 "Skipping bot instance {} during DB recovery because {}",
                 record.instance_id,
@@ -248,7 +267,7 @@ class BotInstanceManager:
 
     def _db_status_for_instance(self, instance: BotInstanceState) -> BotStatusEnum:
         """Translate manager status into the SQLAlchemy enum used by persisted rows."""
-        return BotStatusEnum(instance.status.value)
+        return BotStatusEnum[instance.status.name]
 
     def _record_runtime_event(
         self,
@@ -302,7 +321,9 @@ class BotInstanceManager:
                     else "mainnet"
                 )
                 record.strategy = instance.config.trading_params.strategy
-                persisted_config = dict(record.config or {})
+                persisted_config = self._coerce_record_config_payload(
+                    getattr(record, "config", None)
+                )
                 persisted_config.update(
                     {
                         "instance_name": instance.config.instance_name,
@@ -514,7 +535,8 @@ class BotInstanceManager:
             return None, f"Runtime process for {instance_id} is not attached"
 
         try:
-            process = psutil.Process(int(pid))
+            normalized_pid = int(pid)
+            process = psutil.Process(normalized_pid)
         except (TypeError, ValueError):
             return None, f"Stored runtime PID for {instance_id} is invalid"
         except psutil.NoSuchProcess:
@@ -952,14 +974,14 @@ class BotInstanceManager:
                         if force:
                             external_process.kill()
                             logger.info(
-                                "Force killed recovered bot instance %s (PID %s)",
+                                "Force killed recovered bot instance {} (PID {})",
                                 instance_id,
                                 external_process.pid,
                             )
                         else:
                             external_process.terminate()
                             logger.info(
-                                "Gracefully terminating recovered bot instance %s (PID %s)",
+                                "Gracefully terminating recovered bot instance {} (PID {})",
                                 instance_id,
                                 external_process.pid,
                             )
@@ -968,12 +990,12 @@ class BotInstanceManager:
                             except psutil.TimeoutExpired:
                                 external_process.kill()
                                 logger.warning(
-                                    "Force killed recovered bot instance %s after timeout",
+                                    "Force killed recovered bot instance {} after timeout",
                                     instance_id,
                                 )
                     except psutil.NoSuchProcess:
                         logger.info(
-                            "Recovered runtime process already exited for %s before stop completed",
+                            "Recovered runtime process already exited for {} before stop completed",
                             instance_id,
                         )
                 elif probe_error:

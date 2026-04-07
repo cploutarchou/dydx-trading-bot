@@ -59,6 +59,7 @@ For backend/frontend compatibility, backtest payloads include stable aliases:
 - `GET /api/v1/backtests/{run_id}/status`
   - includes `progress_pct` and alias `progress`
   - includes `count: 1`
+  - run status is persisted server-side, so polling survives API reload/restart events
 - Run-scoped child endpoints include `run_id` in `data`.
 
 ## Contract Quick Table
@@ -74,6 +75,8 @@ All routes below use the standard envelope unless noted. Required keys are liste
 | `GET /api/v1/backtests/{run_id}/trades` | `run_id`, `trades`, `total`, `count` | Trade list is run-scoped. |
 | `GET /api/v1/backtests/{run_id}/position-snapshots` | `run_id`, `snapshots`, `position_snapshots`, `total`, `count` | `snapshots` is primary frontend key; alias retained. |
 | `GET /api/v1/backtests/sync-health` | `status` plus runtime counters (for example `queue_depth`, `active_jobs`, `total_runs`) | Runtime counters come from backtest service health output. |
+| `GET /api/v1/backtests/interrupted` | `interruption_error`, `orphaned_in_progress`, `interrupted_runs`, `orphaned_count`, `interrupted_count`, `count` | Ops visibility for stale in-progress runs and previously reconciled interruption failures. |
+| `POST /api/v1/backtests/interrupted/reconcile` | `interruption_error`, `dry_run`, `candidates`, `reconciled`, `candidate_count`, `reconciled_count`, `count` | Default `dry_run=true`; set `dry_run=false` to persist fail-closed reconciliation. |
 | `POST /api/v1/bots` | operation payload object (bot lifecycle result) | Wrapped in standard envelope for API consumers. |
 | `GET /api/v1/bots` | `bots`, `total` | Bot list endpoint for control plane UI. |
 | `GET /health` | `status`, `api_version`, `timestamp`, `backtest_runtime` | Liveness endpoint wrapped in the standard envelope. |

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -299,6 +300,9 @@ def test_manager_recovers_instances_from_database_before_legacy_disk(monkeypatch
             self.bots = FakeBotsRepo()
 
     class FakeSession:
+        def execute(self, _query):
+            return SimpleNamespace(mappings=lambda: [persisted_record.__dict__])
+
         def close(self):
             return None
 
@@ -349,6 +353,9 @@ def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_p
         def __init__(self):
             self.commits = 0
 
+        def execute(self, _query):
+            return SimpleNamespace(mappings=lambda: [persisted_record.__dict__])
+
         def commit(self):
             self.commits += 1
 
@@ -383,6 +390,80 @@ def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_p
     assert persisted_record.config["runtime_state"]["exit_code"] == 7
     assert persisted_record.config["runtime_state"]["trading_stats"]["active_positions"] == 2
     assert (tmp_path / "instances.json").exists()
+
+
+def test_save_instances_state_coerces_string_config_payload(monkeypatch, tmp_path):
+    now = datetime.now()
+    persisted_record = SimpleNamespace(
+        instance_id="strategy-1-101",
+        network="testnet",
+        strategy="cointegration",
+        config=json.dumps(
+            {
+                "instance_name": "Persisted Strategy",
+                "credentials": {
+                    "chain_id": "dydx-testnet-4",
+                    "address": "dydx1persistedaddress",
+                    "mnemonic": "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
+                },
+                "trading_params": _strategy_config().trading_params.model_dump(),
+            }
+        ),
+        status=SimpleNamespace(value="running"),
+        process_id=9999,
+        created_at=now,
+        updated_at=now,
+    )
+
+    class FakeBotsRepo:
+        def get_all(self):
+            return [persisted_record]
+
+    class FakeUOW:
+        def __init__(self, session):
+            self.bots = FakeBotsRepo()
+
+    class FakeSession:
+        def __init__(self):
+            self.commits = 0
+
+        def execute(self, _query):
+            return SimpleNamespace(
+                mappings=lambda: [
+                    {
+                        "instance_id": persisted_record.instance_id,
+                        "network": persisted_record.network,
+                        "strategy": persisted_record.strategy,
+                        "config": persisted_record.config,
+                        "process_id": persisted_record.process_id,
+                        "created_at": persisted_record.created_at,
+                        "updated_at": persisted_record.updated_at,
+                        "status": "RUNNING",
+                    }
+                ]
+            )
+
+        def commit(self):
+            self.commits += 1
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    session = FakeSession()
+    monkeypatch.setattr(bot_instance_manager_module.db, "get_session", lambda: session)
+    monkeypatch.setattr(bot_instance_manager_module, "UnitOfWork", FakeUOW)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    manager.instances["strategy-1-101"].status = BotStatus.STOPPED
+
+    manager._save_instances_state()
+
+    assert session.commits >= 1
+    assert isinstance(persisted_record.config, dict)
+    assert persisted_record.config["runtime_state"]["status"] == "stopped"
 
 
 def test_mark_instance_error_records_runtime_event(monkeypatch, tmp_path):
@@ -440,6 +521,9 @@ def test_recovered_running_instance_is_marked_error_when_pid_is_dead(monkeypatch
             self.bots = FakeBotsRepo()
 
     class FakeSession:
+        def execute(self, _query):
+            return SimpleNamespace(mappings=lambda: [persisted_record.__dict__])
+
         def commit(self):
             return None
 

@@ -22,25 +22,11 @@ def upgrade() -> None:
     """Upgrade schema."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    dialect = bind.dialect.name
-
     if not inspector.has_table("backtest_strategies"):
         return
 
     columns = {column["name"] for column in inspector.get_columns("backtest_strategies")}
     if "pair_selection_mode" in columns:
-        return
-
-    if dialect == "sqlite":
-        op.add_column(
-            "backtest_strategies",
-            sa.Column(
-                "pair_selection_mode",
-                sa.String(length=32),
-                nullable=False,
-                server_default="liquidity",
-            ),
-        )
         return
 
     op.add_column(

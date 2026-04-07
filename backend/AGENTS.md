@@ -8,7 +8,7 @@
 
 ## Critical Runtime Behavior
 - `cmd/server/main.go` loads `.env` from repo-root candidates, then `config.LoadConfig()`, then starts DB with `AutoMigrate: true` using `config.Database.MigrationsPath()`.
-- DB driver normalization matters: `postgresql` is normalized to `postgres` before `db.New(...)`.
+- The backend runtime supports PostgreSQL only; `config.LoadConfig()` rejects other `DB_TYPE` values and normalizes runtime usage to `postgres`.
 - Health endpoint `/health` checks both local DB health and upstream bot API reachability.
 - Middleware order in `main.go` is intentional: error handling -> CORS -> header logging -> request logging -> rate limit.
 
@@ -19,8 +19,8 @@
 - dYdX key secrets are encrypted with AES-256-GCM in `internal/services/key_service.go` using `ENCRYPTION_KEY` (padded/truncated to 32 bytes).
 
 ## Database and Migrations
-- Dual DB support is real: SQLite for local (`DB_TYPE=sqlite3`) and Postgres for production (`DB_TYPE=postgres`/`postgresql`).
-- Migration trees are split by engine: `migrations/sqlite` and `migrations/postgres`; selection is in `config/config.go` (`MigrationsPath()`).
+- PostgreSQL is the only supported SQL database for local and production use.
+- Backend migrations run from `migrations/postgres`.
 - `internal/db/db.go` wraps connection retries, pool settings, query timeouts, and migration recovery for dirty/already-exists states.
 - Repo code currently uses raw `*sql.DB` in many places (for example `repository.NewKeyRepository(database.DB)`), so preserve existing style within a feature unless refactoring broadly.
 
@@ -41,4 +41,3 @@
 - Time values in API output are typically RFC3339-formatted (`time.RFC3339`), often using UTC.
 - Models are centralized in `internal/models/models.go` with both `db` and `json` tags; nullable DB fields use pointers or `sql.NullString`.
 - Route grouping convention is `/api/v1/...`; protected groups apply `RequireAuth()` at group level, then define sub-routes.
-

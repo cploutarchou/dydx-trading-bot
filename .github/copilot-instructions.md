@@ -24,13 +24,19 @@ Current integration path is: `frontend` → Go backend in `backend/` → Python 
 
 Prefer these canonical commands:
 
-- Root stack: `make stack-env`, `make stack-up-dev`, `make stack-ps`, `make stack-logs`, `make stack-down`
-- Infra-only daily flow: `make stack-env`, `make infra-up`, `make infra-ps`, `make infra-logs`, `make infra-down`
+- Runtime config prep: `make config-keygen` (first-time), `make dev-config`, `make dev` (generates repo-root `run.json`)
+- Root stack: `make stack-up-dev`, `make stack-ps`, `make stack-logs`, `make stack-down`
+- Infra-only daily flow: `make infra-up`, `make infra-ps`, `make infra-logs`, `make infra-down`
 - Bot API (local): from `bot/`, run `python -m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload`
 - Bot worker (local): from `bot/`, run `python src/main_instance.py --instance-id "bot-1"`
 - Bot tests: `python -m pytest bot/tests/ -v`
 - Frontend: from `frontend/`, run `npm run dev`, `npm run lint`, `npm run build`
 - Go backend (if touching it): from `backend/`, run `make test`, `make lint`, `make build`
+
+Configuration source of truth:
+
+- Prefer encrypted profiles in `config/profiles/*.config.enc.json` + generated `run.json`.
+- Treat repo-root `.env` as legacy/deprecated unless a specific task explicitly requires it.
 
 Default dev ports in this repo:
 
@@ -73,6 +79,17 @@ When editing `bot/src/**`, follow these rules:
 - Mixing port assumptions (`8888` vs `8889` or `8000`) without checking target workflow.
 - Missing `await` on async trading/API methods.
 - Breaking atomic two-leg trade safety.
+- Deprecated command drift (`stack-env`, `env-setup`, `db-*` aliases, `worker-run`) — prefer canonical targets in root `Makefile`.
+- Behavior/doc drift: when behavior changes, update linked service docs in the same PR.
+
+## Key reference docs (link, don't embed)
+
+- Monorepo runtime and workflows: `README.md`
+- Customization map: `.github/CUSTOMIZATION_INDEX.md`
+- Bot deep guidance: `bot/.github/copilot-instructions.md`, `bot/LOCAL_SETUP.md`, `bot/API_CONTRACT.md`, `bot/PRODUCTION_READINESS.md`
+- Backend deep guidance: `backend/.github/copilot-instructions.md`, `backend/tasks.md`
+- Frontend deep guidance: `frontend/.github/copilot-instructions.md`, `frontend/docs/architecture/README.md`
+- Specialized customization: `.github/skills/defi-python-algo-trading/SKILL.md`, `.github/agents/senior-defi-dev.agent.md`, `.github/prompts/*.prompt.md`
 
 ## Scope guidance
 

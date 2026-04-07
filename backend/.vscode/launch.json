@@ -1,0 +1,21 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Backend: Run Server",
+			"type": "go",
+			"request": "launch",
+			"mode": "auto",
+			"program": "${workspaceFolder}/cmd/server",
+			"envFile": "${workspaceFolder}/.env"
+		},
+		{
+			"name": "Backend: Run Current Test",
+			"type": "go",
+			"request": "launch",
+			"mode": "test",
+			"program": "${file}",
+			"envFile": "${workspaceFolder}/.env"
+		}
+	]
+}

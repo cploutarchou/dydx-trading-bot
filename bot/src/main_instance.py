@@ -46,6 +46,24 @@ class BotInstance:
         self.bot_agents_file = self.bot_agents_file.replace("{instance_id}", instance_id)
         self.pairs_file = self.pairs_file.replace("{instance_id}", instance_id)
 
+    @staticmethod
+    def _describe_exception(exc: BaseException) -> str:
+        """Render stable operator-facing exception details."""
+        message = str(exc).strip()
+        if message:
+            return message
+        return f"{type(exc).__name__} (no detail provided)"
+
+    def _log_exception(self, message: str, exc: BaseException):
+        """Log traceback when supported while remaining friendly to lightweight test doubles."""
+        error_detail = self._describe_exception(exc)
+        if self.logger is None:
+            return
+        if hasattr(self.logger, "exception"):
+            self.logger.exception(message, error_detail)
+        else:
+            self.logger.error(message % error_detail)
+
     def setup_logging(self):
         """Setup instance-specific logging"""
         setup_logging()
@@ -141,7 +159,7 @@ class BotInstance:
                 self.logger.info(f"Strategy: {self.config.botSettings.strategy}")
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Failed to load config: {e}")
+                self._log_exception("Failed to load config: %s", e)
             raise
 
     def setup_signal_handlers(self):
@@ -168,11 +186,17 @@ class BotInstance:
             self.messenger = TelegramMessenger()
 
             # Send startup message
+            account_address = (
+                self.config.dydx_testnet.dydx_chain_address
+                if self.config.is_testnet
+                else self.config.dydx_mainnet.dydx_chain_address
+            )
             config_dict = {
                 "instance_id": self.instance_id,
                 "environment": self.config.environment,
                 "is_testnet": self.config.is_testnet,
                 "strategy": self.config.botSettings.strategy,
+                "account_address": account_address,
                 "usd_per_trade": self.config.botSettings.usdPerTrade,
                 "zscore_threshold": self.config.botSettings.ZScoreThreshold,
             }
@@ -184,12 +208,13 @@ class BotInstance:
             self.logger.info("Successfully connected to dYdX")
 
         except Exception as e:
+            error_detail = self._describe_exception(e)
             if self.logger:
-                self.logger.error(f"Failed to initialize bot instance: {e}")
+                self._log_exception("Failed to initialize bot instance: %s", e)
             if self.messenger:
                 self.messenger.send_error_message(
                     "Initialization Failed",
-                    f"Bot instance {self.instance_id} failed to initialize: {str(e)}",
+                    f"Bot instance {self.instance_id} failed to initialize: {error_detail}",
                     is_critical=True,
                     category="lifecycle_init",
                 )
@@ -214,16 +239,23 @@ class BotInstance:
 
                 # Store results in instance-specific file
                 stores_result = store_cointegration_results(df_market_prices)
-                if stores_result != "saved":
-                    raise RuntimeError("Failed to save cointegration results")
+                save_succeeded = stores_result == "saved" or stores_result is True
+                if isinstance(stores_result, dict):
+                    save_succeeded = bool(stores_result.get("success"))
+                if not save_succeeded:
+                    error_detail = ""
+                    if isinstance(stores_result, dict) and stores_result.get("error"):
+                        error_detail = f": {stores_result['error']}"
+                    raise RuntimeError(f"Failed to save cointegration results{error_detail}")
 
                 self.logger.info("Cointegration analysis completed")
 
         except Exception as e:
-            self.logger.error(f"Error in initial setup: {e}")
+            error_detail = self._describe_exception(e)
+            self._log_exception("Error in initial setup: %s", e)
             self.messenger.send_error_message(
                 "Setup Failed",
-                f"Bot instance {self.instance_id} setup failed: {str(e)}",
+                f"Bot instance {self.instance_id} setup failed: {error_detail}",
                 is_critical=True,
                 category="lifecycle_setup",
             )
@@ -245,10 +277,11 @@ class BotInstance:
                         await manage_trade_exits(self.client)
                         await asyncio.sleep(1)
                     except Exception as e:
-                        self.logger.error(f"Error managing exits: {e}")
+                        error_detail = self._describe_exception(e)
+                        self._log_exception("Error managing exits: %s", e)
                         self.messenger.send_error_message(
                             "Exit Management Error",
-                            f"Instance {self.instance_id}: {str(e)}",
+                            f"Instance {self.instance_id}: {error_detail}",
                             is_critical=False,
                             category="execution_exit",
                         )
@@ -259,10 +292,11 @@ class BotInstance:
                         self.logger.debug("Finding trading opportunities...")
                         await open_positions(self.client)
                     except Exception as e:
-                        self.logger.error(f"Error opening positions: {e}")
+                        error_detail = self._describe_exception(e)
+                        self._log_exception("Error opening positions: %s", e)
                         self.messenger.send_error_message(
                             "Trade Entry Error",
-                            f"Instance {self.instance_id}: {str(e)}",
+                            f"Instance {self.instance_id}: {error_detail}",
                             is_critical=False,
                             category="execution_entry",
                         )
@@ -274,10 +308,11 @@ class BotInstance:
             self.logger.info(f"Bot instance {self.instance_id} stopped by user")
             self.messenger.send_shutdown_message(f"User interrupt (instance {self.instance_id})")
         except Exception as e:
-            self.logger.error(f"Critical error in trading loop: {e}")
+            error_detail = self._describe_exception(e)
+            self._log_exception("Critical error in trading loop: %s", e)
             self.messenger.send_error_message(
                 "Trading Loop Error",
-                f"Instance {self.instance_id}: {str(e)}",
+                f"Instance {self.instance_id}: {error_detail}",
                 is_critical=True,
                 category="runtime_loop",
             )
@@ -293,7 +328,16 @@ class BotInstance:
             await self.trading_loop()
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Bot instance {self.instance_id} failed: {e}")
+                if hasattr(self.logger, "exception"):
+                    self.logger.exception(
+                        "Bot instance %s failed: %s",
+                        self.instance_id,
+                        self._describe_exception(e),
+                    )
+                else:
+                    self.logger.error(
+                        f"Bot instance {self.instance_id} failed: {self._describe_exception(e)}"
+                    )
             sys.exit(1)
 
 

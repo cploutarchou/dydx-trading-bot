@@ -70,6 +70,7 @@ from src.api.websocket_server import (
     broadcast_strategy_status,
     build_strategy_snapshot_message,
 )
+from src.shared.notifications import TelegramMessenger
 from src.shared.time_utils import utc_now_iso
 
 # Import database utilities
@@ -87,6 +88,7 @@ from src.infrastructure.persistence.repository_backtest import BacktestRepositor
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.trading.dydx_client import connect_dydx
+from internal.domain.models import BotStatusEnum
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -205,44 +207,7 @@ class InMemoryStrategyStore:
     """DB-backed strategy storage with the same interface as the prior in-memory store."""
 
     @classmethod
-    def ensure_seeded(cls) -> None:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            existing = uow.strategies.list(skip=0, limit=1)
-            if existing.get("total", 0) > 0:
-                return
-
-            uow.strategies.create(
-                {
-                    "name": "Balanced Mean Reversion",
-                    "category": "balanced",
-                    "description": "Default balanced strategy for UI smoke tests.",
-                    "is_public": True,
-                    "zscore_threshold": 1.5,
-                    "stats_window": 21,
-                    "usd_per_trade": 10.0,
-                },
-                note="Seeded default strategy",
-            )
-            uow.strategies.create(
-                {
-                    "name": "Aggressive Entry",
-                    "category": "aggressive",
-                    "description": "More active entry profile for quick comparisons.",
-                    "is_public": True,
-                    "zscore_threshold": 1.0,
-                    "stats_window": 14,
-                    "usd_per_trade": 25.0,
-                },
-                note="Seeded default strategy",
-            )
-        finally:
-            session.close()
-
-    @classmethod
     def list(cls, skip: int = 0, limit: int = 50) -> Dict[str, Any]:
-        cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
@@ -252,7 +217,6 @@ class InMemoryStrategyStore:
 
     @classmethod
     def list_public(cls) -> Dict[str, Any]:
-        cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
@@ -262,7 +226,6 @@ class InMemoryStrategyStore:
 
     @classmethod
     def get(cls, strategy_id: int) -> Optional[Dict[str, Any]]:
-        cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
@@ -274,15 +237,11 @@ class InMemoryStrategyStore:
     def create(
         cls,
         payload: Dict[str, Any],
-        seed: bool = False,
     ) -> Dict[str, Any]:
-        if not seed:
-            cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
-            note = "Seeded default strategy" if seed else "Initial version"
-            return uow.strategies.create(payload, note=note)
+            return uow.strategies.create(payload, note="Initial version")
         finally:
             session.close()
 
@@ -292,7 +251,6 @@ class InMemoryStrategyStore:
         strategy_id: int,
         payload: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
@@ -302,7 +260,6 @@ class InMemoryStrategyStore:
 
     @classmethod
     def delete(cls, strategy_id: int) -> bool:
-        cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
@@ -312,7 +269,6 @@ class InMemoryStrategyStore:
 
     @classmethod
     def versions(cls, strategy_id: int) -> List[Dict[str, Any]]:
-        cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
@@ -326,7 +282,6 @@ class InMemoryStrategyStore:
         strategy_id: int,
         version_id: int,
     ) -> Optional[Dict[str, Any]]:
-        cls.ensure_seeded()
         session = db.get_session()
         try:
             uow = UnitOfWork(session)
@@ -586,15 +541,14 @@ async def lifespan(_: FastAPI):
     logger.info("Starting Bot API Server...")
     logger.info(
         "Runtime DB target: type=%s host=%s port=%s name=%s",
-        os.getenv("DB_TYPE", "sqlite"),
+        os.getenv("DB_TYPE", "postgresql"),
         os.getenv("DB_HOST", "localhost"),
         os.getenv("DB_PORT", "5432"),
-        os.getenv("DB_NAME", "trading_bot.db"),
+        os.getenv("DB_NAME", "dydx_bot"),
     )
     db.create_all_tables()
     db.ensure_schema_compatibility()
     db.run_pending_migrations()
-    InMemoryStrategyStore.ensure_seeded()
     if bot_manager is not None:
         bot_manager.set_status_event_publisher(broadcast_strategy_status)
         await bot_manager.cleanup_dead_processes()
@@ -677,6 +631,120 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
     return response
 
 
+def _resolve_operator_name(current_user: Optional[User]) -> str:
+    if current_user is None:
+        return "system"
+    return (
+        str(getattr(current_user, "full_name", "") or "").strip()
+        or str(getattr(current_user, "username", "") or "").strip()
+        or str(getattr(current_user, "email", "") or "").strip()
+        or "system"
+    )
+
+
+def _resolve_action_details(message: Optional[str], fallback: str) -> str:
+    text = str(message or "").strip()
+    return text or fallback
+
+
+def _build_bot_lifecycle_context(
+    instance_id: str,
+    config_payload: Optional[Dict[str, Any]],
+    current_user: Optional[User],
+    *,
+    details: str = "",
+    reason: str = "",
+) -> Dict[str, Any]:
+    payload = config_payload or {}
+    trading_params = payload.get("trading_params") or {}
+    credentials = payload.get("credentials") or {}
+    is_testnet = bool(trading_params.get("is_testnet", True))
+    return {
+        "instance_id": instance_id,
+        "instance_name": payload.get("instance_name") or instance_id,
+        "strategy": trading_params.get("strategy", "unknown"),
+        "is_testnet": is_testnet,
+        "account_address": credentials.get("address"),
+        "operator": _resolve_operator_name(current_user),
+        "details": details,
+        "reason": reason,
+    }
+
+
+def _send_bot_lifecycle_notification(
+    action: str,
+    instance_id: str,
+    config_payload: Optional[Dict[str, Any]],
+    current_user: Optional[User],
+    *,
+    success: bool = True,
+    details: str = "",
+    reason: str = "",
+) -> bool:
+    payload = config_payload or {}
+    telegram = payload.get("telegram") or {}
+    messenger = TelegramMessenger(
+        bot_token=str(telegram.get("token") or "").strip(),
+        chat_id=str(telegram.get("chat_id") or "").strip(),
+        instance_id=instance_id,
+        environment=os.getenv("ENVIRONMENT", "development"),
+    )
+    return messenger.send_lifecycle_message(
+        action,
+        _build_bot_lifecycle_context(
+            instance_id,
+            payload,
+            current_user,
+            details=details,
+            reason=reason,
+        ),
+        success=success,
+    )
+
+
+def _persist_bot_status_and_event(
+    instance_id: str,
+    *,
+    status: Optional[BotStatusEnum] = None,
+    process_id: Optional[int] = None,
+    event_type: Optional[str] = None,
+    severity: str = "info",
+    message: str = "",
+    details: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Persist lifecycle status/event updates and return the current bot config payload."""
+    session = None
+    try:
+        session = db.get_session()
+        uow = UnitOfWork(session)
+        bot = uow.bots.get_by_instance_id(instance_id)
+        if bot is None:
+            return None
+
+        if status is not None:
+            uow.bots.update_status(instance_id, status, process_id=process_id)
+            bot = uow.bots.get_by_instance_id(instance_id)
+
+        if event_type:
+            uow.events.log_event(
+                bot.id,
+                event_type,
+                severity,
+                message,
+                details=details,
+            )
+
+        return dict(bot.config or {})
+    except Exception as db_error:
+        logger.warning("Failed to persist bot lifecycle state for %s: %s", instance_id, db_error)
+        if session is not None:
+            session.rollback()
+        return None
+    finally:
+        if session is not None:
+            session.close()
+
+
 @app.middleware("http")
 async def request_trace_logging_middleware(request: Request, call_next):
     """Attach per-request trace IDs and emit verbose request logs in development."""
@@ -734,6 +802,21 @@ async def create_bot_instance(
 
         if result.success:
             # Persist to database
+            persisted_config: Dict[str, Any] = {
+                "instance_name": config.instance_name,
+                "credentials": (
+                    config.credentials.model_dump() if config.credentials else {}
+                ),
+                "telegram": (config.telegram.model_dump() if config.telegram else {}),
+                "trading_params": (
+                    config.trading_params.model_dump() if config.trading_params else {}
+                ),
+                "backtesting_params": (
+                    config.backtesting_params.model_dump()
+                    if config.backtesting_params
+                    else {}
+                ),
+            }
             try:
                 session = db.get_session()
                 uow = UnitOfWork(session)
@@ -751,24 +834,7 @@ async def create_bot_instance(
                         if config.trading_params
                         else "default"
                     ),
-                    config={
-                        "instance_name": config.instance_name,
-                        "credentials": (
-                            config.credentials.model_dump()
-                            if config.credentials
-                            else {}
-                        ),
-                        "trading_params": (
-                            config.trading_params.model_dump()
-                            if config.trading_params
-                            else {}
-                        ),
-                        "backtesting_params": (
-                            config.backtesting_params.model_dump()
-                            if config.backtesting_params
-                            else {}
-                        ),
-                    },
+                    config=persisted_config,
                 )
 
                 # Log creation event
@@ -787,6 +853,15 @@ async def create_bot_instance(
             except Exception as db_error:
                 logger.warning(f"Failed to persist bot to database: {db_error}")
                 # Continue anyway - bot was created in manager
+
+            _send_bot_lifecycle_notification(
+                "created",
+                config.instance_id,
+                persisted_config,
+                current_user,
+                success=True,
+                details="Runtime instance created and ready to start.",
+            )
 
             return api_response(
                 success=True,
@@ -869,15 +944,58 @@ async def delete_bot_instance(
     try:
         if not _bot_manager_ready():
             return _bot_manager_unavailable_response()
+        existing_config = _persist_bot_status_and_event(
+            instance_id,
+            event_type=None,
+        )
         result = await bot_manager.delete_instance(instance_id)
 
         if result.success:
+            try:
+                session = db.get_session()
+                uow = UnitOfWork(session)
+                bot = uow.bots.get_by_instance_id(instance_id)
+                if bot is not None:
+                    uow.events.log_event(
+                        bot.id,
+                        "bot_deleted",
+                        "info",
+                        "Bot instance deleted via API",
+                    )
+                uow.bots.delete_bot(instance_id)
+                session.close()
+            except Exception as db_error:
+                logger.warning(
+                    f"Failed to delete bot instance '{instance_id}' from database: {db_error}"
+                )
+            _send_bot_lifecycle_notification(
+                "deleted",
+                instance_id,
+                existing_config,
+                current_user,
+                success=True,
+                details=_resolve_action_details(
+                    result.message,
+                    "Runtime definition deleted successfully.",
+                ),
+            )
             return api_response(
                 success=True,
                 data=result.model_dump(),
                 message=f"Bot instance '{instance_id}' deleted successfully",
             )
         else:
+            _send_bot_lifecycle_notification(
+                "delete",
+                instance_id,
+                existing_config,
+                current_user,
+                success=False,
+                details=_resolve_action_details(
+                    result.error or result.message,
+                    "Runtime deletion failed.",
+                ),
+            )
             return api_response(success=False, message=result.message, status_code=400)
 
     except Exception as e:
@@ -906,31 +1024,26 @@ async def start_bot_instance(
 
         if result.success:
             # Update database
-            try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-
-                bot = uow.bots.get_by_instance_id(instance_id)
-                if bot:
-                    from internal.domain import BotStatusEnum
-
-                    uow.bots.update_status(
-                        instance_id,
-                        BotStatusEnum.RUNNING,
-                        process_id=(
-                            result.data.get("process_id") if result.data else None
-                        ),
-                    )
-                    uow.events.log_event(
-                        bot.id,
-                        "bot_started",
-                        "info",
-                        f"Bot started via API (PID: {result.data.get('process_id') if result.data else 'unknown'})",
-                    )
-
-                session.close()
-            except Exception as db_error:
-                logger.warning(f"Failed to update database on bot start: {db_error}")
+            persisted_config = _persist_bot_status_and_event(
+                instance_id,
+                status=BotStatusEnum.RUNNING,
+                process_id=(result.data.get("process_id") if result.data else None),
+                event_type="bot_started",
+                severity="info",
+                message=f"Bot started via API (PID: {result.data.get('process_id') if result.data else 'unknown'})",
+                details={"process_id": result.data.get("process_id") if result.data else None},
+            )
+            _send_bot_lifecycle_notification(
+                "started",
+                instance_id,
+                persisted_config,
+                current_user,
+                success=True,
+                details=_resolve_action_details(
+                    result.message,
+                    "Runtime process started successfully.",
+                ),
+            )
 
             return api_response(
                 success=True,
@@ -938,6 +1051,26 @@ async def start_bot_instance(
                 message=f"Bot instance '{instance_id}' started successfully",
             )
         else:
+            persisted_config = _persist_bot_status_and_event(
+                instance_id,
+                status=BotStatusEnum.ERROR,
+                process_id=None,
+                event_type="bot_start_failed",
+                severity="error",
+                message=_resolve_action_details(result.message, "Bot failed to start"),
+                details={"error": result.error or result.message},
+            )
+            _send_bot_lifecycle_notification(
+                "start",
+                instance_id,
+                persisted_config,
+                current_user,
+                success=False,
+                details=_resolve_action_details(
+                    result.error or result.message,
+                    "Runtime start failed before reaching RUNNING state.",
+                ),
+            )
             return api_response(success=False, message=result.message, status_code=400)
 
     except Exception as e:
@@ -961,25 +1094,27 @@ async def stop_bot_instance(
 
         if result.success:
             # Update database
-            try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-
-                bot = uow.bots.get_by_instance_id(instance_id)
-                if bot:
-                    from internal.domain import BotStatusEnum
-
-                    uow.bots.update_status(instance_id, BotStatusEnum.STOPPED)
-                    uow.events.log_event(
-                        bot.id,
-                        "bot_stopped",
-                        "info",
-                        f"Bot stopped via API (force={force})",
-                    )
-
-                session.close()
-            except Exception as db_error:
-                logger.warning(f"Failed to update database on bot stop: {db_error}")
+            persisted_config = _persist_bot_status_and_event(
+                instance_id,
+                status=BotStatusEnum.STOPPED,
+                process_id=None,
+                event_type="bot_stopped",
+                severity="info",
+                message=f"Bot stopped via API (force={force})",
+                details={"force": force},
+            )
+            _send_bot_lifecycle_notification(
+                "stopped",
+                instance_id,
+                persisted_config,
+                current_user,
+                success=True,
+                details=_resolve_action_details(
+                    result.message,
+                    "Runtime process stopped successfully.",
+                ),
+                reason="Force stop" if force else "Operator stop",
+            )
 
             return api_response(
                 success=True,
@@ -987,6 +1122,27 @@ async def stop_bot_instance(
                 message=f"Bot instance '{instance_id}' stopped successfully",
             )
         else:
+            persisted_config = _persist_bot_status_and_event(
+                instance_id,
+                status=BotStatusEnum.ERROR,
+                process_id=None,
+                event_type="bot_stop_failed",
+                severity="error",
+                message=_resolve_action_details(result.message, "Bot failed to stop"),
+                details={"error": result.error or result.message, "force": force},
+            )
+            _send_bot_lifecycle_notification(
+                "stop",
+                instance_id,
+                persisted_config,
+                current_user,
+                success=False,
+                details=_resolve_action_details(
+                    result.error or result.message,
+                    "Runtime stop request failed.",
+                ),
+                reason="Force stop" if force else "Operator stop",
+            )
             return api_response(success=False, message=result.message, status_code=400)
 
     except Exception as e:
@@ -1007,6 +1163,30 @@ async def restart_bot_instance(
         # Stop first
         stop_result = await bot_manager.stop_instance(instance_id, force=False)
         if not stop_result.success:
+            persisted_config = _persist_bot_status_and_event(
+                instance_id,
+                status=BotStatusEnum.ERROR,
+                process_id=None,
+                event_type="bot_restart_failed",
+                severity="error",
+                message=_resolve_action_details(
+                    stop_result.message,
+                    "Failed to stop runtime during restart",
+                ),
+                details={"phase": "stop", "error": stop_result.error or stop_result.message},
+            )
+            _send_bot_lifecycle_notification(
+                "restart",
+                instance_id,
+                persisted_config,
+                current_user,
+                success=False,
+                details=_resolve_action_details(
+                    stop_result.error or stop_result.message,
+                    "Restart failed during stop phase.",
+                ),
+                reason="Operator restart",
+            )
             return api_response(
                 success=False,
                 message=f"Failed to stop instance: {stop_result.message}",
@@ -1020,12 +1200,57 @@ async def restart_bot_instance(
         start_result = await bot_manager.start_instance(instance_id)
 
         if start_result.success:
+            persisted_config = _persist_bot_status_and_event(
+                instance_id,
+                status=BotStatusEnum.RUNNING,
+                process_id=(start_result.data.get("process_id") if start_result.data else None),
+                event_type="bot_restarted",
+                severity="info",
+                message=f"Bot restarted via API (PID: {start_result.data.get('process_id') if start_result.data else 'unknown'})",
+                details={"process_id": start_result.data.get("process_id") if start_result.data else None},
+            )
+            _send_bot_lifecycle_notification(
+                "restarted",
+                instance_id,
+                persisted_config,
+                current_user,
+                success=True,
+                details=_resolve_action_details(
+                    start_result.message,
+                    "Runtime restarted successfully.",
+                ),
+                reason="Operator restart",
+            )
             return api_response(
                 success=True,
                 data=start_result.model_dump(),
                 message=f"Bot instance '{instance_id}' restarted successfully",
             )
         else:
+            persisted_config = _persist_bot_status_and_event(
+                instance_id,
+                status=BotStatusEnum.ERROR,
+                process_id=None,
+                event_type="bot_restart_failed",
+                severity="error",
+                message=_resolve_action_details(
+                    start_result.message,
+                    "Failed to start runtime during restart",
+                ),
+                details={"phase": "start", "error": start_result.error or start_result.message},
+            )
+            _send_bot_lifecycle_notification(
+                "restart",
+                instance_id,
+                persisted_config,
+                current_user,
+                success=False,
+                details=_resolve_action_details(
+                    start_result.error or start_result.message,
+                    "Restart failed during start phase.",
+                ),
+                reason="Operator restart",
+            )
             return api_response(
                 success=False,
                 message=f"Failed to start instance: {start_result.message}",

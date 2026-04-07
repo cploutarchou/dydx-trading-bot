@@ -31,16 +31,20 @@ def _resolve_bot_agents_path() -> Path:
 BOT_AGENTS_PATH = _resolve_bot_agents_path()
 
 
+def _resolve_client_address(client) -> str:
+    """Resolve the best available wallet address as a concrete string."""
+    return str(getattr(client.wallet, "address", DYDX_ADDRESS) or DYDX_ADDRESS)
+
+
 async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
+    ticker = str(order["ticker"])
     market = Market(
-        (await client.indexer.markets.get_perpetual_markets(order["ticker"]))["markets"][
-            order["ticker"]
-        ]
+        (await client.indexer.markets.get_perpetual_markets(ticker))["markets"][ticker]
     )
     # Use the client's wallet address when available to derive client id
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     market_order_id = market.order_id(
         address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
     )
@@ -53,15 +57,15 @@ async def cancel_order(client, order_id):
     )
     logger.info("Cancel order response: {}", cancel)
     logger.warning(
-        "Attempted to cancel order for %s; please verify cancellation on the dashboard",
-        order["ticker"],
+        "Attempted to cancel order for {}; please verify cancellation on the dashboard",
+        ticker,
     )
 
 
 async def get_account(client):
     """Get current account information."""
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     try:
         account = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
@@ -73,7 +77,7 @@ async def get_account(client):
 async def get_open_positions(client):
     """Get all open perpetual positions."""
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     try:
         response = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
@@ -102,7 +106,7 @@ async def is_open_positions(client, market):
     await asyncio.sleep(0.2)
 
     # Get positions (try wallet address then configured address)
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     try:
         response = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
@@ -156,10 +160,10 @@ async def place_market_order(client, market, side, size, price, reduce_only):
         Tuple of (order, order_id)
     """
     # Initialize
-    ticker = market
+    ticker = str(market)
     current_block = await client.node.latest_block_height()
-    market = Market((await client.indexer.markets.get_perpetual_markets(market))["markets"][market])
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    market = Market((await client.indexer.markets.get_perpetual_markets(ticker))["markets"][ticker])
+    address = _resolve_client_address(client)
     market_order_id = market.order_id(
         address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
     )
@@ -234,7 +238,7 @@ async def cancel_all_orders(client):
         for order in orders:
             await cancel_order(client, order["id"])
             logger.warning(
-                "Open order %s may persist; verify cancellation on the dashboard",
+                "Open order {} may persist; verify cancellation on the dashboard",
                 order["id"],
             )
         raise RuntimeError(

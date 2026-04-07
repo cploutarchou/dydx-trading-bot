@@ -6,6 +6,7 @@ import asyncio
 import contextvars
 import json
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -31,6 +32,29 @@ from src.shared.env_loader import load_repo_env
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
+
+_original_stderr = sys.stderr
+
+
+class _FilteredStderr:
+    """Filter noisy third-party warnings that are expected and already handled."""
+
+    def __init__(self, stderr):
+        self.stderr = stderr
+
+    def write(self, message):
+        if "Node URL should not contain http(s)://" not in message:
+            self.stderr.write(message)
+            self.stderr.flush()
+
+    def flush(self):
+        self.stderr.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stderr, name)
+
+
+sys.stderr = _FilteredStderr(_original_stderr)
 
 # Import authentication modules
 from src.api.v1.auth import router as auth_router
@@ -88,6 +112,8 @@ from src.shared.notifications import TelegramMessenger
 from src.shared.logging_setup import setup_logging
 from src.shared.time_utils import utc_now_iso
 from src.trading.dydx_client import connect_dydx
+
+sys.stderr = _original_stderr
 
 # Setup logging (Loguru + stdlib bridge)
 setup_logging()
@@ -563,7 +589,7 @@ async def lifespan(_: FastAPI):
 
     logger.info("Starting Bot API Server...")
     logger.info(
-        "Runtime DB target: type=%s host=%s port=%s name=%s",
+        "Runtime DB target: type={} host={} port={} name={}",
         os.getenv("DB_TYPE", "postgresql"),
         os.getenv("DB_HOST", "localhost"),
         os.getenv("DB_PORT", "5432"),
@@ -787,7 +813,7 @@ async def request_trace_logging_middleware(request: Request, call_next):
 
     if is_development:
         logger.debug(
-            "request_started trace_id=%s method=%s path=%s query=%s client=%s",
+            "request_started trace_id={} method={} path={} query={} client={}",
             trace_id,
             request.method,
             request.url.path,
@@ -800,7 +826,7 @@ async def request_trace_logging_middleware(request: Request, call_next):
     except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         logger.exception(
-            "request_failed trace_id=%s method=%s path=%s query=%s duration_ms=%.2f client=%s",
+            "request_failed trace_id={} method={} path={} query={} duration_ms={:.2f} client={}",
             trace_id,
             request.method,
             request.url.path,
@@ -817,8 +843,8 @@ async def request_trace_logging_middleware(request: Request, call_next):
     if is_development:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         log_message = (
-            "request_completed trace_id=%s method=%s path=%s query=%s status=%s "
-            "duration_ms=%.2f client=%s"
+            "request_completed trace_id={} method={} path={} query={} status={} "
+            "duration_ms={:.2f} client={}"
         )
         log_args = (
             trace_id,
@@ -2313,7 +2339,7 @@ async def create_backtest(
                 except Exception as lookup_error:
                     # Keep backtest execution available even if strategy persistence is temporarily unavailable.
                     logger.warning(
-                        "Strategy lookup failed for id=%s during backtest creation; using manual fallback payload: %s",
+                        "Strategy lookup failed for id={} during backtest creation; using manual fallback payload: {}",
                         request.strategy_id,
                         lookup_error,
                     )
@@ -2326,7 +2352,7 @@ async def create_backtest(
                     )
                 else:
                     logger.warning(
-                        "Strategy '%s' not found; falling back to manual backtest payload",
+                        "Strategy '{}' not found; falling back to manual backtest payload",
                         request.strategy_id,
                     )
                     normalized_request = BacktestConfigRequest(
@@ -2430,7 +2456,7 @@ async def run_backtest_compat(
             except Exception as lookup_error:
                 # Strategy store outages should not block backtest execution from compatibility clients.
                 logger.warning(
-                    "Strategy lookup failed for id=%s in /api/v1/backtests/run; using manual fallback payload: %s",
+                    "Strategy lookup failed for id={} in /api/v1/backtests/run; using manual fallback payload: {}",
                     request.strategy_id,
                     lookup_error,
                 )
@@ -2443,7 +2469,7 @@ async def run_backtest_compat(
                 )
             else:
                 logger.warning(
-                    "Strategy '%s' not found in /backtests/run; falling back to manual payload",
+                    "Strategy '{}' not found in /backtests/run; falling back to manual payload",
                     request.strategy_id,
                 )
                 backtest_request = BacktestConfigRequest(

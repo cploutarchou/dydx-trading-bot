@@ -145,7 +145,7 @@ class TelegramMessenger:
                     and "bots can't send messages to bots" in response.text.lower()
                 ):
                     logger.error(
-                        "Telegram delivery blocked: TELEGRAM_CHAT_ID '%s' appears to belong to a bot account. "
+                        "Telegram delivery blocked: TELEGRAM_CHAT_ID '{}' appears to belong to a bot account. "
                         "Use a user/group/channel chat id and ensure that chat has started/interacted with this bot.",
                         self.chat_id,
                     )
@@ -161,7 +161,7 @@ class TelegramMessenger:
                             retry_after = 0.0
                     backoff = retry_after if retry_after > 0 else min(2.0, 0.5 * attempt)
                     logger.warning(
-                        "Telegram API transient error %s on attempt %s/%s; retrying in %.2fs",
+                        "Telegram API transient error {} on attempt {}/{}; retrying in {:.2f}s",
                         response.status_code,
                         attempt,
                         attempts,
@@ -177,7 +177,7 @@ class TelegramMessenger:
                 if attempt < attempts:
                     backoff = min(2.0, 0.5 * attempt)
                     logger.warning(
-                        "Telegram request failure on attempt %s/%s: %s; retrying in %.2fs",
+                        "Telegram request failure on attempt {}/{}: {}; retrying in {:.2f}s",
                         attempt,
                         attempts,
                         e,

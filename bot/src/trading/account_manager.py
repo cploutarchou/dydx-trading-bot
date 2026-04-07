@@ -5,6 +5,7 @@ import json
 import os
 import random
 from pathlib import Path
+from typing import Any, cast
 
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
@@ -40,9 +41,9 @@ async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
     ticker = str(order["ticker"])
-    market = Market(
-        (await client.indexer.markets.get_perpetual_markets(ticker))["markets"][ticker]
-    )
+    markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
+    market_payload = cast(dict[str, Any], markets_payload["markets"][ticker])
+    market = Market(market_payload)
     # Use the client's wallet address when available to derive client id
     address = _resolve_client_address(client)
     market_order_id = market.order_id(
@@ -162,7 +163,9 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Initialize
     ticker = str(market)
     current_block = await client.node.latest_block_height()
-    market = Market((await client.indexer.markets.get_perpetual_markets(ticker))["markets"][ticker])
+    markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
+    market_payload = cast(dict[str, Any], markets_payload["markets"][ticker])
+    market = Market(market_payload)
     address = _resolve_client_address(client)
     market_order_id = market.order_id(
         address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM

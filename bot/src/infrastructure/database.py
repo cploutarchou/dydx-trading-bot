@@ -121,6 +121,51 @@ class DatabaseManager:
         with engine.begin() as connection:
             inspector = inspect(connection)
 
+            if inspector.has_table("bot_instances"):
+                logger.info("Applying compatibility fix: normalizing bot_instances.status values")
+                status_udt = connection.execute(
+                    text(
+                        """
+                        SELECT c.udt_name
+                        FROM information_schema.columns c
+                        WHERE c.table_name = 'bot_instances'
+                          AND c.column_name = 'status'
+                        LIMIT 1
+                        """
+                    )
+                ).scalar()
+
+                if status_udt == "botstatusenum":
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE bot_instances
+                            SET status = CASE UPPER(CAST(status AS TEXT))
+                                WHEN 'FAILED' THEN 'ERROR'::botstatusenum
+                                WHEN 'PAUSED' THEN 'STOPPED'::botstatusenum
+                                ELSE UPPER(CAST(status AS TEXT))::botstatusenum
+                            END
+                            WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
+                               OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
+                            """
+                        )
+                    )
+                else:
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE bot_instances
+                            SET status = CASE UPPER(CAST(status AS TEXT))
+                                WHEN 'FAILED' THEN 'ERROR'
+                                WHEN 'PAUSED' THEN 'STOPPED'
+                                ELSE UPPER(CAST(status AS TEXT))
+                            END
+                            WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
+                               OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
+                            """
+                        )
+                    )
+
             if inspector.has_table("backtest_strategies"):
                 columns = {
                     column["name"] for column in inspector.get_columns("backtest_strategies")

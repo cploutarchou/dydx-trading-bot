@@ -91,6 +91,7 @@ class BacktestService:
         "max_drawdown_pct": 10.9,
         "total_trades": 24,
     }
+    _INTERRUPTION_ERROR = "Backtest interrupted by API reload or restart"
 
     def __init__(self, session: Any):
         self.repository = (
@@ -101,27 +102,96 @@ class BacktestService:
 
     def _reconcile_interrupted_runs(self) -> None:
         """Mark orphaned created/running runs as failed after API reload or restart."""
-        for run in self.repository.list_runs(limit=None, offset=0):
+        self.reconcile_interrupted_runs(dry_run=False)
+
+    @staticmethod
+    def _to_ops_row(run: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "run_id": str(run.get("run_id") or ""),
+            "name": str(run.get("name") or ""),
+            "status": str(run.get("status") or ""),
+            "progress_pct": float(run.get("progress_pct", 0.0) or 0.0),
+            "created_at": run.get("created_at"),
+            "updated_at": run.get("updated_at"),
+            "error": run.get("error"),
+            "error_message": run.get("error_message"),
+        }
+
+    def _find_orphaned_in_progress_runs(
+        self, runs: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        source = runs if runs is not None else self.repository.list_runs(limit=None, offset=0)
+        candidates: List[Dict[str, Any]] = []
+        for run in source:
             run_id = str(run.get("run_id") or "").strip()
             if not run_id:
                 continue
-
             status = str(run.get("status") or "").strip().lower()
             if status in {"created", "running"} and run_id not in self._tasks:
-                interrupted = dict(run)
-                interrupted.update(
-                    {
-                        "status": "failed",
-                        "current_task": "failed",
-                        "error": "Backtest interrupted by API reload or restart",
-                        "error_message": "Backtest interrupted by API reload or restart",
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-                self._runs[run_id] = self.repository.save_run(interrupted)
-                continue
+                candidates.append(dict(run))
+        return candidates
 
-            self._runs[run_id] = dict(run)
+    def _build_interrupted_run_payload(self, run: Dict[str, Any]) -> Dict[str, Any]:
+        interrupted = dict(run)
+        interrupted.update(
+            {
+                "status": "failed",
+                "current_task": "failed",
+                "error": self._INTERRUPTION_ERROR,
+                "error_message": self._INTERRUPTION_ERROR,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return interrupted
+
+    def list_interrupted_runs_for_ops(self, limit: int = 50) -> Dict[str, Any]:
+        runs = self.repository.list_runs(limit=None, offset=0)
+        orphaned = self._find_orphaned_in_progress_runs(runs)
+        reconciled = [
+            dict(run)
+            for run in runs
+            if str(run.get("status") or "").strip().lower() == "failed"
+            and str(run.get("error") or "").strip() == self._INTERRUPTION_ERROR
+        ]
+
+        safe_limit = max(1, int(limit or 50))
+        return {
+            "interruption_error": self._INTERRUPTION_ERROR,
+            "orphaned_in_progress": [
+                self._to_ops_row(run) for run in orphaned[:safe_limit]
+            ],
+            "interrupted_runs": [
+                self._to_ops_row(run) for run in reconciled[:safe_limit]
+            ],
+            "orphaned_count": len(orphaned),
+            "interrupted_count": len(reconciled),
+        }
+
+    def reconcile_interrupted_runs(self, dry_run: bool = True) -> Dict[str, Any]:
+        runs = self.repository.list_runs(limit=None, offset=0)
+        for run in runs:
+            run_id = str(run.get("run_id") or "").strip()
+            if run_id:
+                self._runs[run_id] = dict(run)
+
+        candidates = self._find_orphaned_in_progress_runs(runs)
+        reconciled: List[Dict[str, Any]] = []
+        if not dry_run:
+            for run in candidates:
+                persisted = self.repository.save_run(self._build_interrupted_run_payload(run))
+                run_id = str(persisted.get("run_id") or "").strip()
+                if run_id:
+                    self._runs[run_id] = dict(persisted)
+                reconciled.append(dict(persisted))
+
+        return {
+            "interruption_error": self._INTERRUPTION_ERROR,
+            "dry_run": bool(dry_run),
+            "candidates": [self._to_ops_row(run) for run in candidates],
+            "reconciled": [self._to_ops_row(run) for run in reconciled],
+            "candidate_count": len(candidates),
+            "reconciled_count": len(reconciled),
+        }
 
     def _load_run_data(self, run_id: str) -> Optional[Dict[str, Any]]:
         cached = self._runs.get(run_id)

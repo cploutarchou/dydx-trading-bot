@@ -184,6 +184,7 @@ class BacktestSettings:
 @dataclass
 class DatabaseSettings:
     type: str = "postgresql"
+    cutover_mode: str = "shared"
     name: str = "dydx_bot"
     user: str = "postgres"
     password: str = ""
@@ -327,19 +328,41 @@ class ConfigurationManager:
 
     def _build_database_settings_from_env(self) -> DatabaseSettings:
         """Build database settings from environment variables."""
-        db_type = _get_env("DB_TYPE", default="postgresql").strip().lower()
+        db_type = _get_env("BOT_DB_TYPE", "DB_TYPE", default="postgresql").strip().lower()
         if db_type not in {"postgres", "postgresql"}:
             raise ValueError(
                 f"Unsupported DB_TYPE '{db_type}'. Only PostgreSQL is supported."
             )
 
+        cutover_mode = (
+            _get_env("BOT_DB_CUTOVER_MODE", default="shared")
+            .strip()
+            .lower()
+            .replace("-", "_")
+        )
+        if cutover_mode not in {
+            "shared",
+            "dedicated",
+            "dedicated_with_shared_fallback",
+        }:
+            raise ValueError(
+                "Unsupported BOT_DB_CUTOVER_MODE. Use one of: "
+                "shared, dedicated, dedicated_with_shared_fallback"
+            )
+
         return DatabaseSettings(
             type="postgresql",
-            name=_get_env("DB_NAME", "POSTGRES_DB", default="dydx_bot"),
-            user=_get_env("DB_USER", "POSTGRES_USER", default="postgres"),
-            password=_get_env("DB_PASSWORD", "POSTGRES_PASSWORD", default=""),
-            host=_get_env("DB_HOST", default="localhost"),
-            port=_get_env("DB_PORT", "POSTGRES_PORT", default="5432"),
+            cutover_mode=cutover_mode,
+            name=_get_env("BOT_DB_NAME", "DB_NAME", "POSTGRES_DB", default="dydx_bot"),
+            user=_get_env("BOT_DB_USER", "DB_USER", "POSTGRES_USER", default="postgres"),
+            password=_get_env(
+                "BOT_DB_PASSWORD",
+                "DB_PASSWORD",
+                "POSTGRES_PASSWORD",
+                default="",
+            ),
+            host=_get_env("BOT_DB_HOST", "DB_HOST", default="localhost"),
+            port=_get_env("BOT_DB_PORT", "DB_PORT", "POSTGRES_PORT", default="5432"),
         )
 
     def _build_redis_settings_from_env(self) -> RedisSettings:

@@ -26,6 +26,8 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 	const secret = "delegated-backtest-run-test-secret"
 	t.Setenv("JWT_SECRET_KEY", secret)
 	t.Setenv("APP_ENV", "test")
+	t.Setenv("BOT_API_TOKEN", "")
+	t.Setenv("BOT_API_USE_SERVICE_TOKEN", "false")
 
 	dsn := fmt.Sprintf("file:%d?mode=memory&cache=shared", time.Now().UTC().UnixNano())
 	dbConn, err := sql.Open("sqlite", dsn)
@@ -366,7 +368,7 @@ func TestDelegatedBacktestRun_ForwardsCookieAliasTokenUpstream(t *testing.T) {
 }
 
 func TestDelegatedBotMarketData_ForwardsJWTCookieAliasAndPassthroughsStatus(t *testing.T) {
-	upstreamAuthHeaderCh := make(chan string, 1)
+	upstreamAuthHeaderCh := make(chan string, 2)
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/bots/demo-bot/market-data", func(w http.ResponseWriter, r *http.Request) {
 		upstreamAuthHeaderCh <- r.Header.Get("Authorization")

@@ -47,6 +47,37 @@ class _StubService:
     def get_runtime_health(self):
         return {"queue_depth": 2, "active_jobs": 1, "total_runs": 5}
 
+    def list_interrupted_runs_for_ops(self, limit=50):
+        return {
+            "interruption_error": "Backtest interrupted by API reload or restart",
+            "orphaned_in_progress": [
+                {
+                    "run_id": "run-orphaned",
+                    "status": "running",
+                    "error": None,
+                }
+            ][:limit],
+            "interrupted_runs": [
+                {
+                    "run_id": "run-interrupted",
+                    "status": "failed",
+                    "error": "Backtest interrupted by API reload or restart",
+                }
+            ][:limit],
+            "orphaned_count": 1,
+            "interrupted_count": 1,
+        }
+
+    def reconcile_interrupted_runs(self, dry_run=True):
+        return {
+            "interruption_error": "Backtest interrupted by API reload or restart",
+            "dry_run": bool(dry_run),
+            "candidates": [{"run_id": "run-orphaned", "status": "running"}],
+            "reconciled": ([] if dry_run else [{"run_id": "run-orphaned", "status": "failed"}]),
+            "candidate_count": 1,
+            "reconciled_count": 0 if dry_run else 1,
+        }
+
 
 class _RunResult:
     def __init__(self, payload):
@@ -130,6 +161,33 @@ def test_sync_health_endpoint_returns_runtime_counters(monkeypatch):
     assert payload["data"]["queue_depth"] == 2
     assert payload["data"]["active_jobs"] == 1
     assert payload["data"]["total_runs"] == 5
+
+
+def test_interrupted_runs_endpoint_exposes_ops_visibility_fields(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(_call(server.list_interrupted_backtests()))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["orphaned_count"] == 1
+    assert payload["data"]["interrupted_count"] == 1
+    assert payload["data"]["count"] == 2
+    assert payload["data"]["interrupted_runs"][0]["run_id"] == "run-interrupted"
+
+
+def test_interrupted_reconcile_endpoint_supports_dry_run(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(_call(server.reconcile_interrupted_backtests(dry_run=True)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["dry_run"] is True
+    assert payload["data"]["candidate_count"] == 1
+    assert payload["data"]["reconciled_count"] == 0
 
 
 def test_openapi_documents_standard_response_envelope():

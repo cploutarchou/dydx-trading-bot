@@ -2566,6 +2566,55 @@ async def list_backtests(
         )
 
 
+@app.get("/api/v1/backtests/interrupted")
+async def list_interrupted_backtests(
+    limit: int = 50,
+):
+    """Ops visibility for interrupted/orphaned persisted backtest runs."""
+    try:
+        service = get_backtest_service()
+        report = service.list_interrupted_runs_for_ops(limit=limit)
+        report["count"] = int(report.get("orphaned_count", 0)) + int(
+            report.get("interrupted_count", 0)
+        )
+        return api_response(
+            success=True,
+            data=report,
+            message="Retrieved interrupted backtest reconciliation report",
+        )
+    except Exception as e:
+        logger.error(f"Error listing interrupted backtests: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/interrupted/reconcile")
+async def reconcile_interrupted_backtests(
+    dry_run: bool = True,
+):
+    """Explicitly reconcile persisted orphaned in-progress runs."""
+    try:
+        service = get_backtest_service()
+        report = service.reconcile_interrupted_runs(dry_run=dry_run)
+        report["count"] = int(report.get("candidate_count", 0))
+        message = (
+            "Dry-run completed for interrupted backtest reconciliation"
+            if dry_run
+            else "Interrupted backtest reconciliation completed"
+        )
+        return api_response(
+            success=True,
+            data=report,
+            message=message,
+        )
+    except Exception as e:
+        logger.error(f"Error reconciling interrupted backtests: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
 @app.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
 async def get_backtest_details(
     run_id: str,

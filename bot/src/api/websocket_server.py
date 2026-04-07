@@ -4,10 +4,10 @@ Provides live position updates, market data, and P&L tracking
 """
 
 import json
-import logging
 from typing import Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
+from loguru import logger
 from src.api.realtime_serializers import (serialize_market_core,
                                           serialize_realtime_position,
                                           serialize_stats_risk_fields)
@@ -16,7 +16,6 @@ from src.infrastructure.database import db
 from src.shared.time_utils import utc_now_iso
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 
-logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
@@ -408,7 +407,7 @@ def build_strategy_snapshot_message(status_payloads: list[Dict]) -> Dict:
     """Build initial strategy channel snapshot payload."""
     return {
         "type": "strategy_status_snapshot",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": utc_now_iso(),
         "count": len(status_payloads),
         "data": status_payloads,
     }

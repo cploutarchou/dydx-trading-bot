@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 import os
 import random
 from pathlib import Path
@@ -10,13 +9,12 @@ from pathlib import Path
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
+from loguru import logger
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 from src.constants import DYDX_ADDRESS
 from src.shared.utils import format_number
 from src.trading.market_data import get_markets
-
-logger = logging.getLogger(__name__)
 
 
 def _resolve_bot_agents_path() -> Path:
@@ -33,16 +31,20 @@ def _resolve_bot_agents_path() -> Path:
 BOT_AGENTS_PATH = _resolve_bot_agents_path()
 
 
+def _resolve_client_address(client) -> str:
+    """Resolve the best available wallet address as a concrete string."""
+    return str(getattr(client.wallet, "address", DYDX_ADDRESS) or DYDX_ADDRESS)
+
+
 async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
+    ticker = str(order["ticker"])
     market = Market(
-        (await client.indexer.markets.get_perpetual_markets(order["ticker"]))["markets"][
-            order["ticker"]
-        ]
+        (await client.indexer.markets.get_perpetual_markets(ticker))["markets"][ticker]
     )
     # Use the client's wallet address when available to derive client id
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     market_order_id = market.order_id(
         address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
     )
@@ -53,17 +55,17 @@ async def cancel_order(client, order_id):
     cancel = await client.node.cancel_order(
         client.wallet, market_order_id, good_til_block=good_til_block
     )
-    logger.info("Cancel order response: %s", cancel)
+    logger.info("Cancel order response: {}", cancel)
     logger.warning(
-        "Attempted to cancel order for %s; please verify cancellation on the dashboard",
-        order["ticker"],
+        "Attempted to cancel order for {}; please verify cancellation on the dashboard",
+        ticker,
     )
 
 
 async def get_account(client):
     """Get current account information."""
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     try:
         account = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
@@ -75,7 +77,7 @@ async def get_account(client):
 async def get_open_positions(client):
     """Get all open perpetual positions."""
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     try:
         response = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
@@ -104,7 +106,7 @@ async def is_open_positions(client, market):
     await asyncio.sleep(0.2)
 
     # Get positions (try wallet address then configured address)
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    address = _resolve_client_address(client)
     try:
         response = await client.indexer_account.account.get_subaccount(address, 0)
     except Exception:
@@ -116,7 +118,7 @@ async def is_open_positions(client, market):
 
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
                 logger.debug(
-                    "No subaccount found (404) for market %s - likely fresh testnet account",
+                    "No subaccount found (404) for market {} - likely fresh testnet account",
                     market,
                 )
                 return False
@@ -158,10 +160,10 @@ async def place_market_order(client, market, side, size, price, reduce_only):
         Tuple of (order, order_id)
     """
     # Initialize
-    ticker = market
+    ticker = str(market)
     current_block = await client.node.latest_block_height()
-    market = Market((await client.indexer.markets.get_perpetual_markets(market))["markets"][market])
-    address = getattr(client.wallet, "address", DYDX_ADDRESS)
+    market = Market((await client.indexer.markets.get_perpetual_markets(ticker))["markets"][ticker])
+    address = _resolve_client_address(client)
     market_order_id = market.order_id(
         address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
     )
@@ -209,13 +211,13 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Ensure latest order
     if order_id == "":
         sorted_orders = sorted(orders, key=lambda x: x["createdAtHeight"], reverse=True)
-        logger.error("Unable to detect latest order; most recent entry: %s", sorted_orders[0])
+        logger.error("Unable to detect latest order; most recent entry: {}", sorted_orders[0])
         logger.error("Please verify the order status on the dashboard")
         raise RuntimeError("Unable to detect latest exchange order id after placement")
 
     # Print something if error returned
     if "code" in str(order):
-        logger.error("Order returned error payload: %s", order)
+        logger.error("Order returned error payload: {}", order)
 
     # Return result
     return (order, order_id)
@@ -229,14 +231,14 @@ async def cancel_all_orders(client):
         )
     except Exception as e:
         # If the account doesn't exist on the indexer (404) treat as no open orders
-        logger.warning("Could not fetch open orders: %s", e)
+        logger.warning("Could not fetch open orders: {}", e)
         return []
 
     if len(orders) > 0:
         for order in orders:
             await cancel_order(client, order["id"])
             logger.warning(
-                "Open order %s may persist; verify cancellation on the dashboard",
+                "Open order {} may persist; verify cancellation on the dashboard",
                 order["id"],
             )
         raise RuntimeError(
@@ -267,7 +269,7 @@ async def abort_all_positions(client):
         positions = await get_open_positions(client)
     except Exception as e:
         # If the indexer returns 404 or similar, assume no positions for this test account
-        logger.warning("Could not fetch open positions: %s", e)
+        logger.warning("Could not fetch open positions: {}", e)
         return []
 
     # Handle open positions

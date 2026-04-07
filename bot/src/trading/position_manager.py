@@ -2,11 +2,11 @@
 
 import asyncio
 import json
-import logging
 import os
 from pathlib import Path
 
 import pandas as pd
+from loguru import logger
 
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
@@ -27,8 +27,6 @@ from src.trading.account_manager import (
 from src.trading.analysis.cointegration import calculate_zscore
 from src.trading.bot_agent import BotAgent
 from src.trading.market_data import get_candles_recent, get_markets
-
-logger = logging.getLogger(__name__)
 
 
 def _resolve_bot_agents_path() -> Path:
@@ -63,7 +61,7 @@ async def open_positions(client):
 
     # Load cointegrated pairs using enhanced storage
     pairs = pair_storage.load_pairs()
-    logger.info("Loaded %d cointegrated pairs from enhanced storage", len(pairs))
+    logger.info("Loaded {} cointegrated pairs from enhanced storage", len(pairs))
 
     # Convert to DataFrame for backward compatibility with existing logic
     if pairs:
@@ -86,7 +84,7 @@ async def open_positions(client):
             bot_agents.append(p)
     except Exception:
         bot_agents = []
-        logger.debug("No existing %s found; starting fresh", BOT_AGENTS_PATH)
+        logger.debug("No existing {} found; starting fresh", BOT_AGENTS_PATH)
 
     # Find ZScore triggers
     for index, row in df.iterrows():
@@ -106,7 +104,7 @@ async def open_positions(client):
             series_1 = await get_candles_recent(client, base_market)
             series_2 = await get_candles_recent(client, quote_market)
         except Exception:
-            logger.exception("Failed to fetch candles for %s / %s", base_market, quote_market)
+            logger.exception("Failed to fetch candles for {} / {}", base_market, quote_market)
             continue
 
         # Get ZScore
@@ -175,7 +173,7 @@ async def open_positions(client):
                         account = await get_account(client)
                         free_collateral = float(account["freeCollateral"])
                         logger.info(
-                            "Free collateral %.2f (min required %.2f)",
+                            "Free collateral {:.2f} (min required {:.2f})",
                             free_collateral,
                             USD_MIN_COLLATERAL,
                         )
@@ -183,7 +181,7 @@ async def open_positions(client):
                         # Guard: Ensure collateral
                         if free_collateral < USD_MIN_COLLATERAL:
                             logger.warning(
-                                "Insufficient collateral %.2f < %.2f; skipping trade",
+                                "Insufficient collateral {:.2f} < {:.2f}; skipping trade",
                                 free_collateral,
                                 USD_MIN_COLLATERAL,
                             )
@@ -212,7 +210,7 @@ async def open_positions(client):
                         # Guard: Handle failure
                         if bot_open_dict == "failed":
                             logger.warning(
-                                "Bot agent failed to open trades for %s / %s",
+                                "Bot agent failed to open trades for {} / {}",
                                 base_market,
                                 quote_market,
                             )
@@ -250,7 +248,7 @@ async def open_positions(client):
 
                             # Confirm live status in print
                             logger.info(
-                                "Trade status: Live for %s / %s",
+                                "Trade status: Live for {} / {}",
                                 base_market,
                                 quote_market,
                             )
@@ -276,9 +274,9 @@ async def manage_trade_exits(client):
     try:
         with BOT_AGENTS_PATH.open("r", encoding="utf-8") as open_positions_file:
             open_positions_dict = json.load(open_positions_file)
-        logger.debug("Loaded %d tracked positions", len(open_positions_dict))
+        logger.debug("Loaded {} tracked positions", len(open_positions_dict))
     except Exception as e:
-        logger.info("No %s found; nothing to close (%s)", BOT_AGENTS_PATH, e)
+        logger.info("No {} found; nothing to close ({})", BOT_AGENTS_PATH, e)
         return "complete"
 
     # Guard: Exit if no open positions in file
@@ -287,7 +285,7 @@ async def manage_trade_exits(client):
 
     # Get all open positions per trading platform
     exchange_pos = await get_open_positions(client)
-    logger.debug("Exchange reports %d open positions", len(exchange_pos))
+    logger.debug("Exchange reports {} open positions", len(exchange_pos))
 
     # Create live position tickers list
     markets_live = list(exchange_pos.keys())
@@ -351,7 +349,7 @@ async def manage_trade_exits(client):
         # Guard: If not all match exit with error
         if not check_m1 or not check_m2 or not check_live:
             logger.error(
-                "Position mismatch for %s / %s; local state diverged from exchange",
+                "Position mismatch for {} / {}; local state diverged from exchange",
                 position_market_m1,
                 position_market_m2,
             )
@@ -370,6 +368,8 @@ async def manage_trade_exits(client):
 
         # Get markets for reference of tick size
         markets = await get_markets(client)
+        z_score_traded: float = float(position["z_score"])
+        z_score_current: float = z_score_traded
 
         # Protect API
         await asyncio.sleep(0.2)
@@ -379,7 +379,6 @@ async def manage_trade_exits(client):
 
             # Initialize z_scores
             hedge_ratio = position["hedge_ratio"]
-            z_score_traded = position["z_score"]
             if len(series_1) > 0 and len(series_1) == len(series_2):
                 spread = series_1 - (hedge_ratio * series_2)
                 z_score_current = calculate_zscore(spread).values.tolist()[-1]
@@ -423,7 +422,7 @@ async def manage_trade_exits(client):
 
                 # Close position for market 1
                 logger.info(
-                    "Closing position for %s (subaccount inferred)",
+                    "Closing position for {} (subaccount inferred)",
                     position_market_m1,
                 )
 
@@ -436,14 +435,14 @@ async def manage_trade_exits(client):
                     reduce_only=True,
                 )
 
-                logger.debug("Close order m1 id: %s", close_order_m1.get("id"))
+                logger.debug("Close order m1 id: {}", close_order_m1.get("id"))
 
                 # Protect API
                 await asyncio.sleep(1)
 
                 # Close position for market 2
                 logger.info(
-                    "Closing position for %s (subaccount inferred)",
+                    "Closing position for {} (subaccount inferred)",
                     position_market_m2,
                 )
 
@@ -456,7 +455,7 @@ async def manage_trade_exits(client):
                     reduce_only=True,
                 )
 
-                logger.debug("Close order m2 id: %s", close_order_m2.get("id"))
+                logger.debug("Close order m2 id: {}", close_order_m2.get("id"))
 
                 # Send trade closed notification
                 trade_info = {
@@ -475,7 +474,7 @@ async def manage_trade_exits(client):
 
             except Exception:
                 logger.exception(
-                    "Exit failed for %s with %s",
+                    "Exit failed for {} with {}",
                     position_market_m1,
                     position_market_m2,
                 )
@@ -486,6 +485,6 @@ async def manage_trade_exits(client):
             save_output.append(position)
 
     # Save remaining items
-    logger.info("%d items remaining; persisting %s", len(save_output), BOT_AGENTS_PATH)
+    logger.info("{} items remaining; persisting {}", len(save_output), BOT_AGENTS_PATH)
     with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
         json.dump(save_output, f)

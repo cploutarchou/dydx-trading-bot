@@ -5,7 +5,6 @@ Bot API Server - FastAPI server for controlling multiple bot instances
 import asyncio
 import contextvars
 import json
-import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -14,6 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
 import uvicorn
+from loguru import logger
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -54,10 +54,7 @@ from src.middleware.auth_middleware import (
 try:
     from src.bot_instance_manager import bot_manager
 except Exception as bot_manager_import_error:  # pragma: no cover
-    logging.getLogger(__name__).warning(
-        "Bot instance manager unavailable at startup: %s",
-        bot_manager_import_error,
-    )
+    logger.warning("Bot instance manager unavailable at startup: {}", bot_manager_import_error)
     bot_manager = None
 
 from internal.domain.models import BotStatusEnum
@@ -88,12 +85,12 @@ from src.infrastructure.persistence.repository_backtest import BacktestRepositor
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.shared.notifications import TelegramMessenger
+from src.shared.logging_setup import setup_logging
 from src.shared.time_utils import utc_now_iso
 from src.trading.dydx_client import connect_dydx
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Setup logging (Loguru + stdlib bridge)
+setup_logging()
 trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
     "trace_id", default=""
 )
@@ -317,7 +314,7 @@ def _bot_recovery_diagnostics() -> Dict[str, Any]:
     try:
         return bot_manager.get_recovery_diagnostics()
     except Exception as exc:
-        logger.warning("Failed to read bot recovery diagnostics: %s", exc)
+        logger.warning("Failed to read bot recovery diagnostics: {}", exc)
         return {
             "source": "error",
             "attempted": 0,
@@ -381,7 +378,7 @@ async def _resolve_backtest_markets(
             # Preserve deterministic ordering for repeatable runs.
             markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
     except Exception as err:
-        logger.warning("Falling back to default market list: %s", err)
+        logger.warning("Falling back to default market list: {}", err)
     finally:
         if client is not None:
             try:
@@ -762,7 +759,11 @@ def _persist_bot_status_and_event(
 
         return dict(bot.config or {})
     except Exception as db_error:
-        logger.warning("Failed to persist bot lifecycle state for %s: %s", instance_id, db_error)
+        logger.warning(
+            "Failed to persist bot lifecycle state for {}: {}",
+            instance_id,
+            db_error,
+        )
         if session is not None:
             session.rollback()
         return None
@@ -778,17 +779,34 @@ async def request_trace_logging_middleware(request: Request, call_next):
     trace_id = inbound_trace_id or f"req-{uuid4().hex[:12]}"
     token = trace_id_ctx.set(trace_id)
     started = time.perf_counter()
+    is_development = os.getenv("ENVIRONMENT", "development").lower() == "development"
+    query = (request.url.query or "").strip()
+    if len(query) > 256:
+        query = f"{query[:253]}..."
+    client = request.client.host if request.client else "unknown"
+
+    if is_development:
+        logger.debug(
+            "request_started trace_id=%s method=%s path=%s query=%s client=%s",
+            trace_id,
+            request.method,
+            request.url.path,
+            query or "-",
+            client,
+        )
 
     try:
         response = await call_next(request)
     except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         logger.exception(
-            "request_failed trace_id=%s method=%s path=%s duration_ms=%.2f",
+            "request_failed trace_id=%s method=%s path=%s query=%s duration_ms=%.2f client=%s",
             trace_id,
             request.method,
             request.url.path,
+            query or "-",
             elapsed_ms,
+            client,
         )
         raise
     finally:
@@ -796,17 +814,27 @@ async def request_trace_logging_middleware(request: Request, call_next):
 
     response.headers["X-Trace-Id"] = trace_id
 
-    if os.getenv("ENVIRONMENT", "development").lower() == "development":
+    if is_development:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        logger.info(
-            "request trace_id=%s method=%s path=%s status=%s duration_ms=%.2f client=%s",
+        log_message = (
+            "request_completed trace_id=%s method=%s path=%s query=%s status=%s "
+            "duration_ms=%.2f client=%s"
+        )
+        log_args = (
             trace_id,
             request.method,
             request.url.path,
+            query or "-",
             response.status_code,
             elapsed_ms,
-            request.client.host if request.client else "unknown",
+            client,
         )
+        if response.status_code >= 500:
+            logger.error(log_message, *log_args)
+        elif response.status_code >= 400:
+            logger.warning(log_message, *log_args)
+        else:
+            logger.info(log_message, *log_args)
 
     return response
 
@@ -2939,7 +2967,7 @@ async def _bot_manager_monitor_loop():
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.error("Bot manager monitor loop failed: %s", exc)
+            logger.error("Bot manager monitor loop failed: {}", exc)
 
         await asyncio.sleep(interval_seconds)
 

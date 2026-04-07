@@ -18,4 +18,5 @@ if __name__ == "__main__":
         port=int(os.getenv("BOT_API_PORT", "8889")),
         reload=os.getenv("BOT_API_RELOAD", "true").lower() == "true",
         log_level="info",
+        log_config=None,
     )

@@ -1,11 +1,11 @@
 """Cointegration analysis module for pairs trading strategy."""
-import logging
 import time
 from datetime import datetime
 from typing import Tuple, cast
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 from src.constants import MAX_HALF_LIFE, WINDOW
 from src.shared.notifications import TelegramMessenger
 from src.infrastructure.domain.cointegration_storage import (
@@ -13,9 +13,6 @@ from src.infrastructure.domain.cointegration_storage import (
     CointegrationResult,
     pair_storage,
 )
-
-logger = logging.getLogger(__name__)
-
 
 class SmartError(Exception):
     """Custom exception for statistical analysis errors."""
@@ -168,11 +165,11 @@ def store_cointegration_results(df_market_prices):
             returns_1 = _pd.Series(series_1).pct_change().dropna()
             if returns_1.empty or returns_1.std() < MIN_RETURN_STD:
                 logger.debug(
-                    "Skipping market %s: return volatility below threshold", base_market
+                    "Skipping market {}: return volatility below threshold", base_market
                 )
                 continue
         except Exception:
-            logger.warning("Skipping market %s: error computing returns", base_market)
+            logger.warning("Skipping market {}: error computing returns", base_market)
             continue
 
         # Get Quote Pair
@@ -193,11 +190,11 @@ def store_cointegration_results(df_market_prices):
                     series_1, series_2
                 )
             except SmartError as e:
-                logger.debug("Skipping pair %s / %s: %s", base_market, quote_market, e)
+                logger.debug("Skipping pair {} / {}: {}", base_market, quote_market, e)
                 continue
             except Exception:
                 logger.exception(
-                    "Error testing pair %s / %s", base_market, quote_market
+                    "Error testing pair {} / {}", base_market, quote_market
                 )
                 continue
 

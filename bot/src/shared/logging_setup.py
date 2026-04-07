@@ -98,8 +98,12 @@ def _configure_console_sink(level: str) -> None:
     )
 
     logger.remove()
+
+    def _console_sink(message: Any) -> None:
+        stream.write(str(message))
+
     logger.add(
-        stream.write,
+        _console_sink,
         level=level,
         backtrace=False,
         diagnose=False,

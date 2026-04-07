@@ -387,18 +387,18 @@ func (r *BotInstanceRepository) UpdateBotInstanceProcess(instanceID string, proc
 func (r *BotInstanceRepository) UpdateBotInstanceError(instanceID string, errorMessage string) error {
 	query := `
 		UPDATE bot_instances
-		SET error_message = $1, last_error_at = $2, status = 'error', updated_at = $3
+		SET error_message = $1, last_error_at = $2, status = $3, updated_at = $4
 		WHERE instance_id = $4
 	`
 
-	result, err := r.db.Exec(query, errorMessage, time.Now(), time.Now(), instanceID)
+	result, err := r.db.Exec(query, errorMessage, time.Now(), normalizeBotStatus("ERROR"), time.Now(), instanceID)
 	if err != nil && isUndefinedColumnError(err) {
 		fallbackQuery := `
 			UPDATE bot_instances
-			SET status = 'ERROR', updated_at = $1
+			SET status = $1, updated_at = $2
 			WHERE instance_id = $2
 		`
-		result, err = r.db.Exec(fallbackQuery, time.Now(), instanceID)
+		result, err = r.db.Exec(fallbackQuery, normalizeBotStatus("ERROR"), time.Now(), instanceID)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to update bot instance error: %w", err)

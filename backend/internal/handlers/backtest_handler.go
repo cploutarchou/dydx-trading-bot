@@ -90,7 +90,7 @@ type CandleResponse struct {
 }
 
 type CandlesData struct {
-	RunID   int              `json:"run_id"`
+	RunID   string           `json:"run_id"`
 	Candles []CandleResponse `json:"candles"`
 	Count   int              `json:"count"`
 	Markets []string         `json:"markets"`
@@ -109,16 +109,6 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	market := c.Query("market")
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
-
-	runIDInt, err := strconv.Atoi(runID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Invalid run_id format",
-		})
-		return
-	}
 
 	// Verify run exists using repository
 	run, err := h.repo.GetRunByID(runID)
@@ -161,7 +151,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 
 	// Get candles using repository
 	filter := repository.CandleFilter{
-		RunID:     runIDInt,
+		RunID:     run.ID,
 		Market:    market,
 		StartDate: startDt,
 		EndDate:   endDt,
@@ -206,7 +196,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	}
 
 	data := CandlesData{
-		RunID:   runIDInt,
+		RunID:   runID,
 		Candles: candles,
 		Count:   len(candles),
 		Markets: marketsList,
@@ -237,7 +227,7 @@ type PositionResponse struct {
 }
 
 type PositionsData struct {
-	RunID       int                `json:"run_id"`
+	RunID       string             `json:"run_id"`
 	Positions   []PositionResponse `json:"positions"`
 	Count       int                `json:"count"`
 	OpenCount   int                `json:"open_count"`
@@ -250,16 +240,6 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 	status := c.Query("status")
 	market1 := c.Query("market_1")
 	market2 := c.Query("market_2")
-
-	runIDInt, err := strconv.Atoi(runID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Invalid run_id format",
-		})
-		return
-	}
 
 	// Verify run exists using repository
 	run, err := h.repo.GetRunByID(runID)
@@ -274,7 +254,7 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 
 	// Get positions using repository
 	filter := repository.PositionFilter{
-		RunID:   runIDInt,
+		RunID:   run.ID,
 		Status:  strings.ToUpper(status),
 		Market1: market1,
 		Market2: market2,
@@ -308,9 +288,22 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 
 		pnlM1 := float64(0)
 		pnlM2 := float64(0)
+		totalPnL := float64(0)
+		if pos.RealizedPnl != nil {
+			totalPnL = *pos.RealizedPnl
+		} else if pos.UnrealizedPnl != nil {
+			totalPnL = *pos.UnrealizedPnl
+		}
+
+		positionID := pos.PositionID
+		if positionID == "" {
+			positionID = fmt.Sprintf("%d", pos.ID)
+		}
+
+		hedgeRatio := pos.HedgeRatio
 
 		positions = append(positions, PositionResponse{
-			PositionID:     fmt.Sprintf("%d", pos.ID),
+			PositionID:     positionID,
 			Market1:        pos.Market1,
 			Market2:        pos.Market2,
 			EntryTimestamp: entryTimestamp,
@@ -319,22 +312,23 @@ func (h *BacktestHandler) GetBacktestPositions(c *gin.Context) {
 			ExitPrice1:     pos.ExitPrice1,
 			EntryPrice2:    pos.EntryPrice2,
 			ExitPrice2:     pos.ExitPrice2,
+			HedgeRatio:     &hedgeRatio,
 			PnLM1USD:       pnlM1,
 			PnLM2USD:       pnlM2,
-			TotalPnLUSD:    pnlM1 + pnlM2,
+			TotalPnLUSD:    totalPnL,
 			Status:         pos.Status,
 		})
 	}
 
 	// Get counts using repository
-	openCount, closedCount, err := h.repo.GetPositionCountsByStatus(runIDInt)
+	openCount, closedCount, err := h.repo.GetPositionCountsByStatus(run.ID)
 	if err != nil {
 		openCount = 0
 		closedCount = 0
 	}
 
 	data := PositionsData{
-		RunID:       runIDInt,
+		RunID:       runID,
 		Positions:   positions,
 		Count:       len(positions),
 		OpenCount:   openCount,
@@ -368,7 +362,7 @@ type TradeResponse struct {
 }
 
 type TradesData struct {
-	RunID  int             `json:"run_id"`
+	RunID  string          `json:"run_id"`
 	Trades []TradeResponse `json:"trades"`
 	Count  int             `json:"count"`
 	Total  int             `json:"total"`
@@ -397,16 +391,6 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 		}
 	}
 
-	runIDInt, err := strconv.Atoi(runID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Invalid run_id format",
-		})
-		return
-	}
-
 	// Verify run exists using repository
 	run, err := h.repo.GetRunByID(runID)
 	if err != nil || run == nil {
@@ -419,14 +403,14 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 	}
 
 	// Get total count using repository
-	total, err := h.repo.GetTradesCount(runIDInt, market1, market2)
+	total, err := h.repo.GetTradesCount(run.ID, market1, market2)
 	if err != nil {
 		total = 0
 	}
 
 	// Get trades using repository
 	filter := repository.TradeFilter{
-		RunID:   runIDInt,
+		RunID:   run.ID,
 		Market1: market1,
 		Market2: market2,
 		Skip:    skip,
@@ -502,7 +486,7 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 	}
 
 	data := TradesData{
-		RunID:  runIDInt,
+		RunID:  runID,
 		Trades: trades,
 		Count:  len(trades),
 		Total:  total,
@@ -527,18 +511,20 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 		testName = runID
 	}
 
-	// Get all trades for this run
-	filter := repository.TradeFilter{RunID: 0}
-	runIDInt, err := strconv.Atoi(runID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, APIResponse{
+	run, err := h.repo.GetRunByID(runID)
+	if err != nil || run == nil {
+		c.JSON(http.StatusNotFound, APIResponse{
 			Success: false,
-			Error:   "Invalid run_id format",
+			Error:   fmt.Sprintf("Backtest run %s not found", runID),
 		})
 		return
 	}
-	filter.RunID = runIDInt
-	filter.Limit = 10000 // Get all trades
+
+	// Get all trades for this run
+	filter := repository.TradeFilter{
+		RunID: run.ID,
+		Limit: 10000,
+	}
 
 	trades, err := h.repo.GetTrades(filter)
 	if err != nil {

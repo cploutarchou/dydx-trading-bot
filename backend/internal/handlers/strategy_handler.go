@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -26,6 +27,7 @@ type strategyPayload struct {
 	IsPublic               bool    `json:"is_public"`
 	IsDefault              bool    `json:"is_default"`
 	RuntimeStrategy        string  `json:"runtime_strategy"`
+	PairSelectionMode      string  `json:"pair_selection_mode"`
 	Resolution             string  `json:"resolution"`
 	CandleResolution       string  `json:"candle_resolution"`
 	ZscoreThreshold        float64 `json:"zscore_threshold"`
@@ -68,6 +70,9 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	strategy.IsDefault = req.IsDefault
 	if strings.TrimSpace(req.RuntimeStrategy) != "" {
 		strategy.RuntimeStrategy = strings.TrimSpace(req.RuntimeStrategy)
+	}
+	if strings.TrimSpace(req.PairSelectionMode) != "" {
+		strategy.PairSelectionMode = normalizePairSelectionMode(req.PairSelectionMode)
 	}
 
 	if req.CandleResolution != "" {
@@ -156,6 +161,24 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	}
 	if strategy.RuntimeStrategy == "" {
 		strategy.RuntimeStrategy = "cointegration"
+	}
+	if strategy.PairSelectionMode == "" {
+		strategy.PairSelectionMode = "liquidity"
+	}
+}
+
+func normalizePairSelectionMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "liquidity", "volume":
+		return "liquidity"
+	case "volatility":
+		return "volatility"
+	case "cointegration":
+		return "cointegration"
+	case "input", "none", "order":
+		return "input"
+	default:
+		return "liquidity"
 	}
 }
 
@@ -476,16 +499,36 @@ func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
 		return
 	}
 
-	runtimeState, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).StartRuntime(strategy, c.Query("network"))
+	forceRecreate, _ := strconv.ParseBool(c.DefaultQuery("force_recreate", "false"))
+	runtimeService := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
+	var (
+		runtimeState map[string]interface{}
+		err          error
+	)
+	if forceRecreate {
+		runtimeState, err = runtimeService.StartRuntimeWithForceRecreate(strategy, c.Query("network"))
+	} else {
+		runtimeState, err = runtimeService.StartRuntime(strategy, c.Query("network"))
+	}
 	if err != nil {
+		normalizedErr := strings.ToLower(err.Error())
 		statusCode := http.StatusInternalServerError
-		if strings.Contains(strings.ToLower(err.Error()), "active dydx key") || strings.Contains(strings.ToLower(err.Error()), "no active dydx key") {
+		errorMessage := fmt.Sprintf("Failed to start strategy runtime: %v", err)
+		if strings.Contains(normalizedErr, "active dydx key") || strings.Contains(normalizedErr, "no active dydx key") {
 			statusCode = http.StatusBadRequest
+		} else if strings.Contains(normalizedErr, "confirm recreate") || strings.Contains(normalizedErr, "instance_id already exists") {
+			statusCode = http.StatusConflict
+			if !strings.Contains(normalizedErr, "confirm recreate") {
+				errorMessage = fmt.Sprintf(
+					"Failed to start strategy runtime: stale runtime instance detected; confirm recreate to replace it (%v)",
+					err,
+				)
+			}
 		}
 		c.JSON(statusCode, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to start strategy runtime: %v", err),
+			Error:     errorMessage,
 		})
 		return
 	}
@@ -517,6 +560,153 @@ func (h *StrategyHandler) StopStrategyRuntime(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      runtimeState,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *StrategyHandler) GetVersionHistory(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	history, err := h.service.GetVersionHistory(strategy.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to get strategy version history: %v", err),
+		})
+		return
+	}
+
+	versions := make([]map[string]interface{}, 0, len(history))
+	for _, version := range history {
+		config := map[string]interface{}{}
+		if version.StrategyData.Valid && strings.TrimSpace(version.StrategyData.String) != "" {
+			if err := json.Unmarshal([]byte(version.StrategyData.String), &config); err != nil {
+				config = map[string]interface{}{}
+			}
+		}
+
+		name := strategy.Name
+		if value, ok := config["name"].(string); ok && strings.TrimSpace(value) != "" {
+			name = strings.TrimSpace(value)
+		}
+
+		description := strategy.Description
+		if value, ok := config["description"].(string); ok && strings.TrimSpace(value) != "" {
+			description = strings.TrimSpace(value)
+		}
+		if description == "" {
+			description = version.ChangeLog
+		}
+
+		versions = append(versions, map[string]interface{}{
+			"id":                 version.ID,
+			"version_number":     version.Version,
+			"name":               name,
+			"description":        description,
+			"config":             config,
+			"changed_fields":     []string{},
+			"change_reason":      version.ChangeLog,
+			"created_at":         version.CreatedAt,
+			"created_by_user_id": version.CreatedByUserID,
+		})
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"versions": versions,
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *StrategyHandler) RevertVersion(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	versionID, err := strconv.Atoi(c.Param("version_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Invalid version ID",
+		})
+		return
+	}
+
+	history, err := h.service.GetVersionHistory(strategy.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to get strategy version history: %v", err),
+		})
+		return
+	}
+
+	var target *models.StrategyVersionHistory
+	for i := range history {
+		if history[i].ID == versionID {
+			target = &history[i]
+			break
+		}
+	}
+	if target == nil {
+		c.JSON(http.StatusNotFound, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Strategy version not found",
+		})
+		return
+	}
+	if !target.StrategyData.Valid || strings.TrimSpace(target.StrategyData.String) == "" {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Selected strategy version has no saved configuration snapshot",
+		})
+		return
+	}
+
+	reverted := *strategy
+	if err := reverted.FromJSON([]byte(target.StrategyData.String)); err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Invalid strategy snapshot: %v", err),
+		})
+		return
+	}
+
+	reverted.ID = strategy.ID
+	reverted.UserID = strategy.UserID
+	reverted.CreatedAt = strategy.CreatedAt
+	reverted.LastUsedAt = strategy.LastUsedAt
+	reverted.DeletedAt = strategy.DeletedAt
+	reverted.UsageCount = strategy.UsageCount
+	if strings.TrimSpace(reverted.RuntimeStrategy) == "" {
+		reverted.RuntimeStrategy = "cointegration"
+	}
+	reverted.PairSelectionMode = normalizePairSelectionMode(reverted.PairSelectionMode)
+
+	if err := h.service.UpdateStrategy(&reverted); err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to revert strategy version: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      reverted.ToDict(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

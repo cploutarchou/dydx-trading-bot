@@ -6,7 +6,9 @@ Tests bot history, jobs, trades, and statistics endpoints
 import logging
 import uuid
 
+import pytest
 from internal.domain import BotStatusEnum
+from sqlalchemy.exc import OperationalError
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 
@@ -23,7 +25,10 @@ def test_api_database_integration():
     print("=" * 80 + "\n")
 
     # Initialize database
-    db.create_all_tables()
+    try:
+        db.create_all_tables()
+    except OperationalError as exc:
+        pytest.skip(f"PostgreSQL is not reachable for integration test: {exc}")
 
     session = db.get_session()
     uow = UnitOfWork(session)

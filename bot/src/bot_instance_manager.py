@@ -2,6 +2,10 @@
 Bot Instance Manager - Handles multiple bot instances with API control
 """
 
+from src.shared.env_loader import load_repo_env
+
+load_repo_env(__file__)
+
 import asyncio
 import json
 import logging
@@ -14,6 +18,8 @@ from typing import Awaitable, Callable, Dict, List, Optional, TextIO
 
 import psutil
 
+from config.config import config as load_app_config
+from internal.domain.models import BotStatusEnum
 from src.infrastructure.domain.bot_api_models import (
     BotInstanceConfig,
     BotInstanceState,
@@ -21,6 +27,8 @@ from src.infrastructure.domain.bot_api_models import (
     BotOperationResult,
     BotStatus,
 )
+from src.infrastructure.database import db
+from src.infrastructure.persistence.repository import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +60,59 @@ class BotInstanceManager:
         self.status_event_publisher = publisher
 
     def _load_existing_instances(self):
-        """Load bot instances from state directory"""
+        """Load bot instances from the database, with file fallback for compatibility."""
+        loaded_from_db = self._load_existing_instances_from_db()
+        if loaded_from_db is not None:
+            logger.info("Loaded %d existing bot instances from database", loaded_from_db)
+            return
+
+        self._load_existing_instances_from_disk()
+
+    def _load_existing_instances_from_db(self) -> Optional[int]:
+        """Hydrate manager state from persisted bot instances in PostgreSQL."""
+        session = None
+        try:
+            session = db.get_session()
+            uow = UnitOfWork(session)
+            loaded = 0
+
+            for record in uow.bots.get_all():
+                config = self._build_instance_config_from_record(record)
+                if config is None:
+                    continue
+
+                status = self._coerce_record_status(record.status)
+                payload = record.config if isinstance(record.config, dict) else {}
+                runtime_state = payload.get("runtime_state") or {}
+                process_info = {}
+                if getattr(record, "process_id", None) is not None:
+                    process_info["pid"] = record.process_id
+                if runtime_state.get("last_error"):
+                    process_info["last_error"] = runtime_state["last_error"]
+                if runtime_state.get("exit_code") is not None:
+                    process_info["exit_code"] = runtime_state["exit_code"]
+
+                self.instances[record.instance_id] = BotInstanceState(
+                    instance_id=record.instance_id,
+                    config=config,
+                    status=status,
+                    process_info=process_info,
+                    trading_stats=runtime_state.get("trading_stats") or {},
+                    created_at=record.created_at,
+                    last_update=record.updated_at,
+                )
+                loaded += 1
+
+            return loaded
+        except Exception as exc:
+            logger.warning("Failed to load bot instances from database: %s", exc)
+            return None
+        finally:
+            if session is not None:
+                session.close()
+
+    def _load_existing_instances_from_disk(self):
+        """Load bot instances from the legacy compatibility snapshot on disk."""
         state_file = self.state_dir / "instances.json"
         if state_file.exists():
             try:
@@ -70,12 +130,168 @@ class BotInstanceManager:
                             created_at=datetime.fromisoformat(instance_data["created_at"]),
                             last_update=datetime.now(),
                         )
-                logger.info(f"Loaded {len(self.instances)} existing bot instances")
+                logger.info("Loaded %d existing bot instances from disk snapshot", len(self.instances))
             except Exception as e:
                 logger.error(f"Error loading instances: {e}")
 
+    def _build_instance_config_from_record(self, record) -> Optional[BotInstanceConfig]:
+        """Reconstruct the runtime config shape from the persisted DB payload."""
+        payload = record.config if isinstance(record.config, dict) else {}
+        credentials_payload = payload.get("credentials") or {}
+        trading_payload = payload.get("trading_params") or {}
+        backtesting_payload = payload.get("backtesting_params") or None
+        telegram_payload = payload.get("telegram") or None
+
+        address = str(credentials_payload.get("address") or "").strip()
+        mnemonic = str(credentials_payload.get("mnemonic") or "").strip()
+        if not address or not mnemonic:
+            logger.warning(
+                "Skipping bot instance %s during DB recovery because persisted credentials are incomplete",
+                record.instance_id,
+            )
+            return None
+
+        if "is_testnet" not in trading_payload:
+            trading_payload["is_testnet"] = str(record.network).strip().lower() != "mainnet"
+        if "strategy" not in trading_payload or not str(trading_payload["strategy"]).strip():
+            trading_payload["strategy"] = record.strategy
+
+        config_payload = {
+            "instance_id": record.instance_id,
+            "instance_name": payload.get("instance_name") or record.instance_id,
+            "credentials": {
+                "chain_id": credentials_payload.get("chain_id", "dydx-testnet-4"),
+                "address": address,
+                "mnemonic": mnemonic,
+            },
+            "trading_params": trading_payload,
+        }
+        if telegram_payload:
+            config_payload["telegram"] = telegram_payload
+        if backtesting_payload:
+            config_payload["backtesting_params"] = backtesting_payload
+
+        return BotInstanceConfig.model_validate(config_payload)
+
+    def _coerce_record_status(self, raw_status) -> BotStatus:
+        """Normalize persisted status values into API-facing bot status values."""
+        if hasattr(raw_status, "value"):
+            value = raw_status.value
+        else:
+            value = str(raw_status)
+
+        try:
+            return BotStatus(str(value).strip().lower())
+        except ValueError:
+            return BotStatus.STOPPED
+
+    def _db_status_for_instance(self, instance: BotInstanceState) -> BotStatusEnum:
+        """Translate manager status into the SQLAlchemy enum used by persisted rows."""
+        return BotStatusEnum(instance.status.value)
+
+    def _record_runtime_event(
+        self,
+        instance_id: str,
+        event_type: str,
+        severity: str,
+        message: str,
+        details: Optional[dict] = None,
+    ):
+        """Persist runtime events so failures survive process restarts."""
+        session = None
+        try:
+            session = db.get_session()
+            uow = UnitOfWork(session)
+            bot = uow.bots.get_by_instance_id(instance_id)
+            if bot is None:
+                return
+            uow.events.log_event(
+                bot.id,
+                event_type,
+                severity,
+                message,
+                details=details,
+            )
+        except Exception as exc:
+            logger.warning("Failed to record runtime event for %s: %s", instance_id, exc)
+            if session is not None:
+                session.rollback()
+        finally:
+            if session is not None:
+                session.close()
+
+    def _persist_instances_to_db(self):
+        """Sync runtime state back into PostgreSQL so it stays authoritative across restarts."""
+        session = None
+        try:
+            session = db.get_session()
+            uow = UnitOfWork(session)
+            existing = {record.instance_id: record for record in uow.bots.get_all()}
+
+            for instance_id, instance in self.instances.items():
+                record = existing.get(instance_id)
+                if record is None:
+                    continue
+
+                record.status = self._db_status_for_instance(instance)
+                record.process_id = instance.process_info.get("pid")
+                record.network = (
+                    "testnet"
+                    if instance.config.trading_params.is_testnet
+                    else "mainnet"
+                )
+                record.strategy = instance.config.trading_params.strategy
+                persisted_config = dict(record.config or {})
+                persisted_config.update(
+                    {
+                        "instance_name": instance.config.instance_name,
+                        "credentials": instance.config.credentials.model_dump(),
+                        "telegram": (
+                            instance.config.telegram.model_dump()
+                            if instance.config.telegram
+                            else {}
+                        ),
+                        "trading_params": instance.config.trading_params.model_dump(),
+                        "backtesting_params": (
+                            instance.config.backtesting_params.model_dump()
+                            if instance.config.backtesting_params
+                            else {}
+                        ),
+                        "runtime_state": {
+                            "status": instance.status.value,
+                            "process_id": instance.process_info.get("pid"),
+                            "last_error": instance.process_info.get("last_error"),
+                            "exit_code": instance.process_info.get("exit_code"),
+                            "started_at": (
+                                instance.process_info.get("started_at").isoformat()
+                                if isinstance(instance.process_info.get("started_at"), datetime)
+                                else instance.process_info.get("started_at")
+                            ),
+                            "stopped_at": (
+                                instance.process_info.get("stopped_at").isoformat()
+                                if isinstance(instance.process_info.get("stopped_at"), datetime)
+                                else instance.process_info.get("stopped_at")
+                            ),
+                            "last_update": instance.last_update.isoformat(),
+                            "trading_stats": instance.trading_stats,
+                        },
+                    }
+                )
+                record.config = persisted_config
+
+            session.commit()
+        except Exception as exc:
+            logger.warning("Failed to sync bot manager state to database: %s", exc)
+            if session is not None:
+                session.rollback()
+        finally:
+            if session is not None:
+                session.close()
+
     def _save_instances_state(self):
-        """Persist instance state to disk"""
+        """Persist instance state to DB first, plus a compatibility snapshot on disk."""
+        self._persist_instances_to_db()
+
         state_file = self.state_dir / "instances.json"
         try:
             data = {
@@ -222,6 +438,40 @@ class BotInstanceManager:
             logger.warning("Failed to read log tail for %s: %s", instance_id, exc)
             return ""
 
+    def _resolve_external_runtime_process(
+        self, instance_id: str
+    ) -> tuple[Optional[psutil.Process], Optional[str]]:
+        """Probe a persisted runtime PID when the local subprocess handle was lost."""
+        instance = self.instances.get(instance_id)
+        if instance is None:
+            return None, None
+        if instance_id in self.processes:
+            return None, None
+
+        pid = instance.process_info.get("pid")
+        if pid is None:
+            return None, f"Runtime process for {instance_id} is not attached"
+
+        try:
+            process = psutil.Process(int(pid))
+        except (TypeError, ValueError):
+            return None, f"Stored runtime PID for {instance_id} is invalid"
+        except psutil.NoSuchProcess:
+            return None, f"Runtime process for {instance_id} is no longer running"
+
+        try:
+            cmdline = " ".join(process.cmdline())
+        except (psutil.AccessDenied, psutil.ZombieProcess):
+            cmdline = ""
+
+        if cmdline and ("main_instance" not in cmdline or instance_id not in cmdline):
+            return (
+                None,
+                f"Stored runtime PID {pid} for {instance_id} now belongs to a different process",
+            )
+
+        return process, None
+
     def _mark_instance_error(
         self,
         instance_id: str,
@@ -246,27 +496,43 @@ class BotInstanceManager:
         self.processes.pop(instance_id, None)
         self._close_instance_log(instance_id)
         self._save_instances_state()
+        if status_changed and message:
+            self._record_runtime_event(
+                instance_id,
+                "bot_runtime_error",
+                "error",
+                message,
+                details={"exit_code": exit_code},
+            )
 
         return status_changed
 
     def _create_instance_config_file(self, instance_id: str, config: BotInstanceConfig) -> Path:
         """Create instance-specific configuration file"""
         files = self._get_instance_state_files(instance_id)
+        runtime_defaults = load_app_config()
+        if runtime_defaults is None:
+            raise RuntimeError("Failed to resolve runtime configuration defaults")
+
+        telegram_defaults = runtime_defaults.telegram
+        backtest_defaults = runtime_defaults.backtesting
+        logging_defaults = runtime_defaults.logging
+        loki_defaults = logging_defaults.loki
 
         # Create dynamic config YAML for this instance
         config_data = {
             "is_testnet": config.trading_params.is_testnet,
-            "environment": os.getenv("ENVIRONMENT", "development"),
+            "environment": runtime_defaults.environment,
             "telegram": {
                 "token": (
                     config.telegram.token
                     if config.telegram and getattr(config.telegram, "token", "")
-                    else os.getenv("TELEGRAM_BOT_TOKEN", "")
+                    else telegram_defaults.token
                 ),
                 "chat_id": (
                     config.telegram.chat_id
                     if config.telegram and getattr(config.telegram, "chat_id", "")
-                    else os.getenv("TELEGRAM_CHAT_ID", "")
+                    else telegram_defaults.chat_id
                 ),
             },
             "botSettings": {
@@ -294,37 +560,37 @@ class BotInstanceManager:
                 "candleResolution": (
                     config.backtesting_params.candle_resolution
                     if config.backtesting_params
-                    else os.getenv("BACKTEST_CANDLE_RESOLUTION", "1HOUR")
+                    else backtest_defaults.candleResolution
                 ),
                 "maxHistoryDays": (
                     config.backtesting_params.max_history_days
                     if config.backtesting_params
-                    else int(os.getenv("BACKTEST_MAX_HISTORY_DAYS", "90"))
+                    else backtest_defaults.maxHistoryDays
                 ),
                 "startingBalance": (
                     config.backtesting_params.starting_balance
                     if config.backtesting_params
-                    else float(os.getenv("BACKTEST_STARTING_BALANCE", "1000.0"))
+                    else backtest_defaults.startingBalance
                 ),
                 "transactionFee": (
                     config.backtesting_params.transaction_fee
                     if config.backtesting_params
-                    else float(os.getenv("BACKTEST_TRANSACTION_FEE", "0.0005"))
+                    else backtest_defaults.transactionFee
                 ),
                 "slippage": (
                     config.backtesting_params.slippage
                     if config.backtesting_params
-                    else float(os.getenv("BACKTEST_SLIPPAGE", "0.001"))
+                    else backtest_defaults.slippage
                 ),
                 "benchmarkSymbol": (
                     config.backtesting_params.benchmark_symbol
                     if config.backtesting_params
-                    else os.getenv("BACKTEST_BENCHMARK_SYMBOL", "BTC-USD")
+                    else backtest_defaults.benchmarkSymbol
                 ),
                 "riskFreeRate": (
                     config.backtesting_params.risk_free_rate
                     if config.backtesting_params
-                    else float(os.getenv("BACKTEST_RISK_FREE_RATE", "0.02"))
+                    else backtest_defaults.riskFreeRate
                 ),
             },
             "dydx_testnet": {
@@ -344,13 +610,16 @@ class BotInstanceManager:
                 ),
             },
             "logging": {
-                "level": os.getenv("LOG_LEVEL", "INFO"),
+                "level": logging_defaults.level,
                 "loki": {
-                    "enabled": os.getenv("LOKI_ENABLED", "false").lower() == "true",
-                    "url": os.getenv("LOKI_URL", ""),
-                    "username": os.getenv("LOKI_USERNAME", ""),
-                    "password": os.getenv("LOKI_PASSWORD", ""),
-                    "labels": {"instance": instance_id},
+                    "enabled": loki_defaults.enabled,
+                    "url": loki_defaults.url,
+                    "username": loki_defaults.username,
+                    "password": loki_defaults.password,
+                    "labels": {
+                        **(loki_defaults.labels or {}),
+                        "instance": instance_id,
+                    },
                 },
             },
         }
@@ -457,6 +726,7 @@ class BotInstanceManager:
 
             # Get instance files
             files = self._get_instance_state_files(instance_id)
+            bot_root = Path(__file__).resolve().parents[1]
 
             # Prepare environment for bot process
             bot_env = os.environ.copy()
@@ -468,6 +738,11 @@ class BotInstanceManager:
                     "BOT_PAIRS_FILE": str(files["cointegrated_pairs"]),
                 }
             )
+            existing_pythonpath = bot_env.get("PYTHONPATH", "").strip()
+            pythonpath_entries = [str(bot_root)]
+            if existing_pythonpath:
+                pythonpath_entries.append(existing_pythonpath)
+            bot_env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
             if instance.config.telegram:
                 bot_env["TELEGRAM_BOT_TOKEN"] = instance.config.telegram.token or ""
                 bot_env["TELEGRAM_CHAT_ID"] = instance.config.telegram.chat_id or ""
@@ -476,7 +751,8 @@ class BotInstanceManager:
             bot_python = os.getenv("BOT_PYTHON_PATH") or sys.executable
             cmd = [
                 bot_python,
-                "main_instance.py",
+                "-m",
+                "src.main_instance",
                 "--instance-id",
                 instance_id,
                 "--config",
@@ -489,7 +765,7 @@ class BotInstanceManager:
                 env=bot_env,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
-                cwd=Path(__file__).parent,
+                cwd=bot_root,
                 text=True,
                 bufsize=1,
             )
@@ -608,6 +884,39 @@ class BotInstanceManager:
 
                 # Remove process reference
                 del self.processes[instance_id]
+            else:
+                external_process, probe_error = self._resolve_external_runtime_process(instance_id)
+                if external_process is not None:
+                    try:
+                        if force:
+                            external_process.kill()
+                            logger.info(
+                                "Force killed recovered bot instance %s (PID %s)",
+                                instance_id,
+                                external_process.pid,
+                            )
+                        else:
+                            external_process.terminate()
+                            logger.info(
+                                "Gracefully terminating recovered bot instance %s (PID %s)",
+                                instance_id,
+                                external_process.pid,
+                            )
+                            try:
+                                external_process.wait(timeout=30)
+                            except psutil.TimeoutExpired:
+                                external_process.kill()
+                                logger.warning(
+                                    "Force killed recovered bot instance %s after timeout",
+                                    instance_id,
+                                )
+                    except psutil.NoSuchProcess:
+                        logger.info(
+                            "Recovered runtime process already exited for %s before stop completed",
+                            instance_id,
+                        )
+                elif probe_error:
+                    logger.warning("Stop requested for %s but %s", instance_id, probe_error)
 
             # Update instance state
             instance.status = BotStatus.STOPPED
@@ -727,6 +1036,29 @@ class BotInstanceManager:
                             event="error",
                             last_error=error_message,
                         )
+        elif instance.status in {BotStatus.RUNNING, BotStatus.STARTING, BotStatus.STOPPING}:
+            external_process, probe_error = self._resolve_external_runtime_process(instance_id)
+            if external_process is not None:
+                try:
+                    instance.process_info.update(
+                        {
+                            "pid": external_process.pid,
+                            "cpu_usage": external_process.cpu_percent(),
+                            "memory_usage_mb": external_process.memory_info().rss / (1024 * 1024),
+                        }
+                    )
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                    probe_error = f"Runtime process for {instance_id} is no longer running"
+                    external_process = None
+
+            if external_process is None:
+                error_message = probe_error or f"Runtime process for {instance_id} is not attached"
+                if self._mark_instance_error(instance_id, error_message):
+                    await self._publish_strategy_status(
+                        instance_id,
+                        event="error",
+                        last_error=error_message,
+                    )
 
         # Update trading stats from state files
         self._update_instance_trading_stats(instance_id)

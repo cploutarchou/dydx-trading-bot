@@ -1334,10 +1334,18 @@ class ApiClient {
 
   async startStrategyRuntime(
     strategyId: number,
-    network?: 'testnet' | 'mainnet'
+    network?: 'testnet' | 'mainnet',
+    forceRecreate: boolean = false
   ): Promise<ApiResponse<StrategyRuntimeResponse>> {
     try {
-      const query = network ? `?network=${encodeURIComponent(network)}` : '';
+      const params = new URLSearchParams();
+      if (network) {
+        params.set('network', network);
+      }
+      if (forceRecreate) {
+        params.set('force_recreate', 'true');
+      }
+      const query = params.toString() ? `?${params.toString()}` : '';
       const response = await this.client.post<ApiResponse<StrategyRuntimeResponse>>(
         `/api/v1/strategies/${strategyId}/start${query}`
       );

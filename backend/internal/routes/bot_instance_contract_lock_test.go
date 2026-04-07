@@ -26,6 +26,9 @@ func setupBotInstanceContractRouter(t *testing.T, upstream http.Handler) (*gin.E
 	t.Setenv("APP_ENV", "test")
 
 	const secret = "bot-instance-contract-lock-secret"
+	t.Setenv("JWT_SECRET_KEY", secret)
+	t.Setenv("BOT_API_TOKEN", "")
+	t.Setenv("BOT_API_USE_SERVICE_TOKEN", "false")
 	middleware.InitAuthMiddleware(&config.Config{
 		Auth: config.AuthSettings{
 			JWTSecretKey:             secret,
@@ -329,6 +332,54 @@ func TestContractLock_BotTradesStatusQueryAndPayloadShape(t *testing.T) {
 		if _, exists := statsData[key]; !exists {
 			t.Fatalf("missing stats delegated envelope key %q in payload: %v", key, statsData)
 		}
+	}
+}
+
+func TestContractLock_BotStatsMissingUpstreamReturnsEmptyPayload(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/123/stats", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Bot instance '123' not found"}`, http.StatusNotFound)
+	})
+
+	router, dbConn, upstreamServer := setupBotInstanceContractRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginBotInstanceContractUser(t, backendServer.URL)
+
+	statsReq, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/bots/123/stats", nil)
+	statsReq.Header.Set("Authorization", "Bearer "+token)
+	statsResp, err := http.DefaultClient.Do(statsReq)
+	if err != nil {
+		t.Fatalf("stats request failed: %v", err)
+	}
+	defer func() { _ = statsResp.Body.Close() }()
+	if statsResp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(statsResp.Body).Decode(&payload)
+		t.Fatalf("expected stats status 200 for recoverable upstream miss, got %d payload=%v", statsResp.StatusCode, payload)
+	}
+
+	var statsPayload map[string]interface{}
+	if err := json.NewDecoder(statsResp.Body).Decode(&statsPayload); err != nil {
+		t.Fatalf("decode stats response: %v", err)
+	}
+	statsData, ok := statsPayload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected stats data object, got %T", statsPayload["data"])
+	}
+	if statsData["instance_id"] != "123" {
+		t.Fatalf("expected instance_id=123, got %v", statsData["instance_id"])
+	}
+	if statsData["degraded"] != true {
+		t.Fatalf("expected degraded=true, got %v", statsData["degraded"])
+	}
+	if _, ok := statsData["bot_statistics"].(map[string]interface{}); !ok {
+		t.Fatalf("expected bot_statistics object, got %T", statsData["bot_statistics"])
+	}
+	if _, ok := statsData["trade_statistics"].(map[string]interface{}); !ok {
+		t.Fatalf("expected trade_statistics object, got %T", statsData["trade_statistics"])
 	}
 }
 

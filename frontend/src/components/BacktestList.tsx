@@ -2,7 +2,6 @@ import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
-import { devFallback, MOCK_BACKTEST_RUNS } from '../api/mockData';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -112,11 +111,9 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   const [runs, setRuns] = useState<BacktestRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [usingMockData, setUsingMockData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasWarnedMockRef = useRef(false);
   const isLoadingRef = useRef(false);
   const activeRequestIdRef = useRef(0);
   const pollFailureRef = useRef(0);
@@ -128,14 +125,6 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   // Auto-poll while any run is active
   useEffect(() => {
-    if (usingMockData) {
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = null;
-      }
-      return;
-    }
-
     const hasActive = runs.some((r) => {
       const s = normalizeStatus(r.status);
       return s === 'RUNNING' || s === 'PENDING';
@@ -173,7 +162,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         pollRef.current = null;
       }
     };
-  }, [runs, usingMockData]);
+  }, [runs]);
 
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
     // Keep this fast for dashboard rendering: fetch the newest page only.
@@ -182,18 +171,15 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     const raw = toRecord(response);
     const rawData = toRecord(raw.data);
 
-    return devFallback(
-      Array.isArray(rawData.backtests)
-        ? (rawData.backtests as BacktestRun[])
-        : Array.isArray(raw?.backtests)
-          ? (raw.backtests as BacktestRun[])
-          : Array.isArray(rawData.runs)
-            ? (rawData.runs as BacktestRun[])
-            : Array.isArray(raw?.runs)
-              ? (raw.runs as BacktestRun[])
-              : [],
-      MOCK_BACKTEST_RUNS as unknown as BacktestRun[]
-    );
+    return Array.isArray(rawData.backtests)
+      ? (rawData.backtests as BacktestRun[])
+      : Array.isArray(raw?.backtests)
+        ? (raw.backtests as BacktestRun[])
+        : Array.isArray(rawData.runs)
+          ? (rawData.runs as BacktestRun[])
+          : Array.isArray(raw?.runs)
+            ? (raw.runs as BacktestRun[])
+            : [];
   };
 
   const loadBacktests = async (showBlockingLoader: boolean = true) => {
@@ -223,25 +209,13 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       }
       setRuns(nextRuns);
       setHasLoadedOnce(true);
-      setUsingMockData(import.meta.env.DEV && nextRuns.length > 0 && nextRuns[0].run_id.startsWith('mock-run-'));
     } catch (err: unknown) {
       if (activeRequestIdRef.current !== requestId) {
         return;
       }
-      if (import.meta.env.DEV) {
-        if (!hasWarnedMockRef.current) {
-          console.warn('🔧 BacktestList: API unavailable, using mock runs in development.');
-          hasWarnedMockRef.current = true;
-        }
-        setRuns(MOCK_BACKTEST_RUNS as unknown as BacktestRun[]);
-        setHasLoadedOnce(true);
-        setUsingMockData(true);
-        setError(null);
-        return;
-      }
       console.error('❌ BacktestList: Error loading backtests:', err);
       setError(getErrorMessage(err, 'Failed to load backtests'));
-      if (!hasLoadedOnce && !import.meta.env.DEV) {
+      if (!hasLoadedOnce) {
         setRuns([]);
       }
     } finally {
@@ -259,7 +233,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   /** Silent refresh — keeps existing data visible while updating in background. */
   const loadBacktestsSilent = async (): Promise<boolean> => {
-    if (usingMockData || isLoadingRef.current) return true;
+    if (isLoadingRef.current) return true;
     try {
       setRuns(await fetchAllRuns());
       return true;
@@ -313,11 +287,6 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
           <h3 className="text-base font-semibold text-white">Backtest Runs</h3>
           <p className="text-xs text-slate-400 mt-0.5">{runs.length} total run{runs.length !== 1 ? 's' : ''}</p>
         </div>
-        {usingMockData && (
-          <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded border border-amber-700 bg-amber-900/40 text-amber-300">
-            Dev Mock Data
-          </span>
-        )}
       </div>
 
       <div className="px-6 py-3 border-b border-slate-700/60">

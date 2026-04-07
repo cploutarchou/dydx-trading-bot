@@ -1,8 +1,10 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
@@ -114,6 +116,33 @@ func (s *BotInstanceService) DeleteBotInstance(instanceID string) error {
 	}
 
 	return s.repo.DeleteBotInstance(instanceID)
+}
+
+// RecreateBotInstanceWithConfig forcefully replaces a runtime instance both upstream and locally.
+func (s *BotInstanceService) RecreateBotInstanceWithConfig(instance *models.BotInstance, payload map[string]interface{}) error {
+	if s.apiClient == nil {
+		return fmt.Errorf("bot API client not configured")
+	}
+
+	if _, err := s.apiClient.StopBotInstanceWithForce(instance.InstanceID, true); err != nil {
+		var apiErr *BotAPIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			log.Printf("⚠️ best-effort stop before recreate failed for %s: %v", instance.InstanceID, err)
+		}
+	}
+
+	if _, err := s.apiClient.DeleteBotInstance(instance.InstanceID); err != nil {
+		var apiErr *BotAPIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("failed to delete bot instance in bot API: %w", err)
+		}
+	}
+
+	if err := s.repo.DeleteBotInstance(instance.InstanceID); err != nil {
+		return fmt.Errorf("failed to delete bot instance metadata: %w", err)
+	}
+
+	return s.CreateBotInstanceWithConfig(instance, payload)
 }
 
 // StartBotInstance starts a bot instance via the bot API

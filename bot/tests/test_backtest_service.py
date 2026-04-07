@@ -226,6 +226,43 @@ def test_cancel_running_backtest(monkeypatch):
     asyncio.run(_run())
 
 
+def test_failed_backtest_exposes_error_fields(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _failing_connect():
+        raise RuntimeError("historical data fetch failed")
+
+    monkeypatch.setattr(service_module, "connect_dydx", _failing_connect)
+
+    service = BacktestService(session=None)
+
+    async def _run():
+        created = await service.create_and_run_backtest(_request())
+
+        terminal = await _wait_for_terminal_status(service, created.run_id)
+        assert terminal == "failed"
+
+        details = service.get_backtest_details(created.run_id)
+        assert details is not None
+        assert details.status == "failed"
+        assert details.error == "historical data fetch failed"
+        assert details.error_message == "historical data fetch failed"
+
+        status = service.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "failed"
+        assert status.error == "historical data fetch failed"
+        assert status.error_message == "historical data fetch failed"
+
+        progress = service.get_live_progress(created.run_id)
+        assert progress is not None
+        assert progress["error"] == "historical data fetch failed"
+        assert progress["error_message"] == "historical data fetch failed"
+
+    asyncio.run(_run())
+
+
 def test_build_market_pairs_uses_all_unique_combinations():
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
@@ -435,4 +472,3 @@ def test_comprehensive_analytics_includes_sub_objects_and_candle_fields(monkeypa
             assert str(first.get("timestamp", "")).endswith("Z")
 
     asyncio.run(_run())
-

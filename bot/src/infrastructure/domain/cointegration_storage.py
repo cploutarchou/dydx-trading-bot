@@ -6,14 +6,13 @@ cointegration analysis results, including enhanced metrics and confidence scorin
 """
 
 import json
-import logging
 import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def _resolve_pair_storage_path() -> str:

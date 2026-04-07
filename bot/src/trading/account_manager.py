@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 import os
 import random
 from pathlib import Path
@@ -10,13 +9,12 @@ from pathlib import Path
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
+from loguru import logger
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 from src.constants import DYDX_ADDRESS
 from src.shared.utils import format_number
 from src.trading.market_data import get_markets
-
-logger = logging.getLogger(__name__)
 
 
 def _resolve_bot_agents_path() -> Path:
@@ -53,7 +51,7 @@ async def cancel_order(client, order_id):
     cancel = await client.node.cancel_order(
         client.wallet, market_order_id, good_til_block=good_til_block
     )
-    logger.info("Cancel order response: %s", cancel)
+    logger.info("Cancel order response: {}", cancel)
     logger.warning(
         "Attempted to cancel order for %s; please verify cancellation on the dashboard",
         order["ticker"],
@@ -116,7 +114,7 @@ async def is_open_positions(client, market):
 
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
                 logger.debug(
-                    "No subaccount found (404) for market %s - likely fresh testnet account",
+                    "No subaccount found (404) for market {} - likely fresh testnet account",
                     market,
                 )
                 return False
@@ -209,13 +207,13 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Ensure latest order
     if order_id == "":
         sorted_orders = sorted(orders, key=lambda x: x["createdAtHeight"], reverse=True)
-        logger.error("Unable to detect latest order; most recent entry: %s", sorted_orders[0])
+        logger.error("Unable to detect latest order; most recent entry: {}", sorted_orders[0])
         logger.error("Please verify the order status on the dashboard")
         raise RuntimeError("Unable to detect latest exchange order id after placement")
 
     # Print something if error returned
     if "code" in str(order):
-        logger.error("Order returned error payload: %s", order)
+        logger.error("Order returned error payload: {}", order)
 
     # Return result
     return (order, order_id)
@@ -229,7 +227,7 @@ async def cancel_all_orders(client):
         )
     except Exception as e:
         # If the account doesn't exist on the indexer (404) treat as no open orders
-        logger.warning("Could not fetch open orders: %s", e)
+        logger.warning("Could not fetch open orders: {}", e)
         return []
 
     if len(orders) > 0:
@@ -267,7 +265,7 @@ async def abort_all_positions(client):
         positions = await get_open_positions(client)
     except Exception as e:
         # If the indexer returns 404 or similar, assume no positions for this test account
-        logger.warning("Could not fetch open positions: %s", e)
+        logger.warning("Could not fetch open positions: {}", e)
         return []
 
     # Handle open positions

@@ -72,6 +72,7 @@ from src.infrastructure.domain.bot_api_models import (
 from src.infrastructure.domain.models.auth_models import User
 from src.middleware.auth_middleware import (
     authenticate_bearer_token,
+    get_admin_user,
     get_current_active_user,
 )
 
@@ -2571,6 +2572,11 @@ async def list_interrupted_backtests(
     limit: int = 50,
 ):
     """Ops visibility for interrupted/orphaned persisted backtest runs."""
+    return _list_interrupted_backtests_response(limit=limit)
+
+
+def _list_interrupted_backtests_response(limit: int):
+    """Shared response builder for interrupted backtest visibility routes."""
     try:
         service = get_backtest_service()
         report = service.list_interrupted_runs_for_ops(limit=limit)
@@ -2594,6 +2600,11 @@ async def reconcile_interrupted_backtests(
     dry_run: bool = True,
 ):
     """Explicitly reconcile persisted orphaned in-progress runs."""
+    return _reconcile_interrupted_backtests_response(dry_run=dry_run)
+
+
+def _reconcile_interrupted_backtests_response(dry_run: bool):
+    """Shared response builder for interrupted backtest reconcile routes."""
     try:
         service = get_backtest_service()
         report = service.reconcile_interrupted_runs(dry_run=dry_run)
@@ -2613,6 +2624,26 @@ async def reconcile_interrupted_backtests(
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )
+
+
+@app.get("/api/v1/admin/backtests/interrupted")
+async def list_interrupted_backtests_admin(
+    limit: int = 50,
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-scoped alias for interrupted/orphaned persisted backtest visibility."""
+    _ = current_user
+    return _list_interrupted_backtests_response(limit=limit)
+
+
+@app.post("/api/v1/admin/backtests/interrupted/reconcile")
+async def reconcile_interrupted_backtests_admin(
+    dry_run: bool = True,
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-scoped alias for explicit interrupted backtest reconciliation."""
+    _ = current_user
+    return _reconcile_interrupted_backtests_response(dry_run=dry_run)
 
 
 @app.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)

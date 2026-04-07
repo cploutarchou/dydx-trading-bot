@@ -134,6 +134,8 @@ Notes:
 - See [`API_CONTRACT.md`](API_CONTRACT.md) for the locked response shapes and compatibility rules.
 - The workspace OpenAPI snapshot lives at [`openapi.json`](openapi.json).
 
+In `development`, the API also emits verbose request logs with `request_started` / `request_completed` events including `trace_id`, method, path, safe query string, status, duration, and client. Response logging is severity-based in dev mode: `4xx` as warnings and `5xx` as errors.
+
 ## Common commands
 
 From `bot/`:

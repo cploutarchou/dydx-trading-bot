@@ -8,7 +8,6 @@ load_repo_env(__file__)
 
 import asyncio
 import json
-import logging
 import os
 import subprocess
 import sys
@@ -17,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TextIO
 
+from loguru import logger
 import psutil
 from config.config import config as load_app_config
 from internal.domain.models import BotStatusEnum
@@ -30,8 +30,6 @@ from src.infrastructure.domain.bot_api_models import (
     BotStatus,
 )
 from src.infrastructure.persistence.repository import UnitOfWork
-
-logger = logging.getLogger(__name__)
 
 
 class BotInstanceManager:
@@ -89,7 +87,7 @@ class BotInstanceManager:
             self.recovery_diagnostics["source"] = "database"
             self.recovery_diagnostics["loaded"] = loaded_from_db
             self.recovery_diagnostics["completed_at"] = datetime.now(timezone.utc).isoformat()
-            logger.info("Loaded %d existing bot instances from database", loaded_from_db)
+            logger.info("Loaded {} existing bot instances from database", loaded_from_db)
             return
 
         self._load_existing_instances_from_disk()
@@ -161,7 +159,7 @@ class BotInstanceManager:
             self.recovery_diagnostics["loaded"] = loaded
             return loaded
         except Exception as exc:
-            logger.warning("Failed to load bot instances from database: %s", exc)
+            logger.warning("Failed to load bot instances from database: {}", exc)
             self.recovery_diagnostics["last_error"] = str(exc)
             return None
         finally:
@@ -189,7 +187,7 @@ class BotInstanceManager:
                             last_update=datetime.now(),
                         )
                 self.recovery_diagnostics["loaded"] = len(self.instances)
-                logger.info("Loaded %d existing bot instances from disk snapshot", len(self.instances))
+                logger.info("Loaded {} existing bot instances from disk snapshot", len(self.instances))
             except Exception as e:
                 logger.error(f"Error loading instances: {e}")
                 self.recovery_diagnostics["last_error"] = str(e)
@@ -207,7 +205,7 @@ class BotInstanceManager:
         if not address or not mnemonic:
             skip_reason = "persisted credentials are incomplete"
             logger.warning(
-                "Skipping bot instance %s during DB recovery because %s",
+                "Skipping bot instance {} during DB recovery because {}",
                 record.instance_id,
                 skip_reason,
             )
@@ -276,7 +274,7 @@ class BotInstanceManager:
                 details=details,
             )
         except Exception as exc:
-            logger.warning("Failed to record runtime event for %s: %s", instance_id, exc)
+            logger.warning("Failed to record runtime event for {}: {}", instance_id, exc)
             if session is not None:
                 session.rollback()
         finally:
@@ -344,7 +342,7 @@ class BotInstanceManager:
 
             session.commit()
         except Exception as exc:
-            logger.warning("Failed to sync bot manager state to database: %s", exc)
+            logger.warning("Failed to sync bot manager state to database: {}", exc)
             if session is not None:
                 session.rollback()
         finally:
@@ -446,7 +444,7 @@ class BotInstanceManager:
         try:
             await self.status_event_publisher(payload)
         except Exception as exc:
-            logger.warning("Failed to publish strategy status for %s: %s", instance_id, exc)
+            logger.warning("Failed to publish strategy status for {}: {}", instance_id, exc)
 
     def get_strategy_status_snapshot(self) -> List[Dict[str, object]]:
         """Return current strategy runtime snapshot for websocket subscribers."""
@@ -483,7 +481,7 @@ class BotInstanceManager:
             handle.flush()
             handle.close()
         except Exception as exc:
-            logger.warning("Failed to close log handle for %s: %s", instance_id, exc)
+            logger.warning("Failed to close log handle for {}: {}", instance_id, exc)
 
     def _read_recent_log_tail(self, instance_id: str, max_chars: int = 500) -> str:
         """Read the most recent log output for error reporting."""
@@ -498,7 +496,7 @@ class BotInstanceManager:
                 handle.seek(max(0, size - max_chars))
                 return handle.read().decode("utf-8", errors="ignore").strip()
         except Exception as exc:
-            logger.warning("Failed to read log tail for %s: %s", instance_id, exc)
+            logger.warning("Failed to read log tail for {}: {}", instance_id, exc)
             return ""
 
     def _resolve_external_runtime_process(
@@ -979,7 +977,7 @@ class BotInstanceManager:
                             instance_id,
                         )
                 elif probe_error:
-                    logger.warning("Stop requested for %s but %s", instance_id, probe_error)
+                    logger.warning("Stop requested for {} but {}", instance_id, probe_error)
 
             # Update instance state
             instance.status = BotStatus.STOPPED

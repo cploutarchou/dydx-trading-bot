@@ -17,24 +17,132 @@ class DatabaseConfig:
     """Database configuration manager"""
 
     def __init__(self):
-        raw_db_type = os.getenv("DB_TYPE", "postgresql").strip().lower()
+        self.cutover_mode = (
+            os.getenv("BOT_DB_CUTOVER_MODE", "shared")
+            .strip()
+            .lower()
+            .replace("-", "_")
+        )
+        if self.cutover_mode not in {
+            "shared",
+            "dedicated",
+            "dedicated_with_shared_fallback",
+        }:
+            raise ValueError(
+                "Unsupported BOT_DB_CUTOVER_MODE. Use one of: "
+                "shared, dedicated, dedicated_with_shared_fallback"
+            )
+
+        raw_db_type = os.getenv(
+            "BOT_DB_TYPE", os.getenv("DB_TYPE", "postgresql")
+        ).strip().lower()
         if raw_db_type not in {"postgres", "postgresql"}:
             raise ValueError(
                 f"Unsupported DB_TYPE '{raw_db_type}'. Only PostgreSQL is supported."
             )
         self.db_type = "postgresql"
-        self.db_name = os.getenv("DB_NAME", "dydx_bot")
-        self.db_host = os.getenv("DB_HOST", "localhost")
-        self.db_port = os.getenv("DB_PORT", "5432")
-        self.db_user = os.getenv("DB_USER", "postgres")
-        self.db_password = os.getenv("DB_PASSWORD", "")
+        self.database_url = self._resolve_database_url()
+        self.db_name, self.db_host, self.db_port, self.db_user, self.db_password = (
+            self._resolve_db_fields()
+        )
         self.echo_sql = os.getenv("DB_ECHO_SQL", "false").lower() == "true"
         self.pool_size = int(os.getenv("DB_POOL_SIZE", "10"))
         self.max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "20"))
         self.pool_recycle = int(os.getenv("DB_POOL_RECYCLE", "3600"))
 
+    @staticmethod
+    def _normalize_database_url(raw_url: str) -> str:
+        """Normalize postgres URL for SQLAlchemy and enforce supported engine."""
+        candidate = (raw_url or "").strip()
+        if not candidate:
+            return ""
+        lowered = candidate.lower()
+        if lowered.startswith("postgresql+psycopg2://"):
+            return candidate
+        if lowered.startswith("postgresql://"):
+            return "postgresql+psycopg2://" + candidate[len("postgresql://") :]
+        if lowered.startswith("postgres://"):
+            return "postgresql+psycopg2://" + candidate[len("postgres://") :]
+        raise ValueError(
+            "Unsupported database URL scheme. Only PostgreSQL URLs are supported."
+        )
+
+    def _resolve_database_url(self) -> str:
+        """Resolve optional explicit database URL with cutover-mode behavior."""
+        bot_url = self._normalize_database_url(os.getenv("BOT_DATABASE_URL", ""))
+        shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
+
+        if self.cutover_mode == "shared":
+            return shared_url
+        if self.cutover_mode == "dedicated":
+            if bot_url:
+                return bot_url
+            if self._has_bot_db_fields():
+                return ""
+            raise ValueError(
+                "BOT_DB_CUTOVER_MODE=dedicated requires BOT_DATABASE_URL or BOT_DB_* values"
+            )
+
+        # dedicated_with_shared_fallback
+        return bot_url or shared_url
+
+    def _resolve_db_fields(self) -> tuple[str, str, str, str, str]:
+        """Resolve host/port/name/user/password based on cutover mode."""
+        if self.cutover_mode == "shared":
+            return (
+                os.getenv("DB_NAME", "dydx_bot"),
+                os.getenv("DB_HOST", "localhost"),
+                os.getenv("DB_PORT", "5432"),
+                os.getenv("DB_USER", "postgres"),
+                os.getenv("DB_PASSWORD", ""),
+            )
+
+        if self.cutover_mode == "dedicated":
+            if self.database_url:
+                return self._bot_db_fields()
+            if self._has_bot_db_fields():
+                return self._bot_db_fields()
+            raise ValueError(
+                "BOT_DB_CUTOVER_MODE=dedicated requires BOT_DB_HOST, BOT_DB_PORT, "
+                "BOT_DB_NAME, BOT_DB_USER, and BOT_DB_PASSWORD when BOT_DATABASE_URL is unset"
+            )
+
+        # dedicated_with_shared_fallback
+        if self._has_bot_db_fields():
+            return self._bot_db_fields()
+        return (
+            os.getenv("DB_NAME", "dydx_bot"),
+            os.getenv("DB_HOST", "localhost"),
+            os.getenv("DB_PORT", "5432"),
+            os.getenv("DB_USER", "postgres"),
+            os.getenv("DB_PASSWORD", ""),
+        )
+
+    @staticmethod
+    def _has_bot_db_fields() -> bool:
+        required = [
+            os.getenv("BOT_DB_NAME", "").strip(),
+            os.getenv("BOT_DB_HOST", "").strip(),
+            os.getenv("BOT_DB_PORT", "").strip(),
+            os.getenv("BOT_DB_USER", "").strip(),
+            os.getenv("BOT_DB_PASSWORD", "").strip(),
+        ]
+        return all(bool(value) for value in required)
+
+    @staticmethod
+    def _bot_db_fields() -> tuple[str, str, str, str, str]:
+        return (
+            os.getenv("BOT_DB_NAME", "dydx_bot"),
+            os.getenv("BOT_DB_HOST", "localhost"),
+            os.getenv("BOT_DB_PORT", "5432"),
+            os.getenv("BOT_DB_USER", "postgres"),
+            os.getenv("BOT_DB_PASSWORD", ""),
+        )
+
     def get_connection_string(self) -> str:
         """Generate database connection string"""
+        if self.database_url:
+            return self.database_url
         return (
             f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"

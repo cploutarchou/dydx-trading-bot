@@ -222,6 +222,7 @@ def test_openapi_documents_standard_response_envelope():
 
     assert "/api/v1/admin/backtests/interrupted" in schema["paths"]
     assert "/api/v1/admin/backtests/interrupted/reconcile" in schema["paths"]
+    assert "/api/v1/capabilities" in schema["paths"]
 
     status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"]["responses"][
         "200"
@@ -233,6 +234,23 @@ def test_openapi_documents_standard_response_envelope():
         and item.get("$ref") == "#/components/schemas/StandardApiResponse"
         for item in all_of
     )
+
+
+def test_capabilities_endpoint_lists_http_and_websocket_scopes():
+    server = _load_server_module()
+
+    response = asyncio.run(_call(server.api_capabilities()))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert "GET /api/v1/bots" in payload["data"]["http_endpoints"]
+    assert "GET /api/v1/backtests" in payload["data"]["http_endpoints"]
+    assert "POST /api/v1/bots" in payload["data"]["command_endpoints"]
+    assert "GET /api/v1/bots" in payload["data"]["query_endpoints"]
+    assert "WS /ws/strategies" in payload["data"]["websocket_channels"]
+    assert payload["data"]["event_channels"] == payload["data"]["websocket_channels"]
+    assert "WS /ws/bots/{bot_instance_id}" in payload["data"]["websocket_channels"]
+    assert "WS /ws/backtests/{run_id}" in payload["data"]["websocket_channels"]
 
 
 def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):

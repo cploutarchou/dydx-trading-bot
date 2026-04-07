@@ -3970,6 +3970,41 @@
         "x-response-envelope": "StandardApiResponse"
       }
     },
+    "/api/v1/capabilities": {
+      "get": {
+        "description": "Expose bot-service HTTP and websocket capabilities for backend integration.",
+        "operationId": "api_capabilities_api_v1_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Api Capabilities",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
     "/api/v1/strategies": {
       "get": {
         "description": "List stored strategies for the UI.",

@@ -88,7 +88,7 @@ export default function StrategyManager() {
 
   // Load strategies on mount
   useEffect(() => {
-    fetchStrategies();
+    void fetchStrategies();
   }, [fetchStrategies]);
 
   const applyStrategyStatuses = (nextStatuses: StrategyStatus[]) => {
@@ -379,7 +379,7 @@ export default function StrategyManager() {
         ? await apiClient.stopStrategyRuntime(strategy.id)
         : await apiClient.startStrategyRuntime(strategy.id, undefined, forceRecreate);
 
-      if (!shouldStop && !forceRecreate && needsRuntimeRecreateConfirmation(response?.error)) {
+      if (!shouldStop && !forceRecreate && needsRuntimeRecreateConfirmation(response?.data?.last_error ?? response?.message)) {
         if (!confirmRecreate()) {
           mergeStrategyStatus({
             strategyId: strategy.id,
@@ -406,7 +406,9 @@ export default function StrategyManager() {
         4000
       );
     } catch (error: unknown) {
-      if (!shouldStop && needsRuntimeRecreateConfirmation(getErrorMessage(error, ''))) {
+      let resolvedError = error;
+
+      if (!shouldStop && needsRuntimeRecreateConfirmation(getErrorMessage(resolvedError, ''))) {
         const confirmed = confirmRecreate();
         if (confirmed) {
           try {
@@ -421,7 +423,7 @@ export default function StrategyManager() {
             );
             return;
           } catch (retryError: unknown) {
-            error = retryError;
+            resolvedError = retryError;
           }
         }
       }
@@ -429,7 +431,7 @@ export default function StrategyManager() {
       mergeStrategyStatus({
         strategyId: strategy.id,
         status: 'error',
-        lastError: getErrorMessage(error, 'Failed to update strategy runtime'),
+        lastError: getErrorMessage(resolvedError, 'Failed to update strategy runtime'),
         updatedAt: new Date().toISOString(),
         instanceId: currentStatus?.instanceId,
         network: currentStatus?.network,
@@ -676,7 +678,7 @@ export default function StrategyManager() {
               backend-synced runtime state and market context beside each setup.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:min-w-[300px]">
+          <div className="grid grid-cols-2 gap-3 sm:min-w-75">
             <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Active</p>
               <p className="mt-1 text-3xl font-semibold text-emerald-300">{runningCount}</p>

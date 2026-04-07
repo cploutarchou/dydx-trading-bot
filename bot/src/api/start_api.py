@@ -29,6 +29,7 @@ def main() -> None:
         port=port,
         reload=reload_enabled,
         log_level="info",
+        log_config=None,
     )
 
 

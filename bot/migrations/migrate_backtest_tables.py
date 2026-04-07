@@ -3,14 +3,11 @@ Database migration script for backtest tables
 Run this to create the necessary tables for backtest functionality
 """
 
-import logging
-
+from loguru import logger
 from sqlalchemy import create_engine
 
 from database import DatabaseConfig, DatabaseManager
 from internal.domain.models_backtest import BacktestRun
-
-logger = logging.getLogger(__name__)
 
 
 def create_backtest_tables():

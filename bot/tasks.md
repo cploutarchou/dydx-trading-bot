@@ -70,6 +70,7 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
+- [x] 2026-04-08: Development-mode logging now forces verbose API request traces (`request_started` / `request_completed`) with trace id, safe query context, duration, and status-based warning/error severity for faster local debugging.
 - [x] 2026-04-04: Centralized 5xx response sanitization in `api_response(...)` so all internal errors return a safe generic message and never leak raw exception/SQL details to clients.
 - [x] 2026-04-04: Hardened `/api/v1/backtests` + `/api/v1/backtests/run` strategy-lookup path to fall back to manual payload when strategy persistence is temporarily unavailable; removed raw DB error leakage from these internal-error responses.
 - [x] 2026-04-04: Backend completed delegated bot-instance parity follow-ups (stop `force` passthrough, trades `status` query alignment, realtime numeric ID guardrails) and added bot contract-lock integration coverage; backend task backlog now reports pending `0`.

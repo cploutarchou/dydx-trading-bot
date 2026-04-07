@@ -3,17 +3,15 @@ Database initialization script
 Creates authentication tables and default admin user
 """
 
-import logging
 from datetime import datetime
 from typing import Type, Union
 
+from loguru import logger
 from auth_utils import PasswordUtils
 from database import db, init_db
 from internal.domain.models.auth_models import User
 from sqlalchemy.orm import Session
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 def create_admin_user(session: Session) -> Union[Type[User], User]:

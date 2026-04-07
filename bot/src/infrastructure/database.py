@@ -1,18 +1,16 @@
 """Database configuration and connection management for PostgreSQL only."""
 
-import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 from alembic import command
 from alembic.config import Config
+from loguru import logger
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
-
-logger = logging.getLogger(__name__)
 
 
 class DatabaseConfig:
@@ -146,7 +144,7 @@ class DatabaseManager:
         config = DatabaseConfig()
         alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"
         if not alembic_path.exists():
-            logger.warning("Alembic config not found at %s; skipping migrations", alembic_path)
+            logger.warning("Alembic config not found at {}; skipping migrations", alembic_path)
             return None
 
         alembic_config = Config(str(alembic_path))
@@ -176,11 +174,11 @@ class DatabaseManager:
                 return "skipped-core-schema-not-detected"
 
         logger.warning(
-            "Legacy schema detected without alembic_version; stamping revision %s",
+            "Legacy schema detected without alembic_version; stamping revision {}",
             baseline_revision,
         )
         command.stamp(alembic_config, baseline_revision)
-        logger.info("Alembic baseline stamp completed at %s", baseline_revision)
+        logger.info("Alembic baseline stamp completed at {}", baseline_revision)
         return "stamped"
 
     def run_pending_migrations(self):
@@ -191,9 +189,9 @@ class DatabaseManager:
 
         baseline_revision = "8c1f34af2f10"
         baseline_status = self.ensure_alembic_baseline(baseline_revision=baseline_revision)
-        logger.info("Alembic baseline path: %s", baseline_status)
+        logger.info("Alembic baseline path: {}", baseline_status)
         if baseline_status == "stamped":
-            logger.info("Alembic baseline stamped revision=%s", baseline_revision)
+            logger.info("Alembic baseline stamped revision={}", baseline_revision)
 
         with self.get_engine().begin() as connection:
             inspector = inspect(connection)
@@ -257,7 +255,9 @@ if __name__ == "__main__":
     # Test database connection
     import sys
 
-    logging.basicConfig(level=logging.INFO)
+    from src.shared.logging_setup import setup_logging
+
+    setup_logging()
 
     try:
         db_manager = DatabaseManager()

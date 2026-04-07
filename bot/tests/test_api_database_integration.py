@@ -3,18 +3,15 @@
 Test script to verify API database integration endpoints
 Tests bot history, jobs, trades, and statistics endpoints
 """
-import logging
 import uuid
 
 import pytest
+from loguru import logger
 from internal.domain import BotStatusEnum
 from sqlalchemy.exc import OperationalError
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 def test_api_database_integration():
@@ -345,8 +342,8 @@ def test_api_database_integration():
         print("\n✨ All bot data is now available through the API!")
         print("=" * 80 + "\n")
 
-    except Exception as e:
-        logger.error(f"Test failed: {e}", exc_info=True)
+    except Exception:
+        logger.exception("Test failed")
         raise
 
     finally:

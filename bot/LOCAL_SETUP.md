@@ -134,6 +134,8 @@ Notes:
 - See [`API_CONTRACT.md`](API_CONTRACT.md) for the locked response shapes and compatibility rules.
 - The workspace OpenAPI snapshot lives at [`openapi.json`](openapi.json).
 
+In `development`, the API also emits verbose request logs with `request_started` / `request_completed` events including `trace_id`, method, path, safe query string, status, duration, and client. Response logging is severity-based in dev mode: `4xx` as warnings and `5xx` as errors. Local TTY runs now use a colored structured Loguru console format (`time | level | module | func | line | process | message`), while redirected output and per-instance `bot_states/*.log` files stay plain-text.
+
 ## Common commands
 
 From `bot/`:

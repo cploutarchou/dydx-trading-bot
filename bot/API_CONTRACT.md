@@ -59,6 +59,7 @@ For backend/frontend compatibility, backtest payloads include stable aliases:
 - `GET /api/v1/backtests/{run_id}/status`
   - includes `progress_pct` and alias `progress`
   - includes `count: 1`
+  - run status is persisted server-side, so polling survives API reload/restart events
 - Run-scoped child endpoints include `run_id` in `data`.
 
 ## Contract Quick Table

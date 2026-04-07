@@ -151,6 +151,8 @@ If you run the canonical API from JetBrains using the FastAPI run configuration 
 
 `src/api/server.py` already calls `load_repo_env(__file__)`, so structured repo config is loaded before the API imports runtime/config modules. On startup, the bot now also normalizes legacy `bot_instances.status` rows to uppercase enum-compatible values (`error` -> `ERROR`, `failed` -> `ERROR`, `paused` -> `STOPPED`) before ORM-driven status reads occur.
 
+Backtest run state is now persisted in PostgreSQL (`backtest_runtime_runs`), so `GET /api/v1/backtests/{run_id}/status` continues to work after API reload/restart instead of depending solely on in-memory service state.
+
 ## Common commands
 
 From `bot/`:

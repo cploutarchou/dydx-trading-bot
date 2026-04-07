@@ -362,14 +362,24 @@ func (s *StrategyRuntimeService) buildBotInstanceRecord(
 	instanceID string,
 	runtimeKey *runtimeKeyMaterial,
 ) *models.BotInstance {
-	tradingParamsRaw, _ := json.Marshal(s.buildTradingParams(strategy, runtimeKey.Network))
-	configRaw, _ := json.Marshal(map[string]interface{}{
+	tradingParams := s.buildTradingParams(strategy, runtimeKey.Network)
+	configPayload := map[string]interface{}{
+		"instance_name": strategy.Name,
+		"credentials": map[string]interface{}{
+			"chain_id": chainIDForNetwork(runtimeKey.Network),
+			"address":  runtimeKey.ChainAddress,
+			"mnemonic": runtimeKey.SecretPhrase,
+		},
+		"telegram":           s.buildTelegramParams(),
+		"trading_params":     tradingParams,
+		"backtesting_params": s.buildBacktestingParams(strategy),
 		"strategy_id":        strategy.ID,
 		"strategy_name":      strategy.Name,
 		"managed_by":         "strategy_runtime",
 		"runtime_strategy":   resolvedRuntimeStrategy(strategy),
-		"backtesting_params": s.buildBacktestingParams(strategy),
-	})
+	}
+	tradingParamsRaw, _ := json.Marshal(tradingParams)
+	configRaw, _ := json.Marshal(configPayload)
 
 	return &models.BotInstance{
 		InstanceID:   instanceID,

@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover
     coint = None
 
 from src.trading.dydx_client import connect_dydx
+from src.infrastructure.persistence.repository_backtest import BacktestRepository
 
 
 class _BacktestRunStatus(BaseModel):
@@ -92,7 +93,61 @@ class BacktestService:
     }
 
     def __init__(self, session: Any):
-        self.session = session
+        self.repository = (
+            session if isinstance(session, BacktestRepository) else BacktestRepository(session)
+        )
+        self.session = getattr(self.repository, "session", session)
+        self._reconcile_interrupted_runs()
+
+    def _reconcile_interrupted_runs(self) -> None:
+        """Mark orphaned created/running runs as failed after API reload or restart."""
+        for run in self.repository.list_runs(limit=None, offset=0):
+            run_id = str(run.get("run_id") or "").strip()
+            if not run_id:
+                continue
+
+            status = str(run.get("status") or "").strip().lower()
+            if status in {"created", "running"} and run_id not in self._tasks:
+                interrupted = dict(run)
+                interrupted.update(
+                    {
+                        "status": "failed",
+                        "current_task": "failed",
+                        "error": "Backtest interrupted by API reload or restart",
+                        "error_message": "Backtest interrupted by API reload or restart",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                self._runs[run_id] = self.repository.save_run(interrupted)
+                continue
+
+            self._runs[run_id] = dict(run)
+
+    def _load_run_data(self, run_id: str) -> Optional[Dict[str, Any]]:
+        cached = self._runs.get(run_id)
+        if cached is not None:
+            return dict(cached)
+
+        persisted = self.repository.get_run(run_id)
+        if persisted is None:
+            return None
+
+        self._runs[run_id] = dict(persisted)
+        return dict(persisted)
+
+    def _persist_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        persisted = self.repository.save_run(run_data)
+        self._runs[str(persisted["run_id"])] = dict(persisted)
+        return dict(persisted)
+
+    def _update_run_data(self, run_id: str, **updates: Any) -> Optional[Dict[str, Any]]:
+        run_data = self._load_run_data(run_id)
+        if run_data is None:
+            return None
+        run_data.update(updates)
+        if "updated_at" not in updates:
+            run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return self._persist_run_data(run_data)
 
     @staticmethod
     def _clamp(value: float, minimum: float, maximum: float) -> float:
@@ -696,7 +751,7 @@ class BacktestService:
         request_payload: Dict[str, Any],
         progress_callback: Any,
     ) -> None:
-        run_data = self._runs.get(run_id)
+        run_data = self._load_run_data(run_id)
         if not run_data:
             return
 
@@ -704,6 +759,7 @@ class BacktestService:
         try:
             run_data["status"] = "running"
             run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            run_data = self._persist_run_data(run_data)
 
             params = request_payload.get("trading_parameters") or {}
             pairs_raw = request_payload.get("pairs") or []
@@ -802,6 +858,7 @@ class BacktestService:
                 run_data["progress_pct"] = progress
                 run_data["current_pair"] = f"{m1}/{m2}"
                 run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                run_data = self._persist_run_data(run_data)
 
                 if progress_callback is not None:
                     await progress_callback(run_id, progress, f"{m1}/{m2}", 0)
@@ -906,6 +963,7 @@ class BacktestService:
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
+            run_data = self._persist_run_data(run_data)
 
             if progress_callback is not None:
                 await progress_callback(run_id, 100.0, "complete", 0)
@@ -922,6 +980,7 @@ class BacktestService:
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
+            run_data = self._persist_run_data(run_data)
         except Exception as exc:
             error_message = str(exc)
             run_data.update(
@@ -933,6 +992,7 @@ class BacktestService:
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
+            run_data = self._persist_run_data(run_data)
         finally:
             self._tasks.pop(run_id, None)
             if client is not None:
@@ -988,7 +1048,7 @@ class BacktestService:
             "daily_pnl": [],
             "cancel_requested": False,
         }
-        self._runs[run_id] = run_data
+        run_data = self._persist_run_data(run_data)
 
         task = asyncio.create_task(
             self._execute_backtest(
@@ -1000,6 +1060,7 @@ class BacktestService:
         self._tasks[run_id] = task
         run_data["status"] = "running"
         run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        run_data = self._persist_run_data(run_data)
 
         return _BacktestRunDetails(**run_data)
 
@@ -1010,21 +1071,26 @@ class BacktestService:
         status_filter: Optional[str] = None,
         days_filter: Optional[int] = None,
     ) -> _BacktestRunList:
-        del days_filter
-        runs = list(self._runs.values())
-        if status_filter:
-            runs = [r for r in runs if str(r.get("status")) == status_filter]
-        sliced = runs[offset : offset + limit]
-        return _BacktestRunList(runs=sliced, total=len(runs))
+        runs = self.repository.list_runs(
+            limit=limit,
+            offset=offset,
+            status_filter=status_filter,
+            days_filter=days_filter,
+        )
+        total = self.repository.count_runs(
+            statuses=[status_filter] if status_filter else None,
+            days_filter=days_filter,
+        )
+        return _BacktestRunList(runs=runs, total=total)
 
     def get_backtest_details(self, run_id: str) -> Optional[_BacktestRunDetails]:
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return None
         return _BacktestRunDetails(**data)
 
     def get_backtest_status(self, run_id: str) -> Optional[_BacktestRunStatus]:
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return None
         return _BacktestRunStatus(
@@ -1058,7 +1124,7 @@ class BacktestService:
         winning_only: bool = False,
     ) -> List[_BacktestTrade]:
         """Return trades captured during backtest execution."""
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return []
         raw_trades = data.get("trades")
@@ -1140,7 +1206,7 @@ class BacktestService:
         return trades[offset : offset + limit]
 
     def cancel_backtest(self, run_id: str) -> bool:
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return False
         data["cancel_requested"] = True
@@ -1149,17 +1215,18 @@ class BacktestService:
             task.cancel()
         data["status"] = "cancelled"
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._persist_run_data(data)
         return True
 
     def delete_backtest(self, run_id: str) -> bool:
         task = self._tasks.get(run_id)
         if task and not task.done():
             task.cancel()
-        return self._runs.pop(run_id, None) is not None
+        self._runs.pop(run_id, None)
+        return self.repository.delete_run(run_id)
 
     def get_summary_stats(self, days: int = 30) -> Dict[str, Any]:
-        del days
-        runs = list(self._runs.values())
+        runs = self.repository.list_runs(limit=None, offset=0, days_filter=days)
         completed = [r for r in runs if r.get("status") == "completed"]
         return {
             "total_runs": len(runs),
@@ -1172,7 +1239,7 @@ class BacktestService:
 
     def get_runtime_health(self) -> Dict[str, int]:
         """Runtime counters used by orchestration and health endpoints."""
-        runs = list(self._runs.values())
+        runs = self.repository.list_runs(limit=None, offset=0)
         active_statuses = {"created", "running"}
         queued_or_running = [r for r in runs if str(r.get("status")) in active_statuses]
         return {
@@ -1182,7 +1249,7 @@ class BacktestService:
         }
 
     def get_backtest_analytics(self, run_id: str) -> Optional[Dict[str, Any]]:
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return None
         return {
@@ -1199,7 +1266,7 @@ class BacktestService:
         run_id: str,
         benchmark: str = "BTC-USD",
     ) -> Optional[Dict[str, Any]]:
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return None
         return {
@@ -1212,7 +1279,7 @@ class BacktestService:
         }
 
     def get_live_progress(self, run_id: str) -> Optional[Dict[str, Any]]:
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return None
         progress = float(data.get("progress_pct", 0.0))
@@ -1246,7 +1313,7 @@ class BacktestService:
         missing_runs: List[str] = []
 
         for run_id in run_ids:
-            run = self._runs.get(run_id)
+            run = self._load_run_data(run_id)
             if run is None:
                 missing_runs.append(run_id)
                 continue
@@ -1312,7 +1379,7 @@ class BacktestService:
 
     def get_comprehensive_analytics(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Full analytics including daily_pnl series for equity curve rendering."""
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return None
         if isinstance(data.get("daily_pnl"), list) and data.get("daily_pnl"):
@@ -1395,7 +1462,7 @@ class BacktestService:
         market_pair: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return position snapshots captured during the run."""
-        data = self._runs.get(run_id)
+        data = self._load_run_data(run_id)
         if not data:
             return []
         raw_snapshots = data.get("position_snapshots")

@@ -204,3 +204,33 @@ class StrategyVersion(Base):
     average_backtest_pnl = Column(Float, nullable=True)
 
     strategy = relationship("Strategy", back_populates="versions")
+
+
+class BacktestRun(Base):
+    __tablename__ = "backtest_runtime_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    status = Column(String(32), nullable=False, default="created", index=True)
+    progress_pct = Column(Float, nullable=False, default=0.0)
+    current_pair = Column(String(255), nullable=True)
+    current_task = Column(String(64), nullable=True)
+    total_pnl = Column(Float, nullable=False, default=0.0)
+    win_rate = Column(Float, nullable=False, default=0.0)
+    sharpe_ratio = Column(Float, nullable=False, default=0.0)
+    max_drawdown_pct = Column(Float, nullable=False, default=0.0)
+    total_trades = Column(Integer, nullable=False, default=0)
+    profit_factor = Column(Float, nullable=False, default=0.0)
+    start_date = Column(String(32), nullable=True)
+    end_date = Column(String(32), nullable=True)
+    error = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    request_json = Column(JSON, nullable=False, default=dict)
+    trades_json = Column(JSON, nullable=False, default=list)
+    position_snapshots_json = Column(JSON, nullable=False, default=list)
+    daily_pnl_json = Column(JSON, nullable=False, default=list)
+    cancel_requested = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False, index=True)
+

@@ -7,6 +7,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
@@ -472,3 +475,42 @@ def test_comprehensive_analytics_includes_sub_objects_and_candle_fields(monkeypa
             assert str(first.get("timestamp", "")).endswith("Z")
 
     asyncio.run(_run())
+
+
+def test_backtest_status_survives_service_recreation_with_db_repository(monkeypatch, tmp_path):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _failing_connect():
+        raise RuntimeError("historical data fetch failed")
+
+    monkeypatch.setattr(service_module, "connect_dydx", _failing_connect)
+
+    db_path = tmp_path / "backtest_runs.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}", future=True)
+
+    from internal.domain import Base
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+
+    async def _run():
+        service = BacktestService(BacktestRepository(SessionLocal()))
+        created = await service.create_and_run_backtest(_request())
+
+        terminal = await _wait_for_terminal_status(service, created.run_id)
+        assert terminal == "failed"
+
+        BacktestService._runs.clear()
+        recreated = BacktestService(BacktestRepository(SessionLocal()))
+        status = recreated.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "failed"
+        assert status.error == "historical data fetch failed"
+
+    asyncio.run(_run())
+

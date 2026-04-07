@@ -52,6 +52,12 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=dydx_bot
 DB_USER=postgres
+DB_PASSWORD=change-me-db-password
+DB_TIMEOUT=5
+DB_POOL_SIZE=5
+DB_MAX_CONNECTIONS=10
+DB_MAX_OVERFLOW=10
+SSL_MODE=false
 BOT_DB_HOST=localhost
 BOT_DB_PORT=5432
 BOT_DB_NAME=dydx_bot
@@ -62,6 +68,8 @@ LOKI_ENABLED=false
 ```
 
 `BOT_DB_*` (or `BOT_DATABASE_URL`) is now preferred for bot-service database isolation; if omitted, the runtime falls back to shared `DB_*` values.
+
+`POSTGRES_*` aliases (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`) are also supported and used when matching `DB_*` keys are not set.
 
 `BOT_DB_CUTOVER_MODE` controls migration behavior:
 
@@ -125,6 +133,7 @@ When the API is running on port `8889`:
 - Health: <http://localhost:8889/health>
 - Readiness: <http://localhost:8889/ready>
 - Capabilities: <http://localhost:8889/api/v1/capabilities>
+- Runtime DB config (admin): <http://localhost:8889/api/v1/runtime/db-config>
 
 ## API contract notes
 
@@ -177,6 +186,11 @@ make local-bot
 make test
 make preflight-testnet
 ```
+
+## Staging to Production Handoff
+
+Use this guide for local/staging setup and validation only.
+Before production rollout, complete `BACKEND_HANDOFF_CHECKLIST.md` for backend/bot go-live sign-off.
 
 ## Quick lifecycle example
 

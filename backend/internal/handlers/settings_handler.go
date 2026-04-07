@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/config"
+	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -19,6 +21,29 @@ import (
 // SettingsHandler handles settings API endpoints
 type SettingsHandler struct {
 	service services.SettingsServiceIface
+}
+
+func (h *SettingsHandler) resolveEffectiveRedisSetting() (*models.RedisSetting, error) {
+	redisSetting, err := h.service.GetRedisSetting()
+	if err != nil {
+		return nil, err
+	}
+	if redisSetting != nil {
+		return redisSetting, nil
+	}
+
+	if config.ConfigInstance == nil || !config.ConfigInstance.Redis.Enabled {
+		return nil, nil
+	}
+
+	return &models.RedisSetting{
+		Enabled:  config.ConfigInstance.Redis.Enabled,
+		Host:     config.ConfigInstance.Redis.Host,
+		Port:     config.ConfigInstance.Redis.Port,
+		Db:       config.ConfigInstance.Redis.Db,
+		Password: config.ConfigInstance.Redis.Password,
+		SSL:      config.ConfigInstance.Redis.SSL,
+	}, nil
 }
 
 func inferValueType(value interface{}) string {
@@ -325,7 +350,7 @@ func (h *SettingsHandler) DeleteBotSetting(c *gin.Context) {
 
 // GetRedisSetting retrieves redis settings
 func (h *SettingsHandler) GetRedisSetting(c *gin.Context) {
-	setting, err := h.service.GetRedisSetting()
+	setting, err := h.resolveEffectiveRedisSetting()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -839,7 +864,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 		})
 	}
 
-	redisSetting, err := h.service.GetRedisSetting()
+	redisSetting, err := h.resolveEffectiveRedisSetting()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -932,7 +957,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 
 // TestRedisConnection tests the connectivity to the configured Redis server.
 func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
-	redisSetting, err := h.service.GetRedisSetting()
+	redisSetting, err := h.resolveEffectiveRedisSetting()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -1076,7 +1101,7 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	if len(redisUpdates) > 0 {
-		existingRedis, err := h.service.GetRedisSetting()
+		existingRedis, err := h.resolveEffectiveRedisSetting()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, APIResponse{
 				Success:   false,

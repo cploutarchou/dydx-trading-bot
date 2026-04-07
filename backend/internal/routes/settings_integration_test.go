@@ -436,6 +436,60 @@ func TestSettings_GetSettings_IncludesRedisSectionWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestSettings_GetRedisSetting_FallsBackToRuntimeConfig(t *testing.T) {
+	originalConfig := config.ConfigInstance
+	t.Cleanup(func() {
+		config.ConfigInstance = originalConfig
+	})
+
+	config.ConfigInstance = &config.Config{
+		Redis: config.RedisSettings{
+			Enabled: true,
+			Host:    "localhost",
+			Port:    6379,
+			Db:      0,
+			SSL:     false,
+		},
+	}
+
+	svc := newMockSettingsService()
+	router, token := setupSettingsRouter(svc)
+	config.ConfigInstance.Redis = config.RedisSettings{
+		Enabled: true,
+		Host:    "localhost",
+		Port:    6379,
+		Db:      0,
+		SSL:     false,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings/redis", nil)
+	req.Header.Set("Authorization", authHeader(token))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Enabled bool   `json:"enabled"`
+			Host    string `json:"host"`
+			Port    int    `json:"port"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Success {
+		t.Fatal("expected success response")
+	}
+	if !resp.Data.Enabled || resp.Data.Host != "localhost" || resp.Data.Port != 6379 {
+		t.Fatalf("unexpected redis fallback data: %+v", resp.Data)
+	}
+}
+
 func TestSettings_Schema_IncludesRequiredSections(t *testing.T) {
 	svc := newMockSettingsService()
 	router, _ := setupSettingsRouter(svc)
@@ -472,8 +526,19 @@ func TestSettings_Schema_IncludesRequiredSections(t *testing.T) {
 }
 
 func TestSettings_TestRedisConnection_NotConfigured(t *testing.T) {
+	originalConfig := config.ConfigInstance
+	t.Cleanup(func() {
+		config.ConfigInstance = originalConfig
+	})
+	config.ConfigInstance = &config.Config{
+		Redis: config.RedisSettings{
+			Enabled: false,
+		},
+	}
+
 	svc := newMockSettingsService() // no redis setting
 	router, token := setupSettingsRouter(svc)
+	config.ConfigInstance.Redis = config.RedisSettings{Enabled: false}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/test-connection", nil)
 	req.Header.Set("Authorization", authHeader(token))
@@ -499,6 +564,58 @@ func TestSettings_TestRedisConnection_NotConfigured(t *testing.T) {
 	}
 	if resp.Data.Connected {
 		t.Error("connected should be false when Redis is not configured")
+	}
+}
+
+func TestSettings_TestRedisConnection_UsesRuntimeConfigFallback(t *testing.T) {
+	originalConfig := config.ConfigInstance
+	t.Cleanup(func() {
+		config.ConfigInstance = originalConfig
+	})
+	config.ConfigInstance = &config.Config{
+		Redis: config.RedisSettings{
+			Enabled: true,
+			Host:    "127.0.0.2",
+			Port:    19999,
+			Db:      0,
+			SSL:     false,
+		},
+	}
+
+	svc := newMockSettingsService()
+	router, token := setupSettingsRouter(svc)
+	config.ConfigInstance.Redis = config.RedisSettings{
+		Enabled: true,
+		Host:    "127.0.0.2",
+		Port:    19999,
+		Db:      0,
+		SSL:     false,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/test-connection", nil)
+	req.Header.Set("Authorization", authHeader(token))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Connected bool   `json:"connected"`
+			Message   string `json:"message"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Success {
+		t.Fatal("expected success response")
+	}
+	if resp.Data.Message == "Redis is not configured" {
+		t.Fatal("expected runtime redis config to be used instead of not-configured fallback")
 	}
 }
 

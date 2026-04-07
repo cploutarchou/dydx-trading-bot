@@ -183,8 +183,8 @@ class BacktestSettings:
 
 @dataclass
 class DatabaseSettings:
-    type: str = "sqlite"  # sqlite or postgresql
-    name: str = "dydx_backtest.db"
+    type: str = "postgresql"
+    name: str = "dydx_bot"
     user: str = "postgres"
     password: str = ""
     host: str = "localhost"
@@ -327,9 +327,15 @@ class ConfigurationManager:
 
     def _build_database_settings_from_env(self) -> DatabaseSettings:
         """Build database settings from environment variables."""
+        db_type = _get_env("DB_TYPE", default="postgresql").strip().lower()
+        if db_type not in {"postgres", "postgresql"}:
+            raise ValueError(
+                f"Unsupported DB_TYPE '{db_type}'. Only PostgreSQL is supported."
+            )
+
         return DatabaseSettings(
-            type=_get_env("DB_TYPE", default="sqlite"),
-            name=_get_env("DB_NAME", "POSTGRES_DB", default="trading_bot.db"),
+            type="postgresql",
+            name=_get_env("DB_NAME", "POSTGRES_DB", default="dydx_bot"),
             user=_get_env("DB_USER", "POSTGRES_USER", default="postgres"),
             password=_get_env("DB_PASSWORD", "POSTGRES_PASSWORD", default=""),
             host=_get_env("DB_HOST", default="localhost"),

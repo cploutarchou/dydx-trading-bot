@@ -1,7 +1,4 @@
-"""
-Database configuration and connection management
-Supports SQLite (development) and PostgreSQL (production)
-"""
+"""Database configuration and connection management for PostgreSQL only."""
 
 import logging
 import os
@@ -10,10 +7,10 @@ from typing import Optional
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import QueuePool, StaticPool
+from sqlalchemy.pool import QueuePool
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +19,13 @@ class DatabaseConfig:
     """Database configuration manager"""
 
     def __init__(self):
-        raw_db_type = os.getenv("DB_TYPE", "sqlite").strip().lower()
-        # Accept common aliases from compose/env files
-        if raw_db_type in {"postgres", "postgresql"}:
-            self.db_type = "postgresql"
-        elif raw_db_type in {"sqlite", "sqlite3"}:
-            self.db_type = "sqlite"
-        else:
-            self.db_type = raw_db_type
-        self.db_name = os.getenv("DB_NAME", "trading_bot.db")
+        raw_db_type = os.getenv("DB_TYPE", "postgresql").strip().lower()
+        if raw_db_type not in {"postgres", "postgresql"}:
+            raise ValueError(
+                f"Unsupported DB_TYPE '{raw_db_type}'. Only PostgreSQL is supported."
+            )
+        self.db_type = "postgresql"
+        self.db_name = os.getenv("DB_NAME", "dydx_bot")
         self.db_host = os.getenv("DB_HOST", "localhost")
         self.db_port = os.getenv("DB_PORT", "5432")
         self.db_user = os.getenv("DB_USER", "postgres")
@@ -42,46 +37,26 @@ class DatabaseConfig:
 
     def get_connection_string(self) -> str:
         """Generate database connection string"""
-        if self.db_type == "postgresql":
-            return (
-                f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
-                f"@{self.db_host}:{self.db_port}/{self.db_name}"
-            )
-        elif self.db_type == "sqlite":
-            return f"sqlite:///{self.db_name}"
-        else:
-            raise ValueError(f"Unsupported database type: {self.db_type}")
+        return (
+            f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
     def get_engine_kwargs(self) -> dict:
-        """Get SQLAlchemy engine kwargs based on a DB type"""
-        base_kwargs = {
+        """Get SQLAlchemy engine kwargs for PostgreSQL."""
+        return {
             "echo": self.echo_sql,
             "future": True,
+            "poolclass": QueuePool,
+            "pool_size": self.pool_size,
+            "max_overflow": self.max_overflow,
+            "pool_recycle": self.pool_recycle,
+            "connect_args": {
+                "connect_timeout": 10,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+            },
         }
-
-        if self.db_type == "postgresql":
-            base_kwargs.update(
-                {
-                    "poolclass": QueuePool,
-                    "pool_size": self.pool_size,
-                    "max_overflow": self.max_overflow,
-                    "pool_recycle": self.pool_recycle,
-                    "connect_args": {
-                        "connect_timeout": 10,
-                        "keepalives": 1,
-                        "keepalives_idle": 30,
-                    },
-                }
-            )
-        elif self.db_type == "sqlite":
-            base_kwargs.update(
-                {
-                    "poolclass": StaticPool,
-                    "connect_args": {"check_same_thread": False},
-                }
-            )
-
-        return base_kwargs
 
 
 class DatabaseManager:
@@ -110,16 +85,6 @@ class DatabaseManager:
         logger.info(f"Connection string: {connection_string.split('@')[0]}@***")
 
         self._engine = create_engine(connection_string, **engine_kwargs)
-
-        # Enable WAL mode for SQLite (better for concurrent access)
-        if config.db_type == "sqlite":
-
-            @event.listens_for(Engine, "connect")
-            def set_sqlite_pragma(dbapi_conn, connection_record):
-                cursor = dbapi_conn.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA synchronous=NORMAL")
-                cursor.close()
 
         self._session_factory = sessionmaker(
             bind=self._engine,

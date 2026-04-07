@@ -60,30 +60,16 @@ type DatabaseSettings struct {
 }
 
 func (db *DatabaseSettings) DSN() string {
-	switch db.Type {
-	case "postgresql", "postgres":
-		sslMode := "disable"
-		if db.SSL {
-			sslMode = "require"
-		}
-		return "host=" + db.Host + " port=" + strconv.Itoa(db.Port) + " user=" + db.User + " dbname=" + db.Dbname + " password=" + db.Password + " sslmode=" + sslMode + " connect_timeout=" + strconv.Itoa(db.Timeout)
-	case "sqlite3", "sqlite":
-		return fmt.Sprintf("%s.db", db.Dbname)
-	default:
-		return "app.db"
+	sslMode := "disable"
+	if db.SSL {
+		sslMode = "require"
 	}
+	return "host=" + db.Host + " port=" + strconv.Itoa(db.Port) + " user=" + db.User + " dbname=" + db.Dbname + " password=" + db.Password + " sslmode=" + sslMode + " connect_timeout=" + strconv.Itoa(db.Timeout)
 }
 
-// MigrationsPath returns the appropriate migrations directory based on database type
+// MigrationsPath returns the PostgreSQL migrations directory.
 func (db *DatabaseSettings) MigrationsPath() string {
-	switch db.Type {
-	case "postgresql", "postgres":
-		return "migrations/postgres"
-	case "sqlite3", "sqlite":
-		return "migrations/sqlite"
-	default:
-		return "migrations/sqlite"
-	}
+	return "migrations/postgres"
 }
 
 type RedisSettings struct {
@@ -150,12 +136,17 @@ func LoadConfig() {
 		Labels:   parseLabels(os.Getenv("LOKI_LABELS")),
 	}
 
+	dbType := strings.ToLower(getEnv("DB_TYPE", "postgresql"))
+	if dbType != "postgres" && dbType != "postgresql" {
+		panic(fmt.Sprintf("unsupported DB_TYPE %q: only PostgreSQL is supported", dbType))
+	}
+
 	database := DatabaseSettings{
 		Host:           getEnvAny([]string{"DB_HOST"}, "localhost"),
 		Port:           getEnvIntAny([]string{"DB_PORT", "POSTGRES_PORT"}, 5432),
 		Dbname:         getEnvAny([]string{"DB_NAME", "POSTGRES_DB"}, "dydx_bot"),
 		User:           getEnvAny([]string{"DB_USER", "POSTGRES_USER"}, "dydx_bot"),
-		Type:           getEnv("DB_TYPE", "sqlite3"),
+		Type:           "postgres",
 		Password:       getEnvAny([]string{"DB_PASSWORD", "POSTGRES_PASSWORD"}, ""),
 		SSL:            getEnvBool("SSL_MODE", false),
 		Timeout:        getEnvInt("DB_TIMEOUT", 5),

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Test script to verify database configuration works with both SQLite and PostgreSQL.
-Usage: python3 scripts/test_database_config.py [sqlite|postgresql]
+Test script to verify database configuration works with PostgreSQL.
+Usage: python3 scripts/test_database_config.py [postgresql]
 """
 
 import os
@@ -11,52 +11,6 @@ from pathlib import Path
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-
-def test_sqlite():
-    """Test SQLite database configuration."""
-    print("\n" + "=" * 80)
-    print("Testing SQLite Database Configuration")
-    print("=" * 80)
-
-    # Set environment to SQLite
-    os.environ["DB_TYPE"] = "sqlite"
-    os.environ["DB_NAME"] = "dydx_backtest.db"
-
-    try:
-        from sqlalchemy import inspect
-
-        from backend.database import DATABASE_URL, Base, engine
-
-        print(f"✓ Database URL: {DATABASE_URL}")
-
-        # Create tables
-        Base.metadata.create_all(bind=engine)
-        print("✓ Tables created successfully")
-
-        # List tables
-        inspector = inspect(engine)
-        tables = inspector.get_table_names()
-        print(f"✓ Tables found: {len(tables)}")
-        for table in sorted(tables):
-            print(f"  - {table}")
-
-        # Test connection
-        with engine.connect() as connection:
-            from sqlalchemy import text
-
-            connection.execute(text("SELECT 1"))
-            print("✓ Connection test passed")
-
-        print("\n✅ SQLite configuration is working correctly!")
-        return True
-
-    except Exception as e:
-        print(f"\n❌ SQLite configuration failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
 
 
 def test_postgresql():
@@ -136,42 +90,31 @@ def main():
     print("\n" + "=" * 80)
     print("Database Configuration Test Suite")
     print("=" * 80)
-    print(
-        "\nThis script verifies that the backend can connect to both SQLite and PostgreSQL"
-    )
+    print("\nThis script verifies that the backend can connect to PostgreSQL")
 
     if len(sys.argv) > 1:
         db_type = sys.argv[1].lower()
-        if db_type == "sqlite":
-            success = test_sqlite()
-        elif db_type == "postgresql":
+        if db_type == "postgresql":
             success = test_postgresql()
         else:
             print(f"Unknown database type: {db_type}")
-            print("Usage: python3 scripts/test_database_config.py [sqlite|postgresql]")
+            print("Usage: python3 scripts/test_database_config.py [postgresql]")
             return 1
 
         return 0 if success else 1
     else:
-        # Test both
-        sqlite_ok = test_sqlite()
         postgresql_ok = test_postgresql()
 
         print("\n" + "=" * 80)
         print("Summary")
         print("=" * 80)
-        print(f"SQLite:      {'✅ OK' if sqlite_ok else '❌ FAILED'}")
         print(
             f"PostgreSQL:  {'✅ OK' if postgresql_ok else '⚠️  Not available (OK for dev)'}"
         )
 
-        print("\nTo use each database, set the DB_TYPE environment variable or")
-        print("update the 'database.type' setting in app/config.yaml:")
+        print("\nPostgreSQL is the only supported SQL database.")
+        print("Set these environment variables before running the app:")
         print()
-        print("  SQLite:")
-        print("    export DB_TYPE=sqlite")
-        print()
-        print("  PostgreSQL:")
         print("    export DB_TYPE=postgresql")
         print("    export DB_USER=postgres")
         print("    export DB_PASSWORD=your_password")

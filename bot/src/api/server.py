@@ -586,10 +586,10 @@ async def lifespan(_: FastAPI):
     logger.info("Starting Bot API Server...")
     logger.info(
         "Runtime DB target: type=%s host=%s port=%s name=%s",
-        os.getenv("DB_TYPE", "sqlite"),
+        os.getenv("DB_TYPE", "postgresql"),
         os.getenv("DB_HOST", "localhost"),
         os.getenv("DB_PORT", "5432"),
-        os.getenv("DB_NAME", "trading_bot.db"),
+        os.getenv("DB_NAME", "dydx_bot"),
     )
     db.create_all_tables()
     db.ensure_schema_compatibility()

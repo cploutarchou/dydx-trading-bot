@@ -1,5 +1,15 @@
-.PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps
+.PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps
 MODE ?= development
+
+DEV_INFRA_NETWORK ?= dydx-dev-infra
+DEV_PG_CONTAINER ?= dydx-dev-postgres
+DEV_REDIS_CONTAINER ?= dydx-dev-redis
+DEV_PG_VOLUME ?= dydx-dev-postgres-data
+DEV_PG_USER ?= dydx_bot
+DEV_PG_PASSWORD ?= change-me-db-password
+DEV_PG_DB ?= dydx_bot
+DEV_PG_PORT ?= 5432
+DEV_REDIS_PORT ?= 6379
 
 # Default target - show help when running just 'make'
 help: ## Show this help message
@@ -405,6 +415,81 @@ infra-ps: ## Show status for shared infra services (postgres + redis)
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra status"; \
 		exit 0; \
+	fi
+
+dev-infra: ## Start local Postgres + Redis (idempotent) and print matching runtime config
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo "⚠️  Docker CLI is not installed"; \
+		exit 0; \
+	elif ! docker info >/dev/null 2>&1; then \
+		echo "⚠️  Docker daemon is not reachable from this shell."; \
+		echo "   If the error is 'permission denied' on /var/run/docker.sock, add your user to the docker group and re-login."; \
+		echo "   Socket owner/group is typically root:docker and your user must be in that group."; \
+		exit 0; \
+	else \
+		set -e; \
+		docker network inspect $(DEV_INFRA_NETWORK) >/dev/null 2>&1 || docker network create $(DEV_INFRA_NETWORK); \
+		docker volume inspect $(DEV_PG_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_PG_VOLUME) >/dev/null; \
+		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_PG_CONTAINER)'; then \
+			docker start $(DEV_PG_CONTAINER) >/dev/null; \
+		else \
+			docker run -d --name $(DEV_PG_CONTAINER) \
+				--network $(DEV_INFRA_NETWORK) \
+				-p $(DEV_PG_PORT):5432 \
+				-e POSTGRES_USER=$(DEV_PG_USER) \
+				-e POSTGRES_PASSWORD=$(DEV_PG_PASSWORD) \
+				-e POSTGRES_DB=$(DEV_PG_DB) \
+				-v $(DEV_PG_VOLUME):/var/lib/postgresql/data \
+				postgres:16-alpine >/dev/null; \
+		fi; \
+		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_REDIS_CONTAINER)'; then \
+			docker start $(DEV_REDIS_CONTAINER) >/dev/null; \
+		else \
+			docker run -d --name $(DEV_REDIS_CONTAINER) \
+				--network $(DEV_INFRA_NETWORK) \
+				-p $(DEV_REDIS_PORT):6379 \
+				redis:7-alpine >/dev/null; \
+		fi; \
+		for i in 1 2 3 4 5 6 7 8 9 10; do \
+			docker exec $(DEV_PG_CONTAINER) pg_isready -U $(DEV_PG_USER) -d $(DEV_PG_DB) >/dev/null 2>&1 && break; \
+			sleep 1; \
+		done; \
+		echo "✅ Dev infra ready: postgres=$(DEV_PG_CONTAINER):$(DEV_PG_PORT), redis=$(DEV_REDIS_CONTAINER):$(DEV_REDIS_PORT)"; \
+		echo "Use this runtime config:"; \
+		echo '  "database": {'; \
+		echo '    "DB_TYPE": "postgres",'; \
+		echo '    "DB_HOST": "localhost",'; \
+		echo '    "DB_PORT": '$(DEV_PG_PORT)','; \
+		echo '    "DB_NAME": "$(DEV_PG_DB)",'; \
+		echo '    "DB_USER": "$(DEV_PG_USER)",'; \
+		echo '    "DB_PASSWORD": "$(DEV_PG_PASSWORD)",'; \
+		echo '    "POSTGRES_HOST": "localhost",'; \
+		echo '    "POSTGRES_PORT": '$(DEV_PG_PORT)','; \
+		echo '    "POSTGRES_DB": "$(DEV_PG_DB)",'; \
+		echo '    "POSTGRES_USER": "$(DEV_PG_USER)",'; \
+		echo '    "POSTGRES_PASSWORD": "$(DEV_PG_PASSWORD)"'; \
+		echo '  },'; \
+		echo '  "redis": {'; \
+		echo '    "REDIS_ENABLED": true,'; \
+		echo '    "REDIS_HOST": "localhost",'; \
+		echo '    "REDIS_PORT": '$(DEV_REDIS_PORT)','; \
+		echo '    "REDIS_DB": 0,'; \
+		echo '    "REDIS_SSL": false'; \
+		echo '  }'; \
+	fi
+
+dev-infra-down: ## Stop/remove local Postgres + Redis created by dev-infra
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo "⚠️  Docker CLI is not installed"; \
+		exit 0; \
+	elif ! docker info >/dev/null 2>&1; then \
+		echo "⚠️  Docker daemon is not reachable from this shell."; \
+		echo "   If the error is 'permission denied' on /var/run/docker.sock, add your user to the docker group and re-login."; \
+		exit 0; \
+	else \
+		docker rm -f $(DEV_PG_CONTAINER) $(DEV_REDIS_CONTAINER) >/dev/null 2>&1 || true; \
+		echo "✅ Dev infra containers removed"; \
+		echo "ℹ️  Volume $(DEV_PG_VOLUME) was kept (data preserved)."; \
 	fi
 
 stack-up-dev: ## Start full integration stack (api + worker + frontend dev + postgres + redis)

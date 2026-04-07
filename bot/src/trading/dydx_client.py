@@ -89,9 +89,9 @@ async def connect_dydx():
     # The appropriate indexer endpoint will be used based on the is_testnet setting
     try:
         node = await NodeClient.connect(TESTNET.node)
-        logger.info("Connected node client to {}", TESTNET.node)
+        logger.info("Connected node client to testnet node config")
     except Exception:
-        logger.exception("Failed to connect node client to {}", TESTNET.node)
+        logger.exception("Failed to connect node client to testnet node config")
         raise
 
     # For backtesting, we don't need a real wallet since we're simulating trades

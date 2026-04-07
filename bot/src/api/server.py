@@ -9,7 +9,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
@@ -60,18 +60,18 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     )
     bot_manager = None
 
+from internal.domain.models import BotStatusEnum
 from src.api.realtime_serializers import (
     serialize_market_core,
     serialize_realtime_position,
     serialize_stats_risk_fields,
 )
-from src.api.websocket_server import WebSocketServer, manager
 from src.api.websocket_server import (
+    WebSocketServer,
     broadcast_strategy_status,
     build_strategy_snapshot_message,
+    manager,
 )
-from src.shared.notifications import TelegramMessenger
-from src.shared.time_utils import utc_now_iso
 
 # Import database utilities
 from src.infrastructure.database import db
@@ -87,8 +87,9 @@ from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
+from src.shared.notifications import TelegramMessenger
+from src.shared.time_utils import utc_now_iso
 from src.trading.dydx_client import connect_dydx
-from internal.domain.models import BotStatusEnum
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -300,6 +301,31 @@ def _bot_manager_unavailable_response() -> JSONResponse:
         message="Bot manager unavailable in this environment",
         status_code=503,
     )
+
+
+def _bot_recovery_diagnostics() -> Dict[str, Any]:
+    if not _bot_manager_ready():
+        return {
+            "source": "unavailable",
+            "attempted": 0,
+            "loaded": 0,
+            "skipped": 0,
+            "skipped_instances": [],
+            "last_error": "bot manager unavailable",
+        }
+
+    try:
+        return bot_manager.get_recovery_diagnostics()
+    except Exception as exc:
+        logger.warning("Failed to read bot recovery diagnostics: %s", exc)
+        return {
+            "source": "error",
+            "attempted": 0,
+            "loaded": 0,
+            "skipped": 0,
+            "skipped_instances": [],
+            "last_error": str(exc),
+        }
 
 
 def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
@@ -1636,6 +1662,7 @@ async def health_check():
             "api_version": "1.0.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backtest_runtime": runtime_health,
+            "bot_recovery": _bot_recovery_diagnostics(),
         },
         message="API is healthy",
     )
@@ -1656,6 +1683,7 @@ async def readiness_check():
             "bot_manager_ready": ready,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backtest_runtime": runtime_health,
+            "bot_recovery": _bot_recovery_diagnostics(),
         },
         message=(
             "Bot API is ready"
@@ -1711,6 +1739,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                     },
                     "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
                     "backtest_runtime": runtime_health,
+                    "bot_recovery": _bot_recovery_diagnostics(),
                 },
                 message="System status available; bot manager unavailable",
             )
@@ -1747,6 +1776,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                     "uptime_hours": "N/A",  # Could implement uptime tracking
                 },
                 "backtest_runtime": runtime_health,
+                "bot_recovery": _bot_recovery_diagnostics(),
             },
             message="System status retrieved successfully",
         )

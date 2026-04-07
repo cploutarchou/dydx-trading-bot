@@ -8,6 +8,15 @@ Companion docs:
 - `BOT_API_PARITY_MATRIX.md`
 - `BACKEND_BOT_INTEGRATION.md`
 
+## Backend First Calls
+
+Backend consumers should call these first during startup:
+
+1. `GET /ready`
+2. `GET /api/v1/capabilities`
+3. `GET /api/v1/runtime/db-config` (admin)
+4. Connect `WS /ws/strategies`
+
 ## Standard Response Envelope
 
 Most non-auth HTTP endpoints return:
@@ -37,6 +46,12 @@ Example `data` payload:
   "count": 4
 }
 ```
+
+## Runtime DB Diagnostics Endpoint
+
+- **Method/Path**: `GET /api/v1/runtime/db-config`
+- **Auth**: admin user required (`get_admin_user`)
+- **Use**: inspect effective runtime DB mode/target metadata without exposing secrets.
 
 ## Bot Lifecycle API
 

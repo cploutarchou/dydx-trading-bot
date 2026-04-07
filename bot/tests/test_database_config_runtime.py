@@ -88,3 +88,59 @@ def test_database_config_rejects_invalid_cutover_mode(monkeypatch):
         DatabaseConfig()
 
 
+def test_database_config_shared_uses_postgres_alias_fallbacks(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    monkeypatch.delenv("DB_HOST", raising=False)
+    monkeypatch.delenv("DB_PORT", raising=False)
+    monkeypatch.delenv("DB_NAME", raising=False)
+    monkeypatch.delenv("DB_USER", raising=False)
+    monkeypatch.delenv("DB_PASSWORD", raising=False)
+    monkeypatch.setenv("POSTGRES_HOST", "pg-host")
+    monkeypatch.setenv("POSTGRES_PORT", "5439")
+    monkeypatch.setenv("POSTGRES_DB", "pg_db")
+    monkeypatch.setenv("POSTGRES_USER", "pg_user")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "pg_pass")
+
+    config = DatabaseConfig()
+
+    assert config.db_host == "pg-host"
+    assert config.db_port == "5439"
+    assert config.db_name == "pg_db"
+    assert config.db_user == "pg_user"
+    assert config.db_password == "pg_pass"
+
+
+def test_database_config_uses_timeout_max_connections_and_ssl(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    monkeypatch.setenv("DB_TIMEOUT", "5")
+    monkeypatch.setenv("DB_POOL_SIZE", "5")
+    monkeypatch.setenv("DB_MAX_CONNECTIONS", "10")
+    monkeypatch.setenv("SSL_MODE", "true")
+
+    config = DatabaseConfig()
+    kwargs = config.get_engine_kwargs()
+
+    assert kwargs["pool_size"] == 5
+    assert kwargs["max_overflow"] == 5
+    assert kwargs["pool_timeout"] == 5
+    assert kwargs["connect_args"]["connect_timeout"] == 5
+    assert kwargs["connect_args"]["sslmode"] == "require"
+
+
+def test_database_config_diagnostics_payload_is_sanitized(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    monkeypatch.setenv("DB_HOST", "localhost")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "dydx_bot")
+    monkeypatch.setenv("DB_USER", "dydx_bot")
+    monkeypatch.setenv("DB_PASSWORD", "change-me-db-password")
+
+    config = DatabaseConfig()
+    payload = config.to_diagnostics()
+
+    assert payload["db_type"] == "postgresql"
+    assert payload["password_configured"] is True
+    assert payload["host"] == "localhost"
+    assert "password" not in payload
+
+

@@ -95,3 +95,6 @@ For API-controlled strategy runtimes, require all of the following before callin
 - backend and frontend can both recover from missed websocket events by reconciling against HTTP runtime state
 - `/ready` returns `200` only when the bot manager is initialized, so orchestration can distinguish liveness from actual traffic readiness
 - request-scoped `X-Trace-Id` values survive backend delegation and websocket proxying for operator triage
+- `/api/v1/capabilities` reports expected HTTP and websocket control surfaces consumed by backend integrations
+- bot runtime persistence is pointed at a dedicated PostgreSQL target via `BOT_DATABASE_URL` or `BOT_DB_*` settings
+- DB migration rollout uses explicit cutover mode progression (`shared` -> `dedicated_with_shared_fallback` -> `dedicated`) with rollback by reverting to `shared`

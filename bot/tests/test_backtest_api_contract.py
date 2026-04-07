@@ -190,9 +190,39 @@ def test_interrupted_reconcile_endpoint_supports_dry_run(monkeypatch):
     assert payload["data"]["reconciled_count"] == 0
 
 
+def test_admin_interrupted_routes_reuse_same_payload_contract(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    list_response = asyncio.run(
+        _call(server.list_interrupted_backtests_admin(limit=10, current_user=object()))
+    )
+    list_payload = json.loads(list_response.body)
+    assert list_payload["success"] is True
+    assert list_payload["data"]["orphaned_count"] == 1
+    assert list_payload["data"]["interrupted_count"] == 1
+
+    reconcile_response = asyncio.run(
+        _call(
+            server.reconcile_interrupted_backtests_admin(
+                dry_run=False,
+                current_user=object(),
+            )
+        )
+    )
+    reconcile_payload = json.loads(reconcile_response.body)
+    assert reconcile_payload["success"] is True
+    assert reconcile_payload["data"]["dry_run"] is False
+    assert reconcile_payload["data"]["reconciled_count"] == 1
+
+
 def test_openapi_documents_standard_response_envelope():
     server = _load_server_module()
     schema = server.app.openapi()
+
+    assert "/api/v1/admin/backtests/interrupted" in schema["paths"]
+    assert "/api/v1/admin/backtests/interrupted/reconcile" in schema["paths"]
+    assert "/api/v1/capabilities" in schema["paths"]
 
     status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"]["responses"][
         "200"
@@ -204,6 +234,23 @@ def test_openapi_documents_standard_response_envelope():
         and item.get("$ref") == "#/components/schemas/StandardApiResponse"
         for item in all_of
     )
+
+
+def test_capabilities_endpoint_lists_http_and_websocket_scopes():
+    server = _load_server_module()
+
+    response = asyncio.run(_call(server.api_capabilities()))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert "GET /api/v1/bots" in payload["data"]["http_endpoints"]
+    assert "GET /api/v1/backtests" in payload["data"]["http_endpoints"]
+    assert "POST /api/v1/bots" in payload["data"]["command_endpoints"]
+    assert "GET /api/v1/bots" in payload["data"]["query_endpoints"]
+    assert "WS /ws/strategies" in payload["data"]["websocket_channels"]
+    assert payload["data"]["event_channels"] == payload["data"]["websocket_channels"]
+    assert "WS /ws/bots/{bot_instance_id}" in payload["data"]["websocket_channels"]
+    assert "WS /ws/backtests/{run_id}" in payload["data"]["websocket_channels"]
 
 
 def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):

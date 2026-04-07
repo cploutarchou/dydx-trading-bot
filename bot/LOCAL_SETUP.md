@@ -52,9 +52,22 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=dydx_bot
 DB_USER=postgres
+BOT_DB_HOST=localhost
+BOT_DB_PORT=5432
+BOT_DB_NAME=dydx_bot
+BOT_DB_USER=postgres
+BOT_DB_CUTOVER_MODE=shared
 LOG_LEVEL=INFO
 LOKI_ENABLED=false
 ```
+
+`BOT_DB_*` (or `BOT_DATABASE_URL`) is now preferred for bot-service database isolation; if omitted, the runtime falls back to shared `DB_*` values.
+
+`BOT_DB_CUTOVER_MODE` controls migration behavior:
+
+- `shared`: force shared DB settings
+- `dedicated`: require bot-dedicated target (`BOT_DATABASE_URL` or full `BOT_DB_*`)
+- `dedicated_with_shared_fallback`: prefer dedicated target but fallback to shared when dedicated vars are not set
 
 ## Local run modes
 
@@ -111,6 +124,7 @@ When the API is running on port `8889`:
 - OpenAPI JSON: <http://localhost:8889/openapi.json>
 - Health: <http://localhost:8889/health>
 - Readiness: <http://localhost:8889/ready>
+- Capabilities: <http://localhost:8889/api/v1/capabilities>
 
 ## API contract notes
 

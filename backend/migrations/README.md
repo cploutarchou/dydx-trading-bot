@@ -30,7 +30,7 @@ Current migrations:
 16. `000015_create_backtest_comparisons` - Strategy comparison results
 17. `000016_create_trade_logs` - Detailed trade logs from backtest results
 
-## Local Development (SQLite)
+## Local Development (PostgreSQL)
 
 ### Using the Migration CLI
 
@@ -40,38 +40,38 @@ Build the migration tool:
 go build -o bin/migrate ./cmd/migrate
 ```
 
-Run all pending migrations:
+Run all pending PostgreSQL migrations:
 
 ```bash
-./bin/migrate -path migrations -direction up
+./bin/migrate -path migrations/postgres -direction up
 ```
 
 Rollback all migrations:
 
 ```bash
-./bin/migrate -path migrations -direction down
+./bin/migrate -path migrations/postgres -direction down
 ```
 
 Migrate to a specific version:
 
 ```bash
-./bin/migrate -path migrations -version 5
+./bin/migrate -path migrations/postgres -version 5
 ```
 
 Step forward by N migrations:
 
 ```bash
-./bin/migrate -path migrations -steps 3
+./bin/migrate -path migrations/postgres -steps 3
 ```
 
 ### Automatic Migrations on Startup
 
-The server automatically runs migrations on startup if configured. Set `AutoMigrate: true` in `internal/db/db.go`:
+The server automatically runs PostgreSQL migrations on startup if configured. Set `AutoMigrate: true` in `internal/db/db.go`:
 
 ```go
 database, err := db.New(db.Config{
-    Driver:       "sqlite",
-    DSN:          "trading_bot.db",
+    Driver:       "postgres",
+    DSN:          "postgres://user:password@localhost:5432/trading_bot?sslmode=disable",
     AutoMigrate:  true,  // Enable automatic migrations
     MaxOpenConns: 25,
     MaxIdleConns: 5,
@@ -85,7 +85,7 @@ For PostgreSQL, use the migration CLI with environment variables:
 ```bash
 DB_DRIVER=postgres \
 DB_DSN="postgres://user:password@localhost:5432/trading_bot?sslmode=disable" \
-./bin/migrate -path migrations -direction up
+./bin/migrate -path migrations/postgres -direction up
 ```
 
 Or set `AutoMigrate: true` in the database config and the server will handle migrations automatically on startup.
@@ -97,23 +97,23 @@ When adding new tables or schema changes:
 1. **Create a new migration file pair:**
    ```bash
    # Use the next sequential number
-   touch migrations/000017_my_migration.up.sql
-   touch migrations/000017_my_migration.down.sql
+   touch migrations/postgres/000017_my_migration.up.sql
+   touch migrations/postgres/000017_my_migration.down.sql
    ```
 
-2. **Write the UP migration** (000017_my_migration.up.sql):
+2. **Write the UP migration** (`migrations/postgres/000017_my_migration.up.sql`):
    ```sql
    -- Create my_table
    CREATE TABLE IF NOT EXISTS my_table (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       id BIGSERIAL PRIMARY KEY,
        name VARCHAR(100) NOT NULL,
-       created_at DATETIME DEFAULT NULL
+       created_at TIMESTAMP DEFAULT NULL
    );
    
    CREATE INDEX ix_my_table_name ON my_table(name);
    ```
 
-3. **Write the DOWN migration** (000017_my_migration.down.sql):
+3. **Write the DOWN migration** (`migrations/postgres/000017_my_migration.down.sql`):
    ```sql
    -- Drop my_table
    DROP TABLE IF EXISTS my_table;
@@ -121,9 +121,9 @@ When adding new tables or schema changes:
 
 4. **Test locally:**
    ```bash
-   ./bin/migrate -path migrations -direction up
+   ./bin/migrate -path migrations/postgres -direction up
    # Verify the schema
-   ./bin/migrate -path migrations -direction down
+   ./bin/migrate -path migrations/postgres -direction down
    # Verify rollback works
    ```
 
@@ -132,17 +132,14 @@ When adding new tables or schema changes:
 Check current migration version (requires golang-migrate CLI):
 
 ```bash
-migrate -path migrations -database "sqlite3:trading_bot.db" version
+migrate -path migrations/postgres -database "postgres://user:password@localhost:5432/trading_bot?sslmode=disable" version
 ```
 
 ## Important Notes
 
-- **SQLite** uses `AUTOINCREMENT` for auto-incrementing primary keys instead of `SERIAL`
-- **SQLite** uses `REAL` for floating-point numbers instead of `FLOAT8`
-- **SQLite** uses `TEXT` with `UNIQUE` constraints for string uniqueness
-- All tables use `DATETIME` for timestamp fields (SQLite doesn't have native TIMESTAMP)
-- Foreign keys must be created with `FOREIGN KEY` constraints (SQLite needs PRAGMA foreign_keys = ON at runtime)
-- JSON support uses SQLite's native JSON1 extension (ensure it's compiled in)
+- PostgreSQL is the only supported SQL database in this repository.
+- Use PostgreSQL-native column types and defaults in new migrations.
+- Keep new migration files under `migrations/postgres`.
 
 ## Troubleshooting
 
@@ -151,16 +148,15 @@ migrate -path migrations -database "sqlite3:trading_bot.db" version
 This usually happens if running migrations on an existing database. The `CREATE TABLE IF NOT EXISTS` clauses should
 handle this, but if you have existing tables, migrations will skip them gracefully.
 
-### SQLite database locked
-
-Ensure no other processes are accessing the database file. Close the connection before running migrations.
-
 ### Migration version mismatch
 
 If the schema_migrations table gets out of sync, you may need to manually clean it:
 
+Use `psql` to inspect and repair migration metadata if necessary, for example:
+
 ```bash
-sqlite3 trading_bot.db "DELETE FROM schema_migrations WHERE version = 5;"
+psql "postgres://user:password@localhost:5432/trading_bot?sslmode=disable" \
+  -c "DELETE FROM schema_migrations WHERE version = 5;"
 ```
 
 Then re-run the migration.

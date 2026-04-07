@@ -53,7 +53,14 @@ func findRepoRoot(start string) string {
 		agentsPath := filepath.Join(current, "AGENTS.md")
 		if info, err := os.Stat(githubPath); err == nil && info.IsDir() {
 			if _, err := os.Stat(agentsPath); err == nil {
-				return current
+				configProfilesPath := filepath.Join(current, "config", "profiles")
+				if info, err := os.Stat(configProfilesPath); err == nil && info.IsDir() {
+					return current
+				}
+				runConfigPath := filepath.Join(current, "run.json")
+				if _, err := os.Stat(runConfigPath); err == nil {
+					return current
+				}
 			}
 		}
 
@@ -105,10 +112,6 @@ func main() {
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
 	if err := services.ValidateEncryptionKeyConfiguration(); err != nil {
 		log.Fatalf("Invalid encryption configuration: %v", err)
-	}
-
-	if config.ConfigInstance.Database.Type == "postgresql" {
-		config.ConfigInstance.Database.Type = "postgres"
 	}
 
 	// Initialize database with automatic migrations

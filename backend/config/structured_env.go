@@ -38,7 +38,9 @@ func FindRepoRoot(start string) string {
 		agentsPath := filepath.Join(current, "AGENTS.md")
 		if info, err := os.Stat(githubPath); err == nil && info.IsDir() {
 			if _, err := os.Stat(agentsPath); err == nil {
-				return current
+				if isStructuredConfigRoot(current) {
+					return current
+				}
 			}
 		}
 

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -12,6 +12,31 @@ const normalizeEnvironmentName = (value: string | undefined, fallback: 'developm
   if (normalized === 'prod' || normalized === 'production') return 'production';
   if (normalized === 'dev' || normalized === 'development') return 'development';
   return fallback;
+};
+
+const isStructuredConfigRoot = (candidate: string) =>
+  existsSync(resolve(candidate, 'config', 'profiles')) || existsSync(resolve(candidate, 'run.json'));
+
+const findRepoRoot = (start: string) => {
+  let current = resolve(start);
+
+  while (true) {
+    if (
+      existsSync(resolve(current, '.github')) &&
+      existsSync(resolve(current, 'AGENTS.md')) &&
+      isStructuredConfigRoot(current)
+    ) {
+      return current;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      throw new Error(
+        `Unable to locate monorepo root from ${start}. Expected a parent with .github, AGENTS.md, and config/profiles or run.json.`
+      );
+    }
+    current = parent;
+  }
 };
 
 const resolveProfilePath = (repoRoot: string, environment: 'development' | 'production') => {
@@ -117,7 +142,7 @@ const loadStructuredEnvironment = (repoRoot: string, mode: string) => {
 };
 
 export default defineConfig(({ mode }) => {
-  const repoRoot = resolve(__dirname, '..');
+  const repoRoot = findRepoRoot(__dirname);
   const env = loadStructuredEnvironment(repoRoot, mode);
   const viteDefine = Object.fromEntries(
     Object.entries(env)

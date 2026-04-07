@@ -1,0 +1,79 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Backend: Install Tools",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"install-tools"
+			],
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Download Deps",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"deps"
+			],
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Run (make run)",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"run"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Dev Hot Reload (make dev)",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"dev"
+			],
+			"isBackground": true,
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Test",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"test"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Lint",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"lint"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Verify",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"verify"
+			],
+			"group": "test",
+			"problemMatcher": []
+		}
+	]
+}

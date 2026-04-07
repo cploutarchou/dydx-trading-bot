@@ -24,7 +24,8 @@ def main() -> int:
         print(f"Saved encrypted {args.environment} profile.")
         return 0
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        message = str(exc) or f"{type(exc).__name__}: {exc!r}"
+        print(message, file=sys.stderr)
         return 1
 
 

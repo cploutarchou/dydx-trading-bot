@@ -36,6 +36,7 @@ You will also need:
 ## Shared environment
 
 The bot reads configuration from `run.json` by default, not from `bot/.env`.
+PostgreSQL is the only supported SQL database.
 
 Typical local settings include:
 
@@ -46,8 +47,11 @@ BOT_API_HOST=0.0.0.0
 BOT_API_PORT=8889
 BOT_API_RELOAD=true
 API_BYPASS_AUTH=true
-DB_TYPE=sqlite
-DB_NAME=trading_bot.db
+DB_TYPE=postgresql
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=dydx_bot
+DB_USER=postgres
 LOG_LEVEL=INFO
 LOKI_ENABLED=false
 ```

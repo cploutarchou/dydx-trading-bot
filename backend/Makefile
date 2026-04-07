@@ -181,7 +181,7 @@ install-tools:
 	fi
 	@echo "Installing golang-migrate..."
 	@if ! command -v migrate > /dev/null; then \
-		go install -tags 'postgres sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0; \
+		go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0; \
 	fi
 	@echo "Installing mockgen..."
 	@if ! command -v mockgen > /dev/null; then \
@@ -192,29 +192,21 @@ install-tools:
 ## migrate-up: Run database migrations up
 migrate-up:
 	@echo "$(CYAN)Running migrations up...$(NC)"
-	@if [ -z "$$DB_TYPE" ]; then \
-		echo "$(RED)DB_TYPE not set. Defaulting to sqlite3$(NC)"; \
-		export DB_TYPE=sqlite3; \
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "$(RED)DATABASE_URL must be set for PostgreSQL migrations$(NC)"; \
+		exit 1; \
 	fi; \
-	if [ "$$DB_TYPE" = "sqlite3" ]; then \
-		$(MIGRATE) -path migrations -database "sqlite3://trading_bot.db" up; \
-	else \
-		$(MIGRATE) -path migrations -database "$$DATABASE_URL" up; \
-	fi
+	$(MIGRATE) -path migrations/postgres -database "$$DATABASE_URL" up
 	@echo "$(GREEN)✓ Migrations complete$(NC)"
 
 ## migrate-down: Rollback database migrations
 migrate-down:
 	@echo "$(CYAN)Rolling back migrations...$(NC)"
-	@if [ -z "$$DB_TYPE" ]; then \
-		echo "$(RED)DB_TYPE not set. Defaulting to sqlite3$(NC)"; \
-		export DB_TYPE=sqlite3; \
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "$(RED)DATABASE_URL must be set for PostgreSQL migrations$(NC)"; \
+		exit 1; \
 	fi; \
-	if [ "$$DB_TYPE" = "sqlite3" ]; then \
-		$(MIGRATE) -path migrations -database "sqlite3://trading_bot.db" down 1; \
-	else \
-		$(MIGRATE) -path migrations -database "$$DATABASE_URL" down 1; \
-	fi
+	$(MIGRATE) -path migrations/postgres -database "$$DATABASE_URL" down 1
 	@echo "$(GREEN)✓ Rollback complete$(NC)"
 
 ## migrate-create: Create new migration file (usage: make migrate-create NAME=migration_name)

@@ -56,6 +56,16 @@ const RESOLUTION_OPTIONS = [
   { value: '1DAY', label: '1 Day' },
 ];
 
+const needsRuntimeRecreateConfirmation = (message?: string): boolean => {
+  const normalized = String(message || '').toLowerCase();
+  return (
+    normalized.includes('runtime instance missing from bot api') ||
+    normalized.includes('instance_id already exists') ||
+    normalized.includes('confirm recreate') ||
+    normalized.includes('stale runtime instance detected')
+  );
+};
+
 export default function StrategyManager() {
   const navigate = useNavigate();
   const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } =
@@ -190,24 +200,63 @@ export default function StrategyManager() {
     let disposed = false;
     let connectTimer: number | null = null;
     let reconnectTimer: number | null = null;
+    let connectionGeneration = 0;
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const teardownSocket = (socket: WebSocket | null) => {
+      if (!socket) {
+        return;
+      }
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      if (
+        socket.readyState === WebSocket.OPEN ||
+        socket.readyState === WebSocket.CONNECTING
+      ) {
+        socket.close();
+      }
+    };
 
     const connectWebSocket = () => {
       if (disposed) return;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
 
       try {
         const token = localStorage.getItem('access_token');
         if (!token) return;
 
+        clearReconnectTimer();
+        const generation = ++connectionGeneration;
+
         // Use centralized api helper to build WebSocket URL
-        ws = apiClient.connectSocket ? apiClient.connectSocket('/ws/strategies', token) : null;
+        const socket = apiClient.connectSocket ? apiClient.connectSocket('/ws/strategies', token) : null;
+        ws = socket;
 
-        if (!ws) return;
+        if (!socket) return;
 
-        ws.onopen = () => {
+        socket.onopen = () => {
+          if (disposed || generation !== connectionGeneration || ws !== socket) {
+            teardownSocket(socket);
+            return;
+          }
           setWebSocketConnected(true);
+          clearReconnectTimer();
         };
 
-        ws.onmessage = (event) => {
+        socket.onmessage = (event) => {
+          if (disposed || generation !== connectionGeneration || ws !== socket) {
+            return;
+          }
           try {
             const payload = JSON.parse(event.data) as {
               type?: string;
@@ -240,13 +289,21 @@ export default function StrategyManager() {
           }
         };
 
-        ws.onerror = () => {
+        socket.onerror = () => {
+          if (disposed || generation !== connectionGeneration || ws !== socket) {
+            return;
+          }
           setWebSocketConnected(false);
         };
 
-        ws.onclose = () => {
+        socket.onclose = () => {
+          if (generation !== connectionGeneration || ws !== socket) {
+            return;
+          }
+          ws = null;
           setWebSocketConnected(false);
           if (disposed) return;
+          clearReconnectTimer();
           reconnectTimer = window.setTimeout(() => connectWebSocket(), 5000);
         };
       } catch (error) {
@@ -263,16 +320,9 @@ export default function StrategyManager() {
       if (connectTimer !== null) {
         window.clearTimeout(connectTimer);
       }
-      if (reconnectTimer !== null) {
-        window.clearTimeout(reconnectTimer);
-      }
-      if (ws) {
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onerror = null;
-        ws.onclose = null;
-        ws.close();
-      }
+      clearReconnectTimer();
+      teardownSocket(ws);
+      ws = null;
     };
   }, []);
 
@@ -287,6 +337,10 @@ export default function StrategyManager() {
   const handleRuntimeToggle = async (strategy: Strategy) => {
     const currentStatus = strategyStatuses.get(strategy.id);
     const shouldStop = currentStatus?.status === 'running' || currentStatus?.status === 'starting';
+    const confirmRecreate = () =>
+      window.confirm(
+        `A stale runtime record exists for "${strategy.name}". Recreate the runtime instance and continue?`
+      );
 
     setRuntimePending((prev) => ({
       ...prev,
@@ -304,9 +358,42 @@ export default function StrategyManager() {
     });
 
     try {
-      const response = shouldStop
+      let forceRecreate = false;
+      if (!shouldStop && needsRuntimeRecreateConfirmation(currentStatus?.lastError)) {
+        forceRecreate = confirmRecreate();
+        if (!forceRecreate) {
+          mergeStrategyStatus({
+            strategyId: strategy.id,
+            status: currentStatus?.status ?? 'stopped',
+            lastError: currentStatus?.lastError,
+            updatedAt: currentStatus?.updatedAt ?? new Date().toISOString(),
+            instanceId: currentStatus?.instanceId,
+            network: currentStatus?.network,
+            botStatus: currentStatus?.botStatus,
+          });
+          return;
+        }
+      }
+
+      let response = shouldStop
         ? await apiClient.stopStrategyRuntime(strategy.id)
-        : await apiClient.startStrategyRuntime(strategy.id);
+        : await apiClient.startStrategyRuntime(strategy.id, undefined, forceRecreate);
+
+      if (!shouldStop && !forceRecreate && needsRuntimeRecreateConfirmation(response?.error)) {
+        if (!confirmRecreate()) {
+          mergeStrategyStatus({
+            strategyId: strategy.id,
+            status: currentStatus?.status ?? 'stopped',
+            lastError: currentStatus?.lastError,
+            updatedAt: currentStatus?.updatedAt ?? new Date().toISOString(),
+            instanceId: currentStatus?.instanceId,
+            network: currentStatus?.network,
+            botStatus: currentStatus?.botStatus,
+          });
+          return;
+        }
+        response = await apiClient.startStrategyRuntime(strategy.id, undefined, true);
+      }
 
       mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
       showTransientMessage(
@@ -314,11 +401,31 @@ export default function StrategyManager() {
           type: 'success',
           text: shouldStop
             ? `✅ Stopped strategy "${strategy.name}"`
-            : `✅ Started strategy "${strategy.name}"`,
+            : `✅ Started strategy "${strategy.name}"${forceRecreate ? ' after runtime recovery' : ''}`,
         },
         4000
       );
     } catch (error: unknown) {
+      if (!shouldStop && needsRuntimeRecreateConfirmation(getErrorMessage(error, ''))) {
+        const confirmed = confirmRecreate();
+        if (confirmed) {
+          try {
+            const response = await apiClient.startStrategyRuntime(strategy.id, undefined, true);
+            mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
+            showTransientMessage(
+              {
+                type: 'success',
+                text: `✅ Started strategy "${strategy.name}" after runtime recovery`,
+              },
+              4000
+            );
+            return;
+          } catch (retryError: unknown) {
+            error = retryError;
+          }
+        }
+      }
+
       mergeStrategyStatus({
         strategyId: strategy.id,
         status: 'error',

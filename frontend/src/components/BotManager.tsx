@@ -113,6 +113,18 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
   };
 };
 
+const EMPTY_BOT_STATS: BotStats = {
+  total_positions: 0,
+  open_positions: 0,
+  closed_positions: 0,
+  total_pnl: 0,
+  realized_pnl: 0,
+  unrealized_pnl: 0,
+  total_trades: 0,
+  win_rate: 0,
+  last_update: undefined,
+};
+
 const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
   const failure = classifyApiError(error);
   if (failure.kind === 'transport') {
@@ -159,10 +171,11 @@ const BotManager: React.FC = () => {
     const raw = statsQueries[index]?.data;
     if (raw && isRecord(raw)) {
       acc[bot.instance_id] = mapBotStats(raw);
+    } else {
+      acc[bot.instance_id] = { ...EMPTY_BOT_STATS };
     }
     return acc;
   }, {});
-  const statsError = statsQueries.find((query) => query.error)?.error;
 
   const createBotMutation = useCreateBotInstance();
   const startBotMutation = useStartBotInstance();
@@ -176,13 +189,8 @@ const BotManager: React.FC = () => {
       return;
     }
 
-    if (statsError) {
-      setError(toOperatorErrorMessage(statsError, 'Failed to load bot statistics'));
-      return;
-    }
-
     setError(null);
-  }, [botsQuery.error, statsError]);
+  }, [botsQuery.error]);
 
   useEffect(() => {
     const interval = setInterval(() => {

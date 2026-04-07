@@ -74,7 +74,7 @@ class MarketData(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
-        {"schema": None},  # No schema for SQLite
+        {"schema": None},  # Uses the default PostgreSQL schema unless configured otherwise.
     )
 
 

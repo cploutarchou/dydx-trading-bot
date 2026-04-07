@@ -1,6 +1,7 @@
 package models
 
 import (
+	"database/sql"
 	"encoding/json"
 	"time"
 )
@@ -18,6 +19,7 @@ func (b *BacktestStrategy) ToDict() map[string]interface{} {
 		"is_public":                b.IsPublic,
 		"is_default":               b.IsDefault,
 		"runtime_strategy":         b.RuntimeStrategy,
+		"pair_selection_mode":      b.PairSelectionMode,
 		"zscore_threshold":         b.ZscoreThreshold,
 		"stats_window":             b.StatsWindow,
 		"max_half_life":            b.MaxHalfLife,
@@ -77,6 +79,9 @@ func (b *BacktestStrategy) FromDict(data map[string]interface{}) {
 	}
 	if runtimeStrategy, ok := data["runtime_strategy"].(string); ok {
 		b.RuntimeStrategy = runtimeStrategy
+	}
+	if pairSelectionMode, ok := data["pair_selection_mode"].(string); ok {
+		b.PairSelectionMode = pairSelectionMode
 	}
 	if zscore, ok := data["zscore_threshold"].(float64); ok {
 		b.ZscoreThreshold = zscore
@@ -204,8 +209,11 @@ func (s *StrategyVersionHistory) ToDict() map[string]interface{} {
 		"id":                 s.ID,
 		"strategy_id":        s.StrategyID,
 		"created_by_user_id": s.CreatedByUserID,
+		"version_number":     s.Version,
 		"version":            s.Version,
+		"config_snapshot":    s.StrategyData,
 		"strategy_data":      s.StrategyData,
+		"change_description": s.ChangeLog,
 		"change_log":         s.ChangeLog,
 		"created_at":         s.CreatedAt,
 	}
@@ -222,10 +230,19 @@ func (s *StrategyVersionHistory) FromDict(data map[string]interface{}) {
 	if createdByUserID, ok := data["created_by_user_id"].(float64); ok {
 		s.CreatedByUserID = int(createdByUserID)
 	}
-	if version, ok := data["version"].(float64); ok {
+	if versionNumber, ok := data["version_number"].(float64); ok {
+		s.Version = int(versionNumber)
+	} else if version, ok := data["version"].(float64); ok {
 		s.Version = int(version)
 	}
-	if changeLog, ok := data["change_log"].(string); ok {
+	if configSnapshot, ok := data["config_snapshot"].(string); ok {
+		s.StrategyData = nullString(configSnapshot)
+	} else if strategyData, ok := data["strategy_data"].(string); ok {
+		s.StrategyData = nullString(strategyData)
+	}
+	if changeDescription, ok := data["change_description"].(string); ok {
+		s.ChangeLog = changeDescription
+	} else if changeLog, ok := data["change_log"].(string); ok {
 		s.ChangeLog = changeLog
 	}
 	if createdAt, ok := data["created_at"].(string); ok {
@@ -248,6 +265,13 @@ func (s *StrategyVersionHistory) FromJSON(data []byte) error {
 	}
 	s.FromDict(dict)
 	return nil
+}
+
+func nullString(value string) sql.NullString {
+	return sql.NullString{
+		String: value,
+		Valid:  value != "",
+	}
 }
 
 // ============ StrategyExecutionState Methods ============

@@ -52,8 +52,7 @@ class BotRepository:
         bot = self.get_by_instance_id(instance_id)
         if bot:
             bot.status = status
-            if process_id is not None:
-                bot.process_id = process_id
+            bot.process_id = process_id
             self.session.commit()
 
     def delete_bot(self, instance_id: str):

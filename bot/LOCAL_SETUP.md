@@ -223,13 +223,13 @@ Update the structured config and restart the API:
 BOT_API_PORT=8890
 ```
 
-### SQLite database locked
+### PostgreSQL connection issues
 
-If you are using SQLite and the database is locked:
+PostgreSQL is the only supported SQL database. If the API cannot connect:
 
 ```bash
-rm trading_bot.db
-python start_api.py
+make infra-up
+pg_isready -h localhost -p 5432
 ```
 
 ### Missing dependencies

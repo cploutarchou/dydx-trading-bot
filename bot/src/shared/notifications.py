@@ -19,9 +19,17 @@ class TelegramMessenger:
     _disabled_notice_logged = False
     _recent_messages: Dict[str, float] = {}
 
-    def __init__(self):
-        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or TELEGRAM_TOKEN
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip() or TELEGRAM_CHAT_ID
+    def __init__(
+        self,
+        bot_token: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        environment: Optional[str] = None,
+    ):
+        self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or TELEGRAM_TOKEN)
+        self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "").strip() or TELEGRAM_CHAT_ID)
+        self.instance_id = str(instance_id or "").strip()
+        self.environment = str(environment or "").strip()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self.enabled = bool(self.bot_token and self.chat_id)
 
@@ -38,13 +46,15 @@ class TelegramMessenger:
         return html.escape(str(value), quote=True)
 
     def _instance_prefix(self) -> str:
-        instance_id = os.getenv("BOT_INSTANCE_ID", "").strip()
+        instance_id = self.instance_id or os.getenv("BOT_INSTANCE_ID", "").strip()
         if not instance_id:
             return ""
         return f"🧩 <b>Instance:</b> {self._escape_html(instance_id)}\n"
 
     def _environment_prefix(self) -> str:
-        environment = os.getenv("ENVIRONMENT", "development").strip().lower()
+        environment = (
+            self.environment or os.getenv("ENVIRONMENT", "development")
+        ).strip().lower()
         return f"🌍 <b>Env:</b> {self._escape_html(environment)}\n"
 
     def _truncate_text(self, text: str, hard_limit: int = 3900) -> str:
@@ -52,6 +62,31 @@ class TelegramMessenger:
         if len(text) <= hard_limit:
             return text
         return text[: hard_limit - 24].rstrip() + "\n\n<i>[message truncated]</i>"
+
+    def _resolve_account_address(self, explicit_address: Optional[Any] = None) -> str:
+        """Resolve the best available dYdX account address for notifications."""
+        if explicit_address is not None:
+            candidate = str(explicit_address).strip()
+            if candidate:
+                return candidate
+        return str(DYDX_ADDRESS or "").strip()
+
+    def _format_account_link(self, account_address: str, is_testnet: bool) -> str:
+        """Render account link markup when an address is available."""
+        if not account_address:
+            return "Unavailable"
+
+        if is_testnet:
+            mintscan_url = f"https://www.mintscan.io/dydx-testnet/account/{account_address}"
+        else:
+            mintscan_url = f"https://www.mintscan.io/dydx/account/{account_address}"
+
+        if len(account_address) > 14:
+            account_display = f"{account_address[:8]}...{account_address[-6:]}"
+        else:
+            account_display = account_address
+
+        return f'<a href="{mintscan_url}">{self._escape_html(account_display)}</a>'
 
     def _safe_env_int(self, env_name: str, default: int) -> int:
         raw = os.getenv(env_name, str(default)).strip()
@@ -189,6 +224,10 @@ class TelegramMessenger:
         environment = config_info.get("environment", "development")
         is_testnet = config_info.get("is_testnet", True)
         strategy = self._escape_html(config_info.get("strategy", "unknown"))
+        account_link = self._format_account_link(
+            self._resolve_account_address(config_info.get("account_address")),
+            bool(is_testnet),
+        )
 
         # Smart environment detection
         if environment in ("unknown", "development"):
@@ -199,15 +238,7 @@ class TelegramMessenger:
             "🧪" if environment == "development" else "🚀" if environment == "production" else "⚙️"
         )
 
-        # Create clickable account link based on environment
-        if environment == "development" or is_testnet:
-            mintscan_url = f"https://www.mintscan.io/dydx-testnet/account/{DYDX_ADDRESS}"
-            network_text = "Testnet"
-        else:
-            mintscan_url = f"https://www.mintscan.io/dydx/account/{DYDX_ADDRESS}"
-            network_text = "Mainnet"
-
-        account_display = f"{DYDX_ADDRESS[:8]}...{DYDX_ADDRESS[-6:]}"
+        network_text = "Testnet" if environment == "development" or is_testnet else "Mainnet"
 
         message = f"""
 🤖 <b>dYdX Trading Bot Started</b>
@@ -217,7 +248,7 @@ class TelegramMessenger:
 {env_emoji} <b>Environment:</b> {environment.upper()}
 {network} <b>Network:</b> {network_text}
 📈 <b>Strategy:</b> {strategy.title()}
-👤 <b>Account:</b> <a href="{mintscan_url}">{account_display}</a>
+👤 <b>Account:</b> {account_link}
 
 ⏰ <b>Started:</b> {self._format_timestamp()}
 
@@ -225,6 +256,76 @@ class TelegramMessenger:
         """.strip()
 
         return self.send_message(message)
+
+    def send_lifecycle_message(
+        self,
+        action: str,
+        lifecycle_info: Dict[str, Any],
+        *,
+        success: bool = True,
+    ) -> bool:
+        """Send operator lifecycle notifications for runtime actions."""
+        normalized_action = str(action or "updated").strip().lower()
+        strategy = self._escape_html(lifecycle_info.get("strategy", "unknown"))
+        instance_name = self._escape_html(lifecycle_info.get("instance_name", ""))
+        operator = self._escape_html(lifecycle_info.get("operator", "system"))
+        details = self._escape_html(lifecycle_info.get("details", ""))
+        reason = self._escape_html(lifecycle_info.get("reason", ""))
+        account_link = self._format_account_link(
+            self._resolve_account_address(lifecycle_info.get("account_address")),
+            bool(lifecycle_info.get("is_testnet", True)),
+        )
+        network_text = "Testnet" if lifecycle_info.get("is_testnet", True) else "Mainnet"
+
+        title_map = {
+            "created": ("🆕", "RUNTIME CREATED"),
+            "start": ("▶️", "RUNTIME STARTED"),
+            "started": ("▶️", "RUNTIME STARTED"),
+            "stop": ("🛑", "RUNTIME STOPPED"),
+            "stopped": ("🛑", "RUNTIME STOPPED"),
+            "restart": ("🔄", "RUNTIME RESTARTED"),
+            "restarted": ("🔄", "RUNTIME RESTARTED"),
+            "delete": ("🗑️", "RUNTIME DELETED"),
+            "deleted": ("🗑️", "RUNTIME DELETED"),
+            "pause": ("⏸️", "RUNTIME PAUSED"),
+            "paused": ("⏸️", "RUNTIME PAUSED"),
+            "resume": ("▶️", "RUNTIME RESUMED"),
+            "resumed": ("▶️", "RUNTIME RESUMED"),
+            "error": ("🚨", "RUNTIME ACTION FAILED"),
+            "failed": ("🚨", "RUNTIME ACTION FAILED"),
+        }
+        emoji, title = title_map.get(normalized_action, ("ℹ️", "RUNTIME UPDATED"))
+        if not success and normalized_action not in {"error", "failed"}:
+            emoji, title = ("🚨", f"{title} FAILED")
+
+        lines = [
+            f"{emoji} <b>{title}</b>",
+            "",
+            f"{self._instance_prefix()}{self._environment_prefix()}".rstrip(),
+            "",
+            f"🤖 <b>Runtime:</b> {instance_name or self._escape_html(lifecycle_info.get('instance_id', 'unknown'))}",
+            f"📈 <b>Strategy:</b> {strategy.title()}",
+            f"🌐 <b>Network:</b> {self._escape_html(network_text)}",
+            f"👤 <b>Account:</b> {account_link}",
+            f"🧑 <b>Operator:</b> {operator}",
+        ]
+        if reason:
+            lines.append(f"🔍 <b>Reason:</b> {reason}")
+        if details:
+            lines.append(f"📝 <b>Details:</b> {details}")
+        lines.extend(
+            [
+                f"⏰ <b>Time:</b> {self._format_timestamp()}",
+                "",
+                "<i>Operator action recorded and synchronized with runtime control.</i>",
+            ]
+        )
+
+        dedupe_key = (
+            f"lifecycle:{normalized_action}:{self.instance_id or lifecycle_info.get('instance_id', '')}:"
+            f"{'success' if success else 'failure'}"
+        )
+        return self.send_message("\n".join(lines), dedupe_key=dedupe_key, dedupe_window_seconds=0)
 
     def send_error_message(
         self,
@@ -353,13 +454,10 @@ class TelegramMessenger:
 
         balance_emoji = "✅" if balance >= 100 else "⚠️" if balance >= 50 else "🚨"
 
-        # Create clickable account link
-        if is_testnet:
-            mintscan_url = f"https://www.mintscan.io/dydx-testnet/account/{DYDX_ADDRESS}"
-        else:
-            mintscan_url = f"https://www.mintscan.io/dydx/account/{DYDX_ADDRESS}"
-
-        account_display = f"{DYDX_ADDRESS[:8]}...{DYDX_ADDRESS[-6:]}"
+        account_link = self._format_account_link(
+            self._resolve_account_address(account_info.get("account_address")),
+            is_testnet,
+        )
 
         message = f"""
 💰 <b>ACCOUNT STATUS</b>
@@ -367,7 +465,7 @@ class TelegramMessenger:
 {balance_emoji} <b>Total Balance:</b> ${balance:.2f}
 💵 <b>Available:</b> ${available_balance:.2f}
 📊 <b>Open Positions:</b> {open_positions}
-👤 <b>Account:</b> <a href="{mintscan_url}">{account_display}</a>
+👤 <b>Account:</b> {account_link}
 
 ⏰ <b>Updated:</b> {self._format_timestamp()}
 
@@ -468,6 +566,13 @@ def send_account_notification(account_info: Dict[str, Any], is_testnet: bool = T
 def send_daily_summary(summary_info: Dict[str, Any]) -> bool:
     """Send daily summary notification."""
     return _messenger.send_daily_summary(summary_info)
+
+
+def send_lifecycle_notification(
+    action: str, lifecycle_info: Dict[str, Any], success: bool = True
+) -> bool:
+    """Send lifecycle action notification."""
+    return _messenger.send_lifecycle_message(action, lifecycle_info, success=success)
 
 
 def send_shutdown_notification(reason: str = "Manual stop") -> bool:

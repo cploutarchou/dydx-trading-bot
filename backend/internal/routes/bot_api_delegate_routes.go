@@ -234,6 +234,16 @@ func normalizeBacktestDetailsFields(payload map[string]interface{}) map[string]i
 	if _, ok := payload["status"]; !ok {
 		payload["status"] = "unknown"
 	}
+	if _, ok := payload["error_message"]; !ok {
+		if errorMessage := getStringField(payload, "error"); errorMessage != "" {
+			payload["error_message"] = errorMessage
+		}
+	}
+	if _, ok := payload["error"]; !ok {
+		if errorMessage := getStringField(payload, "error_message"); errorMessage != "" {
+			payload["error"] = errorMessage
+		}
+	}
 
 	progress := 0.0
 	if value, ok := getNumberField(payload, "progress_percent", "progress_pct", "progress"); ok {
@@ -247,6 +257,9 @@ func normalizeBacktestDetailsFields(payload map[string]interface{}) map[string]i
 		if _, ok := payload[key]; !ok {
 			payload[key] = nil
 		}
+	}
+	if winRate, ok := getNumberField(payload, "win_rate"); ok && winRate >= 0 && winRate <= 1 {
+		payload["win_rate"] = winRate * 100.0
 	}
 	if payload["max_drawdown_pct"] == nil {
 		if drawdown, ok := getNumberField(payload, "max_drawdown"); ok {
@@ -278,6 +291,16 @@ func normalizeBacktestStatusFields(payload map[string]interface{}) map[string]in
 		payload = map[string]interface{}{}
 	}
 	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", payload["status"])))
+	if _, ok := payload["error_message"]; !ok {
+		if errorMessage := getStringField(payload, "error"); errorMessage != "" {
+			payload["error_message"] = errorMessage
+		}
+	}
+	if _, ok := payload["error"]; !ok {
+		if errorMessage := getStringField(payload, "error_message"); errorMessage != "" {
+			payload["error"] = errorMessage
+		}
+	}
 	progress := 0.0
 	if value, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
 		progress = value
@@ -307,6 +330,298 @@ func normalizeBacktestStatusPayload(payload map[string]interface{}) map[string]i
 		return payload
 	}
 	return normalizeBacktestStatusFields(payload)
+}
+
+func normalizedPercentValue(value float64) float64 {
+	if value >= 0 && value <= 1 {
+		return value * 100.0
+	}
+	return value
+}
+
+func getStringField(payload map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if payload == nil {
+			continue
+		}
+		value, ok := payload[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return strings.TrimSpace(typed)
+			}
+		default:
+			text := strings.TrimSpace(fmt.Sprintf("%v", typed))
+			if text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func extractBacktestTrades(payload map[string]interface{}) []interface{} {
+	data := unwrapEnvelopePayload(payload)
+	for _, key := range []string{"trades", "all_trades"} {
+		if trades := asSlice(data[key]); trades != nil {
+			return trades
+		}
+	}
+	return nil
+}
+
+func resolveBacktestTradeLimit(details map[string]interface{}) int {
+	limit := 500
+	if totalTrades, ok := getNumberField(details, "total_trades"); ok && int(totalTrades) > 0 {
+		limit = int(totalTrades)
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	return limit
+}
+
+func parseBacktestTime(value interface{}) (time.Time, bool) {
+	text := strings.TrimSpace(fmt.Sprintf("%v", value))
+	if text == "" || text == "<nil>" {
+		return time.Time{}, false
+	}
+
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	} {
+		if parsed, err := time.Parse(layout, text); err == nil {
+			return parsed, true
+		}
+	}
+
+	return time.Time{}, false
+}
+
+func inferBacktestPairCount(details map[string]interface{}) int {
+	if pairs, ok := getNumberField(details, "num_pairs", "max_pairs"); ok {
+		return int(pairs)
+	}
+
+	requestPayload := asMap(details["request"])
+	if requestPayload == nil {
+		return 0
+	}
+
+	if pairs, ok := getNumberField(requestPayload, "num_pairs", "max_pairs"); ok {
+		return int(pairs)
+	}
+
+	if params := asMap(requestPayload["trading_parameters"]); params != nil {
+		if pairs, ok := getNumberField(params, "num_pairs", "max_pairs"); ok {
+			return int(pairs)
+		}
+	}
+
+	markets := asSlice(requestPayload["pairs"])
+	if len(markets) < 2 {
+		return len(markets)
+	}
+	return len(markets) * (len(markets) - 1) / 2
+}
+
+func buildBacktestSummaryPayload(detailsPayload map[string]interface{}, tradesPayload map[string]interface{}, runID string) map[string]interface{} {
+	details := unwrapEnvelopePayload(normalizeBacktestDetailsPayload(detailsPayload))
+	requestPayload := asMap(details["request"])
+	params := asMap(nil)
+	if requestPayload != nil {
+		params = asMap(requestPayload["trading_parameters"])
+	}
+
+	earliestTradeDate := ""
+	latestTradeDate := ""
+	for _, trade := range extractBacktestTrades(tradesPayload) {
+		tradeMap := asMap(trade)
+		if tradeMap == nil {
+			continue
+		}
+
+		entryTime, entryOK := parseBacktestTime(tradeMap["entry_timestamp"])
+		if entryOK && (earliestTradeDate == "" || entryTime.Format(time.RFC3339) < earliestTradeDate) {
+			earliestTradeDate = entryTime.Format(time.RFC3339)
+		}
+
+		exitValue := tradeMap["exit_timestamp"]
+		if exitValue == nil || strings.TrimSpace(fmt.Sprintf("%v", exitValue)) == "" {
+			exitValue = tradeMap["entry_timestamp"]
+		}
+		exitTime, exitOK := parseBacktestTime(exitValue)
+		if exitOK && (latestTradeDate == "" || exitTime.Format(time.RFC3339) > latestTradeDate) {
+			latestTradeDate = exitTime.Format(time.RFC3339)
+		}
+	}
+
+	if earliestTradeDate == "" {
+		earliestTradeDate = getStringField(details, "start_date")
+	}
+	if latestTradeDate == "" {
+		latestTradeDate = getStringField(details, "end_date")
+	}
+
+	status := getStringField(details, "status")
+	createdAt := getStringField(details, "created_at")
+	startedAt := getStringField(details, "started_at")
+	if startedAt == "" {
+		startedAt = createdAt
+	}
+	completedAt := getStringField(details, "completed_at")
+	if completedAt == "" && (status == "completed" || status == "failed" || status == "cancelled") {
+		completedAt = getStringField(details, "updated_at")
+	}
+
+	zscoreThreshold, _ := getNumberField(params, "zscore_threshold")
+	statsWindow, _ := getNumberField(params, "stats_window")
+	usdPerTrade, _ := getNumberField(params, "usd_per_trade")
+	totalTrades, _ := getNumberField(details, "total_trades")
+
+	return map[string]interface{}{
+		"run_id":             getStringField(details, "run_id"),
+		"status":             status,
+		"created_at":         createdAt,
+		"started_at":         startedAt,
+		"completed_at":       completedAt,
+		"total_trades":       int(totalTrades),
+		"earliest_trade_date": earliestTradeDate,
+		"latest_trade_date":   latestTradeDate,
+		"configuration": map[string]interface{}{
+			"num_pairs":         inferBacktestPairCount(details),
+			"zscore_threshold":  zscoreThreshold,
+			"stats_window":      int(statsWindow),
+			"usd_per_trade":     usdPerTrade,
+		},
+		"requested_run_id": runID,
+	}
+}
+
+func buildBacktestPerformancePayload(detailsPayload map[string]interface{}, metricsPayload map[string]interface{}, tradesPayload map[string]interface{}, runID string) map[string]interface{} {
+	details := unwrapEnvelopePayload(normalizeBacktestDetailsPayload(detailsPayload))
+	metrics := unwrapEnvelopePayload(metricsPayload)
+
+	totalTrades := 0
+	if value, ok := getNumberField(details, "total_trades"); ok {
+		totalTrades = int(value)
+	}
+
+	totalPnl, totalPnlSet := getNumberField(details, "total_pnl", "total_pnl_usd")
+	winRate, winRateSet := getNumberField(details, "win_rate")
+	if winRateSet {
+		winRate = normalizedPercentValue(winRate)
+	}
+	sharpeRatio, sharpeSet := getNumberField(metrics, "sharpe_ratio")
+	if !sharpeSet {
+		sharpeRatio, _ = getNumberField(details, "sharpe_ratio")
+	}
+	maxDrawdown, drawdownSet := getNumberField(metrics, "max_drawdown", "max_drawdown_pct")
+	if !drawdownSet {
+		if risk := asMap(metrics["risk"]); risk != nil {
+			maxDrawdown, drawdownSet = getNumberField(risk, "max_drawdown", "max_drawdown_pct")
+		}
+	}
+	if !drawdownSet {
+		maxDrawdown, _ = getNumberField(details, "max_drawdown", "max_drawdown_pct")
+	}
+
+	winningTrades := 0
+	losingTrades := 0
+	maxWin := 0.0
+	maxLoss := 0.0
+	totalDurationHours := 0.0
+	durationCount := 0
+
+	trades := extractBacktestTrades(tradesPayload)
+	for _, trade := range trades {
+		tradeMap := asMap(trade)
+		if tradeMap == nil {
+			continue
+		}
+
+		pnl, hasPnL := getNumberField(tradeMap, "pnl_usd", "pnl", "realized_pnl", "total_pnl_usd")
+		if hasPnL {
+			if pnl > 0 {
+				winningTrades++
+				if pnl > maxWin {
+					maxWin = pnl
+				}
+			} else {
+				losingTrades++
+				if pnl < maxLoss {
+					maxLoss = pnl
+				}
+			}
+		}
+
+		durationHours, hasDuration := getNumberField(tradeMap, "duration_hours")
+		if !hasDuration {
+			entryTime, entryOK := parseBacktestTime(tradeMap["entry_timestamp"])
+			exitTime, exitOK := parseBacktestTime(tradeMap["exit_timestamp"])
+			if entryOK && exitOK {
+				durationHours = exitTime.Sub(entryTime).Hours()
+				hasDuration = true
+			}
+		}
+		if hasDuration && durationHours >= 0 {
+			totalDurationHours += durationHours
+			durationCount++
+		}
+	}
+
+	if totalTrades == 0 {
+		totalTrades = len(trades)
+	}
+	if totalTrades == 0 {
+		totalTrades = winningTrades + losingTrades
+	}
+
+	if winningTrades+losingTrades == 0 && totalTrades > 0 && winRateSet {
+		winningTrades = int((winRate / 100.0 * float64(totalTrades)) + 0.5)
+		if winningTrades > totalTrades {
+			winningTrades = totalTrades
+		}
+		losingTrades = totalTrades - winningTrades
+	}
+	if !winRateSet && totalTrades > 0 {
+		winRate = (float64(winningTrades) / float64(totalTrades)) * 100.0
+	}
+	if !totalPnlSet {
+		totalPnl = 0
+	}
+
+	averagePnL := 0.0
+	if totalTrades > 0 {
+		averagePnL = totalPnl / float64(totalTrades)
+	}
+
+	averageDuration := 0.0
+	if durationCount > 0 {
+		averageDuration = totalDurationHours / float64(durationCount)
+	}
+
+	return map[string]interface{}{
+		"run_id":           getStringField(details, "run_id"),
+		"requested_run_id": runID,
+		"total_trades":     totalTrades,
+		"winning_trades":   winningTrades,
+		"losing_trades":    losingTrades,
+		"win_rate":         winRate,
+		"total_pnl":        totalPnl,
+		"average_pnl":      averagePnL,
+		"max_win":          maxWin,
+		"max_loss":         maxLoss,
+		"sharpe_ratio":     sharpeRatio,
+		"max_drawdown":     maxDrawdown,
+		"average_duration": averageDuration,
+	}
 }
 
 func isUpstreamNotFound(err error) bool {
@@ -631,6 +946,44 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest fetched successfully", result)
 		})
 
+		backtestGroup.GET("/:run_id/summary", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+
+			details, err := requestClient.GetBacktestDetails(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			details = normalizeBacktestDetailsPayload(details)
+			detailData := unwrapEnvelopePayload(details)
+			syncRun(c, details)
+			syncChildren(c, runID, details)
+
+			tradeLimit := resolveBacktestTradeLimit(detailData)
+			tradesPayload, tradesErr := requestClient.GetBacktestDetailedTrades(runID, tradeLimit, 0)
+			if tradesErr != nil {
+				if !isUpstreamNotFound(tradesErr) {
+					tradesPayload, tradesErr = requestClient.GetBacktestTradesWithFilters(runID, tradeLimit, 0, false)
+				}
+				if tradesErr != nil && !isUpstreamNotFound(tradesErr) {
+					respondBotAPIError(c, tradesErr)
+					return
+				}
+				if tradesErr != nil {
+					tradesPayload = map[string]interface{}{"trades": []interface{}{}, "total": 0}
+				}
+			}
+			syncChildren(c, runID, tradesPayload)
+
+			respondBacktestEnvelope(
+				c,
+				http.StatusOK,
+				"Backtest summary fetched successfully",
+				buildBacktestSummaryPayload(details, tradesPayload, runID),
+			)
+		})
+
 		// Delete backtest
 		backtestGroup.DELETE("/:run_id", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
@@ -828,7 +1181,32 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result, err := requestClient.GetBacktestDetailedTrades(runID, limit, offset)
 			if err != nil {
 				if isUpstreamNotFound(err) {
-					respondBacktestEnvelope(c, http.StatusOK, "Backtest detailed trades fetched successfully", map[string]interface{}{"trades": []interface{}{}, "total": 0})
+					fallbackResult, fallbackErr := requestClient.GetBacktestTradesWithFilters(runID, limit, offset, false)
+					if fallbackErr != nil {
+						if isUpstreamNotFound(fallbackErr) {
+							respondBacktestEnvelope(c, http.StatusOK, "Backtest detailed trades fetched successfully", map[string]interface{}{"trades": []interface{}{}, "total": 0})
+							return
+						}
+						respondBotAPIError(c, fallbackErr)
+						return
+					}
+					syncChildren(c, runID, fallbackResult)
+					fallbackData := asMap(fallbackResult["data"])
+					if fallbackData == nil {
+						fallbackData = map[string]interface{}{}
+					}
+					fallbackTrades := asSlice(fallbackData["trades"])
+					if fallbackTrades == nil {
+						fallbackTrades = asSlice(fallbackResult["trades"])
+					}
+					if fallbackTrades == nil {
+						fallbackTrades = []interface{}{}
+					}
+					total, hasTotal := getNumberField(fallbackData, "total")
+					if !hasTotal {
+						total = float64(len(fallbackTrades))
+					}
+					respondBacktestEnvelope(c, http.StatusOK, "Backtest detailed trades fetched successfully", map[string]interface{}{"trades": fallbackTrades, "total": total})
 					return
 				}
 				respondBotAPIError(c, err)
@@ -999,6 +1377,54 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			}
 			syncChildren(c, runID, result)
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest performance metrics fetched successfully", result)
+		})
+
+		backtestGroup.GET("/:run_id/performance", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			benchmark := c.DefaultQuery("benchmark", "BTC-USD")
+
+			details, err := requestClient.GetBacktestDetails(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			details = normalizeBacktestDetailsPayload(details)
+			detailData := unwrapEnvelopePayload(details)
+			syncRun(c, details)
+			syncChildren(c, runID, details)
+
+			metricsPayload, metricsErr := requestClient.GetAdvancedPerformanceMetrics(runID, benchmark)
+			if metricsErr != nil && !isUpstreamNotFound(metricsErr) {
+				respondBotAPIError(c, metricsErr)
+				return
+			}
+			if metricsErr != nil {
+				metricsPayload = map[string]interface{}{}
+			}
+
+			tradeLimit := resolveBacktestTradeLimit(detailData)
+			tradesPayload, tradesErr := requestClient.GetBacktestDetailedTrades(runID, tradeLimit, 0)
+			if tradesErr != nil {
+				if !isUpstreamNotFound(tradesErr) {
+					tradesPayload, tradesErr = requestClient.GetBacktestTradesWithFilters(runID, tradeLimit, 0, false)
+				}
+				if tradesErr != nil && !isUpstreamNotFound(tradesErr) {
+					respondBotAPIError(c, tradesErr)
+					return
+				}
+				if tradesErr != nil {
+					tradesPayload = map[string]interface{}{"trades": []interface{}{}, "total": 0}
+				}
+			}
+			syncChildren(c, runID, tradesPayload)
+
+			respondBacktestEnvelope(
+				c,
+				http.StatusOK,
+				"Backtest performance fetched successfully",
+				buildBacktestPerformancePayload(details, metricsPayload, tradesPayload, runID),
+			)
 		})
 
 		// Get live progress

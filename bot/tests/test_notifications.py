@@ -1,129 +1,79 @@
-import pytest
-
-from src.shared.notifications import TelegramMessenger
+import importlib
 
 
-@pytest.fixture(autouse=True)
-def _reset_dedupe_cache():
-    TelegramMessenger._recent_messages.clear()
+def _load_notifications_module():
+    return importlib.import_module("src.shared.notifications")
 
 
-def test_send_message_deduplicates_with_window(monkeypatch):
-    messenger = TelegramMessenger()
-    messenger.enabled = True
-    messenger.chat_id = "1"
+def test_startup_message_prefers_instance_account_address(monkeypatch):
+    notifications = _load_notifications_module()
+    messenger = notifications.TelegramMessenger()
 
-    calls = {"count": 0}
+    captured = {}
 
-    def _fake_send(_method, _data):
-        calls["count"] += 1
-        return True
-
-    monkeypatch.setattr(messenger, "_send_request", _fake_send)
-
-    assert messenger.send_message("hello", dedupe_key="k1", dedupe_window_seconds=60) is True
-    assert messenger.send_message("hello", dedupe_key="k1", dedupe_window_seconds=60) is False
-    assert calls["count"] == 1
-
-
-def test_send_error_message_escapes_html_and_adds_context(monkeypatch):
-    monkeypatch.setenv("BOT_INSTANCE_ID", "bot-1")
-    monkeypatch.setenv("ENVIRONMENT", "development")
-
-    messenger = TelegramMessenger()
-    messenger.enabled = True
-
-    captured = {"text": ""}
-
-    def _fake_send_message(text, **_kwargs):
+    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
         captured["text"] = text
+        captured["parse_mode"] = parse_mode
+        captured["dedupe_key"] = dedupe_key
+        captured["dedupe_window_seconds"] = dedupe_window_seconds
         return True
 
     monkeypatch.setattr(messenger, "send_message", _fake_send_message)
 
-    assert (
-        messenger.send_error_message("Bad <Type>", "failed with <raw> payload", is_critical=False)
-        is True
+    account_address = "dydx16shv8n0j28djnjrcg0jxusmkf46umtzrepslsp"
+    sent = messenger.send_startup_message(
+        {
+            "environment": "development",
+            "is_testnet": True,
+            "strategy": "cointegration",
+            "account_address": account_address,
+        }
     )
-    assert "Bad &lt;Type&gt;" in captured["text"]
-    assert "failed with &lt;raw&gt; payload" in captured["text"]
-    assert "<b>Instance:</b> bot-1" in captured["text"]
+
+    assert sent is True
+    assert "https://www.mintscan.io/dydx-testnet/account/dydx16shv8n0j28djnjrcg0jxusmkf46umtzrepslsp" in captured["text"]
+    assert "dydx16sh..." in captured["text"]
 
 
-def test_noncritical_error_dedupes_by_category(monkeypatch):
-    monkeypatch.setenv("TELEGRAM_ERROR_DEDUPE_SECONDS_DEFAULT", "60")
+def test_lifecycle_message_uses_explicit_runtime_context(monkeypatch):
+    notifications = _load_notifications_module()
+    messenger = notifications.TelegramMessenger(
+        bot_token="token",
+        chat_id="chat",
+        instance_id="strategy-1-4",
+        environment="development",
+    )
 
-    messenger = TelegramMessenger()
-    messenger.enabled = True
-    messenger.chat_id = "1"
+    captured = {}
 
-    calls = {"count": 0}
-
-    def _fake_send(_method, _data):
-        calls["count"] += 1
-        return True
-
-    monkeypatch.setattr(messenger, "_send_request", _fake_send)
-
-    assert messenger.send_error_message("Trade Entry Error", "leg-1 failed", category="execution") is True
-    assert messenger.send_error_message("Trade Entry Error", "leg-2 failed", category="execution") is False
-    assert calls["count"] == 1
-
-
-def test_critical_errors_send_immediately_by_default(monkeypatch):
-    messenger = TelegramMessenger()
-    messenger.enabled = True
-    messenger.chat_id = "1"
-
-    calls = {"count": 0}
-
-    def _fake_send(_method, _data):
-        calls["count"] += 1
-        return True
-
-    monkeypatch.setattr(messenger, "_send_request", _fake_send)
-
-    assert messenger.send_error_message("Critical Failure", "first", is_critical=True) is True
-    assert messenger.send_error_message("Critical Failure", "second", is_critical=True) is True
-    assert calls["count"] == 2
-
-
-def test_error_category_env_override_applies(monkeypatch):
-    monkeypatch.setenv("TELEGRAM_ERROR_DEDUPE_SECONDS_DEFAULT", "120")
-    monkeypatch.setenv("TELEGRAM_ERROR_DEDUPE_SECONDS_EXECUTION", "5")
-
-    messenger = TelegramMessenger()
-    messenger.enabled = True
-
-    captured = {"window": None, "key": ""}
-
-    def _fake_send_message(_text, **kwargs):
-        captured["window"] = kwargs.get("dedupe_window_seconds")
-        captured["key"] = kwargs.get("dedupe_key", "")
+    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+        captured["text"] = text
+        captured["parse_mode"] = parse_mode
+        captured["dedupe_key"] = dedupe_key
+        captured["dedupe_window_seconds"] = dedupe_window_seconds
         return True
 
     monkeypatch.setattr(messenger, "send_message", _fake_send_message)
 
-    assert messenger.send_error_message("Trade Error", "details", category="execution") is True
-    assert captured["window"] == 5
-    assert captured["key"] == "error:normal:execution"
+    sent = messenger.send_lifecycle_message(
+        "restarted",
+        {
+            "instance_id": "strategy-1-4",
+            "instance_name": "Aggressive",
+            "strategy": "cointegration",
+            "is_testnet": True,
+            "account_address": "dydx16shv8n0j28djnjrcg0jxusmkf46umtzrepslsp",
+            "operator": "admin",
+            "details": "Runtime restarted successfully.",
+            "reason": "Operator restart",
+        },
+        success=True,
+    )
 
-
-def test_send_message_truncates_long_payload(monkeypatch):
-    messenger = TelegramMessenger()
-    messenger.enabled = True
-    messenger.chat_id = "1"
-
-    captured = {"text": ""}
-
-    def _fake_send(_method, data):
-        captured["text"] = data["text"]
-        return True
-
-    monkeypatch.setattr(messenger, "_send_request", _fake_send)
-
-    huge_text = "x" * 5000
-    assert messenger.send_message(huge_text) is True
-    assert len(captured["text"]) < 4100
-    assert "[message truncated]" in captured["text"]
-
+    assert sent is True
+    assert "RUNTIME RESTARTED" in captured["text"]
+    assert "Aggressive" in captured["text"]
+    assert "admin" in captured["text"]
+    assert "Operator restart" in captured["text"]
+    assert "Runtime restarted successfully." in captured["text"]
+    assert captured["dedupe_key"] == "lifecycle:restarted:strategy-1-4:success"

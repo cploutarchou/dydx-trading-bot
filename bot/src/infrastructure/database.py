@@ -185,6 +185,7 @@ class DatabaseManager:
                         "Compatibility fix applied: backtest_strategies.pair_selection_mode"
                     )
 
+
     def _build_alembic_config(self) -> Optional[Config]:
         config = DatabaseConfig()
         alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"

@@ -70,6 +70,7 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
+- [x] 2026-04-08: Backtest run state now persists in PostgreSQL (`backtest_runtime_runs`) and status polling endpoints (`/api/v1/backtests/{run_id}/status`, related run-scoped reads) survive API reloads/restarts; orphaned in-progress runs fail closed as `failed` with interruption reason on service restart.
 - [x] 2026-04-08: Bot startup now safely normalizes legacy `bot_instances.status` values before ORM reads, backend runtime metadata persistence now stores credential-bearing bot config for future DB recovery, and noisy dYdX node-prefix stderr warnings are filtered during API import/startup.
 - [x] 2026-04-08: Local TTY runs now use colored structured Loguru formatting, and `src/` runtime modules were migrated off direct `logging.getLogger(...)` usage while keeping plain-text subprocess log files under `bot_states/`.
 - [x] 2026-04-08: Development-mode logging now forces verbose API request traces (`request_started` / `request_completed`) with trace id, safe query context, duration, and status-based warning/error severity for faster local debugging.

@@ -71,6 +71,7 @@ type BacktestStrategy struct {
 	IsPublic               bool       `db:"is_public" json:"is_public"`
 	IsDefault              bool       `db:"is_default" json:"is_default"`
 	RuntimeStrategy        string     `db:"runtime_strategy" json:"runtime_strategy"`
+	PairSelectionMode      string     `db:"pair_selection_mode" json:"pair_selection_mode"`
 	ZscoreThreshold        float64    `db:"zscore_threshold" json:"zscore_threshold"`
 	StatsWindow            int        `db:"stats_window" json:"stats_window"`
 	MaxHalfLife            float64    `db:"max_half_life" json:"max_half_life"`
@@ -368,9 +369,9 @@ type StrategyVersionHistory struct {
 	ID              int            `db:"id" json:"id"`
 	StrategyID      int            `db:"strategy_id" json:"strategy_id"`
 	CreatedByUserID int            `db:"created_by_user_id" json:"created_by_user_id"`
-	Version         int            `db:"version" json:"version"`
-	StrategyData    sql.NullString `db:"strategy_data" json:"strategy_data"`
-	ChangeLog       string         `db:"change_log" json:"change_log"`
+	Version         int            `db:"version_number" json:"version_number"`
+	StrategyData    sql.NullString `db:"config_snapshot" json:"config_snapshot"`
+	ChangeLog       string         `db:"change_description" json:"change_description"`
 	CreatedAt       time.Time      `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
 }

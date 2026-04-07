@@ -2,13 +2,6 @@
 // Adds all missing bot and backtest management endpoints
 
 import apiClient from '../api';
-import {
-    MOCK_ALERTS,
-    MOCK_BOT_INSTANCES,
-    MOCK_BOT_STATS,
-    MOCK_POSITIONS,
-    shouldUseDevMocks,
-} from './mockData';
 import { attachTraceHeader } from './trace';
 import type { User } from './types';
 
@@ -64,8 +57,6 @@ const withDataFallback = <T>(result: unknown, fallback: T): T => {
 
   return fallback;
 };
-
-const shouldServeDevMocks = (): boolean => import.meta.env.DEV && shouldUseDevMocks();
 
 const toListResponse = (result: unknown, listKeys: string[] = []): ListResponse => {
   const payload = withDataFallback<unknown>(result, {});
@@ -216,12 +207,6 @@ class EnhancedAPIClient {
       return toListResponse(result, ['bots', 'items']);
     } catch (error) {
       console.error('listBotInstances error:', error);
-      if (shouldServeDevMocks()) {
-        return {
-          count: MOCK_BOT_INSTANCES.length,
-          data: MOCK_BOT_INSTANCES.map((bot) => ({ ...bot })),
-        };
-      }
       throw error;
     }
   }
@@ -243,21 +228,6 @@ class EnhancedAPIClient {
       return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getBotInstance error:', error);
-      if (shouldServeDevMocks()) {
-        return {
-          instance_id: instanceId,
-          instance_name: instanceId,
-          status: 'RUNNING',
-          configuration: {
-            trading_params: {
-              is_testnet: true,
-              zscore_threshold: 1.5,
-              max_half_life: 24,
-              usd_per_trade: 10.0,
-            },
-          },
-        };
-      }
       throw error;
     }
   }
@@ -279,12 +249,6 @@ class EnhancedAPIClient {
       return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getBotStats error:', error);
-      if (shouldServeDevMocks()) {
-        const mockStats = MOCK_BOT_STATS[instanceId];
-        if (mockStats) {
-          return { ...mockStats };
-        }
-      }
       throw error;
     }
   }
@@ -316,9 +280,6 @@ class EnhancedAPIClient {
       return toListResponse(result, ['trades', 'items']);
     } catch (error) {
       console.error('getBotTrades error:', error);
-      if (shouldServeDevMocks()) {
-        return { count: 0, data: [] };
-      }
       throw error;
     }
   }
@@ -470,9 +431,6 @@ class EnhancedAPIClient {
       return toListResponse(result, ['positions', 'items']).data;
     } catch (error) {
       console.error('getCurrentPositions error:', error);
-      if (shouldServeDevMocks()) {
-        return MOCK_POSITIONS.map((position) => ({ ...position }));
-      }
       throw error;
     }
   }
@@ -493,10 +451,6 @@ class EnhancedAPIClient {
       return withDataFallback<Entity | null>(result, null);
     } catch (error) {
       console.error('getPosition error:', error);
-      if (shouldServeDevMocks()) {
-        const mockPosition = MOCK_POSITIONS.find((position) => position.position_id === positionId);
-        return mockPosition ? { ...mockPosition } : null;
-      }
       throw error;
     }
   }
@@ -514,20 +468,6 @@ class EnhancedAPIClient {
       return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getRealtimeStats error:', error);
-      if (shouldServeDevMocks()) {
-        const mockStats = MOCK_BOT_STATS[instanceId];
-        if (mockStats) {
-          return {
-            uptime_seconds: 86400,
-            total_trades: mockStats.total_trades,
-            trades_today: 5,
-            open_positions: mockStats.open_positions,
-            total_pnl: mockStats.total_pnl,
-            daily_pnl: mockStats.realized_pnl,
-            win_rate: mockStats.win_rate,
-          };
-        }
-      }
       throw error;
     }
   }
@@ -545,9 +485,6 @@ class EnhancedAPIClient {
       return withDataFallback<Record<string, unknown>>(result, {});
     } catch (error) {
       console.error('getMarketData error:', error);
-      if (shouldServeDevMocks()) {
-        return {};
-      }
       throw error;
     }
   }
@@ -575,12 +512,6 @@ class EnhancedAPIClient {
       return toListResponse(result, ['alerts', 'items']);
     } catch (error) {
       console.error('getAlerts error:', error);
-      if (shouldServeDevMocks()) {
-        return {
-          count: MOCK_ALERTS.length,
-          data: MOCK_ALERTS.map((alert) => ({ ...alert })),
-        };
-      }
       throw error;
     }
   }

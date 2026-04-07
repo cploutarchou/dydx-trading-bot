@@ -20,7 +20,6 @@ import {
 	YAxis,
 } from 'recharts';
 import api from '../api';
-import { MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { useBacktestProgress } from '../api/hooks';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 import { PageContainer } from '../components/PageContainer';
@@ -91,6 +90,8 @@ interface BacktestResponse {
   max_drawdown?: number;
   profit_factor?: number;
   total_trades?: number;
+  error?: string;
+  error_message?: string;
 }
 
 interface BacktestLogEntry {
@@ -120,6 +121,17 @@ const toStringValue = (value: unknown, fallback: string = ''): string => {
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   return fallback;
+};
+
+const firstMeaningfulString = (...values: unknown[]): string | null => {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return null;
 };
 
 const normalizePercentValue = (value: unknown): number => {
@@ -161,143 +173,6 @@ const formatDurationFromSeconds = (seconds: number): string => {
   return parts.join(' ');
 };
 
-const isMockRunId = (runId?: string): boolean =>
-  Boolean(runId && runId.startsWith('mock-run-') && shouldUseDevMocks());
-
-const getMockRunById = (runId?: string) =>
-  MOCK_BACKTEST_RUNS.find((run) => run.run_id === runId);
-
-const buildMockBacktestResponse = (runId: string): BacktestResponse | null => {
-  const run = getMockRunById(runId);
-  if (!run) return null;
-
-  return {
-    run_id: run.run_id,
-    status: run.status,
-    created_at: run.created_at,
-    start_date: run.start_date,
-    end_date: run.end_date,
-    progress_pct: run.progress_pct,
-    total_pnl: run.total_pnl,
-    total_pnl_usd: run.total_pnl,
-    win_rate: run.win_rate,
-    sharpe_ratio: run.sharpe_ratio,
-    max_drawdown_pct: run.max_drawdown_pct,
-    profit_factor: run.profit_factor,
-    total_trades: run.total_trades,
-  };
-};
-
-const buildMockCandles = (run: BacktestResponse): Candle[] => {
-  const start = new Date(run.start_date || new Date().toISOString());
-  const days = 30;
-  const totalPnl = run.total_pnl_usd ?? run.total_pnl ?? 0;
-  const market = 'PORTFOLIO';
-
-  return Array.from({ length: days }, (_, index) => {
-    const d = new Date(start);
-    d.setDate(start.getDate() + index);
-    const progress = (index + 1) / days;
-    const base = totalPnl * progress;
-    const wave = Math.sin(index / 2.3) * Math.max(Math.abs(totalPnl) * 0.02, 10);
-    const close = Number((base + wave).toFixed(2));
-
-    return {
-      market,
-      timestamp: d.toISOString(),
-      open: close,
-      high: close,
-      low: close,
-      close,
-      volume: Math.max(1, Math.round((run.total_trades ?? 0) / days)),
-    };
-  });
-};
-
-const buildMockPositions = (): Position[] => {
-  const now = new Date();
-  return [
-    {
-      position_id: 1,
-      market_1: 'ETH-USD',
-      market_2: 'BTC-USD',
-      entry_timestamp: new Date(now.getTime() - 10 * 86400000).toISOString(),
-      exit_timestamp: new Date(now.getTime() - 8 * 86400000).toISOString(),
-      entry_price_m1: 3200,
-      exit_price_m1: 3330,
-      entry_price_m2: 62000,
-      exit_price_m2: 61000,
-      hedge_ratio: 0.52,
-      entry_zscore: 2.1,
-      exit_zscore: 0.2,
-      pnl_m1_usd: 120,
-      pnl_m2_usd: 80,
-      total_pnl_usd: 200,
-      status: 'CLOSED',
-    },
-    {
-      position_id: 2,
-      market_1: 'SOL-USD',
-      market_2: 'AVAX-USD',
-      entry_timestamp: new Date(now.getTime() - 6 * 86400000).toISOString(),
-      exit_timestamp: new Date(now.getTime() - 4 * 86400000).toISOString(),
-      entry_price_m1: 138,
-      exit_price_m1: 145,
-      entry_price_m2: 39,
-      exit_price_m2: 37,
-      hedge_ratio: 1.74,
-      entry_zscore: -2.3,
-      exit_zscore: -0.1,
-      pnl_m1_usd: 90,
-      pnl_m2_usd: 60,
-      total_pnl_usd: 150,
-      status: 'CLOSED',
-    },
-  ];
-};
-
-const buildMockTrades = (): Trade[] => {
-  const now = new Date();
-  return [
-    {
-      trade_id: 'mock-trade-001',
-      market_1: 'ETH-USD',
-      market_2: 'BTC-USD',
-      entry_timestamp: new Date(now.getTime() - 10 * 86400000).toISOString(),
-      exit_timestamp: new Date(now.getTime() - 8 * 86400000).toISOString(),
-      entry_zscore: 2.1,
-      exit_zscore: 0.2,
-      entry_price_m1: 3200,
-      exit_price_m1: 3330,
-      entry_price_m2: 62000,
-      exit_price_m2: 61000,
-      hedge_ratio: 0.52,
-      pnl_usd: 200,
-      pnl_pct: 6.4,
-      duration_hours: 48,
-      win: true,
-    },
-    {
-      trade_id: 'mock-trade-002',
-      market_1: 'SOL-USD',
-      market_2: 'AVAX-USD',
-      entry_timestamp: new Date(now.getTime() - 6 * 86400000).toISOString(),
-      exit_timestamp: new Date(now.getTime() - 4 * 86400000).toISOString(),
-      entry_zscore: -2.3,
-      exit_zscore: -0.1,
-      entry_price_m1: 138,
-      exit_price_m1: 145,
-      entry_price_m2: 39,
-      exit_price_m2: 37,
-      hedge_ratio: 1.74,
-      pnl_usd: 150,
-      pnl_pct: 4.1,
-      duration_hours: 36,
-      win: true,
-    },
-  ];
-};
-
 export const BacktestDetailsV2: React.FC = () => {
   const { runId } = useParams<{ runId: string }>();
   const progressQuery = useBacktestProgress(runId || '');
@@ -333,37 +208,10 @@ export const BacktestDetailsV2: React.FC = () => {
           return;
         }
 
-        if (isMockRunId(runId)) {
-          const mockData = buildMockBacktestResponse(runId);
-          if (mockData) {
-            setBacktest(mockData);
-            setCandles(buildMockCandles(mockData));
-            setMarkets(['PORTFOLIO']);
-            setSelectedMarket('PORTFOLIO');
-            setPositions(buildMockPositions());
-            setTrades(buildMockTrades());
-            return;
-          }
-        }
-
         const response = await api.getBacktest(runId);
         const data = response?.data || response;
         setBacktest(data as unknown as BacktestResponse);
       } catch (err: unknown) {
-        if (isMockRunId(runId)) {
-          const mockData = buildMockBacktestResponse(runId);
-          if (mockData) {
-            setBacktest(mockData);
-            setCandles(buildMockCandles(mockData));
-            setMarkets(['PORTFOLIO']);
-            setSelectedMarket('PORTFOLIO');
-            setPositions(buildMockPositions());
-            setTrades(buildMockTrades());
-            setError(null);
-            return;
-          }
-        }
-
         const msg = err instanceof Error ? err.message : 'Failed to fetch backtest';
         setError(msg);
         setBacktest(null);
@@ -379,7 +227,6 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchAnalytics = async () => {
       if (!runId || !backtest) return;
-      if (isMockRunId(runId)) return;
       if (normalizeStatus(backtest.status) !== 'completed') {
         setCandles([]);
         setMarkets([]);
@@ -461,7 +308,6 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchPositionSnapshots = async () => {
       if (!runId || !backtest) return;
-      if (isMockRunId(runId)) return;
       if (normalizeStatus(backtest.status) !== 'completed') {
         setPositions([]);
         return;
@@ -534,7 +380,6 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     const fetchTrades = async () => {
       if (!runId || !backtest) return;
-      if (isMockRunId(runId)) return;
       if (normalizeStatus(backtest.status) !== 'completed') {
         setTrades([]);
         return;
@@ -799,6 +644,7 @@ export const BacktestDetailsV2: React.FC = () => {
   const totalPnl = backtest.total_pnl_usd ?? backtest.total_pnl ?? 0;
   const maxDrawdown = backtest.max_drawdown ?? backtest.max_drawdown_pct ?? 0;
   const winRatePercent = normalizePercentValue(backtest.win_rate);
+  const failureReason = firstMeaningfulString(backtest.error_message, backtest.error);
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -818,6 +664,11 @@ export const BacktestDetailsV2: React.FC = () => {
           <p className="text-slate-500 text-sm">
             No {label} available — the backtest did not complete successfully.
           </p>
+          {failureReason && (
+            <p className="max-w-2xl text-center text-xs text-red-300">
+              Reason: {failureReason}
+            </p>
+          )}
         </div>
       );
     }
@@ -976,6 +827,11 @@ export const BacktestDetailsV2: React.FC = () => {
             <p className="text-slate-400 text-sm mt-1">
               This backtest did not complete successfully. No result data is available.
             </p>
+            {failureReason && (
+              <p className="mt-2 text-sm text-red-200">
+                Reason: <span className="font-mono break-words">{failureReason}</span>
+              </p>
+            )}
           </div>
         )}
 

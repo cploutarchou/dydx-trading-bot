@@ -14,7 +14,6 @@ import {
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
-import { devFallback, MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
@@ -108,7 +107,7 @@ export const BacktestsPage: React.FC = () => {
     queryKey: ['backtests', 'intelligence'],
     queryFn: async (): Promise<BacktestRun[]> => {
       const response = await api.listBacktests(0, 500);
-      return devFallback(extractBacktestRuns(response), MOCK_BACKTEST_RUNS as unknown as BacktestRun[]);
+      return extractBacktestRuns(response);
     },
     staleTime: 10_000,
     refetchInterval: (query) =>
@@ -124,10 +123,6 @@ export const BacktestsPage: React.FC = () => {
       ),
     [strategiesQuery.data]
   );
-
-  const usingMockData =
-    shouldUseDevMocks() &&
-    (backtestsQuery.data ?? []).some((run) => String(run.run_id).startsWith('mock-run-'));
 
   const intelligence = useMemo(
     () => buildIntelligence(backtestsQuery.data ?? [], strategiesById),
@@ -218,11 +213,6 @@ export const BacktestsPage: React.FC = () => {
           </div>
         </div>
 
-        {usingMockData && (
-          <div className="relative mt-5 inline-flex rounded-full border border-amber-700 bg-amber-950/40 px-3 py-1 text-xs font-medium text-amber-300">
-            Development mock data is currently active.
-          </div>
-        )}
       </section>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">

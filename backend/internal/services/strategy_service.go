@@ -34,6 +34,7 @@ func (s *StrategyService) CreateStrategy(userID int, name, description, category
 		Category:               category,
 		IsPublic:               isPublic,
 		IsDefault:              isDefault,
+		PairSelectionMode:      "liquidity",
 		ZscoreThreshold:        1.5,
 		StatsWindow:            21,
 		MaxHalfLife:            24.0,

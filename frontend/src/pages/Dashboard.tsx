@@ -30,7 +30,6 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
-import { devFallback, MOCK_BACKTEST_RUNS, shouldUseDevMocks } from '../api/mockData';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CoinDeskNewsPanel } from '../components/CoinDeskNewsPanel';
@@ -333,11 +332,7 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
   const bestSharpe = completed.reduce((max, r) => Math.max(max, safeNum(r.sharpe_ratio)), 0);
   const totalTrades = runs.reduce((acc, r) => acc + safeNum(r.total_trades), 0);
   const avgPnlPerRun = completed.length > 0 ? totalPnl / completed.length : 0;
-
-  let pnlTimeSeries = buildPnlSeries(runs);
-  if (shouldUseDevMocks() && pnlTimeSeries.length === 0) {
-    pnlTimeSeries = buildPnlSeries(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
-  }
+  const pnlTimeSeries = buildPnlSeries(runs);
 
   return {
     total: runs.length,
@@ -368,9 +363,7 @@ export const DashboardPage: React.FC = () => {
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [launcherOpen, setLauncherOpen] = useState(false);
-  const [usingMockData, setUsingMockData] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const hasWarnedMockRef = useRef(false);
   const isComputingRef = useRef(false);
   const activeComputeIdRef = useRef(0);
 
@@ -407,25 +400,13 @@ export const DashboardPage: React.FC = () => {
               ? (raw.runs as BacktestRunSummary[])
               : [];
 
-      const runs = devFallback(rawRuns, MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
-      setRuns(runs);
-      setUsingMockData(shouldUseDevMocks() && rawRuns.length === 0 && runs.length > 0);
-      setStats(buildDashboardStats(runs));
+      setRuns(rawRuns);
+      setStats(buildDashboardStats(rawRuns));
     } catch (error) {
       if (activeComputeIdRef.current !== computeId) {
         return;
       }
-      if (shouldUseDevMocks()) {
-        if (!hasWarnedMockRef.current) {
-          console.warn('🔧 Dashboard: API unavailable, using mock stats in development.', error);
-          hasWarnedMockRef.current = true;
-        }
-        setRuns(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]);
-        setUsingMockData(true);
-        setStats(buildDashboardStats(MOCK_BACKTEST_RUNS as unknown as BacktestRunSummary[]));
-      } else {
-        console.error('❌ Dashboard: failed to load stats', error);
-      }
+      console.error('❌ Dashboard: failed to load stats', error);
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -440,14 +421,6 @@ export const DashboardPage: React.FC = () => {
   useEffect(() => { void computeStats(); }, [computeStats, refreshTrigger]);
 
   useEffect(() => {
-    if (usingMockData) {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      return;
-    }
-
     if (stats.running > 0 && !pollRef.current) {
       pollRef.current = setInterval(() => void computeStats(), 4000);
     } else if (stats.running === 0 && pollRef.current) {
@@ -457,7 +430,7 @@ export const DashboardPage: React.FC = () => {
     return () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [stats.running, computeStats, usingMockData]);
+  }, [stats.running, computeStats]);
 
   // Animated counters
   const countTotal    = useCountUp(stats.total);
@@ -544,11 +517,6 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            {usingMockData && (
-              <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded border border-amber-700 bg-amber-900/40 text-amber-300">
-                Dev Mock Data
-              </span>
-            )}
             <div className="flex items-center gap-2 text-slate-300">
               <Clock className="w-4 h-4 text-blue-400" />
               <LiveClock />

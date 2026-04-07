@@ -27,6 +27,10 @@ class _BacktestRunStatus(BaseModel):
     status: str
     progress_pct: float
     updated_at: str
+    current_pair: Optional[str] = None
+    current_task: Optional[str] = None
+    error: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class _BacktestTrade(BaseModel):
@@ -62,6 +66,11 @@ class _BacktestRunDetails(BaseModel):
     profit_factor: float = 0.0
     start_date: str = ""
     end_date: str = ""
+    progress_pct: float = 0.0
+    current_pair: Optional[str] = None
+    current_task: Optional[str] = None
+    error: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class _BacktestRunList(BaseModel):
@@ -865,6 +874,7 @@ class BacktestService:
                     "status": "completed",
                     "progress_pct": 100.0,
                     "current_pair": "complete",
+                    "current_task": "complete",
                     "total_pnl": round(total_pnl, 4),
                     "win_rate": round(win_rate, 4),
                     "sharpe_ratio": round(sharpe_ratio, 4),
@@ -891,6 +901,8 @@ class BacktestService:
                         }
                         for day in sorted(daily_pnl_agg.keys())
                     ],
+                    "error": None,
+                    "error_message": None,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -903,14 +915,21 @@ class BacktestService:
                 {
                     "status": "cancelled",
                     "progress_pct": run_data.get("progress_pct", 0.0),
+                    "current_pair": None,
+                    "current_task": "cancelled",
+                    "error": "Backtest cancelled",
+                    "error_message": "Backtest cancelled",
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
         except Exception as exc:
+            error_message = str(exc)
             run_data.update(
                 {
                     "status": "failed",
-                    "error": str(exc),
+                    "current_task": "failed",
+                    "error": error_message,
+                    "error_message": error_message,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -950,6 +969,7 @@ class BacktestService:
             "status": "created",
             "progress_pct": 0.0,
             "current_pair": "pending",
+            "current_task": "pending",
             "total_pnl": 0.0,
             "win_rate": 0.0,
             "sharpe_ratio": 0.0,
@@ -960,6 +980,8 @@ class BacktestService:
             "profit_factor": 0.0,
             "created_at": now,
             "updated_at": now,
+            "error": None,
+            "error_message": None,
             "request": request_payload,
             "trades": [],
             "position_snapshots": [],
@@ -1010,6 +1032,22 @@ class BacktestService:
             status=str(data.get("status", "unknown")),
             progress_pct=float(data.get("progress_pct", 0.0)),
             updated_at=str(data.get("updated_at")),
+            current_pair=(
+                str(data.get("current_pair"))
+                if data.get("current_pair") is not None
+                else None
+            ),
+            current_task=(
+                str(data.get("current_task"))
+                if data.get("current_task") is not None
+                else None
+            ),
+            error=str(data.get("error")) if data.get("error") is not None else None,
+            error_message=(
+                str(data.get("error_message"))
+                if data.get("error_message") is not None
+                else None
+            ),
         )
 
     def get_backtest_trades(
@@ -1184,6 +1222,9 @@ class BacktestService:
             "progress": progress,
             "progress_pct": progress,
             "current_pair": data.get("current_pair"),
+            "current_task": data.get("current_task"),
+            "error": data.get("error"),
+            "error_message": data.get("error_message"),
         }
 
     def compare_backtests(

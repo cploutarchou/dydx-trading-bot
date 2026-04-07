@@ -7,7 +7,6 @@ import { ChevronRight, Menu } from 'lucide-react';
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
-import { getMockDataMode, setMockDataMode, shouldUseDevMocks, type MockDataMode } from '../api/mockData';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -16,25 +15,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const isDevelopment = import.meta.env.DEV;
-  const [mockMode, setMockModeState] = React.useState<MockDataMode>(() =>
-    isDevelopment ? getMockDataMode() : 'off'
-  );
-  const usingMockData = isDevelopment && shouldUseDevMocks();
   const environmentLabel = import.meta.env.DEV ? '🟡 Development' : '🟢 Production';
   const environmentColor = import.meta.env.DEV ? 'text-yellow-400' : 'text-green-400';
-
-  const cycleMockMode = () => {
-    if (!isDevelopment) {
-      return;
-    }
-    const nextMode: MockDataMode =
-      mockMode === 'auto' ? 'on' : mockMode === 'on' ? 'off' : 'auto';
-    setMockDataMode(nextMode);
-    setMockModeState(nextMode);
-    // Reload to re-run existing data fetch effects with the new mode immediately.
-    window.location.reload();
-  };
 
   // Map routes to breadcrumb labels
   const getBreadcrumbs = () => {
@@ -112,20 +94,6 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
         {/* Right: Status/Info Area (can be extended) */}
         <div className="flex items-center gap-4">
-          {isDevelopment && (
-            <button
-              type="button"
-              onClick={cycleMockMode}
-              className={`px-2.5 py-1 rounded border text-xs font-medium transition-colors ${
-                usingMockData
-                  ? 'border-amber-700 bg-amber-900/40 text-amber-300 hover:bg-amber-900/60'
-                  : 'border-slate-600 bg-slate-700/40 text-slate-300 hover:bg-slate-700/60'
-              }`}
-              title="Cycle mock mode: auto -> on -> off"
-            >
-              Mock: {mockMode.toUpperCase()}
-            </button>
-          )}
           <div className="hidden lg:flex items-center gap-3">
             <div className="rounded-full border border-slate-700/70 bg-slate-900/65 px-3 py-2 text-right">
               <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Environment</p>

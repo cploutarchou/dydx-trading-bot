@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -37,6 +38,60 @@ func unwrapBotAPIEnvelope(payload map[string]interface{}) map[string]interface{}
 		return data
 	}
 	return payload
+}
+
+func buildEmptyBotStatsPayload(instanceID string, warning string) map[string]interface{} {
+	payload := map[string]interface{}{
+		"instance_id": instanceID,
+		"bot_statistics": map[string]interface{}{
+			"total_trades":      0,
+			"successful_trades": 0,
+			"failed_trades":     0,
+			"total_profit_loss": 0,
+			"win_rate":          0,
+			"uptime_seconds":    nil,
+		},
+		"trade_statistics": map[string]interface{}{
+			"total_trades":             0,
+			"winning_trades":           0,
+			"losing_trades":            0,
+			"total_profit":             0,
+			"total_loss":               0,
+			"net_profit":               0,
+			"average_profit":           0,
+			"win_rate":                 0,
+			"average_duration_seconds": 0,
+		},
+		"degraded": true,
+	}
+
+	if warning != "" {
+		payload["warning"] = warning
+	}
+
+	return payload
+}
+
+func isRecoverableBotStatsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *services.BotAPIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusNotFound
+	}
+
+	var transportErr *services.BotAPITransportError
+	if errors.As(err, &transportErr) {
+		return true
+	}
+
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "not found") ||
+		strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "timed out") ||
+		strings.Contains(message, "not reachable")
 }
 
 func NewBotInstanceHandler(service *services.BotInstanceService, repo *repository.BotInstanceRepository) *BotInstanceHandler {
@@ -377,6 +432,15 @@ func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 
 	stats, err := service.GetBotInstanceStats(instanceID)
 	if err != nil {
+		if isRecoverableBotStatsError(err) {
+			c.JSON(http.StatusOK, APIResponse{
+				Success:   true,
+				Data:      buildEmptyBotStatsPayload(instanceID, fmt.Sprintf("Runtime stats unavailable: %v", err)),
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),

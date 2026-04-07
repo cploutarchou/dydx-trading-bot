@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -467,6 +468,66 @@ func TestStrategyRuntimeStatusHandlesUnavailableUpstream(t *testing.T) {
 	}
 }
 
+func TestStrategyRuntimeStatusClearsStaleErrorWhenRemoteIsRunning(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"running","process_id":777,"config":{"trading_params":{"is_testnet":true}}}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO strategy_execution_states (strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		101,
+		false,
+		nil,
+		nil,
+		`{"instance_id":"strategy-1-101","status":"error","bot_status":"error","last_error":"runtime instance missing from bot API"}`,
+		time.Now().UTC(),
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("seed stale execution state: %v", err)
+	}
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/101/runtime", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request runtime status: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected 200 for remote running runtime, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode runtime payload: %v", err)
+	}
+
+	data, _ := payload["data"].(map[string]interface{})
+	if data["status"] != "running" {
+		t.Fatalf("expected runtime status=running, got %v", data["status"])
+	}
+	if data["bot_status"] != "running" {
+		t.Fatalf("expected runtime bot_status=running, got %v", data["bot_status"])
+	}
+	if value, exists := data["last_error"]; exists && value != "" && value != nil {
+		t.Fatalf("expected stale runtime error to be cleared, got %v", value)
+	}
+}
+
 func TestStrategyRuntimeStartRequiresActiveKey(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
@@ -549,5 +610,155 @@ func TestStrategyRuntimeGetRepairsLegacyExecutionStateSchema(t *testing.T) {
 	}
 	if data["is_running"] != true {
 		t.Fatalf("expected repaired runtime is_running=true, got %v", data["is_running"])
+	}
+}
+
+func TestStrategyRuntimeStartRequiresConfirmBeforeForceRecreate(t *testing.T) {
+	var (
+		createCalls int
+		deleteCalls int
+	)
+
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+		case http.MethodDelete:
+			deleteCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			t.Fatalf("unexpected method for runtime instance endpoint: %s", r.Method)
+		}
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/stop", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("force"); got != "true" {
+			t.Fatalf("expected force=true on recreate stop, got %q", got)
+		}
+		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+	})
+	upstreamMux.HandleFunc("/api/v1/bots", func(w http.ResponseWriter, r *http.Request) {
+		createCalls++
+		if createCalls == 1 {
+			http.Error(w, `{"message":"instance_id already exists: strategy-1-101"}`, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"stopped"}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/start", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"running"}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO bot_instances (instance_id, instance_name, user_id, status, network, strategy, config, trading_params, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"strategy-1-101",
+		"Runtime Strategy",
+		1,
+		"ERROR",
+		"testnet",
+		"cointegration",
+		`{"strategy_id":101}`,
+		`{"is_testnet":true}`,
+		time.Now().UTC(),
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("seed stale bot instance metadata: %v", err)
+	}
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	firstReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	firstReq.Header.Set("Authorization", "Bearer "+token)
+	firstResp, err := http.DefaultClient.Do(firstReq)
+	if err != nil {
+		t.Fatalf("request initial start runtime: %v", err)
+	}
+	defer func() { _ = firstResp.Body.Close() }()
+
+	if firstResp.StatusCode != http.StatusConflict {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(firstResp.Body).Decode(&payload)
+		t.Fatalf("expected 409 conflict before recreate confirmation, got %d payload=%v", firstResp.StatusCode, payload)
+	}
+
+	var firstPayload map[string]interface{}
+	if err := json.NewDecoder(firstResp.Body).Decode(&firstPayload); err != nil {
+		t.Fatalf("decode initial conflict payload: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(fmt.Sprintf("%v", firstPayload["error"])), "confirm recreate") {
+		t.Fatalf("expected recreate confirmation hint, got %v", firstPayload["error"])
+	}
+
+	secondReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?force_recreate=true", nil)
+	secondReq.Header.Set("Authorization", "Bearer "+token)
+	secondResp, err := http.DefaultClient.Do(secondReq)
+	if err != nil {
+		t.Fatalf("request force recreate runtime: %v", err)
+	}
+	defer func() { _ = secondResp.Body.Close() }()
+
+	if secondResp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(secondResp.Body).Decode(&payload)
+		t.Fatalf("expected 200 after force recreate, got %d payload=%v", secondResp.StatusCode, payload)
+	}
+
+	if createCalls != 2 {
+		t.Fatalf("expected 2 upstream create attempts, got %d", createCalls)
+	}
+	if deleteCalls != 1 {
+		t.Fatalf("expected 1 upstream delete during recreate, got %d", deleteCalls)
+	}
+}
+
+func TestStrategyRuntimeStartMapsDuplicateInstanceMessageToConflict(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method for runtime instance endpoint: %s", r.Method)
+		}
+		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+	})
+	upstreamMux.HandleFunc("/api/v1/bots", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"instance_id already exists: strategy-1-101"}`, http.StatusBadRequest)
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request duplicate-instance start runtime: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusConflict {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected 409 conflict for duplicate instance message, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode duplicate-instance conflict payload: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(fmt.Sprintf("%v", payload["error"])), "confirm recreate") {
+		t.Fatalf("expected confirm recreate guidance, got %v", payload["error"])
 	}
 }

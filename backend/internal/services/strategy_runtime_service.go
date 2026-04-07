@@ -97,6 +97,18 @@ func (s *StrategyRuntimeService) GetRuntimeStatus(strategy *models.BacktestStrat
 }
 
 func (s *StrategyRuntimeService) StartRuntime(strategy *models.BacktestStrategy, requestedNetwork string) (map[string]interface{}, error) {
+	return s.startRuntime(strategy, requestedNetwork, false)
+}
+
+func (s *StrategyRuntimeService) StartRuntimeWithForceRecreate(strategy *models.BacktestStrategy, requestedNetwork string) (map[string]interface{}, error) {
+	return s.startRuntime(strategy, requestedNetwork, true)
+}
+
+func (s *StrategyRuntimeService) startRuntime(
+	strategy *models.BacktestStrategy,
+	requestedNetwork string,
+	forceRecreate bool,
+) (map[string]interface{}, error) {
 	executionState, err := s.getOrCreateExecutionState(strategy.ID)
 	if err != nil {
 		return nil, err
@@ -140,22 +152,42 @@ func (s *StrategyRuntimeService) StartRuntime(strategy *models.BacktestStrategy,
 			return nil, fmt.Errorf("failed to persist runtime instance metadata: %w", createErr)
 		}
 	}
-	if !remoteExists {
-		createPayload := s.buildBotCreatePayload(strategy, runtimeState.InstanceID, runtimeKey)
-		if instanceRecord == nil {
-			instanceRecord = s.buildBotInstanceRecord(strategy, runtimeState.InstanceID, runtimeKey)
+
+	createPayload := s.buildBotCreatePayload(strategy, runtimeState.InstanceID, runtimeKey)
+	if instanceRecord == nil {
+		instanceRecord = s.buildBotInstanceRecord(strategy, runtimeState.InstanceID, runtimeKey)
+	}
+
+	if forceRecreate {
+		if recreateErr := s.botService.RecreateBotInstanceWithConfig(instanceRecord, createPayload); recreateErr != nil {
+			return nil, fmt.Errorf("failed to recreate runtime instance: %w", recreateErr)
 		}
+		remoteExists = false
+		remoteStatus = nil
+	} else if !remoteExists {
 		if existsLocally {
 			if _, createErr := s.botService.GetRemoteBotInstance(runtimeState.InstanceID); createErr != nil {
 				var apiErr *BotAPIError
 				if errors.As(createErr, &apiErr) {
 					if createRemoteErr := s.botService.CreateBotInstanceWithConfig(instanceRecord, createPayload); createRemoteErr != nil {
+						if isRuntimeInstanceAlreadyExistsError(createRemoteErr) {
+							return nil, fmt.Errorf(
+								"stale runtime instance detected for %s; confirm recreate to replace it",
+								runtimeState.InstanceID,
+							)
+						}
 						return nil, fmt.Errorf("failed to create runtime instance: %w", createRemoteErr)
 					}
 				}
 			}
 		} else {
 			if createErr := s.botService.CreateBotInstanceWithConfig(instanceRecord, createPayload); createErr != nil {
+				if isRuntimeInstanceAlreadyExistsError(createErr) {
+					return nil, fmt.Errorf(
+						"stale runtime instance detected for %s; confirm recreate to replace it",
+						runtimeState.InstanceID,
+					)
+				}
 				return nil, fmt.Errorf("failed to create runtime instance: %w", createErr)
 			}
 		}
@@ -189,6 +221,19 @@ func (s *StrategyRuntimeService) StartRuntime(strategy *models.BacktestStrategy,
 
 	log.Printf("✅ strategy runtime started strategy_id=%d instance_id=%s network=%s", strategy.ID, runtimeState.InstanceID, runtimeState.Network)
 	return buildStrategyRuntimeResponse(strategy, executionState, runtimeState, true), nil
+}
+
+func isRuntimeInstanceAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *BotAPIError
+	if errors.As(err, &apiErr) {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(apiErr.Message)), "instance_id already exists")
+	}
+
+	return strings.Contains(strings.ToLower(err.Error()), "instance_id already exists")
 }
 
 func (s *StrategyRuntimeService) StopRuntime(strategy *models.BacktestStrategy, force bool) (map[string]interface{}, error) {
@@ -467,7 +512,12 @@ func (s *StrategyRuntimeService) reconcileRuntimeState(
 		runtimeState = mergeRemoteRuntimeState(runtimeState, remoteStatus)
 		isRunning := isBotStatusRunning(remoteStatus)
 		if err := s.persistRuntimeState(executionState, runtimeState, isRunning); err != nil {
-			return runtimeState, isRunning, err
+			log.Printf(
+				"⚠️ failed to persist reconciled runtime state strategy_id=%d instance_id=%s: %v",
+				strategy.ID,
+				runtimeState.InstanceID,
+				err,
+			)
 		}
 		return runtimeState, isRunning, nil
 	}
@@ -623,11 +673,15 @@ func mergeRemoteRuntimeState(runtimeState StrategyRuntimeState, remote map[strin
 		}
 	}
 	if status == "running" {
+		runtimeState.LastError = ""
 		runtimeState.StoppedAt = nil
 		if runtimeState.StartedAt == nil {
 			runtimeState.StartedAt = &now
 		}
+	} else if status == "starting" || status == "stopping" {
+		runtimeState.LastError = ""
 	} else if status == "stopped" {
+		runtimeState.LastError = ""
 		runtimeState.ProcessID = nil
 		runtimeState.StoppedAt = &now
 	}

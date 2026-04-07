@@ -12,6 +12,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 PathLike = Union[str, Path]
 
 
+def _is_structured_config_root(candidate: Path) -> bool:
+    return (candidate / "config" / "profiles").exists() or (candidate / "run.json").exists()
+
+
 def find_repo_root(anchor: PathLike) -> Path:
     current = Path(anchor).resolve()
     search_from = current.parent if current.is_file() else current
@@ -20,11 +24,13 @@ def find_repo_root(anchor: PathLike) -> Path:
         if (
             (candidate / ".github").exists()
             and (candidate / "AGENTS.md").exists()
-            and (candidate / "config" / "profiles").exists()
+            and _is_structured_config_root(candidate)
         ):
             return candidate
 
-    return search_from.parents[2]
+    raise RuntimeError(
+        f"Unable to locate monorepo root from {search_from}. Expected a parent with .github, AGENTS.md, and config/profiles or run.json."
+    )
 
 
 def _normalize_environment_name(raw: str) -> str:

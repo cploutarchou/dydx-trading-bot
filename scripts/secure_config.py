@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -147,7 +148,15 @@ def decrypt_payload(payload: dict[str, Any], key: bytes) -> dict[str, Any]:
     except KeyError as exc:
         raise RuntimeError(f"Encrypted config payload is missing field: {exc}") from exc
 
-    plaintext = AESGCM(key).decrypt(nonce, ciphertext + tag, None)
+    try:
+        plaintext = AESGCM(key).decrypt(nonce, ciphertext + tag, None)
+    except InvalidTag as exc:
+        raise RuntimeError(
+            "Failed to decrypt config profile: authentication tag mismatch. "
+            "Your config key likely does not match the encrypted profile. "
+            "Install the correct key with `make install-config-key TOKEN=<token>` "
+            "or restore the expected `.configkey.bin`."
+        ) from exc
     parsed = json.loads(plaintext.decode("utf-8"))
     if not isinstance(parsed, dict):
         raise RuntimeError("Decrypted config must be a JSON object")
@@ -426,7 +435,8 @@ def main() -> int:
             print(f"New config token: {token}")
             return 0
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        message = str(exc) or f"{type(exc).__name__}: {exc!r}"
+        print(message, file=sys.stderr)
         return 1
 
     return 1

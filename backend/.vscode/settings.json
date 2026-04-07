@@ -1,0 +1,41 @@
+{
+	"go.useLanguageServer": true,
+	"go.toolsManagement.autoUpdate": true,
+	"go.lintTool": "golangci-lint",
+	"go.lintFlags": [
+		"--config=.golangci.release.yml"
+	],
+	"go.lintOnSave": "package",
+	"go.buildOnSave": "package",
+	"go.testFlags": [
+		"-v",
+		"-race"
+	],
+	"go.testTimeout": "120s",
+	"go.testEnvFile": "${workspaceFolder}/.env",
+	"gopls": {
+		"formatting.gofumpt": true,
+		"staticcheck": true,
+		"ui.semanticTokens": true,
+		"analyses": {
+			"shadow": true,
+			"unusedparams": true
+		},
+		"codelenses": {
+			"test": true,
+			"tidy": true,
+			"upgrade_dependency": true
+		}
+	},
+	"[go]": {
+		"editor.defaultFormatter": "golang.go",
+		"editor.formatOnSave": true,
+		"editor.codeActionsOnSave": {
+			"source.organizeImports": "explicit"
+		}
+	},
+	"files.exclude": {
+		"**/coverage.out": true,
+		"**/coverage.html": true
+	}
+}

@@ -448,7 +448,7 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 		if err == nil {
 			return nil
 		}
-		if !isSQLiteBusyError(err) {
+		if !isRetryableSchemaChangeError(err) {
 			return fmt.Errorf("failed to create execution state: %w", err)
 		}
 		time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
@@ -481,7 +481,7 @@ func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutio
 		if err == nil {
 			break
 		}
-		if !isSQLiteBusyError(err) {
+		if !isRetryableSchemaChangeError(err) {
 			return fmt.Errorf("failed to update execution state: %w", err)
 		}
 		time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
@@ -503,12 +503,15 @@ func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutio
 	return nil
 }
 
-func isSQLiteBusyError(err error) bool {
+func isRetryableSchemaChangeError(err error) bool {
 	if err == nil {
 		return false
 	}
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "database is locked") || strings.Contains(message, "sqlite_busy")
+	return strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "sqlite_busy") ||
+		strings.Contains(message, "could not obtain lock on relation") ||
+		strings.Contains(message, "deadlock detected")
 }
 
 // ============ StrategyVersionHistory Operations ============

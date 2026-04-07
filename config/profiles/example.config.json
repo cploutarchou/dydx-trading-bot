@@ -32,7 +32,7 @@
     "API_BYPASS_AUTH": false
   },
   "database": {
-    "DB_TYPE": "sqlite3",
+    "DB_TYPE": "postgresql",
     "DB_HOST": "localhost",
     "DB_PORT": 5432,
     "DB_NAME": "dydx_bot",

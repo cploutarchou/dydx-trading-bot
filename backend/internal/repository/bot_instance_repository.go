@@ -239,18 +239,8 @@ func (r *BotInstanceRepository) ListBotInstancesByUserID(userID int, limit int, 
 	rows, err := r.db.Query(query, userID, limit, offset)
 	if err != nil {
 		if isUndefinedColumnError(err) {
-			// NOTE: the compat schema pre-dates the user_id column, so this
-			// fallback cannot filter by user and returns all instances.
-			// Migrate to the current schema to enforce per-user isolation.
-			fallbackQuery := selectBotInstancesCompatColumns + `
-				ORDER BY created_at DESC
-				LIMIT $1 OFFSET $2
-			`
-			rows, err = r.db.Query(fallbackQuery, limit, offset)
-			if err != nil {
-				log.Printf("Error querying bot instances (fallback): %v", err)
-				return nil, fmt.Errorf("failed to list bot instances: %w", err)
-			}
+			log.Printf("Error querying bot instances: schema missing user_id column; refusing unsafe compatibility fallback")
+			return nil, fmt.Errorf("failed to list bot instances: current schema missing user_id; run migrations before listing user-scoped bot instances")
 		} else {
 			log.Printf("Error querying bot instances: %v", err)
 			return nil, fmt.Errorf("failed to list bot instances: %w", err)
@@ -388,7 +378,7 @@ func (r *BotInstanceRepository) UpdateBotInstanceError(instanceID string, errorM
 	query := `
 		UPDATE bot_instances
 		SET error_message = $1, last_error_at = $2, status = $3, updated_at = $4
-		WHERE instance_id = $4
+		WHERE instance_id = $5
 	`
 
 	result, err := r.db.Exec(query, errorMessage, time.Now(), normalizeBotStatus("ERROR"), time.Now(), instanceID)
@@ -396,7 +386,7 @@ func (r *BotInstanceRepository) UpdateBotInstanceError(instanceID string, errorM
 		fallbackQuery := `
 			UPDATE bot_instances
 			SET status = $1, updated_at = $2
-			WHERE instance_id = $2
+			WHERE instance_id = $3
 		`
 		result, err = r.db.Exec(fallbackQuery, normalizeBotStatus("ERROR"), time.Now(), instanceID)
 	}

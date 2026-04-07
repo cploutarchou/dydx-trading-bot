@@ -79,6 +79,7 @@ All routes below use the standard envelope unless noted. Required keys are liste
 | `POST /api/v1/backtests/interrupted/reconcile` | `interruption_error`, `dry_run`, `candidates`, `reconciled`, `candidate_count`, `reconciled_count`, `count` | Default `dry_run=true`; set `dry_run=false` to persist fail-closed reconciliation. |
 | `GET /api/v1/admin/backtests/interrupted` | Same as `/api/v1/backtests/interrupted` | Admin-scoped alias for ops dashboards requiring elevated auth. |
 | `POST /api/v1/admin/backtests/interrupted/reconcile` | Same as `/api/v1/backtests/interrupted/reconcile` | Admin-scoped alias for explicit reconciliation workflows. |
+| `GET /api/v1/capabilities` | `service`, `http_endpoints`, `websocket_channels`, `http_count`, `websocket_count`, `count` | Runtime discovery endpoint for backend service-to-bot integration. |
 | `POST /api/v1/bots` | operation payload object (bot lifecycle result) | Wrapped in standard envelope for API consumers. |
 | `GET /api/v1/bots` | `bots`, `total` | Bot list endpoint for control plane UI. |
 | `GET /health` | `status`, `api_version`, `timestamp`, `backtest_runtime` | Liveness endpoint wrapped in the standard envelope. |
@@ -87,6 +88,8 @@ All routes below use the standard envelope unless noted. Required keys are liste
 For auth routes (`/auth/*`, `/api/v1/auth/*`), use the auth-specific payload contracts above.
 
 For a full backtest endpoint catalog with example request/response payloads, see `BACKTEST_ENDPOINTS.md`.
+For a full bot API + websocket catalog (including backend alias channels), see `BOT_SERVICE_ENDPOINTS.md`.
+For command/query/event parity mapping and backend startup flow, see `BOT_API_PARITY_MATRIX.md` and `BACKEND_BOT_INTEGRATION.md`.
 
 ## Error and Trace Behavior
 

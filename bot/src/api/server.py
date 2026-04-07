@@ -1749,6 +1749,65 @@ async def readiness_check():
     )
 
 
+@app.get("/api/v1/capabilities")
+async def api_capabilities():
+    """Expose bot-service HTTP and websocket capabilities for backend integration."""
+    http_routes: List[str] = []
+    websocket_routes: List[str] = []
+    commands: List[str] = []
+    queries: List[str] = []
+
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        if not path:
+            continue
+
+        is_supported_scope = path.startswith("/api/v1/bots") or path.startswith(
+            "/api/v1/backtests"
+        ) or path.startswith("/ws/") or path == "/api/v1/capabilities"
+        if not is_supported_scope:
+            continue
+
+        methods = sorted(
+            method
+            for method in (getattr(route, "methods", set()) or set())
+            if method not in {"HEAD", "OPTIONS"}
+        )
+        if methods:
+            for method in methods:
+                route_id = f"{method} {path}"
+                http_routes.append(route_id)
+                if method in {"POST", "PUT", "PATCH", "DELETE"}:
+                    commands.append(route_id)
+                elif method == "GET":
+                    queries.append(route_id)
+        elif "websocket" in route.__class__.__name__.lower():
+            websocket_routes.append(f"WS {path}")
+
+    http_routes = sorted(set(http_routes))
+    websocket_routes = sorted(set(websocket_routes))
+    commands = sorted(set(commands))
+    queries = sorted(set(queries))
+
+    return api_response(
+        success=True,
+        data={
+            "service": "bot",
+            "http_endpoints": http_routes,
+            "websocket_channels": websocket_routes,
+            "command_endpoints": commands,
+            "query_endpoints": queries,
+            "event_channels": websocket_routes,
+            "http_count": len(http_routes),
+            "websocket_count": len(websocket_routes),
+            "command_count": len(commands),
+            "query_count": len(queries),
+            "count": len(http_routes) + len(websocket_routes),
+        },
+        message="Bot API and websocket capabilities retrieved",
+    )
+
+
 @app.get("/api/v1/users/me")
 async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user),
@@ -2227,6 +2286,22 @@ async def websocket_alerts(websocket: WebSocket, bot_instance_id: int):
 @app.websocket("/api/v1/backtests/{run_id}/live")
 async def websocket_backtest_progress(websocket: WebSocket, run_id: str):
     """WebSocket endpoint for live backtest progress updates."""
+    if not await _authorize_websocket_connection(websocket):
+        return
+    await WebSocketServer.handle_connection(websocket, f"backtest-{run_id}")
+
+
+@app.websocket("/ws/bots/{bot_instance_id}")
+async def websocket_bot_runtime(websocket: WebSocket, bot_instance_id: int):
+    """Alias websocket channel for backend integrations consuming bot runtime events."""
+    if not await _authorize_websocket_connection(websocket):
+        return
+    await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
+
+
+@app.websocket("/ws/backtests/{run_id}")
+async def websocket_backtest_progress_alias(websocket: WebSocket, run_id: str):
+    """Alias websocket channel for backend integrations consuming backtest runtime events."""
     if not await _authorize_websocket_connection(websocket):
         return
     await WebSocketServer.handle_connection(websocket, f"backtest-{run_id}")

@@ -70,6 +70,8 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
+- [x] 2026-04-08: Added backend-facing integration docs (`BOT_API_PARITY_MATRIX.md`, `BACKEND_BOT_INTEGRATION.md`) and introduced explicit bot DB cutover modes (`shared`, `dedicated`, `dedicated_with_shared_fallback`) for safer PostgreSQL isolation rollout/rollback.
+- [x] 2026-04-08: Added `GET /api/v1/capabilities` for backend runtime discovery, websocket alias channels (`/ws/bots/{bot_instance_id}`, `/ws/backtests/{run_id}`), and bot-dedicated PostgreSQL env support (`BOT_DATABASE_URL` / `BOT_DB_*` with `DB_*` fallback).
 - [x] 2026-04-08: Added admin-scoped interrupted backtest ops aliases (`GET /api/v1/admin/backtests/interrupted`, `POST /api/v1/admin/backtests/interrupted/reconcile`) and published `BACKTEST_ENDPOINTS.md` with endpoint-by-endpoint request/response payload examples for operators.
 - [x] 2026-04-08: Added ops-focused interrupted backtest visibility/reconciliation endpoints (`GET /api/v1/backtests/interrupted`, `POST /api/v1/backtests/interrupted/reconcile`) with dry-run-first behavior and explicit persisted fail-closed reconciliation reporting.
 - [x] 2026-04-08: Backtest run state now persists in PostgreSQL (`backtest_runtime_runs`) and status polling endpoints (`/api/v1/backtests/{run_id}/status`, related run-scoped reads) survive API reloads/restarts; orphaned in-progress runs fail closed as `failed` with interruption reason on service restart.

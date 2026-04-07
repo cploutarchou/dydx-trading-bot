@@ -96,7 +96,7 @@ from src.api.websocket_server import (
 )
 
 # Import database utilities
-from src.infrastructure.database import db
+from src.infrastructure.database import DatabaseConfig, db
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (
@@ -1806,6 +1806,29 @@ async def api_capabilities():
         },
         message="Bot API and websocket capabilities retrieved",
     )
+
+
+@app.get("/api/v1/runtime/db-config")
+async def runtime_db_config(current_user: User = Depends(get_admin_user)):
+    """Admin-only diagnostics for effective runtime database configuration."""
+    _ = current_user
+    try:
+        config = DatabaseConfig()
+        return api_response(
+            success=True,
+            data={
+                **config.to_diagnostics(),
+                "count": 1,
+            },
+            message="Runtime database configuration retrieved",
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving runtime DB config diagnostics: {e}")
+        return api_response(
+            success=False,
+            message="Internal server error",
+            status_code=500,
+        )
 
 
 @app.get("/api/v1/users/me")

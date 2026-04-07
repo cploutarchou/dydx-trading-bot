@@ -7,6 +7,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
@@ -472,3 +475,92 @@ def test_comprehensive_analytics_includes_sub_objects_and_candle_fields(monkeypa
             assert str(first.get("timestamp", "")).endswith("Z")
 
     asyncio.run(_run())
+
+
+def test_backtest_status_survives_service_recreation_with_db_repository(monkeypatch, tmp_path):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _failing_connect():
+        raise RuntimeError("historical data fetch failed")
+
+    monkeypatch.setattr(service_module, "connect_dydx", _failing_connect)
+
+    db_path = tmp_path / "backtest_runs.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}", future=True)
+
+    from internal.domain import Base
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+
+    async def _run():
+        service = BacktestService(BacktestRepository(SessionLocal()))
+        created = await service.create_and_run_backtest(_request())
+
+        terminal = await _wait_for_terminal_status(service, created.run_id)
+        assert terminal == "failed"
+
+        BacktestService._runs.clear()
+        recreated = BacktestService(BacktestRepository(SessionLocal()))
+        status = recreated.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "failed"
+        assert status.error == "historical data fetch failed"
+
+    asyncio.run(_run())
+
+
+def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    seeded = service.repository.save_run(
+        {
+            "run_id": "run-orphaned-ops",
+            "name": "orphaned",
+            "status": "running",
+            "progress_pct": 43.2,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    assert seeded["status"] == "running"
+
+    dry_run_report = service.reconcile_interrupted_runs(dry_run=True)
+    assert dry_run_report["candidate_count"] >= 1
+    assert dry_run_report["reconciled_count"] == 0
+
+    persisted_before = service.repository.get_run("run-orphaned-ops")
+    assert persisted_before is not None
+    assert persisted_before["status"] == "running"
+
+    reconcile_report = service.reconcile_interrupted_runs(dry_run=False)
+    assert reconcile_report["candidate_count"] >= 1
+    assert reconcile_report["reconciled_count"] >= 1
+
+    persisted_after = service.repository.get_run("run-orphaned-ops")
+    assert persisted_after is not None
+    assert persisted_after["status"] == "failed"
+    assert persisted_after["error"] == "Backtest interrupted by API reload or restart"
+
+    ops_report = service.list_interrupted_runs_for_ops(limit=10)
+    assert ops_report["interrupted_count"] >= 1
+    assert any(
+        run["run_id"] == "run-orphaned-ops"
+        for run in ops_report["interrupted_runs"]
+    )
+
+

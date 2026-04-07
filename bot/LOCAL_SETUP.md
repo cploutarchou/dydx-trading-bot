@@ -136,6 +136,23 @@ Notes:
 
 In `development`, the API also emits verbose request logs with `request_started` / `request_completed` events including `trace_id`, method, path, safe query string, status, duration, and client. Response logging is severity-based in dev mode: `4xx` as warnings and `5xx` as errors. Local TTY runs now use a colored structured Loguru console format (`time | level | module | func | line | process | message`), while redirected output and per-instance `bot_states/*.log` files stay plain-text.
 
+If you run the canonical API from JetBrains using the FastAPI run configuration UI, use:
+
+- **Application file**: `.../bot/src/api/server.py`
+- **Run using**: `Uvicorn`
+- **Run options**: `--reload --host 0.0.0.0 --port 8889`
+- **Python interpreter**: project `.venv`
+- **Working directory**: `.../bot`
+- **Environment variables**:
+  - `ENVIRONMENT=development`
+  - `BOT_API_RELOAD=true`
+  - `API_BYPASS_AUTH=true` for local-only auth bypass when needed
+  - `LOKI_ENABLED=false` unless you intentionally want Loki forwarding locally
+
+`src/api/server.py` already calls `load_repo_env(__file__)`, so structured repo config is loaded before the API imports runtime/config modules. On startup, the bot now also normalizes legacy `bot_instances.status` rows to uppercase enum-compatible values (`error` -> `ERROR`, `failed` -> `ERROR`, `paused` -> `STOPPED`) before ORM-driven status reads occur.
+
+Backtest run state is now persisted in PostgreSQL (`backtest_runtime_runs`), so `GET /api/v1/backtests/{run_id}/status` continues to work after API reload/restart instead of depending solely on in-memory service state.
+
 ## Common commands
 
 From `bot/`:

@@ -1,19 +1,26 @@
 /**
  * Sidebar Navigation Component
- * Persistent left sidebar with navigation links, user info, and logout
+ * Persistent left sidebar with grouped navigation, quick actions, and operator controls
  */
 
-import { BarChart3, Bot, Home, Library, LogOut, Newspaper, PlayCircle, Settings, Sparkles, Target, X } from 'lucide-react';
+import { Command, LogOut, X } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  isNavItemActive,
+  workspaceNavItems,
+  workspaceQuickActions,
+  workspaceSections,
+} from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose?: () => void;
+  onOpenCommandPalette?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommandPalette }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
@@ -23,66 +30,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     onClose?.();
     navigate('/login');
   };
-
-  const navItems = [
-    {
-      label: 'Dashboard',
-      path: '/dashboard',
-      icon: <Home className="w-5 h-5" />,
-      exact: true,
-    },
-    {
-      label: 'Strategies',
-      path: '/strategies',
-      icon: <Library className="w-5 h-5" />,
-      exact: true,
-    },
-    {
-      label: 'Strategy Runtime',
-      path: '/strategies/manage',
-      icon: <PlayCircle className="w-5 h-5" />,
-      exact: false,
-    },
-    {
-      label: 'Bot Manager',
-      path: '/bots',
-      icon: <Bot className="w-5 h-5" />,
-      exact: false,
-    },
-    {
-      label: 'Backtests',
-      path: '/backtests',
-      icon: <Target className="w-5 h-5" />,
-      exact: true,
-    },
-    {
-      label: 'Market Intel',
-      path: '/codex',
-      icon: <Sparkles className="w-5 h-5" />,
-      exact: true,
-    },
-    {
-      label: 'Market News',
-      path: '/news',
-      icon: <Newspaper className="w-5 h-5" />,
-      exact: true,
-    },
-    {
-      label: 'Compare Backtests',
-      path: '/backtests/compare',
-      icon: <BarChart3 className="w-5 h-5" />,
-      exact: false,
-    },
-    {
-      label: 'Settings',
-      path: '/settings',
-      icon: <Settings className="w-5 h-5" />,
-      exact: false,
-    },
-  ];
-
-  const isActive = (path: string, exact = true) =>
-    exact ? location.pathname === path : location.pathname.startsWith(path);
 
   return (
     <>
@@ -125,30 +72,99 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Navigation Links */}
-        <nav className="flex-1 px-4 py-6">
-          <div className="space-y-1">
-            {navItems.map((item) => {
-              const active = isActive(item.path, item.exact);
+        <nav className="flex-1 space-y-5 overflow-y-auto px-4 py-6">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
+            <p className="px-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+              Quick Actions
+            </p>
+            <div className="mt-3 space-y-2">
+              {workspaceQuickActions.slice(0, 3).map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={`quick-${item.path}`}
+                    type="button"
+                    onClick={() => {
+                      navigate(item.path);
+                      onClose?.();
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-left text-sm text-slate-300 transition hover:border-slate-700 hover:bg-slate-900 hover:text-white"
+                  >
+                    <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-cyan-200">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-100">{item.label}</p>
+                      <p className="truncate text-xs text-slate-500">{item.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              onOpenCommandPalette?.();
+              onClose?.();
+            }}
+            className="flex w-full items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-left text-sm text-slate-300 transition hover:border-slate-700 hover:text-white"
+          >
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-2 text-cyan-200">
+              <Command className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-slate-100">Command Palette</p>
+              <p className="truncate text-xs text-slate-500">Jump anywhere with keyboard-first navigation</p>
+            </div>
+            <span className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Ctrl K
+            </span>
+          </button>
+
+          <div className="space-y-4">
+            {workspaceSections.map((section) => {
+              const items = workspaceNavItems.filter((item) => item.section === section);
+              if (items.length === 0) return null;
               return (
-                <button
-                  key={item.path}
-                  type="button"
-                  onClick={() => {
-                    navigate(item.path);
-                    onClose?.();
-                  }}
-                  className={`group w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium transition-all ${
-                    active
-                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
-                      : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'
-                  }`}
-                >
-                  <span className={active ? 'text-white' : 'text-slate-400 group-hover:text-white'}>
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
-                  {active && <div className="ml-auto w-1.5 h-1.5 bg-white/70 rounded-full" />}
-                </button>
+                <div key={section}>
+                  <p className="px-3 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                    {section}
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {items.map((item) => {
+                      const active = isNavItemActive(location.pathname, item);
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.path}
+                          type="button"
+                          onClick={() => {
+                            navigate(item.path);
+                            onClose?.();
+                          }}
+                          className={`group flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition-all ${
+                            active
+                              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
+                              : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'
+                          }`}
+                        >
+                          <span className={active ? 'text-white' : 'text-slate-400 group-hover:text-white'}>
+                            <Icon className="h-5 w-5" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p>{item.label}</p>
+                            <p className={`truncate text-xs ${active ? 'text-cyan-100/80' : 'text-slate-500'}`}>
+                              {item.description}
+                            </p>
+                          </div>
+                          {active && <div className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             })}
           </div>

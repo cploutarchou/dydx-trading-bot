@@ -478,6 +478,7 @@ export function useBacktestProgress(runId: string) {
   const [isConnected, setIsConnected] = useState(false);
   const [socketError, setSocketError] = useState<Error | null>(null);
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
+  const [lastSocketEvent, setLastSocketEvent] = useState<Record<string, unknown> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
 
@@ -683,6 +684,9 @@ export function useBacktestProgress(runId: string) {
       socket.onmessage = (event) => {
         try {
           const parsed = JSON.parse(event.data) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            setLastSocketEvent(parsed as Record<string, unknown>);
+          }
           const patch = parseSocketPayload(parsed);
           if (!patch) {
             return;
@@ -747,6 +751,7 @@ export function useBacktestProgress(runId: string) {
     isLoading,
     isSuccess: !!resolvedData,
     isConnected,
+    lastSocketEvent,
     isComplete: normalizeStatus(resolvedData?.status) === 'COMPLETED',
     isFailed: normalizeStatus(resolvedData?.status) === 'FAILED',
     isCancelled: normalizeStatus(resolvedData?.status) === 'CANCELLED',

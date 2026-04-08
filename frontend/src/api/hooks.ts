@@ -1,7 +1,7 @@
 // Custom React Query Hooks for API Endpoints
 // Provides optimized data fetching with loading states, error handling, and caching
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
@@ -19,6 +19,180 @@ import type {
     UpdateBotRequest,
     User,
 } from './types';
+
+interface ManagedWebSocketOptions {
+  enabled: boolean;
+  connectSocket: () => WebSocket;
+  onMessage: (_parsed: unknown) => void;
+  onOpen?: (_socket: WebSocket) => (() => void) | void;
+  staleAfterMs?: number;
+  onStale?: () => Promise<void> | void;
+}
+
+const useManagedWebSocket = ({
+  enabled,
+  connectSocket,
+  onMessage,
+  onOpen,
+  staleAfterMs = 15000,
+  onStale,
+}: ManagedWebSocketOptions) => {
+  const [isConnected, setIsConnected] = useState(false);
+  const [socketError, setSocketError] = useState<Error | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const staleTimerRef = useRef<number | null>(null);
+  const staleInFlightRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setIsConnected(false);
+      setSocketError(null);
+      return;
+    }
+
+    let closedByEffect = false;
+    let socket: WebSocket | null = null;
+    let openCleanup: (() => void) | null = null;
+
+    const clearStaleTimer = () => {
+      if (staleTimerRef.current !== null) {
+        window.clearTimeout(staleTimerRef.current);
+        staleTimerRef.current = null;
+      }
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+
+    const clearOpenCleanup = () => {
+      if (openCleanup) {
+        openCleanup();
+        openCleanup = null;
+      }
+    };
+
+    const scheduleStaleCheck = () => {
+      clearStaleTimer();
+      if (!staleAfterMs || staleAfterMs <= 0) {
+        return;
+      }
+
+      staleTimerRef.current = window.setTimeout(() => {
+        staleTimerRef.current = null;
+
+        if (closedByEffect || !socket || socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+
+        if (!staleInFlightRef.current) {
+          staleInFlightRef.current = true;
+          Promise.resolve(onStale?.())
+            .catch((error) => {
+              console.warn('Failed websocket stale resync', error);
+            })
+            .finally(() => {
+              staleInFlightRef.current = false;
+            });
+        }
+
+        try {
+          socket.close();
+        } catch (error) {
+          console.warn('Failed to close stale websocket', error);
+        }
+      }, staleAfterMs);
+    };
+
+    const scheduleReconnect = () => {
+      if (closedByEffect || reconnectTimerRef.current !== null) {
+        return;
+      }
+      const attempts = Math.min(reconnectAttemptRef.current, 4);
+      const delayMs = Math.min(1000 * 2 ** attempts, 15000);
+      reconnectAttemptRef.current += 1;
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, delayMs);
+    };
+
+    const connect = () => {
+      clearReconnectTimer();
+      clearOpenCleanup();
+
+      try {
+        socket = connectSocket();
+      } catch (error) {
+        setSocketError(error instanceof Error ? error : new Error('Failed to open websocket'));
+        setIsConnected(false);
+        scheduleReconnect();
+        return;
+      }
+
+      socket.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setIsConnected(true);
+        setSocketError(null);
+        openCleanup = onOpen?.(socket) ?? null;
+        scheduleStaleCheck();
+      };
+
+      socket.onmessage = (event) => {
+        scheduleStaleCheck();
+        try {
+          onMessage(JSON.parse(event.data) as unknown);
+        } catch (error) {
+          console.warn('Failed to parse websocket payload', error);
+        }
+      };
+
+      socket.onerror = () => {
+        setSocketError(new Error('Live websocket connection error'));
+      };
+
+      socket.onclose = () => {
+        setIsConnected(false);
+        clearStaleTimer();
+        clearOpenCleanup();
+        if (!closedByEffect) {
+          scheduleReconnect();
+        }
+      };
+    };
+
+    const handleOnline = () => {
+      if (closedByEffect || !socket || socket.readyState === WebSocket.OPEN) {
+        return;
+      }
+      clearReconnectTimer();
+      connect();
+    };
+
+    window.addEventListener('online', handleOnline);
+    connect();
+
+    return () => {
+      closedByEffect = true;
+      window.removeEventListener('online', handleOnline);
+      clearReconnectTimer();
+      clearStaleTimer();
+      clearOpenCleanup();
+      staleInFlightRef.current = false;
+      reconnectAttemptRef.current = 0;
+      setIsConnected(false);
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+    };
+  }, [connectSocket, enabled, onMessage, onOpen, onStale, staleAfterMs]);
+
+  return { isConnected, socketError };
+};
 
 // ==================== Authentication Hooks ====================
 
@@ -239,6 +413,138 @@ export function useBotRealtimeStats(instanceId: string, enabled: boolean = true)
     ...queryConfigs.realtime,
     enabled: enabled && !!instanceId,
   });
+}
+
+export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = true) {
+  const [data, setData] = useState<Record<string, unknown> | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
+
+  const extractStatsPayload = useCallback((payload: unknown): Record<string, unknown> | null => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const record = payload as Record<string, unknown>;
+    if (record.type === 'initial_state') {
+      const dataRecord =
+        record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+          ? (record.data as Record<string, unknown>)
+          : null;
+      const statsRecord =
+        dataRecord?.stats && typeof dataRecord.stats === 'object' && !Array.isArray(dataRecord.stats)
+          ? (dataRecord.stats as Record<string, unknown>)
+          : null;
+      return statsRecord;
+    }
+
+    if (record.type === 'stats' || record.type === 'stats_updated') {
+      const dataRecord =
+        record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+          ? (record.data as Record<string, unknown>)
+          : null;
+      return dataRecord;
+    }
+
+    return null;
+  }, []);
+
+  useEffect(() => {
+    if (!instanceId || !enabled) {
+      setData(undefined);
+      setIsLoading(false);
+      setBootstrapError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      setIsLoading(true);
+      try {
+        const result = await apiClient.getBotStats(instanceId);
+        if (!cancelled && result && typeof result === 'object') {
+          setData(result as Record<string, unknown>);
+          setBootstrapError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setBootstrapError(
+            error instanceof Error ? error : new Error('Failed to fetch bot runtime stats')
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, instanceId]);
+
+  const { isConnected, socketError } = useManagedWebSocket({
+    enabled: enabled && !!instanceId,
+    connectSocket: useCallback(() => api.connectBotRuntimeSocket(instanceId), [instanceId]),
+    onMessage: useCallback(
+      (parsed: unknown) => {
+        const statsPayload = extractStatsPayload(parsed);
+        if (statsPayload) {
+          setData(statsPayload);
+          setBootstrapError(null);
+        }
+      },
+      [extractStatsPayload]
+    ),
+    onOpen: useCallback((socket: WebSocket) => {
+      const requestStats = () => {
+        if (socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+        try {
+          socket.send(JSON.stringify({ type: 'request_stats' }));
+        } catch (error) {
+          console.warn('Failed to request bot runtime stats over websocket', error);
+        }
+      };
+
+      requestStats();
+      const timerId = window.setInterval(requestStats, 5000);
+      return () => {
+        window.clearInterval(timerId);
+      };
+    }, []),
+    onStale: useCallback(async () => {
+      if (!instanceId || !enabled) {
+        return;
+      }
+      try {
+        const result = await apiClient.getBotStats(instanceId);
+        if (result && typeof result === 'object') {
+          setData(result as Record<string, unknown>);
+          setBootstrapError(null);
+        }
+      } catch (error) {
+        setBootstrapError(
+          error instanceof Error ? error : new Error('Failed to refresh bot runtime stats')
+        );
+      }
+    }, [enabled, instanceId]),
+  });
+
+  const combinedError = socketError ?? bootstrapError;
+  return {
+    data,
+    error: combinedError,
+    isError: combinedError !== null,
+    isLoading,
+    isSuccess: !!data,
+    isConnected,
+  };
 }
 
 export function useBotMarketData(instanceId: string, enabled: boolean = true) {
@@ -475,14 +781,10 @@ export function useBacktestProgress(runId: string) {
   const normalizeStatus = (status: unknown): string => String(status || '').trim().toUpperCase();
   const [data, setData] = useState<Record<string, unknown> | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [socketError, setSocketError] = useState<Error | null>(null);
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
   const [lastSocketEvent, setLastSocketEvent] = useState<Record<string, unknown> | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const reconnectTimerRef = useRef<number | null>(null);
 
-  const normalizeProgressPercent = (data: unknown): number => {
+  const normalizeProgressPercent = useCallback((data: unknown): number => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
     const rawProgress =
       record.progress_percent ?? record.progress_pct ?? record.progress ?? record.percent_complete;
@@ -498,15 +800,15 @@ export function useBacktestProgress(runId: string) {
 
     const normalized = Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
     return Math.min(100, Math.max(0, normalized));
-  };
+  }, []);
 
-  const extractCurrentPair = (data: unknown): string | null => {
+  const extractCurrentPair = useCallback((data: unknown): string | null => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
     const pair = record.current_pair ?? record.current_market ?? record.market;
     return typeof pair === 'string' && pair.trim().length > 0 ? pair : null;
-  };
+  }, []);
 
-  const extractEtaSeconds = (data: unknown): number | null => {
+  const extractEtaSeconds = useCallback((data: unknown): number | null => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
     const rawEta = record.estimated_completion_seconds ?? record.eta_seconds ?? record.remaining_seconds;
     if (typeof rawEta !== 'number' && typeof rawEta !== 'string') {
@@ -514,9 +816,9 @@ export function useBacktestProgress(runId: string) {
     }
     const parsed = Number(rawEta);
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-  };
+  }, []);
 
-  const mergeProgressData = (
+  const mergeProgressData = useCallback((
     current: Record<string, unknown> | undefined,
     patch: Record<string, unknown>
   ): Record<string, unknown> => {
@@ -529,9 +831,9 @@ export function useBacktestProgress(runId: string) {
     }
 
     return next;
-  };
+  }, []);
 
-  const parseSocketPayload = (payload: unknown): Record<string, unknown> | null => {
+  const parseSocketPayload = useCallback((payload: unknown): Record<string, unknown> | null => {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return null;
     }
@@ -576,10 +878,37 @@ export function useBacktestProgress(runId: string) {
         record.details && typeof record.details === 'object' && !Array.isArray(record.details)
           ? record.details
           : undefined,
+      total_pnl:
+        typeof record.total_pnl === 'number' || typeof record.total_pnl === 'string'
+          ? Number(record.total_pnl)
+          : undefined,
+      total_trades:
+        typeof record.total_trades === 'number' || typeof record.total_trades === 'string'
+          ? Number(record.total_trades)
+          : undefined,
+      win_rate:
+        typeof record.win_rate === 'number' || typeof record.win_rate === 'string'
+          ? Number(record.win_rate)
+          : undefined,
+      sharpe_ratio:
+        typeof record.sharpe_ratio === 'number' || typeof record.sharpe_ratio === 'string'
+          ? Number(record.sharpe_ratio)
+          : undefined,
+      max_drawdown_pct:
+        typeof record.max_drawdown_pct === 'number' || typeof record.max_drawdown_pct === 'string'
+          ? Number(record.max_drawdown_pct)
+          : undefined,
+      profit_factor:
+        typeof record.profit_factor === 'number' || typeof record.profit_factor === 'string'
+          ? Number(record.profit_factor)
+          : undefined,
+      error: typeof record.error === 'string' ? record.error : undefined,
+      error_message:
+        typeof record.error_message === 'string' ? record.error_message : undefined,
       progress_source: 'websocket',
       updated_at: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString(),
     };
-  };
+  }, [normalizeProgressPercent, runId]);
 
   useEffect(() => {
     if (!runId) {
@@ -619,127 +948,65 @@ export function useBacktestProgress(runId: string) {
     };
   }, [runId]);
 
-  useEffect(() => {
-    if (!runId) {
-      setIsConnected(false);
-      setSocketError(null);
-      return;
-    }
+  const { isConnected, socketError } = useManagedWebSocket({
+    enabled: !!runId,
+    connectSocket: useCallback(() => api.connectBacktestSocket(runId), [runId]),
+    onMessage: useCallback(
+      (parsed: unknown) => {
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          setLastSocketEvent(parsed as Record<string, unknown>);
+        }
+        const patch = parseSocketPayload(parsed);
+        if (!patch) {
+          return;
+        }
 
-    let closedByEffect = false;
-    let socket: WebSocket | null = null;
-    let statusRequestTimer: number | null = null;
+        setData((current) => mergeProgressData(current, patch));
+        setBootstrapError(null);
+      },
+      [mergeProgressData, parseSocketPayload]
+    ),
+    onOpen: useCallback((socket: WebSocket) => {
+      const requestStatus = () => {
+        if (socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
 
-    const clearReconnectTimer = () => {
-      if (reconnectTimerRef.current !== null) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-    };
-
-    const clearStatusRequestTimer = () => {
-      if (statusRequestTimer !== null) {
-        window.clearInterval(statusRequestTimer);
-        statusRequestTimer = null;
-      }
-    };
-
-    const requestStatus = () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-
-      try {
-        socket.send(JSON.stringify({ type: 'request_status' }));
-      } catch (error) {
-        console.warn('Failed to request backtest status over websocket', error);
-      }
-    };
-
-    const connect = () => {
-      clearReconnectTimer();
-      clearStatusRequestTimer();
-
-      try {
-        socket = api.connectBacktestSocket(runId);
-      } catch (error) {
-        const nextError =
-          error instanceof Error ? error : new Error('Failed to open backtest websocket');
-        setSocketError(nextError);
-        setIsConnected(false);
-        scheduleReconnect();
-        return;
-      }
-
-      socket.onopen = () => {
-        reconnectAttemptRef.current = 0;
-        setIsConnected(true);
-        setSocketError(null);
-        requestStatus();
-        statusRequestTimer = window.setInterval(() => {
-          requestStatus();
-        }, 5000);
-      };
-
-      socket.onmessage = (event) => {
         try {
-          const parsed = JSON.parse(event.data) as unknown;
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            setLastSocketEvent(parsed as Record<string, unknown>);
-          }
-          const patch = parseSocketPayload(parsed);
-          if (!patch) {
-            return;
-          }
-
-          setData((current) => mergeProgressData(current, patch));
-          setBootstrapError(null);
+          socket.send(JSON.stringify({ type: 'request_status' }));
         } catch (error) {
-          console.warn('Failed to parse backtest websocket payload', error);
+          console.warn('Failed to request backtest status over websocket', error);
         }
       };
 
-      socket.onerror = () => {
-        setSocketError(new Error('Live progress connection error'));
+      requestStatus();
+      const timerId = window.setInterval(requestStatus, 5000);
+      return () => {
+        window.clearInterval(timerId);
       };
-
-      socket.onclose = () => {
-        setIsConnected(false);
-        clearStatusRequestTimer();
-        if (!closedByEffect) {
-          scheduleReconnect();
-        }
-      };
-    };
-
-    const scheduleReconnect = () => {
-      if (closedByEffect || reconnectTimerRef.current !== null) {
+    }, []),
+    onStale: useCallback(async () => {
+      if (!runId) {
         return;
       }
-
-      const attempts = Math.min(reconnectAttemptRef.current, 4);
-      const delayMs = Math.min(1000 * 2 ** attempts, 15000);
-      reconnectAttemptRef.current += 1;
-
-      reconnectTimerRef.current = window.setTimeout(() => {
-        reconnectTimerRef.current = null;
-        connect();
-      }, delayMs);
-    };
-
-    connect();
-
-    return () => {
-      closedByEffect = true;
-      clearReconnectTimer();
-      clearStatusRequestTimer();
-      reconnectAttemptRef.current = 0;
-      setIsConnected(false);
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
+      try {
+        const result = await apiClient.getBacktestStatus(runId);
+        if (result && typeof result === 'object') {
+          setData((current) =>
+            mergeProgressData(current, {
+              ...(result as Record<string, unknown>),
+              progress_source: 'stale_resync',
+            })
+          );
+          setBootstrapError(null);
+        }
+      } catch (error) {
+        setBootstrapError(
+          error instanceof Error ? error : new Error('Failed to refresh backtest progress')
+        );
       }
-    };
-  }, [runId]);
+    }, [mergeProgressData, runId]),
+  });
 
   const resolvedData = data;
   const combinedError = socketError ?? bootstrapError;

@@ -37,6 +37,22 @@ Use this document as the frontend quality bar for production-grade DeFi surfaces
 - During live updates, never clear already-rendered data unless the underlying dataset is truly empty.
 - Charts must not auto-jump or auto-fit on every tick.
 
+## Navigation standards
+
+- Navigation should be operator-first: fast to scan, keyboard-friendly, and grouped by workflow.
+- Provide a global command palette for route jumping and quick actions.
+- Keep quick actions close to the main navigation, not buried in page content only.
+- Header chrome should expose environment, online state, and operator context without overwhelming the page.
+- Breadcrumbs should reflect route intent, not raw URL segments.
+
+## Public website standards
+
+- The public website must explain the product before the user reaches auth.
+- Marketing, pricing, and auth pages should share the same premium visual language as the operator platform.
+- Pricing should describe operator value, not generic SaaS fluff.
+- Registration and security setup should feel like premium onboarding, not disconnected utility forms.
+- Public CTAs should move users cleanly into trial, subscription, or sign-in flows.
+
 ## Rollout targets
 
 - Backtests: complete

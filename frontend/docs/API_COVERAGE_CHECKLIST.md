@@ -54,7 +54,7 @@ This document verifies that the Go backend properly proxies all Python bot API e
 | `/api/v1/bots/:instance_id/market-data` | GET | ✅ | ✅ | **PROXIED** | Market prices |
 | `/api/v1/bots/:instance_id/realtime-stats` | GET | ✅ | ✅ | **PROXIED** | Live stats |
 | `/api/v1/bots/:instance_id/alerts` | GET | ✅ | ✅ | **PROXIED** | Alerts/warnings |
-
+7890-=
 ### Control Plane & Recovery
 
 | Endpoint | Method | Backend | Bot API | Status | Notes |

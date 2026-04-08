@@ -5,21 +5,30 @@
  * Replaces placeholder data with actual market data, P&L by pair, and trade records.
  */
 
-import { ArrowDown, ArrowUp, Loader } from 'lucide-react';
+import {
+  Activity,
+  CalendarRange,
+  CandlestickChart,
+  CircleDot,
+  Clock3,
+  Gauge,
+  Loader,
+  Radar,
+  TrendingDown,
+  TrendingUp,
+  Waves,
+} from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import {
-	CartesianGrid,
-	Line,
-	LineChart,
-	ResponsiveContainer,
-	Tooltip,
-	XAxis,
-	YAxis,
-} from 'recharts';
 import api from '../api';
 import { useBacktestProgress } from '../api/hooks';
+import BacktestLightweightChart, {
+  type BacktestChartMarker,
+  type BacktestChartPoint,
+} from '../components/BacktestLightweightChart';
+import BacktestPositionsPanel from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
+import BacktestTradesPanel from '../components/BacktestTradesPanel';
 import { PageContainer } from '../components/PageContainer';
 
 interface Candle {
@@ -74,6 +83,7 @@ interface BacktestResponse {
   run_id: string;
   status: string;
   created_at: string;
+  updated_at?: string;
   start_date?: string;
   end_date?: string;
   progress_percent?: number;
@@ -113,6 +123,8 @@ interface DetailSyncState {
   runId: string;
   cursor: string;
 }
+
+type ChartRange = '7D' | '30D' | '90D' | 'ALL';
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -186,6 +198,94 @@ const formatDurationFromSeconds = (seconds: number): string => {
   return parts.join(' ');
 };
 
+const normalizeTradeRecord = (trade: Record<string, unknown>): Trade => {
+  const pnlUsd = toNumber(trade.pnl_usd, toNumber(trade.pnl, 0));
+  const serverTradeId = toStringValue(trade.trade_id);
+  return {
+    trade_id: serverTradeId,
+    market_1: toStringValue(trade.market_1, toStringValue(trade.base_market, '-')),
+    market_2: toStringValue(trade.market_2, toStringValue(trade.quote_market, '-')),
+    entry_timestamp: toStringValue(trade.entry_timestamp) || toStringValue(trade.entry_time),
+    exit_timestamp: toStringValue(trade.exit_timestamp) || toStringValue(trade.exit_time),
+    entry_zscore: toNumber(trade.entry_zscore, toNumber(trade.entry_z_score, 0)),
+    exit_zscore: toNumber(trade.exit_zscore, toNumber(trade.exit_z_score, 0)),
+    entry_price_m1: toNumber(trade.entry_price_m1, toNumber(trade.entry_price_1, 0)),
+    exit_price_m1: toNumber(trade.exit_price_m1, toNumber(trade.exit_price_1, 0)),
+    entry_price_m2: toNumber(trade.entry_price_m2, toNumber(trade.entry_price_2, 0)),
+    exit_price_m2: toNumber(trade.exit_price_m2, toNumber(trade.exit_price_2, 0)),
+    hedge_ratio: toNumber(trade.hedge_ratio, 0),
+    pnl_usd: pnlUsd,
+    pnl_pct: toNumber(trade.pnl_pct, toNumber(trade.pnl_percent, 0)),
+    duration_hours: toNumber(trade.duration_hours, toNumber(trade.duration_minutes, 0) / 60),
+    win: pnlUsd >= 0,
+  };
+};
+
+const CHART_RANGE_DAYS: Record<Exclude<ChartRange, 'ALL'>, number> = {
+  '7D': 7,
+  '30D': 30,
+  '90D': 90,
+};
+
+const formatSignedCurrency = (value: number): string => {
+  const sign = value >= 0 ? '+' : '-';
+  return `${sign}$${Math.abs(value).toLocaleString('en-US', {
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+const formatCurrency = (value: number): string =>
+  `$${value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+const formatCompactValue = (value: number): string =>
+  new Intl.NumberFormat('en-US', {
+    notation: Math.abs(value) >= 1000 ? 'compact' : 'standard',
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 1 : 2,
+  }).format(value);
+
+const filterChartPointsByRange = (
+  points: BacktestChartPoint[],
+  range: ChartRange
+): BacktestChartPoint[] => {
+  if (range === 'ALL' || points.length === 0) {
+    return points;
+  }
+
+  const latestPoint = points[points.length - 1];
+  const latestDate = new Date(`${latestPoint.time}T00:00:00Z`);
+  if (Number.isNaN(latestDate.getTime())) {
+    return points;
+  }
+
+  const lookbackDays = CHART_RANGE_DAYS[range];
+  const cutoff = latestDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
+  const filtered = points.filter((point) => {
+    const pointDate = new Date(`${point.time}T00:00:00Z`);
+    return !Number.isNaN(pointDate.getTime()) && pointDate.getTime() >= cutoff;
+  });
+
+  return filtered.length > 1 ? filtered : points;
+};
+
+const formatTimeAgo = (value: string | null | undefined): string => {
+  if (!value) return 'No sync yet';
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return 'No sync yet';
+  const diffMs = Date.now() - timestamp;
+  const diffSeconds = Math.max(0, Math.round(diffMs / 1000));
+  if (diffSeconds < 5) return 'Just now';
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays}d ago`;
+};
+
 export const BacktestDetailsV2: React.FC = () => {
   const { runId } = useParams<{ runId: string }>();
   const progressQuery = useBacktestProgress(runId || '');
@@ -198,6 +298,7 @@ export const BacktestDetailsV2: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [markets, setMarkets] = useState<string[]>([]);
+  const [chartMarkers, setChartMarkers] = useState<BacktestChartMarker[]>([]);
   const [analyticsLoadedState, setAnalyticsLoadedState] = useState<DetailSyncState | null>(null);
   const [positionsLoadedState, setPositionsLoadedState] = useState<DetailSyncState | null>(null);
   const [tradesLoadedState, setTradesLoadedState] = useState<DetailSyncState | null>(null);
@@ -212,6 +313,7 @@ export const BacktestDetailsV2: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
+  const [chartRange, setChartRange] = useState<ChartRange>('30D');
   const [activeTab, setActiveTab] = useState<
     'summary' | 'candles' | 'positions' | 'trades' | 'results'
   >('summary');
@@ -253,6 +355,7 @@ export const BacktestDetailsV2: React.FC = () => {
     setPositions([]);
     setTrades([]);
     setMarkets([]);
+    setChartMarkers([]);
     setSelectedMarket(null);
     setAnalyticsLoadedState(null);
     setPositionsLoadedState(null);
@@ -297,7 +400,8 @@ export const BacktestDetailsV2: React.FC = () => {
       }
 
       try {
-        setAnalyticsLoading(true);
+        const hasExistingAnalytics = candles.length > 0;
+        setAnalyticsLoading(!hasExistingAnalytics);
         setAnalyticsError(null);
         const response = await api.getBacktestAnalytics(runId);
         const payload = asRecord(response?.data || response);
@@ -307,6 +411,7 @@ export const BacktestDetailsV2: React.FC = () => {
         if (!Array.isArray(daily) || daily.length === 0) {
           setCandles([]);
           setMarkets([]);
+          setChartMarkers([]);
           setAnalyticsLoadedState({
             runId,
             cursor: detailSyncCursor,
@@ -351,14 +456,30 @@ export const BacktestDetailsV2: React.FC = () => {
 
         setCandles(mapped);
         setMarkets(Array.from(marketSet));
+        const analyticsTrades = Array.isArray(root?.trades)
+          ? root.trades
+              .map((item) => asRecord(item))
+              .filter((item): item is Record<string, unknown> => item !== null)
+              .map(normalizeTradeRecord)
+          : [];
+        setChartMarkers(
+          analyticsTrades.map((trade) => ({
+            time: trade.exit_timestamp || trade.entry_timestamp,
+            pair: `${trade.market_1}/${trade.market_2}`,
+            pnl: trade.pnl_usd,
+          }))
+        );
         setAnalyticsLoadedState({
           runId,
           cursor: detailSyncCursor,
         });
       } catch (err: unknown) {
         console.error('Failed to fetch backtest analytics:', err);
-        setCandles([]);
-        setMarkets([]);
+        if (candles.length === 0) {
+          setCandles([]);
+          setMarkets([]);
+          setChartMarkers([]);
+        }
         setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
       } finally {
         setAnalyticsLoading(false);
@@ -397,7 +518,8 @@ export const BacktestDetailsV2: React.FC = () => {
       }
 
       try {
-        setPositionsLoading(true);
+        const hasExistingPositions = positions.length > 0;
+        setPositionsLoading(!hasExistingPositions);
         setPositionsError(null);
         const response = await api.getBacktestPositionSnapshots(runId, 1000, 0);
         const payload = asRecord(response?.data || response);
@@ -462,7 +584,9 @@ export const BacktestDetailsV2: React.FC = () => {
         });
       } catch (err: unknown) {
         console.error('Failed to fetch position snapshots:', err);
-        setPositions([]);
+        if (positions.length === 0) {
+          setPositions([]);
+        }
         setPositionsError(err instanceof Error ? err.message : 'Failed to load positions');
       } finally {
         setPositionsLoading(false);
@@ -489,7 +613,8 @@ export const BacktestDetailsV2: React.FC = () => {
       }
 
       try {
-        setTradesLoading(true);
+        const hasExistingTrades = trades.length > 0;
+        setTradesLoading(!hasExistingTrades);
         setTradesError(null);
         const response = await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 500);
 
@@ -543,7 +668,9 @@ export const BacktestDetailsV2: React.FC = () => {
         }
       } catch (err: unknown) {
         console.error('Failed to fetch trades:', err);
-        setTrades([]);
+        if (trades.length === 0) {
+          setTrades([]);
+        }
         setTradesError(err instanceof Error ? err.message : 'Failed to load trades');
       } finally {
         setTradesLoading(false);
@@ -627,14 +754,44 @@ export const BacktestDetailsV2: React.FC = () => {
 
   // Filter candles for selected market
   const selectedCandles = candles.filter((c) => c.market === selectedMarket);
+  const selectedChartPoints: BacktestChartPoint[] = selectedCandles.map((candle, index) => {
+    const previous = index > 0 ? selectedCandles[index - 1] : null;
+    return {
+      time: candle.timestamp,
+      value: candle.close,
+      pnl: previous ? candle.close - previous.close : candle.close,
+      trades: Math.max(0, Math.round(candle.volume)),
+    };
+  });
+  const filteredChartPoints = filterChartPointsByRange(selectedChartPoints, chartRange);
+  const filteredChartMarkers = chartMarkers.filter((marker) => {
+    const matchesMarket =
+      !selectedMarket ||
+      marker.pair === selectedMarket ||
+      marker.pair.includes(selectedMarket) ||
+      selectedMarket.includes(marker.pair);
 
-  // Format candle chart data
-  const candleChartData = selectedCandles.map((c) => ({
-    timestamp: new Date(c.timestamp).toLocaleDateString(),
-    close: c.close,
-    high: c.high,
-    low: c.low,
-  }));
+    if (!matchesMarket) {
+      return false;
+    }
+
+    if (chartRange === 'ALL') {
+      return true;
+    }
+
+    const markerDate = new Date(`${marker.time.slice(0, 10)}T00:00:00Z`);
+    const latestPoint = filteredChartPoints[filteredChartPoints.length - 1];
+    if (!latestPoint || Number.isNaN(markerDate.getTime())) {
+      return false;
+    }
+    const latestDate = new Date(`${latestPoint.time}T00:00:00Z`);
+    if (Number.isNaN(latestDate.getTime())) {
+      return false;
+    }
+    const lookbackDays = CHART_RANGE_DAYS[chartRange];
+    const cutoff = latestDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
+    return markerDate.getTime() >= cutoff;
+  });
 
   if (loading) {
     return (
@@ -752,6 +909,62 @@ export const BacktestDetailsV2: React.FC = () => {
   const maxDrawdown = liveBacktest.max_drawdown ?? liveBacktest.max_drawdown_pct ?? 0;
   const winRatePercent = normalizePercentValue(liveBacktest.win_rate);
   const failureReason = firstMeaningfulString(liveBacktest.error_message, liveBacktest.error);
+  const latestProgressTimestamp =
+    (typeof progressQuery.data?.updated_at === 'string' ? progressQuery.data.updated_at : null) ||
+    (typeof progressQuery.lastSocketEvent?.timestamp === 'string'
+      ? progressQuery.lastSocketEvent.timestamp
+      : null) ||
+    liveBacktest.updated_at ||
+    null;
+  const filteredChartStart = filteredChartPoints[0];
+  const filteredChartEnd = filteredChartPoints[filteredChartPoints.length - 1];
+  const periodPnl =
+    filteredChartStart && filteredChartEnd
+      ? filteredChartEnd.value - filteredChartStart.value
+      : totalPnl;
+  const periodReturnPct =
+    filteredChartStart && Math.abs(filteredChartStart.value) > 0
+      ? (periodPnl / Math.abs(filteredChartStart.value)) * 100
+      : 0;
+  const peakEquity =
+    filteredChartPoints.length > 0
+      ? Math.max(...filteredChartPoints.map((point) => point.value))
+      : totalPnl;
+  const troughEquity =
+    filteredChartPoints.length > 0
+      ? Math.min(...filteredChartPoints.map((point) => point.value))
+      : totalPnl;
+  const bestSessionPnl =
+    filteredChartPoints.length > 0
+      ? Math.max(...filteredChartPoints.map((point) => point.pnl))
+      : 0;
+  const worstSessionPnl =
+    filteredChartPoints.length > 0
+      ? Math.min(...filteredChartPoints.map((point) => point.pnl))
+      : 0;
+  const averageTradesPerBar =
+    filteredChartPoints.length > 0
+      ? filteredChartPoints.reduce((sum, point) => sum + point.trades, 0) / filteredChartPoints.length
+      : 0;
+  const pairBreakdown = filteredChartMarkers.reduce<
+    Array<{ pair: string; count: number; pnl: number }>
+  >((acc, marker) => {
+    const existing = acc.find((item) => item.pair === marker.pair);
+    if (existing) {
+      existing.count += marker.count || 1;
+      existing.pnl += marker.pnl;
+    } else {
+      acc.push({
+        pair: marker.pair,
+        count: marker.count || 1,
+        pnl: marker.pnl,
+      });
+    }
+    return acc;
+  }, []);
+  const topPairs = pairBreakdown
+    .sort((a, b) => b.count - a.count || b.pnl - a.pnl)
+    .slice(0, 5);
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -793,17 +1006,20 @@ export const BacktestDetailsV2: React.FC = () => {
     {
       label: 'Total Trades',
       value: liveBacktest.total_trades ?? trades.length,
-      icon: '📊',
+      detail: `${formatCompactValue(averageTradesPerBar)} avg / bar`,
+      icon: Activity,
     },
     {
       label: 'Win Rate',
       value: `${winRatePercent.toFixed(1)}%`,
-      icon: '✅',
+      detail: isRunning ? 'Updating live' : 'Finalized',
+      icon: Gauge,
     },
     {
       label: 'Total PnL',
-      value: `$${totalPnl.toFixed(2)}`,
-      icon: '💰',
+      value: formatCurrency(totalPnl),
+      detail: `${periodPnl >= 0 ? '+' : ''}${periodReturnPct.toFixed(2)}% selected range`,
+      icon: TrendingUp,
       color: totalPnl >= 0 ? 'text-green-400' : 'text-red-400',
     },
     {
@@ -812,20 +1028,25 @@ export const BacktestDetailsV2: React.FC = () => {
         liveBacktest.sharpe_ratio !== undefined && liveBacktest.sharpe_ratio !== null
           ? liveBacktest.sharpe_ratio.toFixed(2)
           : 'N/A',
-      icon: '📈',
+      detail: `PF ${
+        liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
+          ? liveBacktest.profit_factor.toFixed(2)
+          : 'N/A'
+      }`,
+      icon: Radar,
     },
     {
       label: 'Max Drawdown',
       value: `${maxDrawdown.toFixed(1)}%`,
-      icon: '📉',
+      detail: `Low watermark ${formatCurrency(troughEquity)}`,
+      icon: TrendingDown,
     },
     {
-      label: 'Profit Factor',
-      value:
-        liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
-          ? liveBacktest.profit_factor.toFixed(2)
-          : 'N/A',
-      icon: '🎯',
+      label: 'Live Sync',
+      value: progressQuery.isConnected ? 'Streaming' : 'Recovering',
+      detail: formatTimeAgo(latestProgressTimestamp),
+      icon: Waves,
+      color: progressQuery.isConnected ? 'text-cyan-300' : 'text-amber-300',
     },
   ];
 
@@ -842,78 +1063,164 @@ export const BacktestDetailsV2: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6 text-white">
-        {/* Header */}
-        <div>
-          <h1 className="mb-2 text-2xl font-bold sm:text-4xl">Backtest Results</h1>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:text-base">
-            <span>
-              {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
-            </span>
-            <span
-              className={`px-3 py-1 rounded-full text-sm font-medium ${
-                statusNorm === 'completed'
-                  ? 'bg-green-900 text-green-200'
-                  : statusNorm === 'running'
-                    ? 'bg-blue-900 text-blue-200'
-                    : statusNorm === 'failed' || statusNorm === 'cancelled'
-                      ? 'bg-red-900 text-red-200'
-                      : 'bg-yellow-900 text-yellow-200'
-              }`}
-            >
-              {statusNorm}
-            </span>
-          </div>
-        </div>
+      <div className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.10),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(56,189,248,0.14),_transparent_28%),linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 shadow-[0_20px_80px_rgba(2,6,23,0.45)] sm:p-7">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200">
+                  Backtest Lab
+                </span>
+                <span
+                  className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                    statusNorm === 'completed'
+                      ? 'bg-emerald-500/15 text-emerald-200'
+                      : statusNorm === 'running'
+                        ? 'bg-blue-500/15 text-blue-200'
+                        : statusNorm === 'failed' || statusNorm === 'cancelled'
+                          ? 'bg-rose-500/15 text-rose-200'
+                          : 'bg-amber-500/15 text-amber-200'
+                  }`}
+                >
+                  {statusNorm}
+                </span>
+                <span className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-medium text-slate-300">
+                  {progressQuery.isConnected ? 'Live websocket' : 'Silent recovery mode'}
+                </span>
+              </div>
+              <div>
+                <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">
+                  Backtest Control Room
+                </h1>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400 sm:text-base">
+                  Monitor live execution, inspect the equity curve, and drill into pair-level outcome
+                  data without leaving the page or waiting on hard refreshes.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-300">
+                <span className="inline-flex items-center gap-2">
+                  <CalendarRange className="h-4 w-4 text-slate-500" />
+                  {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <Clock3 className="h-4 w-4 text-slate-500" />
+                  Last sync {formatTimeAgo(latestProgressTimestamp)}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <CircleDot
+                    className={`h-4 w-4 ${progressQuery.isConnected ? 'text-cyan-400' : 'text-amber-400'}`}
+                  />
+                  Source {progressSourceLabel}
+                </span>
+              </div>
+            </div>
 
-        {/* Status Banner */}
-        {isRunning && (
-          <div className="rounded-lg border border-blue-700 bg-blue-900/40 p-4 flex items-start gap-3">
-            <Loader className="w-5 h-5 animate-spin text-blue-400 shrink-0 mt-0.5" />
-            <div className="w-full">
-              <p className="text-blue-300 font-medium">Backtest in progress</p>
-              <p className="text-slate-400 text-sm mt-0.5">
-                Progress updates stream live over websocket, and detailed tabs refresh incrementally
-                as each pair finishes processing.
-              </p>
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-xs text-blue-300 mb-1">
-                  <span>Progress</span>
+            <div className="grid min-w-full grid-cols-2 gap-3 sm:min-w-[360px] xl:max-w-[420px]">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Run ID</p>
+                <p className="mt-2 break-all font-mono text-sm text-slate-100">{backtest.run_id}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Current Pair</p>
+                <p className="mt-2 text-sm font-medium text-slate-100">
+                  {currentPair || selectedMarket || 'Awaiting signal'}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Peak Equity</p>
+                <p className="mt-2 text-lg font-semibold text-emerald-300">
+                  {formatCurrency(peakEquity)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Best Session</p>
+                <p className={`mt-2 text-lg font-semibold ${bestSessionPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {formatSignedCurrency(bestSessionPnl)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {isRunning && (
+            <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4 sm:p-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex items-start gap-3">
+                  <Loader className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-cyan-300" />
+                  <div>
+                    <p className="font-medium text-cyan-200">Execution is live</p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Progress, live activity, and detailed datasets are updating in place while the
+                      run advances through each pair.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      Progress
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-100">
+                      {progressPercent.toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">ETA</p>
+                    <p className="mt-1 text-base font-semibold text-slate-100">
+                      {etaLabel || 'Calibrating'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      Markets
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-100">{markets.length}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      Signals
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-100">
+                      {filteredChartMarkers.length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4">
+                <div className="mb-1 flex items-center justify-between text-xs text-cyan-200">
+                  <span>Execution Progress</span>
                   <span>{progressPercent.toFixed(1)}%</span>
                 </div>
-                <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                <div className="h-2 overflow-hidden rounded-full bg-slate-800">
                   <div
-                    className="h-2 bg-blue-500 transition-all duration-500"
+                    className="h-2 bg-[linear-gradient(90deg,#06b6d4,#3b82f6)] transition-all duration-500"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
-                  {currentTaskLine ? (
-                    <span>
-                      Task: <span className="font-mono text-slate-100">{currentTaskLine}</span>
+                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-300">
+                  <span>
+                    Task:{' '}
+                    <span className="font-mono text-slate-100">
+                      {currentTaskLine || 'Initializing runtime'}
                     </span>
-                  ) : (
-                    <span className="italic text-slate-400">Task: Initialising...</span>
-                  )}
+                  </span>
                   {etaLabel && (
                     <span className="text-slate-400">
-                      ETA: <span className="text-slate-200 font-medium">{etaLabel}</span>
+                      ETA: <span className="font-medium text-slate-200">{etaLabel}</span>
                     </span>
                   )}
+                  <span className="text-slate-400">
+                    Updated: <span className="font-medium text-slate-200">{formatTimeAgo(latestProgressTimestamp)}</span>
+                  </span>
                 </div>
-                {import.meta.env.DEV && (
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Sync source: {progressSourceLabel}
-                  </p>
-                )}
                 {liveLogs.length > 0 && (
-                  <div className="mt-3 rounded border border-slate-700 bg-slate-900/60 p-2">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">
+                  <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/65 p-3">
+                    <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
                       Live Activity
                     </p>
-                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                    <div className="max-h-28 space-y-1 overflow-y-auto">
                       {liveLogs.map((log) => (
                         <div key={`${log.id}-${log.created_at}`} className="text-xs text-slate-300">
-                          <span className="text-slate-500 mr-1">
+                          <span className="mr-1 text-slate-500">
                             {new Date(log.created_at).toLocaleTimeString()}
                           </span>
                           <span
@@ -937,122 +1244,166 @@ export const BacktestDetailsV2: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
-        )}
-        {isFailed && (
-          <div className="rounded-lg border border-red-700 bg-red-900/40 p-4">
-            <p className="text-red-300 font-medium capitalize">Backtest {statusNorm}</p>
-            <p className="text-slate-400 text-sm mt-1">
-              This backtest did not complete successfully. No result data is available.
-            </p>
-            {failureReason && (
-              <p className="mt-2 text-sm text-red-200">
-                Reason: <span className="font-mono break-words">{failureReason}</span>
+          )}
+          {isFailed && (
+            <div className="rounded-2xl border border-red-700 bg-red-900/40 p-4">
+              <p className="font-medium capitalize text-red-300">Backtest {statusNorm}</p>
+              <p className="mt-1 text-sm text-slate-400">
+                This backtest did not complete successfully. No result data is available.
               </p>
-            )}
-          </div>
-        )}
-        {isCompleted && (
-          <div className="rounded-lg border border-emerald-700/50 bg-emerald-950/20 p-4">
-            <p className="text-emerald-300 font-medium">Backtest completed</p>
-            <p className="mt-1 text-sm text-slate-300">
-              Final performance is ready now. Detailed charts, positions, and trade logs will load only when you open their tabs.
-            </p>
-          </div>
-        )}
-
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-          {metrics.map((metric) => (
-            <div key={metric.label} className="bg-slate-800 p-4 rounded-lg border border-slate-700">
-              <p className="text-2xl mb-2">{metric.icon}</p>
-              <p className="text-xs text-slate-400 mb-1">{metric.label}</p>
-              <p className={`text-lg font-bold ${metric.color || 'text-slate-100'}`}>
-                {metric.value}
+              {failureReason && (
+                <p className="mt-2 text-sm text-red-200">
+                  Reason: <span className="break-words font-mono">{failureReason}</span>
+                </p>
+              )}
+            </div>
+          )}
+          {isCompleted && (
+            <div className="rounded-2xl border border-emerald-700/50 bg-emerald-950/20 p-4">
+              <p className="font-medium text-emerald-300">Run finalized</p>
+              <p className="mt-1 text-sm text-slate-300">
+                Performance, trades, positions, and pair aggregates remain available in the tabs
+                below with no extra navigation or manual reloads.
               </p>
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* Tabs */}
-        <div className="overflow-x-auto border-b border-slate-700">
-          <div className="flex min-w-max gap-2 sm:gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            {metrics.map((metric) => {
+              const Icon = metric.icon;
+              return (
+                <div
+                  key={metric.label}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4 shadow-[0_8px_32px_rgba(2,6,23,0.22)]"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        {metric.label}
+                      </p>
+                      <p className={`mt-2 text-2xl font-semibold tracking-tight ${metric.color || 'text-slate-100'}`}>
+                        {metric.value}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-400">{metric.detail}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-2 text-cyan-200">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/65 px-3 py-2">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="overflow-x-auto">
+            <div className="flex min-w-max gap-2">
             {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`border-b-2 px-4 py-2 transition ${
+                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
                   activeTab === tab
-                    ? 'border-blue-500 text-blue-400'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                      ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.24)]'
+                      : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
                 }`}
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-400">
+              {progressQuery.isConnected ? 'Realtime stream online' : 'Realtime stream reconnecting'}
+            </span>
+            <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-400">
+              {activeTab === 'candles'
+                ? `${filteredChartPoints.length} bars loaded`
+                : `${liveBacktest.total_trades ?? trades.length} trades indexed`}
+            </span>
           </div>
         </div>
+      </div>
 
-        {/* Summary Tab */}
-        {activeTab === 'summary' && (
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-                <h2 className="text-xl font-bold mb-4">Final Outcome</h2>
-                <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-500">Run ID</dt>
-                    <dd className="mt-1 font-mono text-sm text-slate-200">{backtest.run_id}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-500">Created</dt>
-                    <dd className="mt-1 text-sm text-slate-200">{formatDateValue(backtest.created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-500">Date Range</dt>
-                    <dd className="mt-1 text-sm text-slate-200">
-                      {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
-                    <dd className="mt-1 text-sm capitalize text-slate-200">{statusNorm}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-500">Profit Factor</dt>
-                    <dd className="mt-1 text-sm text-slate-200">
-                      {liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
-                        ? liveBacktest.profit_factor.toFixed(2)
-                        : 'N/A'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-500">Max Drawdown</dt>
-                    <dd className="mt-1 text-sm text-slate-200">{maxDrawdown.toFixed(1)}%</dd>
-                  </div>
-                </dl>
+      {/* Summary Tab */}
+      {activeTab === 'summary' && (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4 sm:p-6">
+            <h2 className="mb-4 text-xl font-bold">Run Snapshot</h2>
+            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Run ID</dt>
+                <dd className="mt-1 font-mono text-sm text-slate-200">{backtest.run_id}</dd>
               </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Created</dt>
+                <dd className="mt-1 text-sm text-slate-200">{formatDateValue(backtest.created_at)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Date Range</dt>
+                <dd className="mt-1 text-sm text-slate-200">
+                  {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
+                <dd className="mt-1 text-sm capitalize text-slate-200">{statusNorm}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Profit Factor</dt>
+                <dd className="mt-1 text-sm text-slate-200">
+                  {liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
+                    ? liveBacktest.profit_factor.toFixed(2)
+                    : 'N/A'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Max Drawdown</dt>
+                <dd className="mt-1 text-sm text-slate-200">{maxDrawdown.toFixed(1)}%</dd>
+              </div>
+            </dl>
+          </div>
 
-              <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-                <h2 className="text-xl font-bold mb-4">Detailed Data</h2>
-                <div className="space-y-3 text-sm text-slate-300">
-                  <p>
-                    Open a detail tab to load the heavier datasets only when you need them.
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4 sm:p-6">
+            <h2 className="mb-4 text-xl font-bold">Analysis Access</h2>
+            <div className="space-y-3 text-sm text-slate-300">
+              <p>Open a detail tab to load the heavier datasets only when you need them.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Chart workspace</p>
+                  <p className="mt-2 text-slate-200">
+                    Period filters, market switching, live equity curve, trade markers, and sync telemetry.
                   </p>
-                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
-                    <p className="font-medium text-white">Available on demand</p>
-                    <p className="mt-1 text-slate-400">
-                      `Candles` loads analytics and the equity curve, `Positions` loads snapshot history,
-                      `Trades` loads trade records, and `Results` builds pair-level aggregates.
-                    </p>
-                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Detail panels</p>
+                  <p className="mt-2 text-slate-200">
+                    Positions, trades, and pair ranking update live without hard resets while the run executes.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4 sm:col-span-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Runtime telemetry</p>
+                  <p className="mt-2 text-slate-200">
+                    Current task: <span className="font-mono text-slate-100">{currentTaskLine || 'Initializing runtime'}</span>
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Sync status: {progressQuery.isConnected ? 'websocket streaming live' : 'silent fallback recovery'}.
+                  </p>
                 </div>
               </div>
+            </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Candles Tab */}
-        {activeTab === 'candles' && (
-          <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
+      {/* Candles Tab */}
+      {activeTab === 'candles' && (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.5fr)_360px]">
+          <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-4 sm:p-5">
             {analyticsLoading ? (
               <div className="flex items-center justify-center py-16 gap-3">
                 <Loader className="w-6 h-6 animate-spin text-blue-400" />
@@ -1068,17 +1419,42 @@ export const BacktestDetailsV2: React.FC = () => {
                 : renderDeferredTabHint('Candle analytics')
             ) : (
               <>
-                <div className="mb-4">
-                  <p className="text-sm text-slate-400 mb-2">Select Market</p>
-                  <div className="flex gap-2 flex-wrap">
+                <div className="mb-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <CandlestickChart className="h-5 w-5 text-cyan-300" />
+                        <p className="text-sm font-semibold text-slate-100">Equity Curve Workspace</p>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-400">
+                        Browse market-level equity, filter the visible window, and inspect trade activity without resetting the chart.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(['7D', '30D', '90D', 'ALL'] as const).map((range) => (
+                        <button
+                          key={range}
+                          onClick={() => setChartRange(range)}
+                          className={`rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                            chartRange === range
+                              ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.24)]'
+                              : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          }`}
+                        >
+                          {range}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
                     {markets.map((market) => (
                       <button
                         key={market}
                         onClick={() => setSelectedMarket(market)}
-                        className={`px-3 py-1 rounded text-sm transition ${
+                        className={`rounded-xl px-3 py-2 text-sm transition ${
                           selectedMarket === market
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+                            ? 'bg-slate-100 text-slate-950'
+                            : 'bg-slate-900 text-slate-300 hover:bg-slate-800'
                         }`}
                       >
                         {market}
@@ -1087,28 +1463,14 @@ export const BacktestDetailsV2: React.FC = () => {
                   </div>
                 </div>
 
-                {selectedMarket && candleChartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={400}>
-                    <LineChart data={candleChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-                      <XAxis dataKey="timestamp" stroke="#94a3b8" tick={{ fontSize: 12 }} />
-                      <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#1e293b',
-                          border: '1px solid #475569',
-                        }}
-                        formatter={(value: unknown) => `$${(value as number).toFixed(2)}`}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="close"
-                        stroke="#f59e0b"
-                        dot={false}
-                        isAnimationActive={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                {selectedMarket && filteredChartPoints.length > 0 ? (
+                  <BacktestLightweightChart
+                    data={filteredChartPoints}
+                    markers={filteredChartMarkers}
+                    height={520}
+                    resetKey={`${selectedMarket}:${chartRange}`}
+                    title={`${selectedMarket} Equity`}
+                  />
                 ) : (
                   <div className="h-100 flex items-center justify-center text-slate-400">
                     Select a market above to view its equity curve
@@ -1117,159 +1479,155 @@ export const BacktestDetailsV2: React.FC = () => {
               </>
             )}
           </div>
-        )}
+          <div className="space-y-5">
+            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Visible Range</p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Window PnL</p>
+                  <p className={`mt-2 text-xl font-semibold ${periodPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {formatSignedCurrency(periodPnl)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Window Return</p>
+                  <p className={`mt-2 text-xl font-semibold ${periodReturnPct >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {periodReturnPct >= 0 ? '+' : ''}{periodReturnPct.toFixed(2)}%
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Worst Session</p>
+                  <p className="mt-2 text-xl font-semibold text-rose-300">
+                    {formatSignedCurrency(worstSessionPnl)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Avg Trades / Bar</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-100">
+                    {formatCompactValue(averageTradesPerBar)}
+                  </p>
+                </div>
+              </div>
+            </div>
 
-        {/* Positions Tab */}
-        {activeTab === 'positions' && (
-          <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-            <h2 className="text-xl font-bold mb-4">Positions ({positions.length})</h2>
-            {positionsLoading ? (
-              <div className="flex items-center justify-center py-16 gap-3">
-                <Loader className="w-6 h-6 animate-spin text-blue-400" />
+            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Live Telemetry</p>
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Active task</p>
+                  <p className="mt-2 break-words font-mono text-sm text-slate-100">
+                    {currentTaskLine || 'No active task line yet'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Bars</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-100">{filteredChartPoints.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Trade markers</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-100">
+                      {filteredChartMarkers.length}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Stream health</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <CircleDot className={`h-4 w-4 ${progressQuery.isConnected ? 'text-cyan-400' : 'text-amber-400'}`} />
+                    <span className="text-sm text-slate-200">
+                      {progressQuery.isConnected ? 'Live socket healthy' : 'Socket reconnecting'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Updated {formatTimeAgo(latestProgressTimestamp)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Top Pairs</p>
+              <div className="mt-4 space-y-3">
+                {topPairs.length > 0 ? (
+                  topPairs.map((pair) => (
+                    <div
+                      key={pair.pair}
+                      className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/65 px-4 py-3"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-slate-100">{pair.pair}</p>
+                        <p className="mt-1 text-xs text-slate-500">{pair.count} trade markers</p>
+                      </div>
+                      <p className={`text-sm font-semibold ${pair.pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                        {formatSignedCurrency(pair.pnl)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-800 px-4 py-6 text-sm text-slate-500">
+                    Pair-level marker insights will populate as trades settle.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Positions Tab */}
+      {activeTab === 'positions' && (
+        <div>
+          {positionsLoading ? (
+            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-6">
+              <div className="flex items-center justify-center gap-3 py-16">
+                <Loader className="h-6 w-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading position snapshots...</p>
               </div>
-            ) : positionsError ? (
-              <div className="rounded border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
-                {positionsError}
-              </div>
-            ) : positions.length === 0 ? (
-              positionsLoadedState?.runId === runId
-                ? renderEmptyState('position data')
-                : renderDeferredTabHint('Position snapshots')
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="border-b border-slate-700">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-slate-400">Pair</th>
-                    <th className="px-4 py-2 text-left text-slate-400">Entry Time</th>
-                    <th className="px-4 py-2 text-left text-slate-400">Exit Time</th>
-                    <th className="px-4 py-2 text-right text-slate-400">Entry Z-Score</th>
-                    <th className="px-4 py-2 text-right text-slate-400">Exit Z-Score</th>
-                    <th className="px-4 py-2 text-right text-slate-400">PnL ($)</th>
-                    <th className="px-4 py-2 text-left text-slate-400">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.map((pos, idx) => (
-                    <tr
-                      key={`${pos.position_id}-${pos.entry_timestamp}-${idx}`}
-                      className={`border-b border-slate-700 ${
-                        pos.total_pnl_usd >= 0 ? 'bg-green-900/20' : 'bg-red-900/20'
-                      }`}
-                    >
-                      <td className="px-4 py-2 text-white font-medium">
-                        {pos.market_1}/{pos.market_2}
-                      </td>
-                      <td className="px-4 py-2 text-slate-300">
-                        {formatDateValue(pos.entry_timestamp)}
-                      </td>
-                      <td className="px-4 py-2 text-slate-300">
-                        {formatDateValue(pos.exit_timestamp)}
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-300">
-                        {pos.entry_zscore !== undefined && pos.entry_zscore !== null
-                          ? pos.entry_zscore.toFixed(3)
-                          : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-300">
-                        {pos.exit_zscore !== undefined && pos.exit_zscore !== null
-                          ? pos.exit_zscore.toFixed(3)
-                          : '-'}
-                      </td>
-                      <td
-                        className={`px-4 py-2 text-right font-bold ${
-                          (pos.total_pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        ${(pos.total_pnl_usd || 0).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-2 text-slate-300">{pos.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
+            </div>
+          ) : positionsError ? (
+            <div className="rounded-[24px] border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+              {positionsError}
+            </div>
+          ) : positions.length === 0 ? (
+            positionsLoadedState?.runId === runId
+              ? renderEmptyState('position data')
+              : renderDeferredTabHint('Position snapshots')
+          ) : (
+            <BacktestPositionsPanel
+              positions={positions}
+              isConnected={progressQuery.isConnected}
+              liveLabel={`Updated ${formatTimeAgo(latestProgressTimestamp)}`}
+            />
+          )}
+        </div>
+      )}
 
-        {/* Trades Tab */}
-        {activeTab === 'trades' && (
-          <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-            <h2 className="text-xl font-bold mb-4">Trades ({trades.length})</h2>
-            {tradesLoading ? (
-              <div className="flex items-center justify-center py-16 gap-3">
-                <Loader className="w-6 h-6 animate-spin text-blue-400" />
+      {/* Trades Tab */}
+      {activeTab === 'trades' && (
+        <div>
+          {tradesLoading ? (
+            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-6">
+              <div className="flex items-center justify-center gap-3 py-16">
+                <Loader className="h-6 w-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading trade history...</p>
               </div>
-            ) : tradesError ? (
-              <div className="rounded border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
-                {tradesError}
-              </div>
-            ) : trades.length === 0 ? (
-              tradesLoadedState?.runId === runId
-                ? renderEmptyState('trade data')
-                : renderDeferredTabHint('Trade history')
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="border-b border-slate-700">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-slate-400">Pair</th>
-                    <th className="px-4 py-2 text-left text-slate-400">Entry Time</th>
-                    <th className="px-4 py-2 text-left text-slate-400">Exit Time</th>
-                    <th className="px-4 py-2 text-right text-slate-400">Duration (h)</th>
-                    <th className="px-4 py-2 text-right text-slate-400">PnL ($)</th>
-                    <th className="px-4 py-2 text-right text-slate-400">Return %</th>
-                    <th className="px-4 py-2 text-center text-slate-400">Result</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trades.map((trade, idx) => (
-                    <tr
-                      key={trade.trade_id || `${trade.market_1}-${trade.market_2}-${trade.entry_timestamp}-${idx}`}
-                      className={`border-b border-slate-700 ${
-                        trade.win ? 'bg-green-900/20' : 'bg-red-900/20'
-                      }`}
-                    >
-                      <td className="px-4 py-2 text-white font-medium">
-                        {trade.market_1}/{trade.market_2}
-                      </td>
-                      <td className="px-4 py-2 text-slate-300">
-                        {formatDateValue(trade.entry_timestamp)}
-                      </td>
-                      <td className="px-4 py-2 text-slate-300">
-                        {formatDateValue(trade.exit_timestamp)}
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-300">
-                        {(trade.duration_hours || 0).toFixed(1)}
-                      </td>
-                      <td
-                        className={`px-4 py-2 text-right font-bold ${
-                          (trade.pnl_usd || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        ${(trade.pnl_usd || 0).toFixed(2)}
-                      </td>
-                      <td
-                        className={`px-4 py-2 text-right font-bold ${
-                          (trade.pnl_pct || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        {normalizePercentValue(trade.pnl_pct).toFixed(2)}%
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        {trade.win ? (
-                          <ArrowUp className="w-4 h-4 text-green-400 mx-auto" />
-                        ) : (
-                          <ArrowDown className="w-4 h-4 text-red-400 mx-auto" />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
+            </div>
+          ) : tradesError ? (
+            <div className="rounded-[24px] border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+              {tradesError}
+            </div>
+          ) : trades.length === 0 ? (
+            tradesLoadedState?.runId === runId
+              ? renderEmptyState('trade data')
+              : renderDeferredTabHint('Trade history')
+          ) : (
+            <BacktestTradesPanel
+              trades={trades}
+              isConnected={progressQuery.isConnected}
+              liveLabel={`Updated ${formatTimeAgo(latestProgressTimestamp)}`}
+            />
+          )}
+        </div>
+      )}
 
         {/* Results Tab */}
         {activeTab === 'results' && (

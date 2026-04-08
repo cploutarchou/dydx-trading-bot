@@ -248,7 +248,8 @@ export const BacktestResultsEnhanced: React.FC<{
   // Fetch results with pagination and filters
   const fetchResults = useCallback(
     async (page: number = 0) => {
-      setLoading(true);
+      const hasExistingResults = results.length > 0;
+      setLoading(!hasExistingResults);
       setError(null);
 
       try {
@@ -303,12 +304,14 @@ export const BacktestResultsEnhanced: React.FC<{
         });
       } catch (err: unknown) {
         setError(getErrorMessage(err, 'Failed to load results'));
-        setResults([]);
+        if (results.length === 0) {
+          setResults([]);
+        }
       } finally {
         setLoading(false);
       }
     },
-    [runId, filters, pagination.limit]
+    [filters, pagination.limit, results.length, runId]
   );
 
   // Load initial data

@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
@@ -1725,45 +1725,45 @@ async def quick_deploy_bot(
 @app.get("/health")
 async def health_check():
     """API health check"""
-    service = get_backtest_service()
-    runtime_health = service.get_runtime_health()
-    return api_response(
-        success=True,
-        data={
-            "status": "healthy",
-            "api_version": "1.0.0",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "backtest_runtime": runtime_health,
-            "bot_recovery": _bot_recovery_diagnostics(),
-        },
-        message="API is healthy",
-    )
+    with backtest_service_scope() as service:
+        runtime_health = service.get_runtime_health()
+        return api_response(
+            success=True,
+            data={
+                "status": "healthy",
+                "api_version": "1.0.0",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "backtest_runtime": runtime_health,
+                "bot_recovery": _bot_recovery_diagnostics(),
+            },
+            message="API is healthy",
+        )
 
 
 @app.get("/ready")
 async def readiness_check():
     """Strict readiness probe for orchestrators and deployment gates."""
-    service = get_backtest_service()
-    runtime_health = service.get_runtime_health()
-    ready = _bot_manager_ready()
-    status_code = 200 if ready else 503
+    with backtest_service_scope() as service:
+        runtime_health = service.get_runtime_health()
+        ready = _bot_manager_ready()
+        status_code = 200 if ready else 503
 
-    return api_response(
-        success=ready,
-        data={
-            "status": "ready" if ready else "not_ready",
-            "bot_manager_ready": ready,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "backtest_runtime": runtime_health,
-            "bot_recovery": _bot_recovery_diagnostics(),
-        },
-        message=(
-            "Bot API is ready"
-            if ready
-            else "Bot API is not ready: bot manager unavailable"
-        ),
-        status_code=status_code,
-    )
+        return api_response(
+            success=ready,
+            data={
+                "status": "ready" if ready else "not_ready",
+                "bot_manager_ready": ready,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "backtest_runtime": runtime_health,
+                "bot_recovery": _bot_recovery_diagnostics(),
+            },
+            message=(
+                "Bot API is ready"
+                if ready
+                else "Bot API is not ready: bot manager unavailable"
+            ),
+            status_code=status_code,
+        )
 
 
 @app.get("/api/v1/capabilities")
@@ -1879,24 +1879,24 @@ async def get_current_user_profile(
 async def system_status(current_user: User = Depends(get_current_active_user)):
     """Get system status and statistics"""
     try:
-        service = get_backtest_service()
-        runtime_health = service.get_runtime_health()
-        if not _bot_manager_ready():
-            return api_response(
-                success=True,
-                data={
-                    "bot_instances": {"total": 0, "running": 0, "max_allowed": 0},
-                    "system_resources": {
-                        "cpu_usage_percent": 0,
-                        "memory_usage_percent": 0,
-                        "memory_available_gb": 0,
+        with backtest_service_scope() as service:
+            runtime_health = service.get_runtime_health()
+            if not _bot_manager_ready():
+                return api_response(
+                    success=True,
+                    data={
+                        "bot_instances": {"total": 0, "running": 0, "max_allowed": 0},
+                        "system_resources": {
+                            "cpu_usage_percent": 0,
+                            "memory_usage_percent": 0,
+                            "memory_available_gb": 0,
+                        },
+                        "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
+                        "backtest_runtime": runtime_health,
+                        "bot_recovery": _bot_recovery_diagnostics(),
                     },
-                    "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
-                    "backtest_runtime": runtime_health,
-                    "bot_recovery": _bot_recovery_diagnostics(),
-                },
-                message="System status available; bot manager unavailable",
-            )
+                    message="System status available; bot manager unavailable",
+                )
         instances = await bot_manager.list_instances()
 
         # Cleanup any dead processes
@@ -2436,14 +2436,41 @@ def get_backtest_service():
     return service
 
 
+def close_backtest_service(service: Optional[BacktestService]) -> None:
+    """Release the SQLAlchemy session used by a request-scoped backtest service."""
+    if service is None:
+        return
+
+    session = getattr(service, "session", None)
+    if session is None:
+        repository = getattr(service, "repository", None)
+        session = getattr(repository, "session", None)
+
+    if session is None:
+        return
+
+    try:
+        session.close()
+    except Exception as exc:
+        logger.warning(f"Failed to close backtest service session: {exc}")
+
+
+@contextmanager
+def backtest_service_scope():
+    """Provide a request-scoped backtest service and always release its DB session."""
+    service = get_backtest_service()
+    try:
+        yield service
+    finally:
+        close_backtest_service(service)
+
+
 @app.post("/api/v1/backtests", response_model=BacktestResponse)
 async def create_backtest(
     request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
 ):
     """Create and start a new backtest"""
     try:
-        service = get_backtest_service()
-
         if isinstance(request, BacktestRunRequestCompat):
             resolved_pairs = await _resolve_backtest_markets(
                 request.pairs,
@@ -2546,9 +2573,10 @@ async def create_backtest(
                 f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
             )
 
-        result = await service.create_and_run_backtest(
-            normalized_request, progress_callback
-        )
+        with backtest_service_scope() as service:
+            result = await service.create_and_run_backtest(
+                normalized_request, progress_callback
+            )
 
         return api_response(
             success=True,
@@ -2644,8 +2672,8 @@ async def run_backtest_compat(
                 pairs=resolved_pairs,
             )
 
-        service = get_backtest_service()
-        result = await service.create_and_run_backtest(backtest_request)
+        with backtest_service_scope() as service:
+            result = await service.create_and_run_backtest(backtest_request)
         payload = result.model_dump()
         payload["progress"] = float(payload.get("progress_pct", 0.0))
         payload["count"] = 1
@@ -2672,11 +2700,10 @@ async def list_backtests(
 ):
     """List backtest runs with filtering"""
     try:
-        service = get_backtest_service()
-
-        result = service.list_backtest_runs(
-            limit=limit, offset=offset, status_filter=status, days_filter=days
-        )
+        with backtest_service_scope() as service:
+            result = service.list_backtest_runs(
+                limit=limit, offset=offset, status_filter=status, days_filter=days
+            )
         payload = result.model_dump()
         payload["backtests"] = payload.get("runs", [])
         payload["count"] = len(payload["backtests"])
@@ -2705,8 +2732,8 @@ async def list_interrupted_backtests(
 def _list_interrupted_backtests_response(limit: int):
     """Shared response builder for interrupted backtest visibility routes."""
     try:
-        service = get_backtest_service()
-        report = service.list_interrupted_runs_for_ops(limit=limit)
+        with backtest_service_scope() as service:
+            report = service.list_interrupted_runs_for_ops(limit=limit)
         report["count"] = int(report.get("orphaned_count", 0)) + int(
             report.get("interrupted_count", 0)
         )
@@ -2733,8 +2760,8 @@ async def reconcile_interrupted_backtests(
 def _reconcile_interrupted_backtests_response(dry_run: bool):
     """Shared response builder for interrupted backtest reconcile routes."""
     try:
-        service = get_backtest_service()
-        report = service.reconcile_interrupted_runs(dry_run=dry_run)
+        with backtest_service_scope() as service:
+            report = service.reconcile_interrupted_runs(dry_run=dry_run)
         report["count"] = int(report.get("candidate_count", 0))
         message = (
             "Dry-run completed for interrupted backtest reconciliation"
@@ -2779,9 +2806,8 @@ async def get_backtest_details(
 ):
     """Get detailed backtest results"""
     try:
-        service = get_backtest_service()
-
-        result = service.get_backtest_details(run_id)
+        with backtest_service_scope() as service:
+            result = service.get_backtest_details(run_id)
         if not result:
             return api_response(
                 success=False,
@@ -2808,9 +2834,8 @@ async def get_backtest_status(
 ):
     """Get current backtest status and progress"""
     try:
-        service = get_backtest_service()
-
-        result = service.get_backtest_status(run_id)
+        with backtest_service_scope() as service:
+            result = service.get_backtest_status(run_id)
         if not result:
             return api_response(
                 success=False,
@@ -2841,8 +2866,8 @@ async def create_strategy_from_backtest(
     request: BacktestCreateStrategyRequest,
 ):
     """Create a strategy snapshot from an existing backtest."""
-    service = get_backtest_service()
-    details = service.get_backtest_details(run_id)
+    with backtest_service_scope() as service:
+        details = service.get_backtest_details(run_id)
     if not details:
         return api_response(
             success=False,
@@ -2876,11 +2901,10 @@ async def get_backtest_trades(
 ):
     """Get trades for specific backtest run"""
     try:
-        service = get_backtest_service()
-
-        trades = service.get_backtest_trades(
-            run_id=run_id, limit=limit, offset=offset, winning_only=winning_only
-        )
+        with backtest_service_scope() as service:
+            trades = service.get_backtest_trades(
+                run_id=run_id, limit=limit, offset=offset, winning_only=winning_only
+            )
 
         return api_response(
             success=True,
@@ -2906,9 +2930,8 @@ async def cancel_backtest(
 ):
     """Cancel running backtest"""
     try:
-        service = get_backtest_service()
-
-        success = service.cancel_backtest(run_id)
+        with backtest_service_scope() as service:
+            success = service.cancel_backtest(run_id)
         if not success:
             return api_response(
                 success=False,
@@ -2933,9 +2956,8 @@ async def delete_backtest(
 ):
     """Delete backtest run and all associated data"""
     try:
-        service = get_backtest_service()
-
-        success = service.delete_backtest(run_id)
+        with backtest_service_scope() as service:
+            success = service.delete_backtest(run_id)
         if not success:
             return api_response(
                 success=False, message=f"Backtest '{run_id}' not found", status_code=404
@@ -2958,9 +2980,8 @@ async def get_backtest_summary_stats(
 ):
     """Get backtest system summary statistics"""
     try:
-        service = get_backtest_service()
-
-        stats = service.get_summary_stats(days)
+        with backtest_service_scope() as service:
+            stats = service.get_summary_stats(days)
 
         return api_response(
             success=True,
@@ -2981,9 +3002,8 @@ async def get_backtest_analytics(
 ):
     """Get comprehensive analytics for a backtest run"""
     try:
-        service = get_backtest_service()
-
-        analytics = service.get_comprehensive_analytics(run_id)
+        with backtest_service_scope() as service:
+            analytics = service.get_comprehensive_analytics(run_id)
         if not analytics:
             return api_response(
                 success=False,
@@ -3013,11 +3033,10 @@ async def get_position_snapshots(
 ):
     """Get position snapshots for real-time backtest tracking"""
     try:
-        service = get_backtest_service()
-
-        snapshots = service.get_position_snapshots(
-            run_id=run_id, limit=limit, offset=offset, market_pair=market_pair
-        )
+        with backtest_service_scope() as service:
+            snapshots = service.get_position_snapshots(
+                run_id=run_id, limit=limit, offset=offset, market_pair=market_pair
+            )
 
         return api_response(
             success=True,
@@ -3044,8 +3063,6 @@ async def compare_backtests(
 ):
     """Compare multiple backtest runs with advanced analytics"""
     try:
-        service = get_backtest_service()
-
         run_ids = request.get("run_ids", [])
         metrics = request.get(
             "metrics", ["total_return_pct", "sharpe_ratio", "win_rate"]
@@ -3058,7 +3075,8 @@ async def compare_backtests(
                 status_code=400,
             )
 
-        comparison = service.compare_backtests(run_ids, metrics)
+        with backtest_service_scope() as service:
+            comparison = service.compare_backtests(run_ids, metrics)
 
         return api_response(
             success=True,
@@ -3077,8 +3095,8 @@ async def compare_backtests(
 async def backtest_sync_health():
     """Backend sync visibility endpoint for run orchestration health."""
     try:
-        service = get_backtest_service()
-        runtime_health = service.get_runtime_health()
+        with backtest_service_scope() as service:
+            runtime_health = service.get_runtime_health()
         return api_response(
             success=True,
             data={
@@ -3100,9 +3118,8 @@ async def validate_against_dydx_data(
 ):
     """Validate backtest results against real dYdX market data"""
     try:
-        service = get_backtest_service()
-
-        validation_result = await service.validate_against_dydx_data(run_id)
+        with backtest_service_scope() as service:
+            validation_result = await service.validate_against_dydx_data(run_id)
         if not validation_result:
             return api_response(
                 success=False,
@@ -3130,9 +3147,8 @@ async def get_advanced_performance_metrics(
 ):
     """Get advanced performance metrics with market benchmarking"""
     try:
-        service = get_backtest_service()
-
-        metrics = await service.get_advanced_performance_metrics(run_id, benchmark)
+        with backtest_service_scope() as service:
+            metrics = await service.get_advanced_performance_metrics(run_id, benchmark)
         if not metrics:
             return api_response(
                 success=False,
@@ -3159,9 +3175,8 @@ async def get_live_progress(
 ):
     """Get real-time backtest progress with current positions"""
     try:
-        service = get_backtest_service()
-
-        progress = service.get_live_progress(run_id)
+        with backtest_service_scope() as service:
+            progress = service.get_live_progress(run_id)
         if not progress:
             return api_response(
                 success=False,

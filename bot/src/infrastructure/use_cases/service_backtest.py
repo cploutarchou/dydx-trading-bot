@@ -425,6 +425,31 @@ class BacktestService:
         return float(max_dd * 100.0)
 
     @staticmethod
+    def _build_daily_pnl_rows(
+        daily_pnl_agg: Dict[str, float],
+        all_trades: List[Dict[str, Any]],
+        resolution: str,
+    ) -> List[Dict[str, Any]]:
+        return [
+            {
+                "candle_id": f"{day}|PORTFOLIO|{resolution}",
+                "date": day,
+                "timestamp": f"{day}T00:00:00Z",
+                "market": "PORTFOLIO",
+                "resolution": resolution,
+                "pnl": round(daily_pnl_agg[day], 4),
+                "trades": len(
+                    [
+                        t
+                        for t in all_trades
+                        if str(t.get("exit_timestamp", "")).startswith(day)
+                    ]
+                ),
+            }
+            for day in sorted(daily_pnl_agg.keys())
+        ]
+
+    @staticmethod
     def _build_market_pairs(markets: List[str]) -> List[tuple[str, str]]:
         """Build all unique non-self market combinations preserving input order."""
         normalized: List[str] = []
@@ -927,6 +952,7 @@ class BacktestService:
                 progress = round((idx / max(1, total_pairs)) * 95.0, 2)
                 run_data["progress_pct"] = progress
                 run_data["current_pair"] = f"{m1}/{m2}"
+                run_data["current_task"] = "processing pair"
                 run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
                 run_data = self._persist_run_data(run_data)
 
@@ -975,6 +1001,53 @@ class BacktestService:
                 for day, pnl in daily_pnl.items():
                     daily_pnl_agg[day] = round(daily_pnl_agg.get(day, 0.0) + pnl, 4)
 
+                running_total_pnl = float(sum(t["pnl_usd"] for t in all_trades))
+                running_total_trades = len(all_trades)
+                running_winners = len([t for t in all_trades if t["win"]])
+                running_win_rate = (
+                    running_winners / running_total_trades
+                    if running_total_trades > 0
+                    else 0.0
+                )
+                ordered_running_daily = [
+                    daily_pnl_agg[d] for d in sorted(daily_pnl_agg.keys())
+                ]
+                running_sharpe_ratio = self._compute_sharpe(
+                    ordered_running_daily, initial_balance
+                )
+                running_max_drawdown_pct = self._compute_max_drawdown_pct(
+                    ordered_running_daily, initial_balance
+                )
+                running_profit_factor = (
+                    sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] > 0)
+                    / max(
+                        1e-9,
+                        abs(sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] < 0)),
+                    )
+                    if running_total_trades > 0
+                    else 0.0
+                )
+
+                run_data.update(
+                    {
+                        "total_pnl": round(running_total_pnl, 4),
+                        "total_trades": running_total_trades,
+                        "win_rate": round(running_win_rate, 4),
+                        "sharpe_ratio": round(running_sharpe_ratio, 4),
+                        "max_drawdown_pct": round(running_max_drawdown_pct, 4),
+                        "profit_factor": round(float(running_profit_factor), 4),
+                        "trades": list(all_trades),
+                        "position_snapshots": list(all_snapshots),
+                        "daily_pnl": self._build_daily_pnl_rows(
+                            daily_pnl_agg=daily_pnl_agg,
+                            all_trades=all_trades,
+                            resolution=resolution,
+                        ),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                run_data = self._persist_run_data(run_data)
+
                 # Yield control so other coroutines (status polling) run smoothly.
                 await asyncio.sleep(0)
 
@@ -1011,24 +1084,11 @@ class BacktestService:
                     "profit_factor": round(float(profit_factor), 4),
                     "trades": all_trades,
                     "position_snapshots": all_snapshots,
-                    "daily_pnl": [
-                        {
-                            "candle_id": f"{day}|PORTFOLIO|{resolution}",
-                            "date": day,
-                            "timestamp": f"{day}T00:00:00Z",
-                            "market": "PORTFOLIO",
-                            "resolution": resolution,
-                            "pnl": round(daily_pnl_agg[day], 4),
-                            "trades": len(
-                                [
-                                    t
-                                    for t in all_trades
-                                    if str(t.get("exit_timestamp", "")).startswith(day)
-                                ]
-                            ),
-                        }
-                        for day in sorted(daily_pnl_agg.keys())
-                    ],
+                    "daily_pnl": self._build_daily_pnl_rows(
+                        daily_pnl_agg=daily_pnl_agg,
+                        all_trades=all_trades,
+                        resolution=resolution,
+                    ),
                     "error": None,
                     "error_message": None,
                     "updated_at": datetime.now(timezone.utc).isoformat(),

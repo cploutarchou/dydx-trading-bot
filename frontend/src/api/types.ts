@@ -586,6 +586,52 @@ export interface QuickDeployBotRequest {
   trading_params: TradingParams;
 }
 
+export interface BotServiceCapabilitiesResponse {
+  service: string;
+  http_endpoints: string[];
+  websocket_channels: string[];
+  http_count: number;
+  websocket_count: number;
+  count: number;
+  command_endpoints?: string[];
+  query_endpoints?: string[];
+  event_channels?: string[];
+}
+
+export interface BotRuntimeDBConfigResponse {
+  db_type: string;
+  cutover_mode: string;
+  connection_source: string;
+  field_source?: string;
+  database_url_configured?: boolean;
+  host?: string;
+  port?: number | string;
+  name?: string;
+  user?: string;
+  password_configured?: boolean;
+  timeout_seconds?: number;
+  pool_size?: number;
+  max_overflow?: number;
+  max_connections?: number;
+  ssl_enabled?: boolean;
+  echo_sql?: boolean;
+  count?: number;
+}
+
+export interface InterruptedBacktestsResponse {
+  interruption_error: string;
+  orphaned_in_progress: Array<Record<string, unknown>>;
+  interrupted_runs: Array<Record<string, unknown>>;
+  orphaned_count: number;
+  interrupted_count: number;
+  count: number;
+  dry_run?: boolean;
+  candidates?: Array<Record<string, unknown>>;
+  reconciled?: Array<Record<string, unknown>>;
+  candidate_count?: number;
+  reconciled_count?: number;
+}
+
 // ==================== Query Parameters ====================
 
 export interface ListBotsParams {

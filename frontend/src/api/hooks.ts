@@ -12,6 +12,7 @@ import type {
     ListBacktestsParams,
     ListBotsParams,
     ListTradesParams,
+    QuickDeployBotRequest,
     StartBotRequest,
     UpdateBotRequest,
     User,
@@ -192,6 +193,23 @@ export function useDeleteBotInstance() {
   });
 }
 
+export function useQuickDeployBot() {
+  return useMutation({
+    mutationFn: ({
+      instanceName,
+      autoStart,
+      config,
+    }: {
+      instanceName: string;
+      autoStart: boolean;
+      config: QuickDeployBotRequest;
+    }) => apiClient.quickDeployBot(instanceName, autoStart, config),
+    onSuccess: () => {
+      cacheUtils.invalidateBotQueries();
+    },
+  });
+}
+
 // ==================== Real-Time Data Hooks ====================
 
 export function useBotPositions(instanceId: string, enabled: boolean = true) {
@@ -335,6 +353,57 @@ export function useHealth() {
     queryFn: () => apiClient.getHealth(),
     ...queryConfigs.realtime,
     retry: 1, // Health checks should fail fast
+  });
+}
+
+export function useReadiness() {
+  return useQuery({
+    queryKey: queryKeys.readiness,
+    queryFn: () => apiClient.getReadiness(),
+    ...queryConfigs.realtime,
+    retry: 1,
+  });
+}
+
+export function useBotCapabilities() {
+  return useQuery({
+    queryKey: queryKeys.botCapabilities,
+    queryFn: () => apiClient.getCapabilities(),
+    ...queryConfigs.static,
+  });
+}
+
+export function useRuntimeDBConfig(enabled: boolean = true) {
+  return useQuery({
+    queryKey: queryKeys.runtimeDbConfig,
+    queryFn: () => apiClient.getRuntimeDBConfig(),
+    ...queryConfigs.static,
+    enabled,
+  });
+}
+
+export function useInterruptedBacktests(
+  limit: number = 50,
+  admin: boolean = false,
+  enabled: boolean = true
+) {
+  return useQuery({
+    queryKey: queryKeys.backtestInterrupted(admin, limit),
+    queryFn: () => apiClient.getInterruptedBacktests(limit, admin),
+    ...queryConfigs.trading,
+    enabled,
+  });
+}
+
+export function useReconcileInterruptedBacktests() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ dryRun = true, admin = false }: { dryRun?: boolean; admin?: boolean }) =>
+      apiClient.reconcileInterruptedBacktests(dryRun, admin),
+    onSuccess: (_, { admin }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.backtestInterrupted(admin) });
+    },
   });
 }
 

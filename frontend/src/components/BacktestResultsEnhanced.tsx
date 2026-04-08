@@ -104,7 +104,10 @@ const formatRatio = (value: number | null): string => {
 };
 
 // Component
-export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) => {
+export const BacktestResultsEnhanced: React.FC<{
+  runId: string;
+  liveRefreshToken?: string | null;
+}> = ({ runId, liveRefreshToken }) => {
   // State
   const [results, setResults] = useState<BacktestResult[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta>({
@@ -311,7 +314,14 @@ export const BacktestResultsEnhanced: React.FC<{ runId: string }> = ({ runId }) 
   // Load initial data
   useEffect(() => {
     fetchResults(0);
-  }, [filters]);
+  }, [fetchResults, filters]);
+
+  useEffect(() => {
+    if (!liveRefreshToken) {
+      return;
+    }
+    void fetchResults(Math.max(0, pagination.current_page - 1));
+  }, [fetchResults, liveRefreshToken, pagination.current_page]);
 
   // Handle filter changes
   const updateFilter = <K extends keyof BacktestFilters>(

@@ -13,6 +13,7 @@ from src.api.realtime_serializers import (serialize_market_core,
                                           serialize_stats_risk_fields)
 
 from src.infrastructure.database import db
+from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.shared.time_utils import utc_now_iso
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 
@@ -154,6 +155,34 @@ class WebSocketServer:
     """WebSocket connection handler"""
 
     @staticmethod
+    def _is_backtest_channel(channel_id: str) -> bool:
+        return channel_id.startswith("backtest-")
+
+    @staticmethod
+    def _backtest_run_id(channel_id: str) -> str:
+        return channel_id.removeprefix("backtest-")
+
+    @staticmethod
+    def _build_backtest_status_message(run_id: str, data: Dict) -> Dict:
+        progress = float(data.get("progress_pct", 0.0) or 0.0)
+        return {
+            "type": "backtest_progress",
+            "timestamp": utc_now_iso(),
+            "run_id": run_id,
+            "status": str(data.get("status") or "pending"),
+            "progress_pct": progress,
+            "progress": progress,
+            "current_pair": data.get("current_pair"),
+            "current_task": data.get("current_task"),
+            "eta_seconds": data.get("eta_seconds"),
+            "message": data.get("current_task") or "backtest_status",
+            "details": {
+                "source": "initial_state",
+                "updated_at": data.get("updated_at"),
+            },
+        }
+
+    @staticmethod
     async def handle_connection(websocket: WebSocket, bot_instance_id: str):
         """Handle new WebSocket connection"""
         await manager.connect(websocket, bot_instance_id)
@@ -180,6 +209,12 @@ class WebSocketServer:
     async def send_initial_state(websocket: WebSocket, bot_instance_id: str):
         """Send current bot state when client connects"""
         try:
+            if WebSocketServer._is_backtest_channel(bot_instance_id):
+                await WebSocketServer.send_backtest_status(
+                    websocket, WebSocketServer._backtest_run_id(bot_instance_id)
+                )
+                return
+
             session = db.get_session()
             uow = UnitOfWorkRealtime(session)
 
@@ -247,6 +282,14 @@ class WebSocketServer:
             # Respond to ping
             await manager.send_personal_message(
                 {"type": "pong", "timestamp": utc_now_iso()}, websocket
+            )
+
+        elif (
+            message_type == "request_status"
+            and WebSocketServer._is_backtest_channel(bot_instance_id)
+        ):
+            await WebSocketServer.send_backtest_status(
+                websocket, WebSocketServer._backtest_run_id(bot_instance_id)
             )
 
         elif message_type == "request_positions":
@@ -363,6 +406,35 @@ class WebSocketServer:
 
         except Exception as e:
             logger.error(f"Error sending market data: {e}")
+
+    @staticmethod
+    async def send_backtest_status(websocket: WebSocket, run_id: str):
+        """Send backtest status to client on initial connect or explicit request."""
+        session = None
+        try:
+            session = db.get_session()
+            repository = BacktestRepository(session)
+            run_data = repository.get_run(run_id)
+
+            if run_data is None:
+                message = {
+                    "type": "backtest_progress",
+                    "timestamp": utc_now_iso(),
+                    "run_id": run_id,
+                    "status": "not_found",
+                    "progress_pct": 0.0,
+                    "progress": 0.0,
+                    "message": "backtest_not_found",
+                }
+            else:
+                message = WebSocketServer._build_backtest_status_message(run_id, run_data)
+
+            await manager.send_personal_message(message, websocket)
+        except Exception as e:
+            logger.error(f"Error sending backtest status: {e}")
+        finally:
+            if session is not None:
+                session.close()
 
 
 # Broadcast helper functions for use in bot operations

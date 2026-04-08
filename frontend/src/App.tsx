@@ -19,8 +19,10 @@ import { BacktestsPage } from './pages/Backtests';
 import { CodexPage } from './pages/Codex';
 import { DashboardPage } from './pages/Dashboard';
 import { ForcePasswordChangePage } from './pages/ForcePasswordChange';
+import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
 import { NewsPage } from './pages/News';
+import { PricingPage } from './pages/Pricing';
 import { RegisterPage } from './pages/Register';
 import SettingsPage from './pages/Settings';
 import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
@@ -158,6 +160,8 @@ export const App: React.FC = () => {
         <Router>
           <ToastContainer />
           <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
@@ -258,9 +262,7 @@ export const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            {/* Catch-all: redirect unknown routes to login */}
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
       </EnhancedErrorBoundary>

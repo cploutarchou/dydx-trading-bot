@@ -100,6 +100,16 @@ Compatibility aliases are also supported when `DB_*` values are absent:
 
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 
+### Local dev default
+
+Use `make dev-infra` from the repo root to mirror the intended ownership split locally:
+
+- backend Postgres on `localhost:5432`
+- bot-dedicated Postgres on `localhost:5433`
+- Redis on `localhost:6379`
+
+The development profile now sets `BOT_DB_CUTOVER_MODE=dedicated` and points `BOT_DB_*` at the bot-only Postgres target.
+
 ## 6) Recovery behavior to depend on
 
 - Backtest run polling state is persisted in `backtest_runtime_runs`.
@@ -124,4 +134,3 @@ BOT_TOKEN="<token>"
 curl -sS -H "Authorization: Bearer ${BOT_TOKEN}" http://localhost:8889/api/v1/capabilities
 curl -sS -H "Authorization: Bearer ${BOT_TOKEN}" http://localhost:8889/api/v1/runtime/db-config
 ```
-

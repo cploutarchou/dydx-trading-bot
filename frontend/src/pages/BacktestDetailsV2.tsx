@@ -9,8 +9,6 @@ import { ArrowDown, ArrowUp, Loader } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-	Bar,
-	BarChart,
 	CartesianGrid,
 	Line,
 	LineChart,
@@ -185,6 +183,15 @@ export const BacktestDetailsV2: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [markets, setMarkets] = useState<string[]>([]);
+  const [analyticsLoadedRunId, setAnalyticsLoadedRunId] = useState<string | null>(null);
+  const [positionsLoadedRunId, setPositionsLoadedRunId] = useState<string | null>(null);
+  const [tradesLoadedRunId, setTradesLoadedRunId] = useState<string | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [positionsLoading, setPositionsLoading] = useState(false);
+  const [tradesLoading, setTradesLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [positionsError, setPositionsError] = useState<string | null>(null);
+  const [tradesError, setTradesError] = useState<string | null>(null);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -194,6 +201,9 @@ export const BacktestDetailsV2: React.FC = () => {
     'summary' | 'candles' | 'positions' | 'trades' | 'results'
   >('summary');
   const [liveLogs, setLiveLogs] = useState<BacktestLogEntry[]>([]);
+
+  const backtestStatus = normalizeStatus(backtest?.status);
+  const hasCompletedBacktest = backtestStatus === 'completed';
 
   // Fetch backtest metadata
   useEffect(() => {
@@ -223,17 +233,38 @@ export const BacktestDetailsV2: React.FC = () => {
     fetchBacktestMetadata();
   }, [runId]);
 
+  useEffect(() => {
+    setCandles([]);
+    setPositions([]);
+    setTrades([]);
+    setMarkets([]);
+    setSelectedMarket(null);
+    setAnalyticsLoadedRunId(null);
+    setPositionsLoadedRunId(null);
+    setTradesLoadedRunId(null);
+    setAnalyticsLoading(false);
+    setPositionsLoading(false);
+    setTradesLoading(false);
+    setAnalyticsError(null);
+    setPositionsError(null);
+    setTradesError(null);
+  }, [runId]);
+
   // Fetch analytics and map it to chart-friendly candle-like series
   useEffect(() => {
     const fetchAnalytics = async () => {
-      if (!runId || !backtest) return;
-      if (normalizeStatus(backtest.status) !== 'completed') {
+      if (!runId || !hasCompletedBacktest) {
         setCandles([]);
         setMarkets([]);
+        setAnalyticsLoadedRunId(null);
         return;
       }
+      if (activeTab !== 'candles') return;
+      if (analyticsLoadedRunId === runId) return;
 
       try {
+        setAnalyticsLoading(true);
+        setAnalyticsError(null);
         const response = await api.getBacktestAnalytics(runId);
         const payload = asRecord(response?.data || response);
         const root = asRecord(payload?.data) || payload;
@@ -242,6 +273,7 @@ export const BacktestDetailsV2: React.FC = () => {
         if (!Array.isArray(daily) || daily.length === 0) {
           setCandles([]);
           setMarkets([]);
+          setAnalyticsLoadedRunId(runId);
           return;
         }
 
@@ -282,15 +314,19 @@ export const BacktestDetailsV2: React.FC = () => {
 
         setCandles(mapped);
         setMarkets(Array.from(marketSet));
+        setAnalyticsLoadedRunId(runId);
       } catch (err: unknown) {
         console.error('Failed to fetch backtest analytics:', err);
         setCandles([]);
         setMarkets([]);
+        setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
+      } finally {
+        setAnalyticsLoading(false);
       }
     };
 
     fetchAnalytics();
-  }, [runId, backtest?.status]);
+  }, [runId, hasCompletedBacktest, activeTab, analyticsLoadedRunId]);
 
   // Keep selected market valid when available markets update
   useEffect(() => {
@@ -307,13 +343,17 @@ export const BacktestDetailsV2: React.FC = () => {
   // Fetch position snapshots and flatten to latest known entries per snapshot
   useEffect(() => {
     const fetchPositionSnapshots = async () => {
-      if (!runId || !backtest) return;
-      if (normalizeStatus(backtest.status) !== 'completed') {
+      if (!runId || !hasCompletedBacktest) {
         setPositions([]);
+        setPositionsLoadedRunId(null);
         return;
       }
+      if (activeTab !== 'positions') return;
+      if (positionsLoadedRunId === runId) return;
 
       try {
+        setPositionsLoading(true);
+        setPositionsError(null);
         const response = await api.getBacktestPositionSnapshots(runId, 1000, 0);
         const payload = asRecord(response?.data || response);
         const root = asRecord(payload?.data) || payload;
@@ -321,6 +361,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
         if (!Array.isArray(snapshots) || snapshots.length === 0) {
           setPositions([]);
+          setPositionsLoadedRunId(runId);
           return;
         }
 
@@ -367,25 +408,33 @@ export const BacktestDetailsV2: React.FC = () => {
         });
 
         setPositions(flattened);
+        setPositionsLoadedRunId(runId);
       } catch (err: unknown) {
         console.error('Failed to fetch position snapshots:', err);
         setPositions([]);
+        setPositionsError(err instanceof Error ? err.message : 'Failed to load positions');
+      } finally {
+        setPositionsLoading(false);
       }
     };
 
     fetchPositionSnapshots();
-  }, [runId, backtest?.status]);
+  }, [runId, hasCompletedBacktest, activeTab, positionsLoadedRunId]);
 
   // Fetch trades
   useEffect(() => {
     const fetchTrades = async () => {
-      if (!runId || !backtest) return;
-      if (normalizeStatus(backtest.status) !== 'completed') {
+      if (!runId || !hasCompletedBacktest) {
         setTrades([]);
+        setTradesLoadedRunId(null);
         return;
       }
+      if (activeTab !== 'trades') return;
+      if (tradesLoadedRunId === runId) return;
 
       try {
+        setTradesLoading(true);
+        setTradesError(null);
         const response = await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 500);
 
         const payload = asRecord(response?.data || response);
@@ -425,17 +474,22 @@ export const BacktestDetailsV2: React.FC = () => {
             });
 
           setTrades(normalizedTrades);
+          setTradesLoadedRunId(runId);
         } else {
           setTrades([]);
+          setTradesLoadedRunId(runId);
         }
       } catch (err: unknown) {
         console.error('Failed to fetch trades:', err);
         setTrades([]);
+        setTradesError(err instanceof Error ? err.message : 'Failed to load trades');
+      } finally {
+        setTradesLoading(false);
       }
     };
 
     fetchTrades();
-  }, [runId, backtest?.status]);
+  }, [runId, hasCompletedBacktest, activeTab, tradesLoadedRunId]);
 
   // Auto-refresh status when backtest is still in progress
   useEffect(() => {
@@ -538,43 +592,6 @@ export const BacktestDetailsV2: React.FC = () => {
     };
   }, [runId, backtest?.status]);
 
-  // Generate Equity Curve from candles (cumulative PnL series)
-  const generateEquityCurveData = () => {
-    if (candles.length === 0) return [];
-    return candles
-      .slice()
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      .map((c) => ({
-        timestamp: new Date(c.timestamp).toLocaleDateString(),
-        balance: c.close,
-      }));
-  };
-
-  // Generate P&L by Pair
-  const generatePnlByPairData = () => {
-    if (positions.length === 0) return [];
-
-    const pairMap = new Map<string, { pnl: number; count: number }>();
-
-    positions.forEach((pos) => {
-      const pairKey = `${pos.market_1}/${pos.market_2}`;
-      if (!pairMap.has(pairKey)) {
-        pairMap.set(pairKey, { pnl: 0, count: 0 });
-      }
-      const pair = pairMap.get(pairKey)!;
-      pair.pnl += pos.total_pnl_usd;
-      pair.count += 1;
-    });
-
-    return Array.from(pairMap.entries())
-      .map(([pair, data]) => ({
-        pair,
-        pnl: data.pnl,
-        count: data.count,
-      }))
-      .sort((a, b) => b.pnl - a.pnl);
-  };
-
   // Filter candles for selected market
   const selectedCandles = candles.filter((c) => c.market === selectedMarket);
 
@@ -585,9 +602,6 @@ export const BacktestDetailsV2: React.FC = () => {
     high: c.high,
     low: c.low,
   }));
-
-  const equityData = generateEquityCurveData();
-  const pnlByPairData = generatePnlByPairData();
 
   if (loading) {
     return (
@@ -609,8 +623,9 @@ export const BacktestDetailsV2: React.FC = () => {
   }
 
   const liveStatusNorm = normalizeStatus(progressQuery.data?.status);
-  const statusNorm = liveStatusNorm || normalizeStatus(backtest.status);
+  const statusNorm = liveStatusNorm || backtestStatus;
   const isRunning = statusNorm === 'running' || statusNorm === 'pending';
+  const isCompleted = statusNorm === 'completed';
   const isFailed = statusNorm === 'failed' || statusNorm === 'cancelled';
   const metadataProgress = firstFiniteNumber(
     backtest.progress_percent,
@@ -721,6 +736,16 @@ export const BacktestDetailsV2: React.FC = () => {
       icon: '🎯',
     },
   ];
+
+  const detailTabsLocked = !isCompleted;
+  const renderDeferredTabHint = (label: string): React.ReactNode => (
+    <div className="flex flex-col items-center justify-center py-16 gap-2">
+      <p className="text-slate-300 font-medium">{label} are loaded on demand</p>
+      <p className="text-center text-sm text-slate-500 max-w-xl">
+        The final result is shown first. Open this tab after completion to load the detailed dataset.
+      </p>
+    </div>
+  );
 
   return (
     <PageContainer size="wide" className="space-y-6 text-white">
@@ -834,6 +859,14 @@ export const BacktestDetailsV2: React.FC = () => {
             )}
           </div>
         )}
+        {isCompleted && (
+          <div className="rounded-lg border border-emerald-700/50 bg-emerald-950/20 p-4">
+            <p className="text-emerald-300 font-medium">Backtest completed</p>
+            <p className="mt-1 text-sm text-slate-300">
+              Final performance is ready now. Detailed charts, positions, and trade logs will load only when you open their tabs.
+            </p>
+          </div>
+        )}
 
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -870,67 +903,76 @@ export const BacktestDetailsV2: React.FC = () => {
         {/* Summary Tab */}
         {activeTab === 'summary' && (
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            {/* Equity Curve */}
               <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-              <h2 className="text-xl font-bold mb-4">Equity Curve</h2>
-              {equityData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={equityData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-                    <XAxis dataKey="timestamp" stroke="#94a3b8" tick={{ fontSize: 12 }} />
-                    <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#1e293b',
-                        border: '1px solid #475569',
-                      }}
-                      formatter={(value: unknown) => `$${(value as number).toFixed(2)}`}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="balance"
-                      stroke="#22c55e"
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                renderEmptyState('equity curve data')
-              )}
-            </div>
+                <h2 className="text-xl font-bold mb-4">Final Outcome</h2>
+                <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-slate-500">Run ID</dt>
+                    <dd className="mt-1 font-mono text-sm text-slate-200">{backtest.run_id}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-slate-500">Created</dt>
+                    <dd className="mt-1 text-sm text-slate-200">{formatDateValue(backtest.created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-slate-500">Date Range</dt>
+                    <dd className="mt-1 text-sm text-slate-200">
+                      {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
+                    <dd className="mt-1 text-sm capitalize text-slate-200">{statusNorm}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-slate-500">Profit Factor</dt>
+                    <dd className="mt-1 text-sm text-slate-200">
+                      {backtest.profit_factor !== undefined && backtest.profit_factor !== null
+                        ? backtest.profit_factor.toFixed(2)
+                        : 'N/A'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-slate-500">Max Drawdown</dt>
+                    <dd className="mt-1 text-sm text-slate-200">{maxDrawdown.toFixed(1)}%</dd>
+                  </div>
+                </dl>
+              </div>
 
-            {/* P&L by Pair */}
               <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-              <h2 className="text-xl font-bold mb-4">P&L by Pair</h2>
-              {pnlByPairData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={pnlByPairData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-                    <XAxis dataKey="pair" stroke="#94a3b8" tick={{ fontSize: 12 }} />
-                    <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#1e293b',
-                        border: '1px solid #475569',
-                      }}
-                      formatter={(value: unknown) => `$${(value as number).toFixed(2)}`}
-                    />
-                    <Bar dataKey="pnl" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                renderEmptyState('P&L data')
-              )}
-            </div>
+                <h2 className="text-xl font-bold mb-4">Detailed Data</h2>
+                <div className="space-y-3 text-sm text-slate-300">
+                  <p>
+                    Open a detail tab to load the heavier datasets only when you need them.
+                  </p>
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                    <p className="font-medium text-white">Available on demand</p>
+                    <p className="mt-1 text-slate-400">
+                      `Candles` loads analytics and the equity curve, `Positions` loads snapshot history,
+                      `Trades` loads trade records, and `Results` builds pair-level aggregates.
+                    </p>
+                  </div>
+                </div>
+              </div>
           </div>
         )}
 
         {/* Candles Tab */}
         {activeTab === 'candles' && (
           <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-            {candles.length === 0 ? (
+            {detailTabsLocked ? (
               renderEmptyState('candle data')
+            ) : analyticsLoading ? (
+              <div className="flex items-center justify-center py-16 gap-3">
+                <Loader className="w-6 h-6 animate-spin text-blue-400" />
+                <p className="text-sm text-slate-400">Loading candle analytics...</p>
+              </div>
+            ) : analyticsError ? (
+              <div className="rounded border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+                {analyticsError}
+              </div>
+            ) : candles.length === 0 ? (
+              analyticsLoadedRunId === runId ? renderEmptyState('candle data') : renderDeferredTabHint('Candle analytics')
             ) : (
               <>
                 <div className="mb-4">
@@ -988,8 +1030,19 @@ export const BacktestDetailsV2: React.FC = () => {
         {activeTab === 'positions' && (
           <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Positions ({positions.length})</h2>
-            {positions.length === 0 ? (
+            {detailTabsLocked ? (
               renderEmptyState('position data')
+            ) : positionsLoading ? (
+              <div className="flex items-center justify-center py-16 gap-3">
+                <Loader className="w-6 h-6 animate-spin text-blue-400" />
+                <p className="text-sm text-slate-400">Loading position snapshots...</p>
+              </div>
+            ) : positionsError ? (
+              <div className="rounded border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+                {positionsError}
+              </div>
+            ) : positions.length === 0 ? (
+              positionsLoadedRunId === runId ? renderEmptyState('position data') : renderDeferredTabHint('Position snapshots')
             ) : (
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-700">
@@ -1050,8 +1103,19 @@ export const BacktestDetailsV2: React.FC = () => {
         {activeTab === 'trades' && (
           <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Trades ({trades.length})</h2>
-            {trades.length === 0 ? (
+            {detailTabsLocked ? (
               renderEmptyState('trade data')
+            ) : tradesLoading ? (
+              <div className="flex items-center justify-center py-16 gap-3">
+                <Loader className="w-6 h-6 animate-spin text-blue-400" />
+                <p className="text-sm text-slate-400">Loading trade history...</p>
+              </div>
+            ) : tradesError ? (
+              <div className="rounded border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+                {tradesError}
+              </div>
+            ) : trades.length === 0 ? (
+              tradesLoadedRunId === runId ? renderEmptyState('trade data') : renderDeferredTabHint('Trade history')
             ) : (
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-700">

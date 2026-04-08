@@ -381,6 +381,119 @@ func TestContractLock_BotStatsMissingUpstreamReturnsEmptyPayload(t *testing.T) {
 	if _, ok := statsData["trade_statistics"].(map[string]interface{}); !ok {
 		t.Fatalf("expected trade_statistics object, got %T", statsData["trade_statistics"])
 	}
+
+	var status string
+	var errorMessage sql.NullString
+	if err := dbConn.QueryRow(
+		`SELECT status, error_message FROM bot_instances WHERE instance_id = ?`,
+		"123",
+	).Scan(&status, &errorMessage); err != nil {
+		t.Fatalf("query reconciled bot instance: %v", err)
+	}
+	if status != "ERROR" {
+		t.Fatalf("expected local bot status ERROR after recoverable upstream miss, got %q", status)
+	}
+	if !errorMessage.Valid || errorMessage.String != "runtime instance missing from bot API" {
+		t.Fatalf("expected reconciled error message, got %#v", errorMessage)
+	}
+}
+
+func TestContractLock_BotRestartRecoversMissingUpstreamInstance(t *testing.T) {
+	var (
+		createCalls  int
+		startCalls   int
+		restartCalls int
+		remoteExists bool
+	)
+
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/123", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			if !remoteExists {
+				http.Error(w, `{"message":"Bot instance '123' not found"}`, http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"123","status":"stopped"}}`))
+			return
+		}
+		http.NotFound(w, r)
+	})
+	upstreamMux.HandleFunc("/api/v1/bots", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		createCalls++
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode create payload: %v", err)
+		}
+		if payload["instance_id"] != "123" {
+			t.Fatalf("expected recovered create payload instance_id=123, got %v", payload["instance_id"])
+		}
+		remoteExists = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"123","status":"stopped"}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/123/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		startCalls++
+		if !remoteExists {
+			http.Error(w, `{"message":"Instance 123 not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"running"}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/123/restart", func(w http.ResponseWriter, r *http.Request) {
+		restartCalls++
+		http.Error(w, `{"message":"unexpected restart"}`, http.StatusBadRequest)
+	})
+
+	router, dbConn, upstreamServer := setupBotInstanceContractRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginBotInstanceContractUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/bots/123/restart", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("restart request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected restart status 200, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	if createCalls != 1 {
+		t.Fatalf("expected one upstream create call, got %d", createCalls)
+	}
+	if startCalls != 2 {
+		t.Fatalf("expected two upstream start calls (initial miss + recovered retry), got %d", startCalls)
+	}
+	if restartCalls != 0 {
+		t.Fatalf("expected no direct upstream restart call during recovery, got %d", restartCalls)
+	}
+
+	var status string
+	if err := dbConn.QueryRow(
+		`SELECT status FROM bot_instances WHERE instance_id = ?`,
+		"123",
+	).Scan(&status); err != nil {
+		t.Fatalf("query restarted bot instance: %v", err)
+	}
+	if status != "RUNNING" {
+		t.Fatalf("expected local bot status RUNNING after recovery restart, got %q", status)
+	}
 }
 
 func TestContractLock_DelegatedBotPayloadRequiredKeys(t *testing.T) {

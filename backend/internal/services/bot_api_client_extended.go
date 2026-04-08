@@ -223,6 +223,48 @@ func (c *BotAPIClient) HealthCheck() (map[string]interface{}, error) {
 	return c.makeRequest("GET", "/health", nil)
 }
 
+// GetCapabilities retrieves the upstream bot control-plane capability map.
+func (c *BotAPIClient) GetCapabilities() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/capabilities", nil)
+}
+
+// GetRuntimeDBConfig retrieves sanitized runtime DB diagnostics from the bot API.
+func (c *BotAPIClient) GetRuntimeDBConfig() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/runtime/db-config", nil)
+}
+
+// GetInterruptedBacktests retrieves interrupted/orphaned backtest visibility data.
+func (c *BotAPIClient) GetInterruptedBacktests(limit int, admin bool) (map[string]interface{}, error) {
+	query := url.Values{}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+
+	basePath := "/api/v1/backtests/interrupted"
+	if admin {
+		basePath = "/api/v1/admin/backtests/interrupted"
+	}
+	if encoded := query.Encode(); encoded != "" {
+		basePath += "?" + encoded
+	}
+
+	return c.makeRequest("GET", basePath, nil)
+}
+
+// ReconcileInterruptedBacktests triggers interrupted/orphaned run reconciliation.
+func (c *BotAPIClient) ReconcileInterruptedBacktests(dryRun bool, admin bool) (map[string]interface{}, error) {
+	query := url.Values{}
+	query.Set("dry_run", strconv.FormatBool(dryRun))
+
+	basePath := "/api/v1/backtests/interrupted/reconcile"
+	if admin {
+		basePath = "/api/v1/admin/backtests/interrupted/reconcile"
+	}
+	basePath += "?" + query.Encode()
+
+	return c.makeRequest("POST", basePath, nil)
+}
+
 // SystemStatus retrieves system status and statistics
 func (c *BotAPIClient) SystemStatus() (map[string]interface{}, error) {
 	return c.makeRequest("GET", "/api/v1/system/status", nil)

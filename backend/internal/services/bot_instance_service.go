@@ -1,10 +1,12 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
@@ -145,6 +147,133 @@ func (s *BotInstanceService) RecreateBotInstanceWithConfig(instance *models.BotI
 	return s.CreateBotInstanceWithConfig(instance, payload)
 }
 
+func botAPIErrorStatus(err error) int {
+	var apiErr *BotAPIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode
+	}
+	return 0
+}
+
+func botAPIErrorMessage(err error) string {
+	var apiErr *BotAPIError
+	if errors.As(err, &apiErr) {
+		return strings.TrimSpace(apiErr.Message)
+	}
+	return strings.TrimSpace(err.Error())
+}
+
+func shouldRecoverMissingRemoteInstance(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	statusCode := botAPIErrorStatus(err)
+	if statusCode == http.StatusNotFound {
+		return true
+	}
+
+	message := strings.ToLower(botAPIErrorMessage(err))
+	return statusCode == http.StatusBadRequest &&
+		(strings.Contains(message, "not found") ||
+			strings.Contains(message, "already stopped") ||
+			strings.Contains(message, "failed to stop instance"))
+}
+
+func isRemoteRuntimeStopped(remote map[string]interface{}) bool {
+	if remote == nil {
+		return false
+	}
+
+	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", remote["status"])))
+	return status == "" || status == "stopped" || status == "created" || status == "error" || status == "failed"
+}
+
+func stringField(payload map[string]interface{}, key string) string {
+	if payload == nil {
+		return ""
+	}
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
+}
+
+func (s *BotInstanceService) buildRemoteBotCreatePayload(instance *models.BotInstance) (map[string]interface{}, error) {
+	if instance == nil {
+		return nil, fmt.Errorf("bot instance metadata not available")
+	}
+	if !instance.Config.Valid || strings.TrimSpace(instance.Config.String) == "" {
+		return nil, fmt.Errorf("missing persisted bot config for %s", instance.InstanceID)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(instance.Config.String), &payload); err != nil {
+		return nil, fmt.Errorf("failed to decode persisted bot config for %s: %w", instance.InstanceID, err)
+	}
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+
+	if stringField(payload, "instance_id") == "" {
+		payload["instance_id"] = instance.InstanceID
+	}
+	if stringField(payload, "instance_name") == "" {
+		payload["instance_name"] = instance.InstanceName
+	}
+	if stringField(payload, "strategy") == "" && strings.TrimSpace(instance.Strategy) != "" {
+		payload["strategy"] = instance.Strategy
+	}
+	if stringField(payload, "name") == "" && strings.TrimSpace(instance.InstanceName) != "" {
+		payload["name"] = instance.InstanceName
+	}
+
+	if _, ok := payload["trading_params"]; !ok && instance.TradingParams.Valid && strings.TrimSpace(instance.TradingParams.String) != "" {
+		var tradingParams map[string]interface{}
+		if err := json.Unmarshal([]byte(instance.TradingParams.String), &tradingParams); err == nil && tradingParams != nil {
+			payload["trading_params"] = tradingParams
+		}
+	}
+
+	return payload, nil
+}
+
+func (s *BotInstanceService) ensureRemoteBotInstance(instanceID string) error {
+	if s.apiClient == nil {
+		return fmt.Errorf("bot API client not configured")
+	}
+
+	if _, err := s.apiClient.GetBotInstance(instanceID); err == nil {
+		return nil
+	} else if !shouldRecoverMissingRemoteInstance(err) {
+		return err
+	}
+
+	instance, err := s.repo.GetBotInstanceByInstanceID(instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to load local bot metadata for %s: %w", instanceID, err)
+	}
+
+	payload, err := s.buildRemoteBotCreatePayload(instance)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.apiClient.CreateBotInstance(payload); err != nil {
+		if statusCode := botAPIErrorStatus(err); statusCode == http.StatusBadRequest || statusCode == http.StatusConflict {
+			message := strings.ToLower(botAPIErrorMessage(err))
+			if strings.Contains(message, "already exists") {
+				return nil
+			}
+		}
+		return fmt.Errorf("failed to recreate upstream bot runtime for %s: %w", instanceID, err)
+	}
+
+	log.Printf("✅ recreated missing upstream bot runtime from stored config: %s", instanceID)
+	return nil
+}
+
 // StartBotInstance starts a bot instance via the bot API
 func (s *BotInstanceService) StartBotInstance(instanceID string) error {
 	if s.apiClient == nil {
@@ -153,8 +282,22 @@ func (s *BotInstanceService) StartBotInstance(instanceID string) error {
 
 	_, err := s.apiClient.StartBotInstance(instanceID)
 	if err != nil {
-		log.Printf("Failed to start bot via API: %v", err)
-		return err
+		if shouldRecoverMissingRemoteInstance(err) {
+			log.Printf("⚠️ upstream bot runtime missing during start for %s; attempting recovery from stored config", instanceID)
+			if recoverErr := s.ensureRemoteBotInstance(instanceID); recoverErr != nil {
+				log.Printf("Failed to recover missing upstream bot runtime for %s: %v", instanceID, recoverErr)
+				return recoverErr
+			}
+			if _, err = s.apiClient.StartBotInstance(instanceID); err != nil {
+				log.Printf("Failed to start bot via API after recovery: %v", err)
+				_ = s.repo.UpdateBotInstanceError(instanceID, botAPIErrorMessage(err))
+				return err
+			}
+		} else {
+			log.Printf("Failed to start bot via API: %v", err)
+			_ = s.repo.UpdateBotInstanceError(instanceID, botAPIErrorMessage(err))
+			return err
+		}
 	}
 
 	log.Printf("Bot instance started via API: %s", instanceID)
@@ -192,9 +335,29 @@ func (s *BotInstanceService) RestartBotInstance(instanceID string) error {
 		return fmt.Errorf("bot API client not configured")
 	}
 
+	remoteInstance, remoteErr := s.apiClient.GetBotInstance(instanceID)
+	if remoteErr != nil {
+		if shouldRecoverMissingRemoteInstance(remoteErr) {
+			log.Printf("⚠️ upstream bot runtime missing during restart for %s; falling back to start recovery", instanceID)
+			return s.StartBotInstance(instanceID)
+		}
+		log.Printf("Failed to inspect bot runtime before restart: %v", remoteErr)
+		return remoteErr
+	}
+
+	if isRemoteRuntimeStopped(remoteInstance) {
+		log.Printf("ℹ️ bot runtime %s is not currently running upstream; using start instead of restart", instanceID)
+		return s.StartBotInstance(instanceID)
+	}
+
 	_, err := s.apiClient.RestartBotInstance(instanceID)
 	if err != nil {
+		if shouldRecoverMissingRemoteInstance(err) {
+			log.Printf("⚠️ restart degraded for %s; falling back to start recovery", instanceID)
+			return s.StartBotInstance(instanceID)
+		}
 		log.Printf("Failed to restart bot via API: %v", err)
+		_ = s.repo.UpdateBotInstanceError(instanceID, botAPIErrorMessage(err))
 		return err
 	}
 
@@ -210,7 +373,16 @@ func (s *BotInstanceService) GetBotInstanceStats(instanceID string) (map[string]
 		return nil, fmt.Errorf("bot API client not configured")
 	}
 
-	return s.apiClient.GetBotInstanceStats(instanceID)
+	result, err := s.apiClient.GetBotInstanceStats(instanceID)
+	if err != nil {
+		if botAPIErrorStatus(err) == http.StatusNotFound {
+			log.Printf("⚠️ upstream bot stats missing for %s; marking local bot instance as error", instanceID)
+			_ = s.repo.UpdateBotInstanceError(instanceID, "runtime instance missing from bot API")
+		}
+		return nil, err
+	}
+
+	return result, nil
 }
 
 // GetRemoteBotInstance retrieves a bot instance directly from the upstream bot API.

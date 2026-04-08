@@ -126,6 +126,7 @@ func loadStructuredConfigEnv() {
 	log.Printf("Warning: structured config not found; using existing process environment variables")
 }
 
+//nolint:nolintlint,gocyclo
 func main() {
 	loadStructuredConfigEnv()
 

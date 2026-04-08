@@ -194,6 +194,52 @@ export interface TelegramConfigPayload extends Record<string, unknown> {
   label?: string;
 }
 
+export interface BotServiceCapabilitiesResponse extends Record<string, unknown> {
+  service: string;
+  http_endpoints: string[];
+  websocket_channels: string[];
+  http_count: number;
+  websocket_count: number;
+  count: number;
+  command_endpoints?: string[];
+  query_endpoints?: string[];
+  event_channels?: string[];
+}
+
+export interface BotRuntimeDBConfigResponse extends Record<string, unknown> {
+  db_type: string;
+  cutover_mode: string;
+  connection_source: string;
+  field_source?: string;
+  database_url_configured?: boolean;
+  host?: string;
+  port?: number | string;
+  name?: string;
+  user?: string;
+  password_configured?: boolean;
+  timeout_seconds?: number;
+  pool_size?: number;
+  max_overflow?: number;
+  max_connections?: number;
+  ssl_enabled?: boolean;
+  echo_sql?: boolean;
+  count?: number;
+}
+
+export interface InterruptedBacktestsResponse extends Record<string, unknown> {
+  interruption_error: string;
+  orphaned_in_progress: Array<Record<string, unknown>>;
+  interrupted_runs: Array<Record<string, unknown>>;
+  orphaned_count: number;
+  interrupted_count: number;
+  count: number;
+  dry_run?: boolean;
+  candidates?: Array<Record<string, unknown>>;
+  reconciled?: Array<Record<string, unknown>>;
+  candidate_count?: number;
+  reconciled_count?: number;
+}
+
 interface BacktestRequest extends Record<string, unknown> {
   start_date: string;
   end_date: string;
@@ -1056,6 +1102,47 @@ class ApiClient {
     return response.data;
   }
 
+  async getBotServiceCapabilities(): Promise<ApiResponse<BotServiceCapabilitiesResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<BotServiceCapabilitiesResponse>>(
+      '/api/v1/capabilities'
+    );
+    return response.data;
+  }
+
+  async getBotRuntimeDBConfig(): Promise<ApiResponse<BotRuntimeDBConfigResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<BotRuntimeDBConfigResponse>>(
+      '/api/v1/runtime/db-config'
+    );
+    return response.data;
+  }
+
+  async getInterruptedBacktests(
+    limit: number = 50,
+    admin: boolean = false
+  ): Promise<ApiResponse<InterruptedBacktestsResponse>> {
+    this.ensureTokenLoaded();
+    const prefix = admin ? '/api/v1/admin/backtests' : '/api/v1/backtests';
+    const response = await this.client.get<ApiResponse<InterruptedBacktestsResponse>>(
+      `${prefix}/interrupted?limit=${limit}`
+    );
+    return response.data;
+  }
+
+  async reconcileInterruptedBacktests(
+    dryRun: boolean = true,
+    admin: boolean = false
+  ): Promise<ApiResponse<InterruptedBacktestsResponse>> {
+    this.ensureTokenLoaded();
+    const prefix = admin ? '/api/v1/admin/backtests' : '/api/v1/backtests';
+    const response = await this.client.post<ApiResponse<InterruptedBacktestsResponse>>(
+      `${prefix}/interrupted/reconcile?dry_run=${dryRun}`,
+      {}
+    );
+    return response.data;
+  }
+
   async getBacktestLogs(
     runId: string
   ): Promise<
@@ -1168,6 +1255,38 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse<BacktestPerformanceResponse>>(
       `/api/v1/backtests/${runId}/performance`
+    );
+    return response.data;
+  }
+
+  async cancelBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/${runId}/cancel`,
+      {}
+    );
+    return response.data;
+  }
+
+  async deleteBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/${runId}`
+    );
+    return response.data;
+  }
+
+  async compareBacktests(
+    runIds: string[],
+    metrics: string[]
+  ): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/backtests/compare',
+      {
+        run_ids: runIds,
+        metrics,
+      }
     );
     return response.data;
   }
@@ -1611,11 +1730,15 @@ class ApiClient {
     }
   }
 
-  async getBotPositionHistory(instanceId: string, positionId: string): Promise<ApiResponse> {
+  async getBotPositionHistory(
+    instanceId: string,
+    positionId: string,
+    hours: number = 24
+  ): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
-        `/api/v1/bots/${instanceId}/position-history/${positionId}`
+        `/api/v1/bots/${instanceId}/position-history/${positionId}?hours=${hours}`
       );
       return response.data;
     } catch (error: unknown) {
@@ -1662,15 +1785,11 @@ class ApiClient {
     }
   }
 
-  async getBotHistory(
-    instanceId: string,
-    skip: number = 0,
-    limit: number = 100
-  ): Promise<ApiResponse> {
+  async getBotHistory(instanceId: string, days: number = 7): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
-        `/api/v1/bots/${instanceId}/history?skip=${skip}&limit=${limit}`
+        `/api/v1/bots/${instanceId}/history?days=${days}`
       );
       return response.data;
     } catch (error: unknown) {
@@ -1678,10 +1797,10 @@ class ApiClient {
     }
   }
 
-  async getBotJobs(instanceId: string): Promise<ApiResponse> {
+  async getBotJobs(instanceId: string, days: number = 7): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
-      const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/jobs`);
+      const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/jobs?days=${days}`);
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
@@ -1700,18 +1819,31 @@ class ApiClient {
 
   async getBotAlerts(
     instanceId: string,
-    skip: number = 0,
+    _skip: number = 0,
     limit: number = 50
   ): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
-        `/api/v1/bots/${instanceId}/alerts?skip=${skip}&limit=${limit}`
+        `/api/v1/bots/${instanceId}/alerts?limit=${limit}`
       );
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
+  }
+
+  async quickDeployBot(
+    instanceName: string,
+    autoStart: boolean,
+    config: Record<string, unknown>
+  ): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/bots/quick-deploy?instance_name=${encodeURIComponent(instanceName)}&auto_start=${autoStart}`,
+      config
+    );
+    return response.data;
   }
 
   // Bot Configuration Updates
@@ -1757,6 +1889,18 @@ class ApiClient {
   // Backwards-compatible helper specifically for backtest progress
   connectBacktestSocket(runId: string, token?: string): WebSocket {
     return this.connectSocket(`/api/v1/backtests/${encodeURIComponent(runId)}/live`, token);
+  }
+
+  connectBacktestAliasSocket(runId: string, token?: string): WebSocket {
+    return this.connectSocket(`/ws/backtests/${encodeURIComponent(runId)}`, token);
+  }
+
+  connectBotRuntimeSocket(instanceId: string, token?: string): WebSocket {
+    return this.connectSocket(`/ws/bots/${encodeURIComponent(instanceId)}`, token);
+  }
+
+  connectStrategyRuntimeSocket(token?: string): WebSocket {
+    return this.connectSocket('/ws/strategies', token);
   }
 
   // Keys Management (centralized from DYDXKeyManager.tsx)

@@ -279,4 +279,3 @@ func (c *scriptedConn) QueryContext(_ context.Context, query string, args []driv
 func (c *scriptedConn) CheckNamedValue(*driver.NamedValue) error {
 	return nil
 }
-

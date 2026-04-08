@@ -1,4 +1,4 @@
-import { ArrowRight, Command, Menu, X } from 'lucide-react';
+import { ArrowRight, Menu, Radio, X } from 'lucide-react';
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -25,14 +25,14 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
       <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(148,163,184,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.03)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:linear-gradient(180deg,rgba(255,255,255,0.5),rgba(255,255,255,0.04))]" />
 
       <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 via-blue-500 to-emerald-400 text-lg shadow-lg shadow-cyan-500/20">
+        <div className="public-shell-container flex items-center justify-between gap-3 py-4 sm:gap-4">
+          <Link to="/" className="group flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 via-blue-500 to-emerald-400 text-lg shadow-lg shadow-cyan-500/20 transition duration-300 group-hover:scale-[1.04] group-hover:shadow-cyan-400/30 sm:h-11 sm:w-11">
               ∿
             </div>
             <div>
               <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <p className="hidden text-[11px] uppercase tracking-[0.16em] text-slate-500 sm:block">
                 Institutional DeFi Platform
               </p>
             </div>
@@ -52,7 +52,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
                 <a
                   key={item.href}
                   href={item.href}
-                  className="rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-white"
+                  className="nav-link-premium rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-white"
                 >
                   {item.label}
                 </a>
@@ -62,20 +62,26 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
 
           <div className="hidden items-center gap-3 lg:flex">
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-500">
-              <Command className="h-3.5 w-3.5" />
+              <span className="pulse-ring relative flex h-2.5 w-2.5 items-center justify-center">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+              </span>
               Live-ready DeFi Ops
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800/80 bg-slate-950/80 px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <Radio className="h-3.5 w-3.5 text-cyan-300" />
+              Websocket-native control plane
             </div>
             <Link
               to="/login"
-              className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-700 hover:text-white"
+              className="premium-button premium-button-secondary rounded-xl px-4 py-2 text-sm"
             >
               Sign In
             </Link>
             <Link
               to="/register"
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:brightness-105"
+              className="premium-button premium-button-primary rounded-xl px-4 py-2 text-sm font-semibold text-white"
             >
-              Start Free Trial
+              Start Evaluation
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -90,7 +96,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
         </div>
 
         {mobileOpen && (
-          <div className="border-t border-slate-800 bg-slate-950/95 px-4 py-4 lg:hidden">
+          <div className="mobile-shell-panel border-t border-slate-800 bg-slate-950/95 px-4 py-4 lg:hidden">
             <div className="space-y-2">
               {navItems.map((item) =>
                 item.href.startsWith('/#') && isPricingPage ? (
@@ -124,9 +130,9 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
                 <Link
                   to="/register"
                   onClick={closeMobile}
-                  className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-center text-sm font-semibold text-white"
+                  className="premium-button premium-button-primary rounded-xl px-4 py-3 text-center text-sm font-semibold text-white"
                 >
-                  Start Trial
+                  Start Evaluation
                 </Link>
               </div>
             </div>
@@ -137,7 +143,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
       <main className="relative z-10">{children}</main>
 
       <footer className="border-t border-slate-800/80 bg-slate-950/70">
-        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.4fr_1fr_1fr] lg:px-8">
+        <div className="public-shell-container grid gap-8 py-10 lg:grid-cols-[1.4fr_1fr_1fr]">
           <div>
             <p className="text-lg font-semibold text-white">dYdX Arbitrage OS</p>
             <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400">

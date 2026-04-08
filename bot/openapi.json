@@ -4005,6 +4005,41 @@
         "x-response-envelope": "StandardApiResponse"
       }
     },
+    "/api/v1/runtime/db-config": {
+      "get": {
+        "description": "Admin-only diagnostics for effective runtime database configuration.",
+        "operationId": "runtime_db_config_api_v1_runtime_db_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Runtime Db Config",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
     "/api/v1/strategies": {
       "get": {
         "description": "List stored strategies for the UI.",

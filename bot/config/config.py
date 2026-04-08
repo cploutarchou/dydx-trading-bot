@@ -361,8 +361,11 @@ class ConfigurationManager:
                 "POSTGRES_PASSWORD",
                 default="",
             ),
-            host=_get_env("BOT_DB_HOST", "DB_HOST", default="localhost"),
+            host=_get_env("BOT_DB_HOST", "DB_HOST", "POSTGRES_HOST", default="localhost"),
             port=_get_env("BOT_DB_PORT", "DB_PORT", "POSTGRES_PORT", default="5432"),
+            pool_size=_get_env_int("DB_POOL_SIZE", default=5),
+            max_overflow=_get_env_int("DB_MAX_OVERFLOW", default=10),
+            timeout=_get_env_int("DB_TIMEOUT", default=5),
         )
 
     def _build_redis_settings_from_env(self) -> RedisSettings:

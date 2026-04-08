@@ -223,6 +223,7 @@ def test_openapi_documents_standard_response_envelope():
     assert "/api/v1/admin/backtests/interrupted" in schema["paths"]
     assert "/api/v1/admin/backtests/interrupted/reconcile" in schema["paths"]
     assert "/api/v1/capabilities" in schema["paths"]
+    assert "/api/v1/runtime/db-config" in schema["paths"]
 
     status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"]["responses"][
         "200"
@@ -293,5 +294,41 @@ def test_api_response_sanitizes_internal_error_details():
 
     assert payload["message"] == "Internal server error"
     assert "psycopg2" not in payload["message"]
+
+
+def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
+    server = _load_server_module()
+
+    class _FakeDbConfig:
+        def to_diagnostics(self):
+            return {
+                "db_type": "postgresql",
+                "cutover_mode": "shared",
+                "connection_source": "shared_db_fields",
+                "field_source": "shared_db_fields",
+                "database_url_configured": False,
+                "host": "localhost",
+                "port": "5432",
+                "name": "dydx_bot",
+                "user": "dydx_bot",
+                "password_configured": True,
+                "timeout_seconds": 5,
+                "pool_size": 5,
+                "max_overflow": 5,
+                "max_connections": 10,
+                "ssl_enabled": False,
+                "echo_sql": False,
+            }
+
+    monkeypatch.setattr(server, "DatabaseConfig", _FakeDbConfig)
+
+    response = asyncio.run(_call(server.runtime_db_config(current_user=object())))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["db_type"] == "postgresql"
+    assert payload["data"]["password_configured"] is True
+    assert payload["data"]["max_connections"] == 10
+    assert payload["data"]["count"] == 1
 
 

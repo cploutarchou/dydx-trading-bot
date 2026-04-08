@@ -70,6 +70,11 @@ Last reviewed by: `bot-team` on `2026-04-04`.
 - [x] Wire explicit Telegram error categories at runtime call sites for configurable throttling (`execution_*`, `lifecycle_*`, `market_data`, `analysis_*`).
 
 ## Change Log
+- [x] 2026-04-08: Added a staging-to-production handoff pointer in `LOCAL_SETUP.md` directing engineers to `BACKEND_HANDOFF_CHECKLIST.md` for backend/bot production sign-off.
+- [x] 2026-04-08: Added `BACKEND_HANDOFF_CHECKLIST.md` as a production-only backend rollout sign-off checklist (readiness, capabilities, runtime DB diagnostics, websocket checks, reconciliation, and GO/NO-GO fields).
+- [x] 2026-04-08: Expanded backend-team onboarding docs with a startup quick path, required control-plane surface table, and authenticated smoke command examples in `BACKEND_BOT_INTEGRATION.md`; synced discovery-first guidance in `BOT_SERVICE_ENDPOINTS.md` and `API_CONTRACT.md`.
+- [x] 2026-04-08: Added admin-only `GET /api/v1/runtime/db-config` endpoint for sanitized runtime DB diagnostics (cutover mode/source/host/port/pool/timeout/SSL metadata without secret values) to simplify deployment verification.
+- [x] 2026-04-08: Hardened database config compatibility for shared-mode deployments using `DB_*` + `POSTGRES_*` keys and runtime tuning flags (`DB_TIMEOUT`, `DB_POOL_SIZE`, `DB_MAX_CONNECTIONS`, `DB_MAX_OVERFLOW`, `SSL_MODE`) so existing database blocks can be used without refactor.
 - [x] 2026-04-08: Added backend-facing integration docs (`BOT_API_PARITY_MATRIX.md`, `BACKEND_BOT_INTEGRATION.md`) and introduced explicit bot DB cutover modes (`shared`, `dedicated`, `dedicated_with_shared_fallback`) for safer PostgreSQL isolation rollout/rollback.
 - [x] 2026-04-08: Added `GET /api/v1/capabilities` for backend runtime discovery, websocket alias channels (`/ws/bots/{bot_instance_id}`, `/ws/backtests/{run_id}`), and bot-dedicated PostgreSQL env support (`BOT_DATABASE_URL` / `BOT_DB_*` with `DB_*` fallback).
 - [x] 2026-04-08: Added admin-scoped interrupted backtest ops aliases (`GET /api/v1/admin/backtests/interrupted`, `POST /api/v1/admin/backtests/interrupted/reconcile`) and published `BACKTEST_ENDPOINTS.md` with endpoint-by-endpoint request/response payload examples for operators.

@@ -1,18 +1,15 @@
 """Bot agent for managing trade execution and monitoring."""
 
 import asyncio
-import logging
 from datetime import datetime
 
+from loguru import logger
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
     cancel_order,
     check_order_status,
     place_market_order,
 )
-
-logger = logging.getLogger(__name__)
-
 
 class BotAgent:
     """
@@ -87,7 +84,7 @@ class BotAgent:
 
         # Guard: If order cancelled move onto next Pair
         if order_status == "CANCELED":
-            logger.warning("%s vs %s - Order cancelled", self.market_1, self.market_2)
+            logger.warning("{} vs {} - Order cancelled", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "FAILED"
             return "failed"
 
@@ -98,7 +95,7 @@ class BotAgent:
 
             # Guard: If order cancelled move onto next Pair
             if order_status == "CANCELED":
-                logger.warning("%s vs %s - Order cancelled", self.market_1, self.market_2)
+                logger.warning("{} vs {} - Order cancelled", self.market_1, self.market_2)
                 self.order_dict["pair_status"] = "FAILED"
                 return "failed"
 
@@ -107,7 +104,7 @@ class BotAgent:
                 await cancel_order(self.client, order_id)
                 self.order_dict["pair_status"] = "ERROR"
                 logger.error(
-                    "%s vs %s - Order error. Cancellation request sent, verify open orders",
+                    "{} vs {} - Order error. Cancellation request sent, verify open orders",
                     self.market_1,
                     self.market_2,
                 )
@@ -125,7 +122,7 @@ class BotAgent:
         """
         # Print status
         logger.info(
-            "%s: Placing first order | side=%s size=%s price=%s",
+            "{}: Placing first order | side={} size={} price={}",
             self.market_1,
             self.base_side,
             self.base_size,
@@ -146,17 +143,17 @@ class BotAgent:
             # Store the order id
             self.order_dict["order_id_m1"] = order_id
             self.order_dict["order_time_m1"] = datetime.now().isoformat()
-            logger.info("First order for %s sent", self.market_1)
+            logger.info("First order for {} sent", self.market_1)
         except Exception as e:
-            logger.exception("Error placing first order for %s", self.market_1)
+            logger.exception("Error placing first order for {}", self.market_1)
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"Market 1 {self.market_1}: , {e}"
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info("Checking first order status for %s", self.order_dict["order_id_m1"])
+        logger.info("Checking first order status for {}", self.order_dict["order_id_m1"])
         order_status_m1 = await self.check_order_status_by_id(self.order_dict["order_id_m1"])
-        logger.info("First order status: %s", order_status_m1)
+        logger.info("First order status: {}", order_status_m1)
 
         # Guard: Abort if order failed
         if order_status_m1 != "live":
@@ -166,7 +163,7 @@ class BotAgent:
 
         # Print status - opening second order
         logger.info(
-            "%s: Placing second order | side=%s size=%s price=%s",
+            "{}: Placing second order | side={} size={} price={}",
             self.market_2,
             self.quote_side,
             self.quote_size,
@@ -187,15 +184,15 @@ class BotAgent:
             # Store the order id
             self.order_dict["order_id_m2"] = order_id
             self.order_dict["order_time_m2"] = datetime.now().isoformat()
-            logger.info("Second order for %s sent (id=%s)", self.market_2, order_id)
+            logger.info("Second order for {} sent (id={})", self.market_2, order_id)
         except Exception as e:
-            logger.exception("Error placing second order for %s", self.market_2)
+            logger.exception("Error placing second order for {}", self.market_2)
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"Market 2 {self.market_2}: , {e}"
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info("Checking second order status for %s", self.order_dict["order_id_m2"])
+        logger.info("Checking second order status for {}", self.order_dict["order_id_m2"])
         order_status_m2 = await self.check_order_status_by_id(self.order_dict["order_id_m2"])
 
         # Guard: Abort if order failed
@@ -220,7 +217,7 @@ class BotAgent:
                 if order_status_close_order != "FILLED":
                     logger.critical("ABORT PROGRAM - Failed to close hedged position")
                     logger.critical(
-                        "Unexpected error closing %s -> status %s",
+                        "Unexpected error closing {} -> status {}",
                         self.market_1,
                         order_status_close_order,
                     )
@@ -240,8 +237,8 @@ class BotAgent:
                 self.order_dict["pair_status"] = "ERROR"
                 self.order_dict["comments"] = f"Close Market 1 {self.market_1}: , {e}"
                 status_snapshot = locals().get("order_status_close_order", "unknown")
-                logger.critical("ABORT PROGRAM - Unexpected error closing %s", self.market_1)
-                logger.critical("order_status_close_order=%s", status_snapshot)
+                logger.critical("ABORT PROGRAM - Unexpected error closing {}", self.market_1)
+                logger.critical("order_status_close_order={}", status_snapshot)
 
                 # Send Message
                 self.messenger.send_error_message(
@@ -260,6 +257,6 @@ class BotAgent:
 
         # Return success result
         else:
-            logger.info("SUCCESS: LIVE PAIR %s / %s", self.market_1, self.market_2)
+            logger.info("SUCCESS: LIVE PAIR {} / {}", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "LIVE"
             return self.order_dict

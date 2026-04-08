@@ -4,9 +4,9 @@ Captures live bot data and broadcasts updates via WebSocket
 """
 
 import asyncio
-import logging
 from typing import Dict
 
+from loguru import logger
 from src.api.realtime_serializers import serialize_stats_risk_fields
 from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
     broadcast_alert, broadcast_position_opened, broadcast_position_closed
@@ -14,7 +14,6 @@ from src.infrastructure.database import db
 from src.shared.time_utils import utc_now_iso
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 
-logger = logging.getLogger(__name__)
 
 
 class RealTimeDataService:

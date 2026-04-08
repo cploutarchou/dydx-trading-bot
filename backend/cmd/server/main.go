@@ -45,6 +45,27 @@ func probeJSONEndpoint(url string, timeout time.Duration) (int, map[string]inter
 	return resp.StatusCode, payload, ""
 }
 
+func extractBotRecoveryPayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return nil
+	}
+
+	if direct, ok := payload["bot_recovery"].(map[string]interface{}); ok {
+		return direct
+	}
+
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok || data == nil {
+		return nil
+	}
+
+	if nested, ok := data["bot_recovery"].(map[string]interface{}); ok {
+		return nested
+	}
+
+	return nil
+}
+
 func findRepoRoot(start string) string {
 	current := filepath.Clean(start)
 
@@ -105,6 +126,7 @@ func loadStructuredConfigEnv() {
 	log.Printf("Warning: structured config not found; using existing process environment variables")
 }
 
+//nolint:nolintlint,gocyclo
 func main() {
 	loadStructuredConfigEnv()
 
@@ -193,6 +215,11 @@ func main() {
 
 		botHealthURL := botAPIURL + "/health"
 		botSnapshot, botHealthy := buildDependencySnapshot(botHealthURL)
+		var botPayload map[string]interface{}
+		if payload, ok := botSnapshot["payload"].(map[string]interface{}); ok {
+			botPayload = payload
+		}
+		botRecovery := extractBotRecoveryPayload(botPayload)
 		// Get database stats
 		stats := database.GetStats()
 		c.JSON(200, gin.H{
@@ -202,7 +229,8 @@ func main() {
 				"database_healthy": dbHealthy,
 				"bot_api_healthy":  botHealthy,
 			},
-			"bot_api": botSnapshot,
+			"bot_api":      botSnapshot,
+			"bot_recovery": botRecovery,
 			"database": gin.H{
 				"healthy":             dbHealthy,
 				"error":               dbError,
@@ -231,12 +259,18 @@ func main() {
 
 		botReadyURL := botAPIURL + "/ready"
 		botSnapshot, botReady := buildDependencySnapshot(botReadyURL)
+		var botPayload map[string]interface{}
+		if payload, ok := botSnapshot["payload"].(map[string]interface{}); ok {
+			botPayload = payload
+		}
+		botRecovery := extractBotRecoveryPayload(botPayload)
 		if !botReady {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":    "not_ready",
-				"ready":     false,
-				"component": "bot_api",
-				"bot_api":   botSnapshot,
+				"status":       "not_ready",
+				"ready":        false,
+				"component":    "bot_api",
+				"bot_api":      botSnapshot,
+				"bot_recovery": botRecovery,
 			})
 			return
 		}
@@ -245,6 +279,7 @@ func main() {
 			"status":         "ready",
 			"ready":          true,
 			"bot_api":        botSnapshot,
+			"bot_recovery":   botRecovery,
 			"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
 		})
 	})

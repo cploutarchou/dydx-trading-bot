@@ -8,18 +8,20 @@ load_repo_env(__file__)
 
 import asyncio
 import json
-import logging
 import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, List, Optional, TextIO
+from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TextIO
 
+from loguru import logger
 import psutil
-
 from config.config import config as load_app_config
 from internal.domain.models import BotStatusEnum
+from sqlalchemy import text
+from src.infrastructure.database import db
 from src.infrastructure.domain.bot_api_models import (
     BotInstanceConfig,
     BotInstanceState,
@@ -27,10 +29,7 @@ from src.infrastructure.domain.bot_api_models import (
     BotOperationResult,
     BotStatus,
 )
-from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
-
-logger = logging.getLogger(__name__)
 
 
 class BotInstanceManager:
@@ -48,6 +47,16 @@ class BotInstanceManager:
         self.status_event_publisher: Optional[
             Callable[[Dict[str, object]], Awaitable[None]]
         ] = None
+        self.recovery_diagnostics: Dict[str, Any] = {
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": None,
+            "source": "none",
+            "attempted": 0,
+            "loaded": 0,
+            "skipped": 0,
+            "skipped_instances": [],
+            "last_error": None,
+        }
 
         # Load existing instances from disk
         self._load_existing_instances()
@@ -61,28 +70,72 @@ class BotInstanceManager:
 
     def _load_existing_instances(self):
         """Load bot instances from the database, with file fallback for compatibility."""
+        self.recovery_diagnostics.update(
+            {
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": None,
+                "source": "none",
+                "attempted": 0,
+                "loaded": 0,
+                "skipped": 0,
+                "skipped_instances": [],
+                "last_error": None,
+            }
+        )
         loaded_from_db = self._load_existing_instances_from_db()
         if loaded_from_db is not None:
-            logger.info("Loaded %d existing bot instances from database", loaded_from_db)
+            self.recovery_diagnostics["source"] = "database"
+            self.recovery_diagnostics["loaded"] = loaded_from_db
+            self.recovery_diagnostics["completed_at"] = datetime.now(timezone.utc).isoformat()
+            logger.info("Loaded {} existing bot instances from database", loaded_from_db)
             return
 
         self._load_existing_instances_from_disk()
+        self.recovery_diagnostics["source"] = "disk_snapshot"
+        self.recovery_diagnostics["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    def _record_recovery_skip(self, instance_id: str, reason: str):
+        skipped_instances = self.recovery_diagnostics.setdefault("skipped_instances", [])
+        if isinstance(skipped_instances, list):
+            skipped_instances.append({"instance_id": instance_id, "reason": reason})
+        self.recovery_diagnostics["skipped"] = int(self.recovery_diagnostics.get("skipped", 0)) + 1
 
     def _load_existing_instances_from_db(self) -> Optional[int]:
         """Hydrate manager state from persisted bot instances in PostgreSQL."""
         session = None
         try:
             session = db.get_session()
-            uow = UnitOfWork(session)
             loaded = 0
 
-            for record in uow.bots.get_all():
+            # Use a raw query here instead of ORM model hydration so legacy
+            # lowercase status values (e.g. "error") do not raise enum decode
+            # errors before we can normalize them.
+            rows = session.execute(
+                text(
+                    """
+                    SELECT
+                        instance_id,
+                        network,
+                        strategy,
+                        config,
+                        process_id,
+                        created_at,
+                        updated_at,
+                        CAST(status AS TEXT) AS status
+                    FROM bot_instances
+                    """
+                )
+            ).mappings()
+
+            for row in rows:
+                record = SimpleNamespace(**dict(row))
+                self.recovery_diagnostics["attempted"] = int(self.recovery_diagnostics.get("attempted", 0)) + 1
                 config = self._build_instance_config_from_record(record)
                 if config is None:
                     continue
 
                 status = self._coerce_record_status(record.status)
-                payload = record.config if isinstance(record.config, dict) else {}
+                payload = self._coerce_record_config_payload(getattr(record, "config", None))
                 runtime_state = payload.get("runtime_state") or {}
                 process_info = {}
                 if getattr(record, "process_id", None) is not None:
@@ -103,9 +156,11 @@ class BotInstanceManager:
                 )
                 loaded += 1
 
+            self.recovery_diagnostics["loaded"] = loaded
             return loaded
         except Exception as exc:
-            logger.warning("Failed to load bot instances from database: %s", exc)
+            logger.warning("Failed to load bot instances from database: {}", exc)
+            self.recovery_diagnostics["last_error"] = str(exc)
             return None
         finally:
             if session is not None:
@@ -119,6 +174,7 @@ class BotInstanceManager:
                 with open(state_file, "r") as f:
                     data = json.load(f)
                     for instance_data in data.get("instances", []):
+                        self.recovery_diagnostics["attempted"] = int(self.recovery_diagnostics.get("attempted", 0)) + 1
                         # Reconstruct instance state (without active processes)
                         instance_id = instance_data["instance_id"]
                         self.instances[instance_id] = BotInstanceState(
@@ -130,13 +186,31 @@ class BotInstanceManager:
                             created_at=datetime.fromisoformat(instance_data["created_at"]),
                             last_update=datetime.now(),
                         )
-                logger.info("Loaded %d existing bot instances from disk snapshot", len(self.instances))
+                self.recovery_diagnostics["loaded"] = len(self.instances)
+                logger.info("Loaded {} existing bot instances from disk snapshot", len(self.instances))
             except Exception as e:
                 logger.error(f"Error loading instances: {e}")
+                self.recovery_diagnostics["last_error"] = str(e)
+
+    @staticmethod
+    def _coerce_record_config_payload(raw_config: Any) -> dict[str, Any]:
+        """Normalize persisted bot config payloads from dict or JSON-string forms."""
+        if isinstance(raw_config, dict):
+            return dict(raw_config)
+        if isinstance(raw_config, str):
+            raw = raw_config.strip()
+            if not raw:
+                return {}
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                return {}
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        return {}
 
     def _build_instance_config_from_record(self, record) -> Optional[BotInstanceConfig]:
         """Reconstruct the runtime config shape from the persisted DB payload."""
-        payload = record.config if isinstance(record.config, dict) else {}
+        payload = self._coerce_record_config_payload(getattr(record, "config", None))
         credentials_payload = payload.get("credentials") or {}
         trading_payload = payload.get("trading_params") or {}
         backtesting_payload = payload.get("backtesting_params") or None
@@ -145,10 +219,16 @@ class BotInstanceManager:
         address = str(credentials_payload.get("address") or "").strip()
         mnemonic = str(credentials_payload.get("mnemonic") or "").strip()
         if not address or not mnemonic:
-            logger.warning(
-                "Skipping bot instance %s during DB recovery because persisted credentials are incomplete",
-                record.instance_id,
+            skip_reason = (
+                "persisted credentials are incomplete; recreate or resync the runtime instance "
+                "so backend/bot metadata stores credentials in config"
             )
+            logger.warning(
+                "Skipping bot instance {} during DB recovery because {}",
+                record.instance_id,
+                skip_reason,
+            )
+            self._record_recovery_skip(record.instance_id, skip_reason)
             return None
 
         if "is_testnet" not in trading_payload:
@@ -187,7 +267,7 @@ class BotInstanceManager:
 
     def _db_status_for_instance(self, instance: BotInstanceState) -> BotStatusEnum:
         """Translate manager status into the SQLAlchemy enum used by persisted rows."""
-        return BotStatusEnum(instance.status.value)
+        return BotStatusEnum[instance.status.name]
 
     def _record_runtime_event(
         self,
@@ -213,7 +293,7 @@ class BotInstanceManager:
                 details=details,
             )
         except Exception as exc:
-            logger.warning("Failed to record runtime event for %s: %s", instance_id, exc)
+            logger.warning("Failed to record runtime event for {}: {}", instance_id, exc)
             if session is not None:
                 session.rollback()
         finally:
@@ -241,7 +321,9 @@ class BotInstanceManager:
                     else "mainnet"
                 )
                 record.strategy = instance.config.trading_params.strategy
-                persisted_config = dict(record.config or {})
+                persisted_config = self._coerce_record_config_payload(
+                    getattr(record, "config", None)
+                )
                 persisted_config.update(
                     {
                         "instance_name": instance.config.instance_name,
@@ -281,7 +363,7 @@ class BotInstanceManager:
 
             session.commit()
         except Exception as exc:
-            logger.warning("Failed to sync bot manager state to database: %s", exc)
+            logger.warning("Failed to sync bot manager state to database: {}", exc)
             if session is not None:
                 session.rollback()
         finally:
@@ -383,7 +465,7 @@ class BotInstanceManager:
         try:
             await self.status_event_publisher(payload)
         except Exception as exc:
-            logger.warning("Failed to publish strategy status for %s: %s", instance_id, exc)
+            logger.warning("Failed to publish strategy status for {}: {}", instance_id, exc)
 
     def get_strategy_status_snapshot(self) -> List[Dict[str, object]]:
         """Return current strategy runtime snapshot for websocket subscribers."""
@@ -420,7 +502,7 @@ class BotInstanceManager:
             handle.flush()
             handle.close()
         except Exception as exc:
-            logger.warning("Failed to close log handle for %s: %s", instance_id, exc)
+            logger.warning("Failed to close log handle for {}: {}", instance_id, exc)
 
     def _read_recent_log_tail(self, instance_id: str, max_chars: int = 500) -> str:
         """Read the most recent log output for error reporting."""
@@ -435,7 +517,7 @@ class BotInstanceManager:
                 handle.seek(max(0, size - max_chars))
                 return handle.read().decode("utf-8", errors="ignore").strip()
         except Exception as exc:
-            logger.warning("Failed to read log tail for %s: %s", instance_id, exc)
+            logger.warning("Failed to read log tail for {}: {}", instance_id, exc)
             return ""
 
     def _resolve_external_runtime_process(
@@ -453,7 +535,8 @@ class BotInstanceManager:
             return None, f"Runtime process for {instance_id} is not attached"
 
         try:
-            process = psutil.Process(int(pid))
+            normalized_pid = int(pid)
+            process = psutil.Process(normalized_pid)
         except (TypeError, ValueError):
             return None, f"Stored runtime PID for {instance_id} is invalid"
         except psutil.NoSuchProcess:
@@ -891,14 +974,14 @@ class BotInstanceManager:
                         if force:
                             external_process.kill()
                             logger.info(
-                                "Force killed recovered bot instance %s (PID %s)",
+                                "Force killed recovered bot instance {} (PID {})",
                                 instance_id,
                                 external_process.pid,
                             )
                         else:
                             external_process.terminate()
                             logger.info(
-                                "Gracefully terminating recovered bot instance %s (PID %s)",
+                                "Gracefully terminating recovered bot instance {} (PID {})",
                                 instance_id,
                                 external_process.pid,
                             )
@@ -907,16 +990,16 @@ class BotInstanceManager:
                             except psutil.TimeoutExpired:
                                 external_process.kill()
                                 logger.warning(
-                                    "Force killed recovered bot instance %s after timeout",
+                                    "Force killed recovered bot instance {} after timeout",
                                     instance_id,
                                 )
                     except psutil.NoSuchProcess:
                         logger.info(
-                            "Recovered runtime process already exited for %s before stop completed",
+                            "Recovered runtime process already exited for {} before stop completed",
                             instance_id,
                         )
                 elif probe_error:
-                    logger.warning("Stop requested for %s but %s", instance_id, probe_error)
+                    logger.warning("Stop requested for {} but {}", instance_id, probe_error)
 
             # Update instance state
             instance.status = BotStatus.STOPPED
@@ -1110,6 +1193,20 @@ class BotInstanceManager:
                     )
 
         self._save_instances_state()
+
+    def get_recovery_diagnostics(self) -> Dict[str, Any]:
+        """Return startup recovery diagnostics for observability endpoints."""
+        skipped_instances = self.recovery_diagnostics.get("skipped_instances", [])
+        return {
+            "started_at": self.recovery_diagnostics.get("started_at"),
+            "completed_at": self.recovery_diagnostics.get("completed_at"),
+            "source": self.recovery_diagnostics.get("source", "none"),
+            "attempted": int(self.recovery_diagnostics.get("attempted", 0)),
+            "loaded": int(self.recovery_diagnostics.get("loaded", 0)),
+            "skipped": int(self.recovery_diagnostics.get("skipped", 0)),
+            "skipped_instances": list(skipped_instances) if isinstance(skipped_instances, list) else [],
+            "last_error": self.recovery_diagnostics.get("last_error"),
+        }
 
 
 # Global bot manager instance

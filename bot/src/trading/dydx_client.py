@@ -1,7 +1,8 @@
 """dYdX network client connection management."""
 
-import logging
+from datetime import datetime, timedelta, timezone
 
+from loguru import logger
 from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
 from dydx_v4_client.network import TESTNET
 from dydx_v4_client.node.client import NodeClient
@@ -16,7 +17,8 @@ from src.constants import (
 )
 from src.trading.market_data import get_candles_recent
 
-logger = logging.getLogger(__name__)
+_JURISDICTION_CHECK_TTL = timedelta(minutes=10)
+_jurisdiction_success_cache: dict[str, datetime] = {}
 
 
 def _is_placeholder_value(value: str) -> bool:
@@ -63,7 +65,7 @@ async def connect_dydx():
         INDEXER_ENDPOINT_MAINNET if MARKET_DATA_MODE != "TESTNET" else INDEXER_ACCOUNT_ENDPOINT
     )
     logger.debug(
-        "Market data endpoint resolved to %s (mode=%s)",
+        "Market data endpoint resolved to {} (mode={})",
         market_data_endpoint,
         MARKET_DATA_MODE,
     )
@@ -71,18 +73,18 @@ async def connect_dydx():
     # Indexer = connection we will use to get live mainnet data if using INDEXER_ENDPOINT_MAINNET, else we will use testnet
     try:
         indexer = IndexerClient(host=market_data_endpoint, api_timeout=5)
-        logger.info("Initialized indexer client against %s", market_data_endpoint)
+        logger.info("Initialized indexer client against {}", market_data_endpoint)
     except Exception:
-        logger.exception("Failed to initialize indexer client for %s", market_data_endpoint)
+        logger.exception("Failed to initialize indexer client for {}", market_data_endpoint)
         raise
 
     # Indexer Account = connection we will use to query our testnet trades
     try:
         indexer_account = IndexerClient(host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
-        logger.info("Initialized account indexer client against %s", INDEXER_ACCOUNT_ENDPOINT)
+        logger.info("Initialized account indexer client against {}", INDEXER_ACCOUNT_ENDPOINT)
     except Exception:
         logger.exception(
-            "Failed to initialize account indexer client for %s",
+            "Failed to initialize account indexer client for {}",
             INDEXER_ACCOUNT_ENDPOINT,
         )
         raise
@@ -92,9 +94,9 @@ async def connect_dydx():
     # The appropriate indexer endpoint will be used based on the is_testnet setting
     try:
         node = await NodeClient.connect(TESTNET.node)
-        logger.info("Connected node client to %s", TESTNET.node)
+        logger.info("Connected node client to testnet node config")
     except Exception:
-        logger.exception("Failed to connect node client to %s", TESTNET.node)
+        logger.exception("Failed to connect node client to testnet node config")
         raise
 
     # For backtesting, we don't need a real wallet since we're simulating trades
@@ -102,10 +104,10 @@ async def connect_dydx():
     if not _is_placeholder_value(MNEMONIC) and not _is_placeholder_value(DYDX_ADDRESS):
         try:
             wallet = await Wallet.from_mnemonic(node, MNEMONIC, DYDX_ADDRESS)
-            logger.info("Loaded wallet for address %s", DYDX_ADDRESS)
+            logger.info("Loaded wallet for address {}", DYDX_ADDRESS)
         except Exception:
             logger.warning(
-                "Failed to derive wallet for address %s. Continuing without wallet (backtesting mode).",
+                "Failed to derive wallet for address {}. Continuing without wallet (backtesting mode).",
                 DYDX_ADDRESS,
             )
             # Don't raise - continue with None wallet for backtesting
@@ -131,12 +133,23 @@ async def check_jurisdiction(client, market):
     Raises:
         RuntimeError: If jurisdiction check fails (access prohibited)
     """
-    logger.info("Checking Jurisdiction for market %s", market)
+    now = datetime.now(timezone.utc)
+    last_success = _jurisdiction_success_cache.get(market)
+    if last_success is not None and (now - last_success) < _JURISDICTION_CHECK_TTL:
+        logger.debug(
+            "Skipping jurisdiction re-check for {} (last success at {})",
+            market,
+            last_success.isoformat(),
+        )
+        return
+
+    logger.info("Checking Jurisdiction for market {}", market)
     try:
         await get_candles_recent(client, market)
-        logger.info("Jurisdiction check succeeded for %s", market)
+        _jurisdiction_success_cache[market] = now
+        logger.info("Jurisdiction check succeeded for {}", market)
     except Exception as e:
-        logger.exception("Jurisdiction check failed for %s", market)
+        logger.exception("Jurisdiction check failed for {}", market)
         if "403" in str(e):
             logger.error("FAILED: LOCATION ACCESS LIKELY PROHIBITED")
             logger.error("DYDX likely prohibits use from your country")

@@ -110,6 +110,27 @@ func NewBacktestSyncRepository(db *sql.DB) *BacktestSyncRepository {
 	return &BacktestSyncRepository{db: db}
 }
 
+func nullableStringValue(value sql.NullString) interface{} {
+	if value.Valid {
+		return value.String
+	}
+	return nil
+}
+
+func nullableInt64Value(value sql.NullInt64) interface{} {
+	if value.Valid {
+		return value.Int64
+	}
+	return nil
+}
+
+func nullableFloat64Value(value sql.NullFloat64) interface{} {
+	if value.Valid {
+		return value.Float64
+	}
+	return nil
+}
+
 func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayload) error {
 	if payload.RunID == "" {
 		return fmt.Errorf("run_id is required")
@@ -134,7 +155,7 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			started_at = COALESCE($9, started_at),
 			completed_at = COALESCE($10, completed_at),
 			duration_seconds = COALESCE($11, duration_seconds),
-			error_message = CASE WHEN $12 IS NULL THEN error_message ELSE $12 END,
+			error_message = COALESCE(CAST($12 AS TEXT), error_message),
 			total_trades = COALESCE($13, total_trades),
 			profitable_trades = COALESCE($14, profitable_trades),
 			losing_trades = COALESCE($15, losing_trades),
@@ -152,18 +173,18 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 		payload.EndDate,
 		payload.NumPairs,
 		payload.TotalMarkets,
-		payload.Resolution,
-		payload.Config,
+		nullableStringValue(payload.Resolution),
+		nullableStringValue(payload.Config),
 		payload.StartedAt,
 		payload.CompletedAt,
 		payload.DurationSeconds,
-		payload.ErrorMessage,
-		payload.TotalTrades,
-		payload.WinningTrades,
-		payload.LosingTrades,
-		payload.WinRate,
-		payload.TotalPnL,
-		payload.TotalPnLUSD,
+		nullableStringValue(payload.ErrorMessage),
+		nullableInt64Value(payload.TotalTrades),
+		nullableInt64Value(payload.WinningTrades),
+		nullableInt64Value(payload.LosingTrades),
+		nullableFloat64Value(payload.WinRate),
+		nullableFloat64Value(payload.TotalPnL),
+		nullableFloat64Value(payload.TotalPnLUSD),
 		payload.RunID,
 	)
 	if err != nil {
@@ -204,15 +225,15 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 		payload.EndDate,
 		payload.NumPairs,
 		payload.TotalMarkets,
-		payload.Resolution,
-		payload.Config,
-		payload.TotalTrades,
-		payload.WinningTrades,
-		payload.LosingTrades,
-		payload.WinRate,
-		payload.TotalPnL,
-		payload.TotalPnLUSD,
-		payload.ErrorMessage,
+		nullableStringValue(payload.Resolution),
+		nullableStringValue(payload.Config),
+		nullableInt64Value(payload.TotalTrades),
+		nullableInt64Value(payload.WinningTrades),
+		nullableInt64Value(payload.LosingTrades),
+		nullableFloat64Value(payload.WinRate),
+		nullableFloat64Value(payload.TotalPnL),
+		nullableFloat64Value(payload.TotalPnLUSD),
+		nullableStringValue(payload.ErrorMessage),
 		payload.UserID,
 	)
 	if err != nil {

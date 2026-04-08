@@ -1,42 +1,243 @@
 """Database configuration and connection management for PostgreSQL only."""
 
-import logging
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Optional
 
 from alembic import command
 from alembic.config import Config
+from loguru import logger
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
-logger = logging.getLogger(__name__)
-
 
 class DatabaseConfig:
     """Database configuration manager"""
 
+    @staticmethod
+    def _env(name: str, fallback: str = "") -> str:
+        value = os.getenv(name)
+        return value if value not in (None, "") else fallback
+
+    @staticmethod
+    def _env_int(name: str, default: int) -> int:
+        value = os.getenv(name)
+        if value in (None, ""):
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _env_bool(name: str, default: bool = False) -> bool:
+        value = os.getenv(name)
+        if value in (None, ""):
+            return default
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
     def __init__(self):
-        raw_db_type = os.getenv("DB_TYPE", "postgresql").strip().lower()
+        self.cutover_mode = (
+            os.getenv("BOT_DB_CUTOVER_MODE", "shared")
+            .strip()
+            .lower()
+            .replace("-", "_")
+        )
+        if self.cutover_mode not in {
+            "shared",
+            "dedicated",
+            "dedicated_with_shared_fallback",
+        }:
+            raise ValueError(
+                "Unsupported BOT_DB_CUTOVER_MODE. Use one of: "
+                "shared, dedicated, dedicated_with_shared_fallback"
+            )
+
+        raw_db_type = self._env("BOT_DB_TYPE", self._env("DB_TYPE", "postgresql")).strip().lower()
         if raw_db_type not in {"postgres", "postgresql"}:
             raise ValueError(
                 f"Unsupported DB_TYPE '{raw_db_type}'. Only PostgreSQL is supported."
             )
         self.db_type = "postgresql"
-        self.db_name = os.getenv("DB_NAME", "dydx_bot")
-        self.db_host = os.getenv("DB_HOST", "localhost")
-        self.db_port = os.getenv("DB_PORT", "5432")
-        self.db_user = os.getenv("DB_USER", "postgres")
-        self.db_password = os.getenv("DB_PASSWORD", "")
-        self.echo_sql = os.getenv("DB_ECHO_SQL", "false").lower() == "true"
-        self.pool_size = int(os.getenv("DB_POOL_SIZE", "10"))
-        self.max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "20"))
-        self.pool_recycle = int(os.getenv("DB_POOL_RECYCLE", "3600"))
+        self.connection_source = "constructed_fields"
+        self.field_source = "shared_db_fields"
+        self.database_url = self._resolve_database_url()
+        self.db_name, self.db_host, self.db_port, self.db_user, self.db_password = (
+            self._resolve_db_fields()
+        )
+        self.echo_sql = self._env_bool("DB_ECHO_SQL", default=False)
+        self.timeout_seconds = self._env_int("DB_TIMEOUT", 10)
+        self.pool_size = self._env_int("DB_POOL_SIZE", 5)
+        max_connections = self._env_int("DB_MAX_CONNECTIONS", 0)
+        configured_overflow = self._env_int("DB_MAX_OVERFLOW", 10)
+        if max_connections > 0:
+            configured_overflow = max(0, max_connections - self.pool_size)
+        self.max_overflow = configured_overflow
+        self.pool_recycle = self._env_int("DB_POOL_RECYCLE", 3600)
+        self.ssl_mode = self._env_bool("SSL_MODE", default=False)
+
+    @staticmethod
+    def _fields_from_url(raw_url: str) -> Optional[tuple[str, str, str, str, str]]:
+        normalized = DatabaseConfig._normalize_database_url(raw_url)
+        if not normalized:
+            return None
+        parsed = urlparse(normalized)
+        db_name = parsed.path.lstrip("/") or "dydx_bot"
+        host = parsed.hostname or "localhost"
+        port = str(parsed.port or 5432)
+        user = parsed.username or "postgres"
+        password = parsed.password or ""
+        return db_name, host, port, user, password
+
+    @staticmethod
+    def _normalize_database_url(raw_url: str) -> str:
+        """Normalize postgres URL for SQLAlchemy and enforce supported engine."""
+        candidate = (raw_url or "").strip()
+        if not candidate:
+            return ""
+        lowered = candidate.lower()
+        if lowered.startswith("postgresql+psycopg2://"):
+            return candidate
+        if lowered.startswith("postgresql://"):
+            return "postgresql+psycopg2://" + candidate[len("postgresql://") :]
+        if lowered.startswith("postgres://"):
+            return "postgresql+psycopg2://" + candidate[len("postgres://") :]
+        raise ValueError(
+            "Unsupported database URL scheme. Only PostgreSQL URLs are supported."
+        )
+
+    def _resolve_database_url(self) -> str:
+        """Resolve optional explicit database URL with cutover-mode behavior."""
+        bot_url = self._normalize_database_url(os.getenv("BOT_DATABASE_URL", ""))
+        shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
+
+        if self.cutover_mode == "shared":
+            if shared_url:
+                self.connection_source = "shared_database_url"
+            return shared_url
+        if self.cutover_mode == "dedicated":
+            if bot_url:
+                self.connection_source = "bot_database_url"
+                return bot_url
+            if self._has_bot_db_fields():
+                self.connection_source = "bot_db_fields"
+                return ""
+            raise ValueError(
+                "BOT_DB_CUTOVER_MODE=dedicated requires BOT_DATABASE_URL or BOT_DB_* values"
+            )
+
+        # dedicated_with_shared_fallback
+        if bot_url:
+            self.connection_source = "bot_database_url"
+            return bot_url
+        if shared_url:
+            self.connection_source = "shared_database_url"
+            return shared_url
+        self.connection_source = "constructed_fields"
+        return ""
+
+    def _resolve_db_fields(self) -> tuple[str, str, str, str, str]:
+        """Resolve host/port/name/user/password based on cutover mode."""
+        if self.cutover_mode == "shared":
+            self.field_source = "shared_db_fields"
+            shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
+            if shared_url:
+                parsed_fields = self._fields_from_url(shared_url)
+                if parsed_fields is not None:
+                    self.field_source = "shared_database_url"
+                    return parsed_fields
+            return (
+                self._env("DB_NAME", self._env("POSTGRES_DB", "dydx_bot")),
+                self._env("DB_HOST", self._env("POSTGRES_HOST", "localhost")),
+                self._env("DB_PORT", self._env("POSTGRES_PORT", "5432")),
+                self._env("DB_USER", self._env("POSTGRES_USER", "postgres")),
+                self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
+            )
+
+        if self.cutover_mode == "dedicated":
+            if self.database_url:
+                parsed_fields = self._fields_from_url(self.database_url)
+                if parsed_fields is not None:
+                    self.field_source = "bot_database_url"
+                    return parsed_fields
+                self.field_source = "bot_db_fields"
+                return self._bot_db_fields()
+            if self._has_bot_db_fields():
+                self.field_source = "bot_db_fields"
+                return self._bot_db_fields()
+            raise ValueError(
+                "BOT_DB_CUTOVER_MODE=dedicated requires BOT_DB_HOST, BOT_DB_PORT, "
+                "BOT_DB_NAME, BOT_DB_USER, and BOT_DB_PASSWORD when BOT_DATABASE_URL is unset"
+            )
+
+        # dedicated_with_shared_fallback
+        if self._has_bot_db_fields():
+            self.field_source = "bot_db_fields"
+            return self._bot_db_fields()
+        shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
+        if shared_url:
+            parsed_fields = self._fields_from_url(shared_url)
+            if parsed_fields is not None:
+                self.field_source = "shared_database_url"
+                return parsed_fields
+        self.field_source = "shared_db_fields"
+        return (
+            self._env("DB_NAME", self._env("POSTGRES_DB", "dydx_bot")),
+            self._env("DB_HOST", self._env("POSTGRES_HOST", "localhost")),
+            self._env("DB_PORT", self._env("POSTGRES_PORT", "5432")),
+            self._env("DB_USER", self._env("POSTGRES_USER", "postgres")),
+            self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
+        )
+
+    def to_diagnostics(self) -> dict:
+        """Build a sanitized runtime diagnostics payload without exposing secrets."""
+        return {
+            "db_type": self.db_type,
+            "cutover_mode": self.cutover_mode,
+            "connection_source": self.connection_source,
+            "field_source": self.field_source,
+            "database_url_configured": bool(self.database_url),
+            "host": self.db_host,
+            "port": self.db_port,
+            "name": self.db_name,
+            "user": self.db_user,
+            "password_configured": bool(self.db_password),
+            "timeout_seconds": self.timeout_seconds,
+            "pool_size": self.pool_size,
+            "max_overflow": self.max_overflow,
+            "max_connections": self.pool_size + self.max_overflow,
+            "ssl_enabled": self.ssl_mode,
+            "echo_sql": self.echo_sql,
+        }
+
+    @staticmethod
+    def _has_bot_db_fields() -> bool:
+        required = [
+            os.getenv("BOT_DB_NAME", "").strip(),
+            os.getenv("BOT_DB_HOST", "").strip(),
+            os.getenv("BOT_DB_PORT", "").strip(),
+            os.getenv("BOT_DB_USER", "").strip(),
+            os.getenv("BOT_DB_PASSWORD", "").strip(),
+        ]
+        return all(bool(value) for value in required)
+
+    @staticmethod
+    def _bot_db_fields() -> tuple[str, str, str, str, str]:
+        return (
+            os.getenv("BOT_DB_NAME", "dydx_bot"),
+            os.getenv("BOT_DB_HOST", "localhost"),
+            os.getenv("BOT_DB_PORT", "5432"),
+            os.getenv("BOT_DB_USER", "postgres"),
+            os.getenv("BOT_DB_PASSWORD", ""),
+        )
 
     def get_connection_string(self) -> str:
         """Generate database connection string"""
+        if self.database_url:
+            return self.database_url
         return (
             f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
@@ -51,10 +252,12 @@ class DatabaseConfig:
             "pool_size": self.pool_size,
             "max_overflow": self.max_overflow,
             "pool_recycle": self.pool_recycle,
+            "pool_timeout": self.timeout_seconds,
             "connect_args": {
-                "connect_timeout": 10,
+                "connect_timeout": self.timeout_seconds,
                 "keepalives": 1,
                 "keepalives_idle": 30,
+                **({"sslmode": "require"} if self.ssl_mode else {}),
             },
         }
 
@@ -123,6 +326,51 @@ class DatabaseManager:
         with engine.begin() as connection:
             inspector = inspect(connection)
 
+            if inspector.has_table("bot_instances"):
+                logger.info("Applying compatibility fix: normalizing bot_instances.status values")
+                status_udt = connection.execute(
+                    text(
+                        """
+                        SELECT c.udt_name
+                        FROM information_schema.columns c
+                        WHERE c.table_name = 'bot_instances'
+                          AND c.column_name = 'status'
+                        LIMIT 1
+                        """
+                    )
+                ).scalar()
+
+                if status_udt == "botstatusenum":
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE bot_instances
+                            SET status = CASE UPPER(CAST(status AS TEXT))
+                                WHEN 'FAILED' THEN 'ERROR'::botstatusenum
+                                WHEN 'PAUSED' THEN 'STOPPED'::botstatusenum
+                                ELSE UPPER(CAST(status AS TEXT))::botstatusenum
+                            END
+                            WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
+                               OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
+                            """
+                        )
+                    )
+                else:
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE bot_instances
+                            SET status = CASE UPPER(CAST(status AS TEXT))
+                                WHEN 'FAILED' THEN 'ERROR'
+                                WHEN 'PAUSED' THEN 'STOPPED'
+                                ELSE UPPER(CAST(status AS TEXT))
+                            END
+                            WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
+                               OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
+                            """
+                        )
+                    )
+
             if inspector.has_table("backtest_strategies"):
                 columns = {
                     column["name"] for column in inspector.get_columns("backtest_strategies")
@@ -142,11 +390,12 @@ class DatabaseManager:
                         "Compatibility fix applied: backtest_strategies.pair_selection_mode"
                     )
 
+
     def _build_alembic_config(self) -> Optional[Config]:
         config = DatabaseConfig()
         alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"
         if not alembic_path.exists():
-            logger.warning("Alembic config not found at %s; skipping migrations", alembic_path)
+            logger.warning("Alembic config not found at {}; skipping migrations", alembic_path)
             return None
 
         alembic_config = Config(str(alembic_path))
@@ -176,11 +425,11 @@ class DatabaseManager:
                 return "skipped-core-schema-not-detected"
 
         logger.warning(
-            "Legacy schema detected without alembic_version; stamping revision %s",
+            "Legacy schema detected without alembic_version; stamping revision {}",
             baseline_revision,
         )
         command.stamp(alembic_config, baseline_revision)
-        logger.info("Alembic baseline stamp completed at %s", baseline_revision)
+        logger.info("Alembic baseline stamp completed at {}", baseline_revision)
         return "stamped"
 
     def run_pending_migrations(self):
@@ -191,9 +440,9 @@ class DatabaseManager:
 
         baseline_revision = "8c1f34af2f10"
         baseline_status = self.ensure_alembic_baseline(baseline_revision=baseline_revision)
-        logger.info("Alembic baseline path: %s", baseline_status)
+        logger.info("Alembic baseline path: {}", baseline_status)
         if baseline_status == "stamped":
-            logger.info("Alembic baseline stamped revision=%s", baseline_revision)
+            logger.info("Alembic baseline stamped revision={}", baseline_revision)
 
         with self.get_engine().begin() as connection:
             inspector = inspect(connection)
@@ -257,7 +506,9 @@ if __name__ == "__main__":
     # Test database connection
     import sys
 
-    logging.basicConfig(level=logging.INFO)
+    from src.shared.logging_setup import setup_logging
+
+    setup_logging()
 
     try:
         db_manager = DatabaseManager()

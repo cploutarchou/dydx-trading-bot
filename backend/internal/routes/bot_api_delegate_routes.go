@@ -486,19 +486,19 @@ func buildBacktestSummaryPayload(detailsPayload map[string]interface{}, tradesPa
 	totalTrades, _ := getNumberField(details, "total_trades")
 
 	return map[string]interface{}{
-		"run_id":             getStringField(details, "run_id"),
-		"status":             status,
-		"created_at":         createdAt,
-		"started_at":         startedAt,
-		"completed_at":       completedAt,
-		"total_trades":       int(totalTrades),
+		"run_id":              getStringField(details, "run_id"),
+		"status":              status,
+		"created_at":          createdAt,
+		"started_at":          startedAt,
+		"completed_at":        completedAt,
+		"total_trades":        int(totalTrades),
 		"earliest_trade_date": earliestTradeDate,
 		"latest_trade_date":   latestTradeDate,
 		"configuration": map[string]interface{}{
-			"num_pairs":         inferBacktestPairCount(details),
-			"zscore_threshold":  zscoreThreshold,
-			"stats_window":      int(statsWindow),
-			"usd_per_trade":     usdPerTrade,
+			"num_pairs":        inferBacktestPairCount(details),
+			"zscore_threshold": zscoreThreshold,
+			"stats_window":     int(statsWindow),
+			"usd_per_trade":    usdPerTrade,
 		},
 		"requested_run_id": runID,
 	}
@@ -773,6 +773,21 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		c.Next()
 	}
 
+	requireAdminAccess := func(c *gin.Context) bool {
+		if c.GetBool("is_admin") {
+			return true
+		}
+
+		c.JSON(http.StatusForbidden, gin.H{
+			"success":   false,
+			"message":   "admin access required",
+			"error":     "admin access required",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
+	}
+
 	createBacktestHandler := func(c *gin.Context) {
 		requestClient := getRequestBotAPIClient(c, apiClient)
 		var config map[string]interface{}
@@ -798,6 +813,68 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		syncRun(c, result)
 		respondBacktestEnvelope(c, http.StatusOK, "Backtest created successfully", result)
 	}
+
+	interruptedBacktestsHandler := func(admin bool) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			if admin && !requireAdminAccess(c) {
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			limit := 50
+			if l := c.Query("limit"); l != "" {
+				if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+					limit = parsed
+				}
+			}
+
+			result, err := requestClient.GetInterruptedBacktests(limit, admin)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			respondBacktestEnvelope(c, http.StatusOK, "Interrupted backtests fetched successfully", result)
+		}
+	}
+
+	reconcileInterruptedBacktestsHandler := func(admin bool) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			if admin && !requireAdminAccess(c) {
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			dryRun := true
+			if raw := strings.TrimSpace(c.Query("dry_run")); raw != "" {
+				dryRun = !strings.EqualFold(raw, "false")
+			}
+
+			result, err := requestClient.ReconcileInterruptedBacktests(dryRun, admin)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			respondBacktestEnvelope(c, http.StatusOK, "Interrupted backtests reconciled successfully", result)
+		}
+	}
+
+	router.GET("/api/v1/capabilities", middleware.RequireAuth(), withRequestScopedBotClient, func(c *gin.Context) {
+		requestClient := getRequestBotAPIClient(c, apiClient)
+		delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+			return requestClient.GetCapabilities()
+		})
+	})
+
+	router.GET("/api/v1/runtime/db-config", middleware.RequireAuth(), withRequestScopedBotClient, func(c *gin.Context) {
+		if !requireAdminAccess(c) {
+			return
+		}
+
+		requestClient := getRequestBotAPIClient(c, apiClient)
+		delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+			return requestClient.GetRuntimeDBConfig()
+		})
+	})
 
 	// Backtest proxy endpoints
 	backtestGroup := router.Group("/api/v1/backtests")
@@ -857,6 +934,9 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				"count": len(health),
 			})
 		})
+
+		backtestGroup.GET("/interrupted", interruptedBacktestsHandler(false))
+		backtestGroup.POST("/interrupted/reconcile", reconcileInterruptedBacktestsHandler(false))
 
 		// Create backtest
 		backtestGroup.POST("", createBacktestHandler)
@@ -1448,6 +1528,14 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		})
 	}
 
+	adminBacktestGroup := router.Group("/api/v1/admin/backtests")
+	adminBacktestGroup.Use(middleware.RequireAuth())
+	adminBacktestGroup.Use(withRequestScopedBotClient)
+	{
+		adminBacktestGroup.GET("/interrupted", interruptedBacktestsHandler(true))
+		adminBacktestGroup.POST("/interrupted/reconcile", reconcileInterruptedBacktestsHandler(true))
+	}
+
 	// Bot real-time data endpoints
 	botGroup := router.Group("/api/v1/bots")
 	botGroup.Use(middleware.RequireAuth())
@@ -1628,16 +1716,29 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		})
 	})
 
-	// Frontend strategy websocket compatibility endpoint.
-	// The UI currently connects to /ws/strategies, so keep this on backend origin
-	// and proxy upstream to the bot API channel.
-	strategyWSGroup := router.Group("/ws")
-	strategyWSGroup.Use(middleware.RequireAuth())
-	strategyWSGroup.Use(withRequestScopedBotClient)
+	// Frontend and backend websocket compatibility endpoints.
+	// Keep these on the backend origin and proxy upstream to the bot API channels.
+	wsGroup := router.Group("/ws")
+	wsGroup.Use(middleware.RequireAuth())
+	wsGroup.Use(withRequestScopedBotClient)
 	{
-		strategyWSGroup.GET("/strategies", func(c *gin.Context) {
+		wsGroup.GET("/strategies", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			proxyWebSocket(c, requestClient, "/ws/strategies")
+		})
+
+		wsGroup.GET("/backtests/:run_id", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			upstreamEndpoint := fmt.Sprintf("/ws/backtests/%s", runID)
+			proxyWebSocket(c, requestClient, upstreamEndpoint)
+		})
+
+		wsGroup.GET("/bots/:instance_id", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			instanceID := c.Param("instance_id")
+			upstreamEndpoint := fmt.Sprintf("/ws/bots/%s", instanceID)
+			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
 	}
 }

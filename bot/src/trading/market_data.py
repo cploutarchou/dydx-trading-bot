@@ -1,15 +1,13 @@
 """Market data retrieval and price construction for dYdX."""
 
 import asyncio
-import logging
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from src.constants import RESOLUTION
 from src.shared.utils import get_ISO_times
-
-logger = logging.getLogger(__name__)
 
 # Get relevant time periods for ISO from and to
 ISO_TIMES = get_ISO_times()
@@ -109,7 +107,7 @@ async def construct_market_prices(client):
     # You can limit the amount to loop though here to save time in development
     for i, market in enumerate(tradeable_markets[0:]):
         logger.info(
-            "Extracting prices for %d of %d tokens: %s",
+            "Extracting prices for {} of {} tokens: {}",
             i + 1,
             len(tradeable_markets),
             market,
@@ -120,14 +118,14 @@ async def construct_market_prices(client):
             df_add.set_index("datetime", inplace=True)
             df = pd.merge(df, df_add, how="outer", on="datetime")
         except Exception as e:
-            logger.exception("Failed to add market %s to price matrix! %s", market, e)
+            logger.exception("Failed to add market {} to price matrix! {}", market, e)
 
         del df_add
 
     # Check any columns with NaNs
     nans = df.columns[df.isna().any()].tolist()
     if len(nans) > 0:
-        logger.warning("Dropping columns with NaNs: %s", nans)
+        logger.warning("Dropping columns with NaNs: {}", nans)
         df.drop(columns=nans, inplace=True)
 
     # Return result

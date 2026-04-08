@@ -54,6 +54,17 @@ This document verifies that the Go backend properly proxies all Python bot API e
 | `/api/v1/bots/:instance_id/market-data` | GET | ✅ | ✅ | **PROXIED** | Market prices |
 | `/api/v1/bots/:instance_id/realtime-stats` | GET | ✅ | ✅ | **PROXIED** | Live stats |
 | `/api/v1/bots/:instance_id/alerts` | GET | ✅ | ✅ | **PROXIED** | Alerts/warnings |
+7890-=
+### Control Plane & Recovery
+
+| Endpoint | Method | Backend | Bot API | Status | Notes |
+|----------|--------|---------|---------|--------|-------|
+| `/api/v1/capabilities` | GET | ✅ | ✅ | **PROXIED** | Bot service discovery surface |
+| `/api/v1/runtime/db-config` | GET | ✅ | ✅ | **PROXIED** | Admin-only runtime DB diagnostics |
+| `/api/v1/backtests/interrupted` | GET | ✅ | ✅ | **PROXIED** | Interrupted/orphaned run visibility |
+| `/api/v1/backtests/interrupted/reconcile` | POST | ✅ | ✅ | **PROXIED** | Reconcile interrupted runs |
+| `/api/v1/admin/backtests/interrupted` | GET | ✅ | ✅ | **PROXIED** | Admin alias for interrupted runs |
+| `/api/v1/admin/backtests/interrupted/reconcile` | POST | ✅ | ✅ | **PROXIED** | Admin alias for reconcile |
 
 ### Quick Deploy
 
@@ -103,22 +114,24 @@ This document verifies that the Go backend properly proxies all Python bot API e
 |----------|--------|---------|---------|--------|-------|
 | `/health` | GET | ✅ | ✅ | **PROXIED** | Health check |
 | `/api/v1/system/status` | GET | ✅ | ✅ | **PROXIED** | System status |
+| `/ready` | GET | ✅ | ✅ | **COMPOSITE** | Backend readiness includes bot readiness |
 
 ---
 
 ## 📊 Coverage Summary
 
 ```
-Total Bot API Endpoints: 30
-Total Backend Proxied: 30
+Total Bot API Endpoints: 38
+Total Backend Proxied: 38
 Coverage: 100% ✅
 
 Breakdown:
 - Bot Instance Management: 7/7 (100%)
 - Real-Time Data: 6/6 (100%)
 - Backtest Management: 13/13 (100%)
-- System Status: 2/2 (100%)
-- Other: 2/2 (100%)
+- Control Plane & Recovery: 6/6 (100%)
+- System Status: 3/3 (100%)
+- Other: 3/3 (100%)
 ```
 
 ---
@@ -199,10 +212,14 @@ Real-time updates via WebSocket:
 
 ```typescript
 // Backtest Progress Updates
-ws://localhost:8888/api/v1/backtests/:run_id/live-progress?token=<JWT>
+ws://localhost:8888/api/v1/backtests/:run_id/live?access_token=<JWT>
+ws://localhost:8888/ws/backtests/:run_id?access_token=<JWT>
 
 // Bot Instance Updates
-ws://localhost:8888/api/v1/bots/:instance_id/updates?token=<JWT>
+ws://localhost:8888/ws/bots/:instance_id?access_token=<JWT>
+
+// Strategy Runtime Updates
+ws://localhost:8888/ws/strategies?access_token=<JWT>
 ```
 
 Message Types from WebSocket:

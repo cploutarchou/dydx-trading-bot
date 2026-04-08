@@ -9,14 +9,14 @@ load_repo_env(__file__)
 
 import argparse
 import asyncio
-import logging
 import os
 import signal
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 # Import configuration and bot functions
 from config.config import config
+from loguru import logger
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import abort_all_positions
@@ -32,7 +32,7 @@ class BotInstance:
     def __init__(self, instance_id: str, config_file: Optional[str] = None):
         self.instance_id = instance_id
         self.config_file = config_file
-        self.logger: Optional[logging.Logger] = None
+        self.logger: Optional[Any] = None
         self.client = None
         self.messenger = None
         self.running = False
@@ -59,15 +59,16 @@ class BotInstance:
         error_detail = self._describe_exception(exc)
         if self.logger is None:
             return
+        normalized_message = message.replace("%s", "{}")
         if hasattr(self.logger, "exception"):
-            self.logger.exception(message, error_detail)
+            self.logger.exception(normalized_message, error_detail)
         else:
-            self.logger.error(message % error_detail)
+            self.logger.error(normalized_message.format(error_detail))
 
     def setup_logging(self):
         """Setup instance-specific logging"""
         setup_logging()
-        self.logger = logging.getLogger(f"bot.{self.instance_id}")
+        self.logger = logger.bind(instance_id=self.instance_id, component="bot_instance")
         self.logger.info(f"Bot instance {self.instance_id} initializing...")
 
     def load_config(self):
@@ -159,7 +160,7 @@ class BotInstance:
                 self.logger.info(f"Strategy: {self.config.botSettings.strategy}")
         except Exception as e:
             if self.logger:
-                self._log_exception("Failed to load config: %s", e)
+                self._log_exception("Failed to load config: {}", e)
             raise
 
     def setup_signal_handlers(self):
@@ -210,7 +211,7 @@ class BotInstance:
         except Exception as e:
             error_detail = self._describe_exception(e)
             if self.logger:
-                self._log_exception("Failed to initialize bot instance: %s", e)
+                self._log_exception("Failed to initialize bot instance: {}", e)
             if self.messenger:
                 self.messenger.send_error_message(
                     "Initialization Failed",
@@ -252,7 +253,7 @@ class BotInstance:
 
         except Exception as e:
             error_detail = self._describe_exception(e)
-            self._log_exception("Error in initial setup: %s", e)
+            self._log_exception("Error in initial setup: {}", e)
             self.messenger.send_error_message(
                 "Setup Failed",
                 f"Bot instance {self.instance_id} setup failed: {error_detail}",
@@ -278,7 +279,7 @@ class BotInstance:
                         await asyncio.sleep(1)
                     except Exception as e:
                         error_detail = self._describe_exception(e)
-                        self._log_exception("Error managing exits: %s", e)
+                        self._log_exception("Error managing exits: {}", e)
                         self.messenger.send_error_message(
                             "Exit Management Error",
                             f"Instance {self.instance_id}: {error_detail}",
@@ -293,7 +294,7 @@ class BotInstance:
                         await open_positions(self.client)
                     except Exception as e:
                         error_detail = self._describe_exception(e)
-                        self._log_exception("Error opening positions: %s", e)
+                        self._log_exception("Error opening positions: {}", e)
                         self.messenger.send_error_message(
                             "Trade Entry Error",
                             f"Instance {self.instance_id}: {error_detail}",
@@ -309,7 +310,7 @@ class BotInstance:
             self.messenger.send_shutdown_message(f"User interrupt (instance {self.instance_id})")
         except Exception as e:
             error_detail = self._describe_exception(e)
-            self._log_exception("Critical error in trading loop: %s", e)
+            self._log_exception("Critical error in trading loop: {}", e)
             self.messenger.send_error_message(
                 "Trading Loop Error",
                 f"Instance {self.instance_id}: {error_detail}",
@@ -330,7 +331,7 @@ class BotInstance:
             if self.logger:
                 if hasattr(self.logger, "exception"):
                     self.logger.exception(
-                        "Bot instance %s failed: %s",
+                        "Bot instance {} failed: {}",
                         self.instance_id,
                         self._describe_exception(e),
                     )

@@ -1,16 +1,15 @@
 """Telegram messaging system for dYdX Trading Bot."""
 
 import html
-import logging
 import os
 import time
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 import requests
+from loguru import logger
 from src.constants import DYDX_ADDRESS, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 
-logger = logging.getLogger(__name__)
 
 
 class TelegramMessenger:
@@ -146,7 +145,7 @@ class TelegramMessenger:
                     and "bots can't send messages to bots" in response.text.lower()
                 ):
                     logger.error(
-                        "Telegram delivery blocked: TELEGRAM_CHAT_ID '%s' appears to belong to a bot account. "
+                        "Telegram delivery blocked: TELEGRAM_CHAT_ID '{}' appears to belong to a bot account. "
                         "Use a user/group/channel chat id and ensure that chat has started/interacted with this bot.",
                         self.chat_id,
                     )
@@ -162,7 +161,7 @@ class TelegramMessenger:
                             retry_after = 0.0
                     backoff = retry_after if retry_after > 0 else min(2.0, 0.5 * attempt)
                     logger.warning(
-                        "Telegram API transient error %s on attempt %s/%s; retrying in %.2fs",
+                        "Telegram API transient error {} on attempt {}/{}; retrying in {:.2f}s",
                         response.status_code,
                         attempt,
                         attempts,
@@ -171,14 +170,14 @@ class TelegramMessenger:
                     time.sleep(backoff)
                     continue
 
-                logger.error("Telegram API error %s: %s", response.status_code, response.text)
+                logger.error("Telegram API error {}: {}", response.status_code, response.text)
                 return False
 
             except requests.exceptions.RequestException as e:
                 if attempt < attempts:
                     backoff = min(2.0, 0.5 * attempt)
                     logger.warning(
-                        "Telegram request failure on attempt %s/%s: %s; retrying in %.2fs",
+                        "Telegram request failure on attempt {}/{}: {}; retrying in {:.2f}s",
                         attempt,
                         attempts,
                         e,
@@ -186,7 +185,7 @@ class TelegramMessenger:
                     )
                     time.sleep(backoff)
                     continue
-                logger.error("Failed to send Telegram message after retries: %s", e)
+                logger.error("Failed to send Telegram message after retries: {}", e)
                 return False
 
         return False
@@ -205,7 +204,7 @@ class TelegramMessenger:
         if dedupe_window_seconds is None:
             dedupe_window_seconds = int(os.getenv("TELEGRAM_DEDUPE_SECONDS", "0") or "0")
         if dedupe_key and self._should_skip_duplicate(dedupe_key, dedupe_window_seconds):
-            logger.info("Skipping duplicate Telegram notification key=%s", dedupe_key)
+            logger.info("Skipping duplicate Telegram notification key={}", dedupe_key)
             return False
 
         safe_text = self._truncate_text(text)

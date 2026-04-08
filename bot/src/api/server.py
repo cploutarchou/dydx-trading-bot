@@ -5,15 +5,17 @@ Bot API Server - FastAPI server for controlling multiple bot instances
 import asyncio
 import contextvars
 import json
-import logging
 import os
+import re
+import sys
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
 import uvicorn
+from loguru import logger
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -32,6 +34,29 @@ from src.shared.env_loader import load_repo_env
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
 
+_original_stderr = sys.stderr
+
+
+class _FilteredStderr:
+    """Filter noisy third-party warnings that are expected and already handled."""
+
+    def __init__(self, stderr):
+        self.stderr = stderr
+
+    def write(self, message):
+        if "Node URL should not contain http(s)://" not in message:
+            self.stderr.write(message)
+            self.stderr.flush()
+
+    def flush(self):
+        self.stderr.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stderr, name)
+
+
+sys.stderr = _FilteredStderr(_original_stderr)
+
 # Import authentication modules
 from src.api.v1.auth import router as auth_router
 
@@ -48,33 +73,31 @@ from src.infrastructure.domain.bot_api_models import (
 from src.infrastructure.domain.models.auth_models import User
 from src.middleware.auth_middleware import (
     authenticate_bearer_token,
+    get_admin_user,
     get_current_active_user,
 )
 
 try:
     from src.bot_instance_manager import bot_manager
 except Exception as bot_manager_import_error:  # pragma: no cover
-    logging.getLogger(__name__).warning(
-        "Bot instance manager unavailable at startup: %s",
-        bot_manager_import_error,
-    )
+    logger.warning("Bot instance manager unavailable at startup: {}", bot_manager_import_error)
     bot_manager = None
 
+from internal.domain.models import BotStatusEnum
 from src.api.realtime_serializers import (
     serialize_market_core,
     serialize_realtime_position,
     serialize_stats_risk_fields,
 )
-from src.api.websocket_server import WebSocketServer, manager
 from src.api.websocket_server import (
+    WebSocketServer,
     broadcast_strategy_status,
     build_strategy_snapshot_message,
+    manager,
 )
-from src.shared.notifications import TelegramMessenger
-from src.shared.time_utils import utc_now_iso
 
 # Import database utilities
-from src.infrastructure.database import db
+from src.infrastructure.database import DatabaseConfig, db
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (
@@ -87,12 +110,15 @@ from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
+from src.shared.notifications import TelegramMessenger
+from src.shared.logging_setup import setup_logging
+from src.shared.time_utils import utc_now_iso
 from src.trading.dydx_client import connect_dydx
-from internal.domain.models import BotStatusEnum
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+sys.stderr = _original_stderr
+
+# Setup logging (Loguru + stdlib bridge)
+setup_logging()
 trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
     "trace_id", default=""
 )
@@ -302,6 +328,31 @@ def _bot_manager_unavailable_response() -> JSONResponse:
     )
 
 
+def _bot_recovery_diagnostics() -> Dict[str, Any]:
+    if not _bot_manager_ready():
+        return {
+            "source": "unavailable",
+            "attempted": 0,
+            "loaded": 0,
+            "skipped": 0,
+            "skipped_instances": [],
+            "last_error": "bot manager unavailable",
+        }
+
+    try:
+        return bot_manager.get_recovery_diagnostics()
+    except Exception as exc:
+        logger.warning("Failed to read bot recovery diagnostics: {}", exc)
+        return {
+            "source": "error",
+            "attempted": 0,
+            "loaded": 0,
+            "skipped": 0,
+            "skipped_instances": [],
+            "last_error": str(exc),
+        }
+
+
 def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
     """Normalize max_pairs semantics.
 
@@ -355,7 +406,7 @@ async def _resolve_backtest_markets(
             # Preserve deterministic ordering for repeatable runs.
             markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
     except Exception as err:
-        logger.warning("Falling back to default market list: %s", err)
+        logger.warning("Falling back to default market list: {}", err)
     finally:
         if client is not None:
             try:
@@ -539,12 +590,15 @@ async def lifespan(_: FastAPI):
     global bot_manager_monitor_task
 
     logger.info("Starting Bot API Server...")
+    runtime_db_config = DatabaseConfig()
     logger.info(
-        "Runtime DB target: type=%s host=%s port=%s name=%s",
-        os.getenv("DB_TYPE", "postgresql"),
-        os.getenv("DB_HOST", "localhost"),
-        os.getenv("DB_PORT", "5432"),
-        os.getenv("DB_NAME", "dydx_bot"),
+        "Runtime DB target: type={} host={} port={} name={} mode={} source={}",
+        runtime_db_config.db_type,
+        runtime_db_config.db_host,
+        runtime_db_config.db_port,
+        runtime_db_config.db_name,
+        runtime_db_config.cutover_mode,
+        runtime_db_config.field_source,
     )
     db.create_all_tables()
     db.ensure_schema_compatibility()
@@ -736,7 +790,11 @@ def _persist_bot_status_and_event(
 
         return dict(bot.config or {})
     except Exception as db_error:
-        logger.warning("Failed to persist bot lifecycle state for %s: %s", instance_id, db_error)
+        logger.warning(
+            "Failed to persist bot lifecycle state for {}: {}",
+            instance_id,
+            db_error,
+        )
         if session is not None:
             session.rollback()
         return None
@@ -752,17 +810,34 @@ async def request_trace_logging_middleware(request: Request, call_next):
     trace_id = inbound_trace_id or f"req-{uuid4().hex[:12]}"
     token = trace_id_ctx.set(trace_id)
     started = time.perf_counter()
+    is_development = os.getenv("ENVIRONMENT", "development").lower() == "development"
+    query = (request.url.query or "").strip()
+    if len(query) > 256:
+        query = f"{query[:253]}..."
+    client = request.client.host if request.client else "unknown"
+
+    if is_development:
+        logger.debug(
+            "request_started trace_id={} method={} path={} query={} client={}",
+            trace_id,
+            request.method,
+            request.url.path,
+            query or "-",
+            client,
+        )
 
     try:
         response = await call_next(request)
     except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         logger.exception(
-            "request_failed trace_id=%s method=%s path=%s duration_ms=%.2f",
+            "request_failed trace_id={} method={} path={} query={} duration_ms={:.2f} client={}",
             trace_id,
             request.method,
             request.url.path,
+            query or "-",
             elapsed_ms,
+            client,
         )
         raise
     finally:
@@ -770,19 +845,42 @@ async def request_trace_logging_middleware(request: Request, call_next):
 
     response.headers["X-Trace-Id"] = trace_id
 
-    if os.getenv("ENVIRONMENT", "development").lower() == "development":
+    if is_development:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        logger.info(
-            "request trace_id=%s method=%s path=%s status=%s duration_ms=%.2f client=%s",
+        log_message = (
+            "request_completed trace_id={} method={} path={} query={} status={} "
+            "duration_ms={:.2f} client={}"
+        )
+        log_args = (
             trace_id,
             request.method,
             request.url.path,
+            query or "-",
             response.status_code,
             elapsed_ms,
-            request.client.host if request.client else "unknown",
+            client,
         )
+        if response.status_code >= 500:
+            logger.error(log_message, *log_args)
+        elif _is_expected_strategy_runtime_probe_404(request, response.status_code):
+            logger.debug(log_message, *log_args)
+        elif response.status_code >= 400:
+            logger.warning(log_message, *log_args)
+        else:
+            logger.info(log_message, *log_args)
 
     return response
+
+
+def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) -> bool:
+    if status_code != 404 or request.method != "GET":
+        return False
+    return (
+        re.fullmatch(
+            r"/api/v1/bots/strategy-\d+-\d+(?:/stats)?", request.url.path or ""
+        )
+        is not None
+    )
 
 
 # ============================================================================
@@ -1636,6 +1734,7 @@ async def health_check():
             "api_version": "1.0.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backtest_runtime": runtime_health,
+            "bot_recovery": _bot_recovery_diagnostics(),
         },
         message="API is healthy",
     )
@@ -1656,6 +1755,7 @@ async def readiness_check():
             "bot_manager_ready": ready,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backtest_runtime": runtime_health,
+            "bot_recovery": _bot_recovery_diagnostics(),
         },
         message=(
             "Bot API is ready"
@@ -1664,6 +1764,88 @@ async def readiness_check():
         ),
         status_code=status_code,
     )
+
+
+@app.get("/api/v1/capabilities")
+async def api_capabilities():
+    """Expose bot-service HTTP and websocket capabilities for backend integration."""
+    http_routes: List[str] = []
+    websocket_routes: List[str] = []
+    commands: List[str] = []
+    queries: List[str] = []
+
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        if not path:
+            continue
+
+        is_supported_scope = path.startswith("/api/v1/bots") or path.startswith(
+            "/api/v1/backtests"
+        ) or path.startswith("/ws/") or path == "/api/v1/capabilities"
+        if not is_supported_scope:
+            continue
+
+        methods = sorted(
+            method
+            for method in (getattr(route, "methods", set()) or set())
+            if method not in {"HEAD", "OPTIONS"}
+        )
+        if methods:
+            for method in methods:
+                route_id = f"{method} {path}"
+                http_routes.append(route_id)
+                if method in {"POST", "PUT", "PATCH", "DELETE"}:
+                    commands.append(route_id)
+                elif method == "GET":
+                    queries.append(route_id)
+        elif "websocket" in route.__class__.__name__.lower():
+            websocket_routes.append(f"WS {path}")
+
+    http_routes = sorted(set(http_routes))
+    websocket_routes = sorted(set(websocket_routes))
+    commands = sorted(set(commands))
+    queries = sorted(set(queries))
+
+    return api_response(
+        success=True,
+        data={
+            "service": "bot",
+            "http_endpoints": http_routes,
+            "websocket_channels": websocket_routes,
+            "command_endpoints": commands,
+            "query_endpoints": queries,
+            "event_channels": websocket_routes,
+            "http_count": len(http_routes),
+            "websocket_count": len(websocket_routes),
+            "command_count": len(commands),
+            "query_count": len(queries),
+            "count": len(http_routes) + len(websocket_routes),
+        },
+        message="Bot API and websocket capabilities retrieved",
+    )
+
+
+@app.get("/api/v1/runtime/db-config")
+async def runtime_db_config(current_user: User = Depends(get_admin_user)):
+    """Admin-only diagnostics for effective runtime database configuration."""
+    _ = current_user
+    try:
+        config = DatabaseConfig()
+        return api_response(
+            success=True,
+            data={
+                **config.to_diagnostics(),
+                "count": 1,
+            },
+            message="Runtime database configuration retrieved",
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving runtime DB config diagnostics: {e}")
+        return api_response(
+            success=False,
+            message="Internal server error",
+            status_code=500,
+        )
 
 
 @app.get("/api/v1/users/me")
@@ -1711,6 +1893,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                     },
                     "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
                     "backtest_runtime": runtime_health,
+                    "bot_recovery": _bot_recovery_diagnostics(),
                 },
                 message="System status available; bot manager unavailable",
             )
@@ -1747,6 +1930,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                     "uptime_hours": "N/A",  # Could implement uptime tracking
                 },
                 "backtest_runtime": runtime_health,
+                "bot_recovery": _bot_recovery_diagnostics(),
             },
             message="System status retrieved successfully",
         )
@@ -2147,6 +2331,22 @@ async def websocket_backtest_progress(websocket: WebSocket, run_id: str):
     await WebSocketServer.handle_connection(websocket, f"backtest-{run_id}")
 
 
+@app.websocket("/ws/bots/{bot_instance_id}")
+async def websocket_bot_runtime(websocket: WebSocket, bot_instance_id: int):
+    """Alias websocket channel for backend integrations consuming bot runtime events."""
+    if not await _authorize_websocket_connection(websocket):
+        return
+    await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
+
+
+@app.websocket("/ws/backtests/{run_id}")
+async def websocket_backtest_progress_alias(websocket: WebSocket, run_id: str):
+    """Alias websocket channel for backend integrations consuming backtest runtime events."""
+    if not await _authorize_websocket_connection(websocket):
+        return
+    await WebSocketServer.handle_connection(websocket, f"backtest-{run_id}")
+
+
 async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
     """Validate websocket bearer token via service-token or JWT path."""
     if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
@@ -2255,7 +2455,7 @@ async def create_backtest(
                 except Exception as lookup_error:
                     # Keep backtest execution available even if strategy persistence is temporarily unavailable.
                     logger.warning(
-                        "Strategy lookup failed for id=%s during backtest creation; using manual fallback payload: %s",
+                        "Strategy lookup failed for id={} during backtest creation; using manual fallback payload: {}",
                         request.strategy_id,
                         lookup_error,
                     )
@@ -2268,7 +2468,7 @@ async def create_backtest(
                     )
                 else:
                     logger.warning(
-                        "Strategy '%s' not found; falling back to manual backtest payload",
+                        "Strategy '{}' not found; falling back to manual backtest payload",
                         request.strategy_id,
                     )
                     normalized_request = BacktestConfigRequest(
@@ -2372,7 +2572,7 @@ async def run_backtest_compat(
             except Exception as lookup_error:
                 # Strategy store outages should not block backtest execution from compatibility clients.
                 logger.warning(
-                    "Strategy lookup failed for id=%s in /api/v1/backtests/run; using manual fallback payload: %s",
+                    "Strategy lookup failed for id={} in /api/v1/backtests/run; using manual fallback payload: {}",
                     request.strategy_id,
                     lookup_error,
                 )
@@ -2385,7 +2585,7 @@ async def run_backtest_compat(
                 )
             else:
                 logger.warning(
-                    "Strategy '%s' not found in /backtests/run; falling back to manual payload",
+                    "Strategy '{}' not found in /backtests/run; falling back to manual payload",
                     request.strategy_id,
                 )
                 backtest_request = BacktestConfigRequest(
@@ -2480,6 +2680,85 @@ async def list_backtests(
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )
+
+
+@app.get("/api/v1/backtests/interrupted")
+async def list_interrupted_backtests(
+    limit: int = 50,
+):
+    """Ops visibility for interrupted/orphaned persisted backtest runs."""
+    return _list_interrupted_backtests_response(limit=limit)
+
+
+def _list_interrupted_backtests_response(limit: int):
+    """Shared response builder for interrupted backtest visibility routes."""
+    try:
+        service = get_backtest_service()
+        report = service.list_interrupted_runs_for_ops(limit=limit)
+        report["count"] = int(report.get("orphaned_count", 0)) + int(
+            report.get("interrupted_count", 0)
+        )
+        return api_response(
+            success=True,
+            data=report,
+            message="Retrieved interrupted backtest reconciliation report",
+        )
+    except Exception as e:
+        logger.error(f"Error listing interrupted backtests: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/interrupted/reconcile")
+async def reconcile_interrupted_backtests(
+    dry_run: bool = True,
+):
+    """Explicitly reconcile persisted orphaned in-progress runs."""
+    return _reconcile_interrupted_backtests_response(dry_run=dry_run)
+
+
+def _reconcile_interrupted_backtests_response(dry_run: bool):
+    """Shared response builder for interrupted backtest reconcile routes."""
+    try:
+        service = get_backtest_service()
+        report = service.reconcile_interrupted_runs(dry_run=dry_run)
+        report["count"] = int(report.get("candidate_count", 0))
+        message = (
+            "Dry-run completed for interrupted backtest reconciliation"
+            if dry_run
+            else "Interrupted backtest reconciliation completed"
+        )
+        return api_response(
+            success=True,
+            data=report,
+            message=message,
+        )
+    except Exception as e:
+        logger.error(f"Error reconciling interrupted backtests: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/admin/backtests/interrupted")
+async def list_interrupted_backtests_admin(
+    limit: int = 50,
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-scoped alias for interrupted/orphaned persisted backtest visibility."""
+    _ = current_user
+    return _list_interrupted_backtests_response(limit=limit)
+
+
+@app.post("/api/v1/admin/backtests/interrupted/reconcile")
+async def reconcile_interrupted_backtests_admin(
+    dry_run: bool = True,
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-scoped alias for explicit interrupted backtest reconciliation."""
+    _ = current_user
+    return _reconcile_interrupted_backtests_response(dry_run=dry_run)
 
 
 @app.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
@@ -2909,7 +3188,7 @@ async def _bot_manager_monitor_loop():
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.error("Bot manager monitor loop failed: %s", exc)
+            logger.error("Bot manager monitor loop failed: {}", exc)
 
         await asyncio.sleep(interval_seconds)
 

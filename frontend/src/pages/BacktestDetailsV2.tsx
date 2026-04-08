@@ -491,46 +491,36 @@ export const BacktestDetailsV2: React.FC = () => {
     fetchTrades();
   }, [runId, hasCompletedBacktest, activeTab, tradesLoadedRunId]);
 
-  // Auto-refresh status when backtest is still in progress
   useEffect(() => {
-    if (!backtest || !runId) return;
-    const sn = normalizeStatus(backtest.status);
-    if (sn !== 'running' && sn !== 'pending') return;
+    if (!runId) return;
+
+    const liveStatus = normalizeStatus(progressQuery.data?.status);
+    if (liveStatus !== 'completed' && liveStatus !== 'failed' && liveStatus !== 'cancelled') {
+      return;
+    }
+    if (liveStatus === normalizeStatus(backtest?.status)) {
+      return;
+    }
 
     let cancelled = false;
-    let timerId: ReturnType<typeof setTimeout> | null = null;
-    let failureCount = 0;
 
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled) return;
-      timerId = setTimeout(() => {
-        void pollStatus();
-      }, delayMs);
-    };
-
-    const pollStatus = async () => {
+    const syncFinalBacktest = async () => {
       try {
-        const res = await api.getBacktest(runId);
-        if (cancelled) return;
-        setBacktest((res?.data || res) as unknown as BacktestResponse);
-        failureCount = 0;
-        scheduleNext(5000);
-      } catch {
-        if (cancelled) return;
-        failureCount = Math.min(failureCount + 1, 4);
-        scheduleNext(Math.min(5000 * 2 ** failureCount, 30000));
+        const response = await api.getBacktest(runId);
+        if (!cancelled) {
+          setBacktest((response?.data || response) as unknown as BacktestResponse);
+        }
+      } catch (err) {
+        console.warn('Failed to sync final backtest details:', err);
       }
     };
 
-    void pollStatus();
+    void syncFinalBacktest();
 
     return () => {
       cancelled = true;
-      if (timerId) {
-        clearTimeout(timerId);
-      }
     };
-  }, [backtest?.status, runId]);
+  }, [backtest?.status, progressQuery.data?.status, runId]);
 
   // Poll live logs while the backtest is active to surface current scan/task activity.
   useEffect(() => {
@@ -555,7 +545,7 @@ export const BacktestDetailsV2: React.FC = () => {
       try {
         const response = await api.getBacktestLogs(runId);
         if (cancelled || !response.success || !response.data?.logs) {
-          scheduleNext(5000);
+          scheduleNext(document.visibilityState === 'visible' ? 10000 : 30000);
           return;
         }
 
@@ -571,14 +561,14 @@ export const BacktestDetailsV2: React.FC = () => {
 
         setLiveLogs(normalized);
         failureCount = 0;
-        scheduleNext(5000);
+        scheduleNext(document.visibilityState === 'visible' ? 10000 : 30000);
       } catch (error) {
         if (cancelled) {
           return;
         }
         console.warn('📊 BacktestDetailsV2: failed to fetch live backtest logs', error);
         failureCount = Math.min(failureCount + 1, 4);
-        scheduleNext(Math.min(5000 * 2 ** failureCount, 30000));
+        scheduleNext(Math.min(10000 * 2 ** failureCount, 60000));
       }
     };
 
@@ -651,7 +641,9 @@ export const BacktestDetailsV2: React.FC = () => {
       ? formatDurationFromSeconds(progressQuery.etaSeconds)
       : null;
   const progressSourceLabel =
-    progressQuery.progressSource === 'list_fallback'
+    progressQuery.progressSource === 'websocket'
+      ? 'websocket'
+      : progressQuery.progressSource === 'list_fallback'
       ? 'list fallback'
       : progressQuery.progressSource === 'details'
         ? 'details status'
@@ -779,8 +771,8 @@ export const BacktestDetailsV2: React.FC = () => {
             <div className="w-full">
               <p className="text-blue-300 font-medium">Backtest in progress</p>
               <p className="text-slate-400 text-sm mt-0.5">
-                Tab data is hidden until the backtest completes. This page refreshes automatically
-                every 5 seconds.
+                Tab data is hidden until the backtest completes. Progress updates stream live over
+                websocket, with HTTP fallback only when needed.
               </p>
               <div className="mt-3">
                 <div className="flex items-center justify-between text-xs text-blue-300 mb-1">

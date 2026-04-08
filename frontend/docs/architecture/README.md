@@ -9,6 +9,7 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 | **[Data Flow](DATA_FLOW.md)**             | Component interactions and data movement | 10 min    |
 | **[Patterns](PATTERNS.md)**               | Code patterns and conventions            | 15 min    |
 | **[API Integration](API_INTEGRATION.md)** | Backend communication patterns           | 10 min    |
+| **[Fintech UI Standards](FINTECH_UI_STANDARDS.md)** | Production-grade live trading UI bar | 8 min |
 
 ## System Architecture
 

@@ -37,6 +37,14 @@ Use this document as the frontend quality bar for production-grade DeFi surfaces
 - During live updates, never clear already-rendered data unless the underlying dataset is truly empty.
 - Charts must not auto-jump or auto-fit on every tick.
 
+## Navigation standards
+
+- Navigation should be operator-first: fast to scan, keyboard-friendly, and grouped by workflow.
+- Provide a global command palette for route jumping and quick actions.
+- Keep quick actions close to the main navigation, not buried in page content only.
+- Header chrome should expose environment, online state, and operator context without overwhelming the page.
+- Breadcrumbs should reflect route intent, not raw URL segments.
+
 ## Rollout targets
 
 - Backtests: complete

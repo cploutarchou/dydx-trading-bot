@@ -486,19 +486,19 @@ func buildBacktestSummaryPayload(detailsPayload map[string]interface{}, tradesPa
 	totalTrades, _ := getNumberField(details, "total_trades")
 
 	return map[string]interface{}{
-		"run_id":             getStringField(details, "run_id"),
-		"status":             status,
-		"created_at":         createdAt,
-		"started_at":         startedAt,
-		"completed_at":       completedAt,
-		"total_trades":       int(totalTrades),
+		"run_id":              getStringField(details, "run_id"),
+		"status":              status,
+		"created_at":          createdAt,
+		"started_at":          startedAt,
+		"completed_at":        completedAt,
+		"total_trades":        int(totalTrades),
 		"earliest_trade_date": earliestTradeDate,
 		"latest_trade_date":   latestTradeDate,
 		"configuration": map[string]interface{}{
-			"num_pairs":         inferBacktestPairCount(details),
-			"zscore_threshold":  zscoreThreshold,
-			"stats_window":      int(statsWindow),
-			"usd_per_trade":     usdPerTrade,
+			"num_pairs":        inferBacktestPairCount(details),
+			"zscore_threshold": zscoreThreshold,
+			"stats_window":     int(statsWindow),
+			"usd_per_trade":    usdPerTrade,
 		},
 		"requested_run_id": runID,
 	}

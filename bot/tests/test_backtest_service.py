@@ -265,7 +265,6 @@ def test_failed_backtest_exposes_error_fields(monkeypatch):
 
     asyncio.run(_run())
 
-
 def test_build_market_pairs_uses_all_unique_combinations():
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
@@ -562,5 +561,3 @@ def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
         run["run_id"] == "run-orphaned-ops"
         for run in ops_report["interrupted_runs"]
     )
-
-

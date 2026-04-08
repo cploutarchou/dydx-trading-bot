@@ -51,7 +51,7 @@ DB_TYPE=postgresql
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=dydx_bot
-DB_USER=postgres
+DB_USER=dydx_bot
 DB_PASSWORD=change-me-db-password
 DB_TIMEOUT=5
 DB_POOL_SIZE=5
@@ -59,10 +59,10 @@ DB_MAX_CONNECTIONS=10
 DB_MAX_OVERFLOW=10
 SSL_MODE=false
 BOT_DB_HOST=localhost
-BOT_DB_PORT=5432
+BOT_DB_PORT=5433
 BOT_DB_NAME=dydx_bot
-BOT_DB_USER=postgres
-BOT_DB_CUTOVER_MODE=shared
+BOT_DB_USER=dydx_bot
+BOT_DB_CUTOVER_MODE=dedicated
 LOG_LEVEL=INFO
 LOKI_ENABLED=false
 ```
@@ -112,15 +112,21 @@ python main.py
 From the repo root, start shared services first if you want Postgres/Redis available:
 
 ```bash
-make infra-up
+make dev-infra
 ```
+
+`make dev-infra` now provisions:
+
+- backend Postgres on `localhost:5432`
+- bot-dedicated Postgres on `localhost:5433`
+- Redis on `localhost:6379`
 
 Then run the bot API from `bot/` with `make local-api`.
 
 When finished:
 
 ```bash
-make infra-down
+make dev-infra-down
 ```
 
 ## Local endpoints
@@ -175,6 +181,12 @@ If you run the canonical API from JetBrains using the FastAPI run configuration 
 `src/api/server.py` already calls `load_repo_env(__file__)`, so structured repo config is loaded before the API imports runtime/config modules. On startup, the bot now also normalizes legacy `bot_instances.status` rows to uppercase enum-compatible values (`error` -> `ERROR`, `failed` -> `ERROR`, `paused` -> `STOPPED`) before ORM-driven status reads occur.
 
 Backtest run state is now persisted in PostgreSQL (`backtest_runtime_runs`), so `GET /api/v1/backtests/{run_id}/status` continues to work after API reload/restart instead of depending solely on in-memory service state.
+
+The live data path is split deliberately:
+
+- Python bot persists durable backtest and runtime state into the bot-dedicated Postgres
+- Go backend proxies HTTP/WebSocket traffic and may mirror selected backtest data for app-side querying
+- React frontend reads and subscribes through the Go backend, not by connecting to the bot service directly
 
 ## Common commands
 

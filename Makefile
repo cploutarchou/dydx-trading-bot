@@ -3,12 +3,18 @@ MODE ?= development
 
 DEV_INFRA_NETWORK ?= dydx-dev-infra
 DEV_PG_CONTAINER ?= dydx-dev-postgres
+DEV_BOT_PG_CONTAINER ?= dydx-dev-bot-postgres
 DEV_REDIS_CONTAINER ?= dydx-dev-redis
 DEV_PG_VOLUME ?= dydx-dev-postgres-data
+DEV_BOT_PG_VOLUME ?= dydx-dev-bot-postgres-data
 DEV_PG_USER ?= dydx_bot
 DEV_PG_PASSWORD ?= change-me-db-password
 DEV_PG_DB ?= dydx_bot
 DEV_PG_PORT ?= 5432
+DEV_BOT_PG_USER ?= dydx_bot
+DEV_BOT_PG_PASSWORD ?= change-me-db-password
+DEV_BOT_PG_DB ?= dydx_bot
+DEV_BOT_PG_PORT ?= 5433
 DEV_REDIS_PORT ?= 6379
 
 # Default target - show help when running just 'make'
@@ -417,7 +423,7 @@ infra-ps: ## Show status for shared infra services (postgres + redis)
 		exit 0; \
 	fi
 
-dev-infra: ## Start local Postgres + Redis (idempotent) and print matching runtime config
+dev-infra: ## Start local backend Postgres + bot Postgres + Redis and print matching runtime config
 	@if ! command -v docker >/dev/null 2>&1; then \
 		echo "⚠️  Docker CLI is not installed"; \
 		exit 0; \
@@ -430,6 +436,7 @@ dev-infra: ## Start local Postgres + Redis (idempotent) and print matching runti
 		set -e; \
 		docker network inspect $(DEV_INFRA_NETWORK) >/dev/null 2>&1 || docker network create $(DEV_INFRA_NETWORK); \
 		docker volume inspect $(DEV_PG_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_PG_VOLUME) >/dev/null; \
+		docker volume inspect $(DEV_BOT_PG_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_BOT_PG_VOLUME) >/dev/null; \
 		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_PG_CONTAINER)'; then \
 			docker start $(DEV_PG_CONTAINER) >/dev/null; \
 		else \
@@ -440,6 +447,18 @@ dev-infra: ## Start local Postgres + Redis (idempotent) and print matching runti
 				-e POSTGRES_PASSWORD=$(DEV_PG_PASSWORD) \
 				-e POSTGRES_DB=$(DEV_PG_DB) \
 				-v $(DEV_PG_VOLUME):/var/lib/postgresql/data \
+				postgres:16-alpine >/dev/null; \
+		fi; \
+		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_BOT_PG_CONTAINER)'; then \
+			docker start $(DEV_BOT_PG_CONTAINER) >/dev/null; \
+		else \
+			docker run -d --name $(DEV_BOT_PG_CONTAINER) \
+				--network $(DEV_INFRA_NETWORK) \
+				-p $(DEV_BOT_PG_PORT):5432 \
+				-e POSTGRES_USER=$(DEV_BOT_PG_USER) \
+				-e POSTGRES_PASSWORD=$(DEV_BOT_PG_PASSWORD) \
+				-e POSTGRES_DB=$(DEV_BOT_PG_DB) \
+				-v $(DEV_BOT_PG_VOLUME):/var/lib/postgresql/data \
 				postgres:16-alpine >/dev/null; \
 		fi; \
 		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_REDIS_CONTAINER)'; then \
@@ -454,7 +473,11 @@ dev-infra: ## Start local Postgres + Redis (idempotent) and print matching runti
 			docker exec $(DEV_PG_CONTAINER) pg_isready -U $(DEV_PG_USER) -d $(DEV_PG_DB) >/dev/null 2>&1 && break; \
 			sleep 1; \
 		done; \
-		echo "✅ Dev infra ready: postgres=$(DEV_PG_CONTAINER):$(DEV_PG_PORT), redis=$(DEV_REDIS_CONTAINER):$(DEV_REDIS_PORT)"; \
+		for i in 1 2 3 4 5 6 7 8 9 10; do \
+			docker exec $(DEV_BOT_PG_CONTAINER) pg_isready -U $(DEV_BOT_PG_USER) -d $(DEV_BOT_PG_DB) >/dev/null 2>&1 && break; \
+			sleep 1; \
+		done; \
+		echo "✅ Dev infra ready: backend-postgres=$(DEV_PG_CONTAINER):$(DEV_PG_PORT), bot-postgres=$(DEV_BOT_PG_CONTAINER):$(DEV_BOT_PG_PORT), redis=$(DEV_REDIS_CONTAINER):$(DEV_REDIS_PORT)"; \
 		echo "Use this runtime config:"; \
 		echo '  "database": {'; \
 		echo '    "DB_TYPE": "postgres",'; \
@@ -469,6 +492,14 @@ dev-infra: ## Start local Postgres + Redis (idempotent) and print matching runti
 		echo '    "POSTGRES_USER": "$(DEV_PG_USER)",'; \
 		echo '    "POSTGRES_PASSWORD": "$(DEV_PG_PASSWORD)"'; \
 		echo '  },'; \
+		echo '  "bot_database": {'; \
+		echo '    "BOT_DB_CUTOVER_MODE": "dedicated",'; \
+		echo '    "BOT_DB_HOST": "localhost",'; \
+		echo '    "BOT_DB_PORT": '$(DEV_BOT_PG_PORT)','; \
+		echo '    "BOT_DB_NAME": "$(DEV_BOT_PG_DB)",'; \
+		echo '    "BOT_DB_USER": "$(DEV_BOT_PG_USER)",'; \
+		echo '    "BOT_DB_PASSWORD": "$(DEV_BOT_PG_PASSWORD)"'; \
+		echo '  },'; \
 		echo '  "redis": {'; \
 		echo '    "REDIS_ENABLED": true,'; \
 		echo '    "REDIS_HOST": "localhost",'; \
@@ -478,7 +509,7 @@ dev-infra: ## Start local Postgres + Redis (idempotent) and print matching runti
 		echo '  }'; \
 	fi
 
-dev-infra-down: ## Stop/remove local Postgres + Redis created by dev-infra
+dev-infra-down: ## Stop/remove local backend Postgres + bot Postgres + Redis created by dev-infra
 	@if ! command -v docker >/dev/null 2>&1; then \
 		echo "⚠️  Docker CLI is not installed"; \
 		exit 0; \
@@ -487,9 +518,9 @@ dev-infra-down: ## Stop/remove local Postgres + Redis created by dev-infra
 		echo "   If the error is 'permission denied' on /var/run/docker.sock, add your user to the docker group and re-login."; \
 		exit 0; \
 	else \
-		docker rm -f $(DEV_PG_CONTAINER) $(DEV_REDIS_CONTAINER) >/dev/null 2>&1 || true; \
+		docker rm -f $(DEV_PG_CONTAINER) $(DEV_BOT_PG_CONTAINER) $(DEV_REDIS_CONTAINER) >/dev/null 2>&1 || true; \
 		echo "✅ Dev infra containers removed"; \
-		echo "ℹ️  Volume $(DEV_PG_VOLUME) was kept (data preserved)."; \
+		echo "ℹ️  Volumes $(DEV_PG_VOLUME) and $(DEV_BOT_PG_VOLUME) were kept (data preserved)."; \
 	fi
 
 stack-up-dev: ## Start full integration stack (api + worker + frontend dev + postgres + redis)

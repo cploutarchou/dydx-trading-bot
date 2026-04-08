@@ -51,6 +51,14 @@
     "POSTGRES_USER": "dydx_bot",
     "POSTGRES_PASSWORD": "change-me-db-password"
   },
+  "bot_database": {
+    "BOT_DB_CUTOVER_MODE": "dedicated",
+    "BOT_DB_HOST": "localhost",
+    "BOT_DB_PORT": 5433,
+    "BOT_DB_NAME": "dydx_bot",
+    "BOT_DB_USER": "dydx_bot",
+    "BOT_DB_PASSWORD": "change-me-db-password"
+  },
   "redis": {
     "REDIS_ENABLED": true,
     "REDIS_HOST": "localhost",

@@ -6,6 +6,7 @@ import asyncio
 import contextvars
 import json
 import os
+import re
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -589,12 +590,15 @@ async def lifespan(_: FastAPI):
     global bot_manager_monitor_task
 
     logger.info("Starting Bot API Server...")
+    runtime_db_config = DatabaseConfig()
     logger.info(
-        "Runtime DB target: type={} host={} port={} name={}",
-        os.getenv("DB_TYPE", "postgresql"),
-        os.getenv("DB_HOST", "localhost"),
-        os.getenv("DB_PORT", "5432"),
-        os.getenv("DB_NAME", "dydx_bot"),
+        "Runtime DB target: type={} host={} port={} name={} mode={} source={}",
+        runtime_db_config.db_type,
+        runtime_db_config.db_host,
+        runtime_db_config.db_port,
+        runtime_db_config.db_name,
+        runtime_db_config.cutover_mode,
+        runtime_db_config.field_source,
     )
     db.create_all_tables()
     db.ensure_schema_compatibility()
@@ -858,12 +862,20 @@ async def request_trace_logging_middleware(request: Request, call_next):
         )
         if response.status_code >= 500:
             logger.error(log_message, *log_args)
+        elif _is_expected_strategy_runtime_probe_404(request, response.status_code):
+            logger.debug(log_message, *log_args)
         elif response.status_code >= 400:
             logger.warning(log_message, *log_args)
         else:
             logger.info(log_message, *log_args)
 
     return response
+
+
+def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) -> bool:
+    if status_code != 404 or request.method != "GET":
+        return False
+    return re.fullmatch(r"/api/v1/bots/strategy-\d+-\d+", request.url.path or "") is not None
 
 
 # ============================================================================

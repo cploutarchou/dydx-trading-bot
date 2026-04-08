@@ -6,7 +6,7 @@
  */
 
 import { ArrowDown, ArrowUp, Loader } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
 	CartesianGrid,
@@ -97,6 +97,16 @@ interface BacktestLogEntry {
   message: string;
   level: string;
   created_at: string;
+}
+
+interface SocketLogPayload {
+  type?: string;
+  timestamp?: string;
+  level?: string;
+  message?: string;
+  current_pair?: string;
+  current_task?: string;
+  status?: string;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -201,6 +211,7 @@ export const BacktestDetailsV2: React.FC = () => {
     'summary' | 'candles' | 'positions' | 'trades' | 'results'
   >('summary');
   const [liveLogs, setLiveLogs] = useState<BacktestLogEntry[]>([]);
+  const liveLogCounterRef = useRef(0);
 
   const backtestStatus = normalizeStatus(backtest?.status);
   const hasCompletedBacktest = backtestStatus === 'completed';
@@ -248,6 +259,8 @@ export const BacktestDetailsV2: React.FC = () => {
     setAnalyticsError(null);
     setPositionsError(null);
     setTradesError(null);
+    setLiveLogs([]);
+    liveLogCounterRef.current = 0;
   }, [runId]);
 
   // Fetch analytics and map it to chart-friendly candle-like series
@@ -522,65 +535,46 @@ export const BacktestDetailsV2: React.FC = () => {
     };
   }, [backtest?.status, progressQuery.data?.status, runId]);
 
-  // Poll live logs while the backtest is active to surface current scan/task activity.
   useEffect(() => {
-    if (!runId || !backtest) return;
+    const event = progressQuery.lastSocketEvent as SocketLogPayload | null;
+    if (!event) return;
 
-    const status = normalizeStatus(backtest.status);
-    const isActive = status === 'running' || status === 'pending';
-    if (!isActive) return;
+    const message =
+      typeof event.message === 'string' && event.message.trim().length > 0
+        ? event.message.trim()
+        : typeof event.current_task === 'string' && typeof event.current_pair === 'string'
+          ? `${event.current_task}: ${event.current_pair}`
+          : typeof event.current_pair === 'string'
+            ? `Scanning: ${event.current_pair}`
+            : typeof event.status === 'string'
+              ? `Status: ${event.status}`
+              : null;
 
-    let cancelled = false;
-    let timerId: ReturnType<typeof setTimeout> | null = null;
-    let failureCount = 0;
+    if (!message) return;
 
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled) return;
-      timerId = setTimeout(() => {
-        void fetchLogs();
-      }, delayMs);
-    };
+    const level = typeof event.level === 'string' ? event.level.toLowerCase() : 'info';
+    const createdAt =
+      typeof event.timestamp === 'string' && event.timestamp.length > 0
+        ? event.timestamp
+        : new Date().toISOString();
 
-    const fetchLogs = async () => {
-      try {
-        const response = await api.getBacktestLogs(runId);
-        if (cancelled || !response.success || !response.data?.logs) {
-          scheduleNext(document.visibilityState === 'visible' ? 10000 : 30000);
-          return;
-        }
-
-        const normalized = response.data.logs
-          .map((entry) => ({
-            id: entry.id,
-            message: entry.message,
-            level: String(entry.level || 'info').toLowerCase(),
-            created_at: entry.created_at,
-          }))
-          .slice(-8)
-          .reverse();
-
-        setLiveLogs(normalized);
-        failureCount = 0;
-        scheduleNext(document.visibilityState === 'visible' ? 10000 : 30000);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        console.warn('📊 BacktestDetailsV2: failed to fetch live backtest logs', error);
-        failureCount = Math.min(failureCount + 1, 4);
-        scheduleNext(Math.min(10000 * 2 ** failureCount, 60000));
+    setLiveLogs((previous) => {
+      if (previous[0] && previous[0].message === message && previous[0].level === level) {
+        const updated = [...previous];
+        updated[0] = { ...updated[0], created_at: createdAt };
+        return updated;
       }
-    };
 
-    void fetchLogs();
-
-    return () => {
-      cancelled = true;
-      if (timerId) {
-        clearTimeout(timerId);
-      }
-    };
-  }, [runId, backtest?.status]);
+      liveLogCounterRef.current += 1;
+      const nextEntry: BacktestLogEntry = {
+        id: liveLogCounterRef.current,
+        message,
+        level,
+        created_at: createdAt,
+      };
+      return [nextEntry, ...previous].slice(0, 8);
+    });
+  }, [progressQuery.lastSocketEvent]);
 
   // Filter candles for selected market
   const selectedCandles = candles.filter((c) => c.market === selectedMarket);

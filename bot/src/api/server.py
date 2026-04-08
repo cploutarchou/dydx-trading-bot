@@ -875,7 +875,12 @@ async def request_trace_logging_middleware(request: Request, call_next):
 def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) -> bool:
     if status_code != 404 or request.method != "GET":
         return False
-    return re.fullmatch(r"/api/v1/bots/strategy-\d+-\d+", request.url.path or "") is not None
+    return (
+        re.fullmatch(
+            r"/api/v1/bots/strategy-\d+-\d+(?:/stats)?", request.url.path or ""
+        )
+        is not None
+    )
 
 
 # ============================================================================

@@ -31,6 +31,8 @@ interface BotInstance {
   created_at?: string;
   started_at?: string;
   instance_name?: string;
+  strategy?: string;
+  error_message?: string;
 }
 
 interface BotStats {
@@ -43,6 +45,8 @@ interface BotStats {
   total_trades: number;
   win_rate: number;
   last_update?: string;
+  degraded?: boolean;
+  warning?: string;
 }
 
 const normalizeStatus = (status: string | undefined): BotInstance['status'] => {
@@ -78,6 +82,9 @@ const mapBots = (data: unknown): BotInstance[] => {
         ...(record as unknown as BotInstance),
         instance_id: typeof record.instance_id === 'string' ? record.instance_id : '',
         status: normalizeStatus(record.status as string | undefined),
+        strategy: typeof record.strategy === 'string' ? record.strategy : undefined,
+        error_message:
+          typeof record.error_message === 'string' ? record.error_message : undefined,
       };
     })
     .filter((bot) => bot.instance_id.length > 0);
@@ -110,8 +117,13 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
     win_rate: toNumber(tradeStatistics.win_rate, toNumber(botStatistics.win_rate)) / 100,
     last_update:
       typeof raw.last_update === 'string' ? raw.last_update : new Date().toISOString(),
+    degraded: raw.degraded === true,
+    warning: typeof raw.warning === 'string' ? raw.warning : undefined,
   };
 };
+
+const isManagedStrategyRuntime = (bot: BotInstance): boolean =>
+  /^strategy-\d+-\d+$/.test(bot.instance_id) || bot.strategy === 'cointegration' || bot.strategy === 'mean_reversion';
 
 const EMPTY_BOT_STATS: BotStats = {
   total_positions: 0,
@@ -525,9 +537,15 @@ const BotManager: React.FC = () => {
                         {bot.instance_name || bot.instance_id}
                       </h3>
                       <p className="text-xs text-slate-500">ID: {bot.instance_id}</p>
+                      {isManagedStrategyRuntime(bot) && (
+                        <p className="text-xs text-cyan-400">Managed strategy runtime</p>
+                      )}
                       <p className="text-sm text-slate-400">
                         Started: {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
                       </p>
+                      {bot.error_message && (
+                        <p className="text-xs text-amber-300">{bot.error_message}</p>
+                      )}
                     </div>
 
                     <span
@@ -549,6 +567,11 @@ const BotManager: React.FC = () => {
                         <p className="text-xs text-slate-400">
                           Positions: {stats.open_positions} open, {stats.closed_positions} closed
                         </p>
+                        {stats.degraded && (
+                          <p className="text-xs text-amber-300">
+                            {stats.warning || 'Runtime stats temporarily unavailable'}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>

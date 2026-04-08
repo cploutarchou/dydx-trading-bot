@@ -1,7 +1,9 @@
 // Custom React Query Hooks for API Endpoints
 // Provides optimized data fetching with loading states, error handling, and caching
 
+import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import api from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
@@ -471,6 +473,14 @@ export function useBacktestAnalysis(runId: string) {
  */
 export function useBacktestProgress(runId: string) {
   const normalizeStatus = (status: unknown): string => String(status || '').trim().toUpperCase();
+  const [data, setData] = useState<Record<string, unknown> | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [socketError, setSocketError] = useState<Error | null>(null);
+  const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
+  const [lastSocketEvent, setLastSocketEvent] = useState<Record<string, unknown> | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
 
   const normalizeProgressPercent = (data: unknown): number => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
@@ -506,32 +516,251 @@ export function useBacktestProgress(runId: string) {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
   };
 
-  const query = useQuery({
-    queryKey: queryKeys.backtestStatus(runId),
-    queryFn: () => apiClient.getBacktestStatus(runId),
-    refetchInterval: (query) => {
-      const status = normalizeStatus((query.state.data as { status?: string } | undefined)?.status);
-      // Stop polling if backtest is complete or failed
-      if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED') {
-        return false;
+  const mergeProgressData = (
+    current: Record<string, unknown> | undefined,
+    patch: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const next = { ...(current || {}) };
+
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined) {
+        next[key] = value;
       }
-      const failures = Math.min(query.state.fetchFailureCount ?? 0, 4);
-      return Math.min(2000 * 2 ** failures, 15000);
-    },
-    enabled: !!runId,
-  });
+    }
+
+    return next;
+  };
+
+  const parseSocketPayload = (payload: unknown): Record<string, unknown> | null => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const record = payload as Record<string, unknown>;
+    const progress =
+      record.progress_percent ?? record.progress_pct ?? record.progress ?? record.percent_complete;
+    const message =
+      typeof record.message === 'string'
+        ? record.message
+        : typeof record.type === 'string'
+          ? record.type
+          : undefined;
+
+    return {
+      run_id: typeof record.run_id === 'string' ? record.run_id : runId,
+      status: typeof record.status === 'string' ? normalizeStatus(record.status) : undefined,
+      progress_percent:
+        typeof progress === 'number' || typeof progress === 'string'
+          ? normalizeProgressPercent({ progress_percent: progress })
+          : undefined,
+      current_pair:
+        typeof record.current_pair === 'string'
+          ? record.current_pair
+          : typeof record.current_market === 'string'
+            ? record.current_market
+            : typeof record.market === 'string'
+              ? record.market
+              : undefined,
+      estimated_completion_seconds:
+        typeof record.estimated_completion_seconds === 'number' ||
+        typeof record.estimated_completion_seconds === 'string'
+          ? Number(record.estimated_completion_seconds)
+          : typeof record.eta_seconds === 'number' || typeof record.eta_seconds === 'string'
+            ? Number(record.eta_seconds)
+            : typeof record.remaining_seconds === 'number' ||
+                typeof record.remaining_seconds === 'string'
+              ? Number(record.remaining_seconds)
+              : undefined,
+      message,
+      details:
+        record.details && typeof record.details === 'object' && !Array.isArray(record.details)
+          ? record.details
+          : undefined,
+      progress_source: 'websocket',
+      updated_at: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString(),
+    };
+  };
+
+  useEffect(() => {
+    if (!runId) {
+      setData(undefined);
+      setIsLoading(false);
+      setBootstrapError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      setIsLoading(true);
+      try {
+        const result = await apiClient.getBacktestStatus(runId);
+        if (!cancelled) {
+          setData(result as unknown as Record<string, unknown>);
+          setBootstrapError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setBootstrapError(
+            error instanceof Error ? error : new Error('Failed to fetch backtest progress')
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  useEffect(() => {
+    if (!runId) {
+      setIsConnected(false);
+      setSocketError(null);
+      return;
+    }
+
+    let closedByEffect = false;
+    let socket: WebSocket | null = null;
+    let statusRequestTimer: number | null = null;
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+
+    const clearStatusRequestTimer = () => {
+      if (statusRequestTimer !== null) {
+        window.clearInterval(statusRequestTimer);
+        statusRequestTimer = null;
+      }
+    };
+
+    const requestStatus = () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      try {
+        socket.send(JSON.stringify({ type: 'request_status' }));
+      } catch (error) {
+        console.warn('Failed to request backtest status over websocket', error);
+      }
+    };
+
+    const connect = () => {
+      clearReconnectTimer();
+      clearStatusRequestTimer();
+
+      try {
+        socket = api.connectBacktestSocket(runId);
+      } catch (error) {
+        const nextError =
+          error instanceof Error ? error : new Error('Failed to open backtest websocket');
+        setSocketError(nextError);
+        setIsConnected(false);
+        scheduleReconnect();
+        return;
+      }
+
+      socket.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setIsConnected(true);
+        setSocketError(null);
+        requestStatus();
+        statusRequestTimer = window.setInterval(() => {
+          requestStatus();
+        }, 5000);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            setLastSocketEvent(parsed as Record<string, unknown>);
+          }
+          const patch = parseSocketPayload(parsed);
+          if (!patch) {
+            return;
+          }
+
+          setData((current) => mergeProgressData(current, patch));
+          setBootstrapError(null);
+        } catch (error) {
+          console.warn('Failed to parse backtest websocket payload', error);
+        }
+      };
+
+      socket.onerror = () => {
+        setSocketError(new Error('Live progress connection error'));
+      };
+
+      socket.onclose = () => {
+        setIsConnected(false);
+        clearStatusRequestTimer();
+        if (!closedByEffect) {
+          scheduleReconnect();
+        }
+      };
+    };
+
+    const scheduleReconnect = () => {
+      if (closedByEffect || reconnectTimerRef.current !== null) {
+        return;
+      }
+
+      const attempts = Math.min(reconnectAttemptRef.current, 4);
+      const delayMs = Math.min(1000 * 2 ** attempts, 15000);
+      reconnectAttemptRef.current += 1;
+
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, delayMs);
+    };
+
+    connect();
+
+    return () => {
+      closedByEffect = true;
+      clearReconnectTimer();
+      clearStatusRequestTimer();
+      reconnectAttemptRef.current = 0;
+      setIsConnected(false);
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+    };
+  }, [runId]);
+
+  const resolvedData = data;
+  const combinedError = socketError ?? bootstrapError;
 
   return {
-    ...query,
-    isComplete: normalizeStatus(query.data?.status) === 'COMPLETED',
-    isFailed: normalizeStatus(query.data?.status) === 'FAILED',
-    isCancelled: normalizeStatus(query.data?.status) === 'CANCELLED',
-    isRunning: normalizeStatus(query.data?.status) === 'RUNNING',
-    progressPercent: normalizeProgressPercent(query.data),
-    currentPair: extractCurrentPair(query.data),
-    etaSeconds: extractEtaSeconds(query.data),
+    data: resolvedData,
+    error: combinedError,
+    isError: combinedError !== null,
+    isLoading,
+    isSuccess: !!resolvedData,
+    isConnected,
+    lastSocketEvent,
+    isComplete: normalizeStatus(resolvedData?.status) === 'COMPLETED',
+    isFailed: normalizeStatus(resolvedData?.status) === 'FAILED',
+    isCancelled: normalizeStatus(resolvedData?.status) === 'CANCELLED',
+    isRunning: normalizeStatus(resolvedData?.status) === 'RUNNING',
+    progressPercent: normalizeProgressPercent(resolvedData),
+    currentPair: extractCurrentPair(resolvedData),
+    etaSeconds: extractEtaSeconds(resolvedData),
     progressSource:
-      typeof query.data?.progress_source === 'string' ? query.data.progress_source : 'default',
+      typeof resolvedData?.progress_source === 'string' ? resolvedData.progress_source : 'default',
   };
 }
 

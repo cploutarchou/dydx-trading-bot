@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, Shield, Sparkles, Waves } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { ProfitShareIllustration } from './DeFiIllustrations';
 
 interface AuthExperienceShellProps {
   kicker: string;
@@ -53,13 +54,17 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
       <div className="premium-orb left-[6%] top-[12%] h-56 w-56 bg-cyan-500/12" />
       <div className="premium-orb right-[8%] bottom-[10%] h-64 w-64 bg-blue-500/12" />
 
-      <div className="grid w-full max-w-7xl gap-8 lg:grid-cols-[1.1fr,0.9fr] lg:items-stretch">
-        <div className="relative overflow-hidden rounded-[2rem] border border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_26%),linear-gradient(180deg,rgba(15,23,42,0.94),rgba(2,6,23,0.98))] p-8 shadow-[0_28px_90px_rgba(2,8,23,0.35)] sm:p-10">
+      <div className="grid w-full max-w-[116rem] gap-8 lg:grid-cols-[1.04fr,0.96fr] lg:items-stretch">
+        <div className="editorial-band relative py-4 sm:py-6">
           <div className="premium-kicker">{sideLabel}</div>
           <h1 className="mt-5 max-w-2xl text-4xl font-bold leading-tight text-white sm:text-5xl">
             {sideTitle}
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300">{sideDescription}</p>
+
+          <div className="mt-8">
+            <ProfitShareIllustration className="mx-auto max-w-2xl" />
+          </div>
 
           <div className="mt-8 grid gap-4">
             {highlights.map((item) => {
@@ -67,7 +72,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
               return (
                 <div
                   key={item.label}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5"
+                  className="micro-panel p-5"
                 >
                   <div className="flex items-start gap-4">
                     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-3 text-cyan-200">
@@ -86,7 +91,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
             })}
           </div>
 
-          <div className="mt-8 rounded-[1.75rem] border border-slate-800 bg-slate-950/70 p-5">
+          <div className="micro-panel mt-8 p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Pricing Model</p>
@@ -96,7 +101,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
               </div>
               <Link
                 to="/pricing"
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-700 hover:text-white"
+                className="premium-button premium-button-secondary rounded-[1.05rem] px-4 py-2 text-sm"
               >
                 View plans
                 <ArrowRight className="h-4 w-4" />
@@ -104,7 +109,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               {plans.map((plan) => (
-                <div key={plan.name} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                <div key={plan.name} className="micro-panel p-4">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{plan.name}</p>
                   <p className="mt-2 text-2xl font-semibold text-white">{plan.price}</p>
                   <p className="mt-2 text-xs leading-5 text-slate-400">{plan.detail}</p>
@@ -114,14 +119,14 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
           </div>
         </div>
 
-        <div className="auth-panel w-full p-8 sm:p-10">
+        <div className="auth-panel w-full rounded-[2rem] p-8 sm:p-10">
           <div className="mb-8">
             <div className="premium-kicker">{kicker}</div>
             <h2 className="mt-4 text-3xl font-bold text-white">{title}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p>
           </div>
           {children}
-          <div className="mt-8 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-400">
+          <div className="micro-panel mt-8 flex flex-wrap items-center gap-3 px-4 py-3 text-sm text-slate-400">
             <CheckCircle2 className="h-4 w-4 text-emerald-300" />
             Production-ready UX for DeFi arbitrage desks, research teams, and live trading operators.
           </div>

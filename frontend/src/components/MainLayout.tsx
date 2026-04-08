@@ -49,8 +49,17 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     return () => window.removeEventListener('keydown', handleKeyboardShortcut);
   }, []);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   return (
-    <div className="premium-shell flex min-h-screen text-white">
+    <div className="premium-shell flex h-screen overflow-hidden text-white">
       <div className="premium-orb left-[-8rem] top-12 h-64 w-64 bg-cyan-500/10" />
       <div className="premium-orb right-[-6rem] top-28 h-72 w-72 bg-blue-500/12" />
 

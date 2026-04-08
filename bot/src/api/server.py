@@ -2521,7 +2521,7 @@ async def create_backtest(
         async def progress_callback(
             run_id: str, progress: float, current_pair: str, eta: int
         ):
-            message = {
+            progress_message = {
                 "type": "backtest_progress",
                 "timestamp": utc_now_iso(),
                 "run_id": run_id,
@@ -2529,7 +2529,19 @@ async def create_backtest(
                 "current_pair": current_pair,
                 "eta_seconds": eta,
             }
-            await manager.broadcast_to_bot(f"backtest-{run_id}", message)
+            log_message = {
+                "type": "backtest_log",
+                "timestamp": utc_now_iso(),
+                "run_id": run_id,
+                "level": "info",
+                "message": (
+                    "Backtest completed" if current_pair == "complete" else f"Scanning: {current_pair}"
+                ),
+                "current_pair": current_pair,
+                "current_task": "complete" if current_pair == "complete" else "running",
+            }
+            await manager.broadcast_to_bot(f"backtest-{run_id}", progress_message)
+            await manager.broadcast_to_bot(f"backtest-{run_id}", log_message)
             logger.debug(
                 f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
             )

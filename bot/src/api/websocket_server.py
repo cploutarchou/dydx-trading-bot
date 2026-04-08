@@ -183,6 +183,46 @@ class WebSocketServer:
         }
 
     @staticmethod
+    def _build_backtest_log_message(run_id: str, data: Dict) -> Dict | None:
+        status = str(data.get("status") or "").strip().lower()
+        current_pair = data.get("current_pair")
+        current_task = data.get("current_task")
+
+        message = None
+        level = "info"
+
+        if current_task == "complete" or status == "completed":
+            message = "Backtest completed"
+        elif current_task == "failed" or status == "failed":
+            level = "error"
+            message = str(data.get("error_message") or data.get("error") or "Backtest failed")
+        elif current_task == "cancelled" or status == "cancelled":
+            level = "warning"
+            message = "Backtest cancelled"
+        elif current_pair and current_task:
+            message = f"{current_task}: {current_pair}"
+        elif current_pair:
+            message = f"Scanning: {current_pair}"
+        elif current_task:
+            message = str(current_task)
+        elif status:
+            message = f"Status: {status}"
+
+        if not message:
+            return None
+
+        return {
+            "type": "backtest_log",
+            "timestamp": utc_now_iso(),
+            "run_id": run_id,
+            "level": level,
+            "message": message,
+            "status": status or None,
+            "current_pair": current_pair,
+            "current_task": current_task,
+        }
+
+    @staticmethod
     async def handle_connection(websocket: WebSocket, bot_instance_id: str):
         """Handle new WebSocket connection"""
         await manager.connect(websocket, bot_instance_id)
@@ -426,10 +466,14 @@ class WebSocketServer:
                     "progress": 0.0,
                     "message": "backtest_not_found",
                 }
+                log_message = None
             else:
                 message = WebSocketServer._build_backtest_status_message(run_id, run_data)
+                log_message = WebSocketServer._build_backtest_log_message(run_id, run_data)
 
             await manager.send_personal_message(message, websocket)
+            if log_message is not None:
+                await manager.send_personal_message(log_message, websocket)
         except Exception as e:
             logger.error(f"Error sending backtest status: {e}")
         finally:

@@ -44,16 +44,23 @@ def test_send_initial_state_backtest_channel_emits_snapshot(monkeypatch):
     asyncio.run(websocket_server.WebSocketServer.send_initial_state(ws, "backtest-run-123"))
 
     assert session.closed is True
-    assert len(ws.messages) == 1
-    payload = ws.messages[0]
-    assert payload["type"] == "backtest_progress"
-    assert payload["run_id"] == "run-123"
-    assert payload["status"] == "running"
-    assert payload["progress_pct"] == 37.5
-    assert payload["progress"] == 37.5
-    assert payload["current_pair"] == "BTC-USD/ETH-USD"
-    assert payload["current_task"] == "scanning pairs"
-    assert payload["details"]["source"] == "initial_state"
+    assert len(ws.messages) == 2
+
+    progress_payload = ws.messages[0]
+    assert progress_payload["type"] == "backtest_progress"
+    assert progress_payload["run_id"] == "run-123"
+    assert progress_payload["status"] == "running"
+    assert progress_payload["progress_pct"] == 37.5
+    assert progress_payload["progress"] == 37.5
+    assert progress_payload["current_pair"] == "BTC-USD/ETH-USD"
+    assert progress_payload["current_task"] == "scanning pairs"
+    assert progress_payload["details"]["source"] == "initial_state"
+
+    log_payload = ws.messages[1]
+    assert log_payload["type"] == "backtest_log"
+    assert log_payload["run_id"] == "run-123"
+    assert log_payload["level"] == "info"
+    assert log_payload["message"] == "scanning pairs: BTC-USD/ETH-USD"
 
 
 def test_handle_message_request_status_uses_backtest_run_id(monkeypatch):

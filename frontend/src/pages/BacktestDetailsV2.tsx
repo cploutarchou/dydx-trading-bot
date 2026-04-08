@@ -109,6 +109,11 @@ interface SocketLogPayload {
   status?: string;
 }
 
+interface DetailSyncState {
+  runId: string;
+  cursor: string;
+}
+
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -193,9 +198,9 @@ export const BacktestDetailsV2: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [markets, setMarkets] = useState<string[]>([]);
-  const [analyticsLoadedRunId, setAnalyticsLoadedRunId] = useState<string | null>(null);
-  const [positionsLoadedRunId, setPositionsLoadedRunId] = useState<string | null>(null);
-  const [tradesLoadedRunId, setTradesLoadedRunId] = useState<string | null>(null);
+  const [analyticsLoadedState, setAnalyticsLoadedState] = useState<DetailSyncState | null>(null);
+  const [positionsLoadedState, setPositionsLoadedState] = useState<DetailSyncState | null>(null);
+  const [tradesLoadedState, setTradesLoadedState] = useState<DetailSyncState | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [tradesLoading, setTradesLoading] = useState(false);
@@ -214,7 +219,6 @@ export const BacktestDetailsV2: React.FC = () => {
   const liveLogCounterRef = useRef(0);
 
   const backtestStatus = normalizeStatus(backtest?.status);
-  const hasCompletedBacktest = backtestStatus === 'completed';
 
   // Fetch backtest metadata
   useEffect(() => {
@@ -250,9 +254,9 @@ export const BacktestDetailsV2: React.FC = () => {
     setTrades([]);
     setMarkets([]);
     setSelectedMarket(null);
-    setAnalyticsLoadedRunId(null);
-    setPositionsLoadedRunId(null);
-    setTradesLoadedRunId(null);
+    setAnalyticsLoadedState(null);
+    setPositionsLoadedState(null);
+    setTradesLoadedState(null);
     setAnalyticsLoading(false);
     setPositionsLoading(false);
     setTradesLoading(false);
@@ -263,17 +267,34 @@ export const BacktestDetailsV2: React.FC = () => {
     liveLogCounterRef.current = 0;
   }, [runId]);
 
+  const liveDetailCursor =
+    typeof progressQuery.data?.updated_at === 'string' && progressQuery.data.updated_at.length > 0
+      ? progressQuery.data.updated_at
+      : typeof progressQuery.lastSocketEvent?.timestamp === 'string' &&
+          progressQuery.lastSocketEvent.timestamp.length > 0
+        ? progressQuery.lastSocketEvent.timestamp
+        : `${progressQuery.progressPercent.toFixed(2)}`;
+  const liveStatusForDetailSync = normalizeStatus(progressQuery.data?.status || backtest?.status);
+  const isLiveDetailRun =
+    liveStatusForDetailSync === 'running' || liveStatusForDetailSync === 'pending';
+  const detailSyncCursor = isLiveDetailRun ? liveDetailCursor : 'settled';
+
   // Fetch analytics and map it to chart-friendly candle-like series
   useEffect(() => {
     const fetchAnalytics = async () => {
-      if (!runId || !hasCompletedBacktest) {
+      if (!runId) {
         setCandles([]);
         setMarkets([]);
-        setAnalyticsLoadedRunId(null);
+        setAnalyticsLoadedState(null);
         return;
       }
       if (activeTab !== 'candles') return;
-      if (analyticsLoadedRunId === runId) return;
+      if (
+        analyticsLoadedState?.runId === runId &&
+        analyticsLoadedState.cursor === detailSyncCursor
+      ) {
+        return;
+      }
 
       try {
         setAnalyticsLoading(true);
@@ -286,7 +307,10 @@ export const BacktestDetailsV2: React.FC = () => {
         if (!Array.isArray(daily) || daily.length === 0) {
           setCandles([]);
           setMarkets([]);
-          setAnalyticsLoadedRunId(runId);
+          setAnalyticsLoadedState({
+            runId,
+            cursor: detailSyncCursor,
+          });
           return;
         }
 
@@ -327,7 +351,10 @@ export const BacktestDetailsV2: React.FC = () => {
 
         setCandles(mapped);
         setMarkets(Array.from(marketSet));
-        setAnalyticsLoadedRunId(runId);
+        setAnalyticsLoadedState({
+          runId,
+          cursor: detailSyncCursor,
+        });
       } catch (err: unknown) {
         console.error('Failed to fetch backtest analytics:', err);
         setCandles([]);
@@ -339,7 +366,7 @@ export const BacktestDetailsV2: React.FC = () => {
     };
 
     fetchAnalytics();
-  }, [runId, hasCompletedBacktest, activeTab, analyticsLoadedRunId]);
+  }, [runId, activeTab, analyticsLoadedState, detailSyncCursor]);
 
   // Keep selected market valid when available markets update
   useEffect(() => {
@@ -356,13 +383,18 @@ export const BacktestDetailsV2: React.FC = () => {
   // Fetch position snapshots and flatten to latest known entries per snapshot
   useEffect(() => {
     const fetchPositionSnapshots = async () => {
-      if (!runId || !hasCompletedBacktest) {
+      if (!runId) {
         setPositions([]);
-        setPositionsLoadedRunId(null);
+        setPositionsLoadedState(null);
         return;
       }
       if (activeTab !== 'positions') return;
-      if (positionsLoadedRunId === runId) return;
+      if (
+        positionsLoadedState?.runId === runId &&
+        positionsLoadedState.cursor === detailSyncCursor
+      ) {
+        return;
+      }
 
       try {
         setPositionsLoading(true);
@@ -374,7 +406,10 @@ export const BacktestDetailsV2: React.FC = () => {
 
         if (!Array.isArray(snapshots) || snapshots.length === 0) {
           setPositions([]);
-          setPositionsLoadedRunId(runId);
+          setPositionsLoadedState({
+            runId,
+            cursor: detailSyncCursor,
+          });
           return;
         }
 
@@ -421,7 +456,10 @@ export const BacktestDetailsV2: React.FC = () => {
         });
 
         setPositions(flattened);
-        setPositionsLoadedRunId(runId);
+        setPositionsLoadedState({
+          runId,
+          cursor: detailSyncCursor,
+        });
       } catch (err: unknown) {
         console.error('Failed to fetch position snapshots:', err);
         setPositions([]);
@@ -432,18 +470,23 @@ export const BacktestDetailsV2: React.FC = () => {
     };
 
     fetchPositionSnapshots();
-  }, [runId, hasCompletedBacktest, activeTab, positionsLoadedRunId]);
+  }, [runId, activeTab, positionsLoadedState, detailSyncCursor]);
 
   // Fetch trades
   useEffect(() => {
     const fetchTrades = async () => {
-      if (!runId || !hasCompletedBacktest) {
+      if (!runId) {
         setTrades([]);
-        setTradesLoadedRunId(null);
+        setTradesLoadedState(null);
         return;
       }
       if (activeTab !== 'trades') return;
-      if (tradesLoadedRunId === runId) return;
+      if (
+        tradesLoadedState?.runId === runId &&
+        tradesLoadedState.cursor === detailSyncCursor
+      ) {
+        return;
+      }
 
       try {
         setTradesLoading(true);
@@ -487,10 +530,16 @@ export const BacktestDetailsV2: React.FC = () => {
             });
 
           setTrades(normalizedTrades);
-          setTradesLoadedRunId(runId);
+          setTradesLoadedState({
+            runId,
+            cursor: detailSyncCursor,
+          });
         } else {
           setTrades([]);
-          setTradesLoadedRunId(runId);
+          setTradesLoadedState({
+            runId,
+            cursor: detailSyncCursor,
+          });
         }
       } catch (err: unknown) {
         console.error('Failed to fetch trades:', err);
@@ -502,7 +551,7 @@ export const BacktestDetailsV2: React.FC = () => {
     };
 
     fetchTrades();
-  }, [runId, hasCompletedBacktest, activeTab, tradesLoadedRunId]);
+  }, [runId, activeTab, tradesLoadedState, detailSyncCursor]);
 
   useEffect(() => {
     if (!runId) return;
@@ -606,15 +655,72 @@ export const BacktestDetailsV2: React.FC = () => {
     );
   }
 
+  const liveRecord = asRecord(progressQuery.data);
+  const liveBacktest: BacktestResponse = {
+    ...backtest,
+    status:
+      typeof liveRecord?.status === 'string' && liveRecord.status.trim().length > 0
+        ? liveRecord.status
+        : backtest.status,
+    progress_percent:
+      firstFiniteNumber(
+        liveRecord?.progress_percent,
+        liveRecord?.progress_pct,
+        liveRecord?.progress,
+        backtest.progress_percent,
+        backtest.progress_pct,
+        backtest.progress
+      ) ?? 0,
+    progress_pct:
+      firstFiniteNumber(
+        liveRecord?.progress_pct,
+        liveRecord?.progress_percent,
+        liveRecord?.progress,
+        backtest.progress_pct,
+        backtest.progress_percent,
+        backtest.progress
+      ) ?? 0,
+    progress:
+      firstFiniteNumber(
+        liveRecord?.progress,
+        liveRecord?.progress_percent,
+        liveRecord?.progress_pct,
+        backtest.progress,
+        backtest.progress_percent,
+        backtest.progress_pct
+      ) ?? 0,
+    total_pnl:
+      firstFiniteNumber(liveRecord?.total_pnl, backtest.total_pnl, backtest.total_pnl_usd) ?? 0,
+    total_pnl_usd:
+      firstFiniteNumber(liveRecord?.total_pnl, backtest.total_pnl_usd, backtest.total_pnl) ?? 0,
+    total_trades:
+      firstFiniteNumber(liveRecord?.total_trades, backtest.total_trades, trades.length) ??
+      trades.length,
+    win_rate: firstFiniteNumber(liveRecord?.win_rate, backtest.win_rate) ?? 0,
+    sharpe_ratio: firstFiniteNumber(liveRecord?.sharpe_ratio, backtest.sharpe_ratio) ?? 0,
+    max_drawdown_pct:
+      firstFiniteNumber(liveRecord?.max_drawdown_pct, backtest.max_drawdown_pct, backtest.max_drawdown) ?? 0,
+    max_drawdown:
+      firstFiniteNumber(liveRecord?.max_drawdown_pct, backtest.max_drawdown, backtest.max_drawdown_pct) ?? 0,
+    profit_factor:
+      firstFiniteNumber(liveRecord?.profit_factor, backtest.profit_factor) ?? backtest.profit_factor,
+    error:
+      firstMeaningfulString(liveRecord?.error, backtest.error) ?? backtest.error ?? undefined,
+    error_message:
+      firstMeaningfulString(liveRecord?.error_message, backtest.error_message) ??
+      backtest.error_message ??
+      undefined,
+  };
+
   const liveStatusNorm = normalizeStatus(progressQuery.data?.status);
-  const statusNorm = liveStatusNorm || backtestStatus;
+  const statusNorm = normalizeStatus(liveBacktest.status) || liveStatusNorm || backtestStatus;
   const isRunning = statusNorm === 'running' || statusNorm === 'pending';
   const isCompleted = statusNorm === 'completed';
   const isFailed = statusNorm === 'failed' || statusNorm === 'cancelled';
   const metadataProgress = firstFiniteNumber(
-    backtest.progress_percent,
-    backtest.progress_pct,
-    backtest.progress
+    liveBacktest.progress_percent,
+    liveBacktest.progress_pct,
+    liveBacktest.progress
   );
   const liveProgress = progressQuery.progressPercent;
   const baseProgress =
@@ -642,10 +748,10 @@ export const BacktestDetailsV2: React.FC = () => {
       : progressQuery.progressSource === 'details'
         ? 'details status'
         : 'default';
-  const totalPnl = backtest.total_pnl_usd ?? backtest.total_pnl ?? 0;
-  const maxDrawdown = backtest.max_drawdown ?? backtest.max_drawdown_pct ?? 0;
-  const winRatePercent = normalizePercentValue(backtest.win_rate);
-  const failureReason = firstMeaningfulString(backtest.error_message, backtest.error);
+  const totalPnl = liveBacktest.total_pnl_usd ?? liveBacktest.total_pnl ?? 0;
+  const maxDrawdown = liveBacktest.max_drawdown ?? liveBacktest.max_drawdown_pct ?? 0;
+  const winRatePercent = normalizePercentValue(liveBacktest.win_rate);
+  const failureReason = firstMeaningfulString(liveBacktest.error_message, liveBacktest.error);
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -653,7 +759,7 @@ export const BacktestDetailsV2: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader className="w-6 h-6 animate-spin text-blue-400" />
           <p className="text-slate-400 text-center text-sm">
-            Backtest is still running — {label} will appear here once complete.
+            Backtest is still running. No {label} have been produced yet.
           </p>
         </div>
       );
@@ -686,7 +792,7 @@ export const BacktestDetailsV2: React.FC = () => {
   const metrics = [
     {
       label: 'Total Trades',
-      value: backtest.total_trades ?? trades.length,
+      value: liveBacktest.total_trades ?? trades.length,
       icon: '📊',
     },
     {
@@ -703,8 +809,8 @@ export const BacktestDetailsV2: React.FC = () => {
     {
       label: 'Sharpe Ratio',
       value:
-        backtest.sharpe_ratio !== undefined && backtest.sharpe_ratio !== null
-          ? backtest.sharpe_ratio.toFixed(2)
+        liveBacktest.sharpe_ratio !== undefined && liveBacktest.sharpe_ratio !== null
+          ? liveBacktest.sharpe_ratio.toFixed(2)
           : 'N/A',
       icon: '📈',
     },
@@ -716,19 +822,20 @@ export const BacktestDetailsV2: React.FC = () => {
     {
       label: 'Profit Factor',
       value:
-        backtest.profit_factor !== undefined && backtest.profit_factor !== null
-          ? backtest.profit_factor.toFixed(2)
+        liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
+          ? liveBacktest.profit_factor.toFixed(2)
           : 'N/A',
       icon: '🎯',
     },
   ];
 
-  const detailTabsLocked = !isCompleted;
   const renderDeferredTabHint = (label: string): React.ReactNode => (
     <div className="flex flex-col items-center justify-center py-16 gap-2">
       <p className="text-slate-300 font-medium">{label} are loaded on demand</p>
       <p className="text-center text-sm text-slate-500 max-w-xl">
-        The final result is shown first. Open this tab after completion to load the detailed dataset.
+        {isRunning
+          ? 'This tab refreshes live while the backtest runs. New rows appear as pairs finish processing.'
+          : 'The final result is shown first. Open this tab after completion to load the detailed dataset.'}
       </p>
     </div>
   );
@@ -765,8 +872,8 @@ export const BacktestDetailsV2: React.FC = () => {
             <div className="w-full">
               <p className="text-blue-300 font-medium">Backtest in progress</p>
               <p className="text-slate-400 text-sm mt-0.5">
-                Tab data is hidden until the backtest completes. Progress updates stream live over
-                websocket, with HTTP fallback only when needed.
+                Progress updates stream live over websocket, and detailed tabs refresh incrementally
+                as each pair finishes processing.
               </p>
               <div className="mt-3">
                 <div className="flex items-center justify-between text-xs text-blue-300 mb-1">
@@ -913,8 +1020,8 @@ export const BacktestDetailsV2: React.FC = () => {
                   <div>
                     <dt className="text-xs uppercase tracking-wide text-slate-500">Profit Factor</dt>
                     <dd className="mt-1 text-sm text-slate-200">
-                      {backtest.profit_factor !== undefined && backtest.profit_factor !== null
-                        ? backtest.profit_factor.toFixed(2)
+                      {liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
+                        ? liveBacktest.profit_factor.toFixed(2)
                         : 'N/A'}
                     </dd>
                   </div>
@@ -946,9 +1053,7 @@ export const BacktestDetailsV2: React.FC = () => {
         {/* Candles Tab */}
         {activeTab === 'candles' && (
           <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-            {detailTabsLocked ? (
-              renderEmptyState('candle data')
-            ) : analyticsLoading ? (
+            {analyticsLoading ? (
               <div className="flex items-center justify-center py-16 gap-3">
                 <Loader className="w-6 h-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading candle analytics...</p>
@@ -958,7 +1063,9 @@ export const BacktestDetailsV2: React.FC = () => {
                 {analyticsError}
               </div>
             ) : candles.length === 0 ? (
-              analyticsLoadedRunId === runId ? renderEmptyState('candle data') : renderDeferredTabHint('Candle analytics')
+              analyticsLoadedState?.runId === runId
+                ? renderEmptyState('candle data')
+                : renderDeferredTabHint('Candle analytics')
             ) : (
               <>
                 <div className="mb-4">
@@ -1016,9 +1123,7 @@ export const BacktestDetailsV2: React.FC = () => {
         {activeTab === 'positions' && (
           <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Positions ({positions.length})</h2>
-            {detailTabsLocked ? (
-              renderEmptyState('position data')
-            ) : positionsLoading ? (
+            {positionsLoading ? (
               <div className="flex items-center justify-center py-16 gap-3">
                 <Loader className="w-6 h-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading position snapshots...</p>
@@ -1028,7 +1133,9 @@ export const BacktestDetailsV2: React.FC = () => {
                 {positionsError}
               </div>
             ) : positions.length === 0 ? (
-              positionsLoadedRunId === runId ? renderEmptyState('position data') : renderDeferredTabHint('Position snapshots')
+              positionsLoadedState?.runId === runId
+                ? renderEmptyState('position data')
+                : renderDeferredTabHint('Position snapshots')
             ) : (
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-700">
@@ -1089,9 +1196,7 @@ export const BacktestDetailsV2: React.FC = () => {
         {activeTab === 'trades' && (
           <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Trades ({trades.length})</h2>
-            {detailTabsLocked ? (
-              renderEmptyState('trade data')
-            ) : tradesLoading ? (
+            {tradesLoading ? (
               <div className="flex items-center justify-center py-16 gap-3">
                 <Loader className="w-6 h-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading trade history...</p>
@@ -1101,7 +1206,9 @@ export const BacktestDetailsV2: React.FC = () => {
                 {tradesError}
               </div>
             ) : trades.length === 0 ? (
-              tradesLoadedRunId === runId ? renderEmptyState('trade data') : renderDeferredTabHint('Trade history')
+              tradesLoadedState?.runId === runId
+                ? renderEmptyState('trade data')
+                : renderDeferredTabHint('Trade history')
             ) : (
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-700">
@@ -1168,7 +1275,10 @@ export const BacktestDetailsV2: React.FC = () => {
         {activeTab === 'results' && (
           <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Detailed Results</h2>
-            <BacktestResultsEnhanced runId={runId || ''} />
+            <BacktestResultsEnhanced
+              runId={runId || ''}
+              liveRefreshToken={activeTab === 'results' ? detailSyncCursor : null}
+            />
           </div>
         )}
     </PageContainer>

@@ -184,13 +184,9 @@ export default function StrategyManager() {
     };
 
     void syncStrategyRuntimeStatuses();
-    const intervalId = window.setInterval(() => {
-      void syncStrategyRuntimeStatuses();
-    }, 15000);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
     };
   }, [strategies]);
 
@@ -232,14 +228,12 @@ export default function StrategyManager() {
       }
 
       try {
-        const token = localStorage.getItem('access_token');
-        if (!token) return;
-
         clearReconnectTimer();
         const generation = ++connectionGeneration;
 
-        // Use centralized api helper to build WebSocket URL
-        const socket = apiClient.connectSocket ? apiClient.connectSocket('/ws/strategies', token) : null;
+        const socket = apiClient.connectStrategyRuntimeSocket
+          ? apiClient.connectStrategyRuntimeSocket()
+          : null;
         ws = socket;
 
         if (!socket) return;

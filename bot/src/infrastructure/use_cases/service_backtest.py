@@ -958,7 +958,8 @@ class BacktestService:
                     market_history_cache[m2] = candles_2
 
                 timestamps, p1, p2 = self._align_series(candles_1, candles_2)
-                trades, snapshots, daily_pnl = self._simulate_pair(
+                trades, snapshots, daily_pnl = await asyncio.to_thread(
+                    self._simulate_pair,
                     run_id=run_id,
                     market_a=m1,
                     market_b=m2,

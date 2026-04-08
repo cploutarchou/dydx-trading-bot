@@ -109,6 +109,40 @@ def validate_prod_rules(env: dict[str, str]) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+def validate_bot_db_rules(env: dict[str, str]) -> tuple[list[str], list[str]]:
+    """Return (errors, warnings) for bot runtime DB cutover validation."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    cutover_mode = env.get("BOT_DB_CUTOVER_MODE", "shared").strip().lower()
+    dedicated_url = env.get("BOT_DATABASE_URL", "").strip()
+    dedicated_fields = [
+        "BOT_DB_HOST",
+        "BOT_DB_PORT",
+        "BOT_DB_NAME",
+        "BOT_DB_USER",
+        "BOT_DB_PASSWORD",
+    ]
+    missing_dedicated_fields = [key for key in dedicated_fields if not env.get(key, "").strip()]
+
+    if cutover_mode == "dedicated":
+        if not dedicated_url and missing_dedicated_fields:
+            errors.append(
+                "BOT_DB_CUTOVER_MODE=dedicated requires BOT_DATABASE_URL or all BOT_DB_* connection fields"
+            )
+    elif cutover_mode == "dedicated_with_shared_fallback":
+        if not dedicated_url and missing_dedicated_fields:
+            warnings.append(
+                "BOT_DB_CUTOVER_MODE=dedicated_with_shared_fallback is set but BOT_DATABASE_URL/BOT_DB_* are absent; bot will fall back to shared DB settings"
+            )
+    elif cutover_mode not in ("", "shared"):
+        errors.append(
+            "BOT_DB_CUTOVER_MODE must be one of shared, dedicated, or dedicated_with_shared_fallback"
+        )
+
+    return errors, warnings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate structured stack configuration")
     parser.add_argument(
@@ -162,6 +196,15 @@ def main() -> int:
             "ℹ️ Optional keys not set (expected in non-live mode): "
             + ", ".join(optional_empty)
         )
+
+    bot_db_errors, bot_db_warnings = validate_bot_db_rules(env)
+    for warning in bot_db_warnings:
+        print(f"ℹ️ {warning}")
+    if bot_db_errors:
+        print("❌ Bot DB validation failed", file=sys.stderr)
+        for err in bot_db_errors:
+            print(f"   - {err}", file=sys.stderr)
+        return 1
 
     if args.strict_prod:
         prod_errors, prod_warnings = validate_prod_rules(env)

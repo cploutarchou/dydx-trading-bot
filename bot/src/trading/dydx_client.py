@@ -1,5 +1,7 @@
 """dYdX network client connection management."""
 
+from datetime import datetime, timedelta, timezone
+
 from loguru import logger
 from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
 from dydx_v4_client.network import TESTNET
@@ -14,6 +16,9 @@ from src.constants import (
     MNEMONIC,
 )
 from src.trading.market_data import get_candles_recent
+
+_JURISDICTION_CHECK_TTL = timedelta(minutes=10)
+_jurisdiction_success_cache: dict[str, datetime] = {}
 
 
 def _is_placeholder_value(value: str) -> bool:
@@ -128,9 +133,20 @@ async def check_jurisdiction(client, market):
     Raises:
         RuntimeError: If jurisdiction check fails (access prohibited)
     """
+    now = datetime.now(timezone.utc)
+    last_success = _jurisdiction_success_cache.get(market)
+    if last_success is not None and (now - last_success) < _JURISDICTION_CHECK_TTL:
+        logger.debug(
+            "Skipping jurisdiction re-check for {} (last success at {})",
+            market,
+            last_success.isoformat(),
+        )
+        return
+
     logger.info("Checking Jurisdiction for market {}", market)
     try:
         await get_candles_recent(client, market)
+        _jurisdiction_success_cache[market] = now
         logger.info("Jurisdiction check succeeded for {}", market)
     except Exception as e:
         logger.exception("Jurisdiction check failed for {}", market)

@@ -40,10 +40,15 @@ export const queryKeys = {
   backtestMetrics: (runId: string) => ['backtests', runId, 'metrics'] as const,
   backtestAnalytics: (runId: string) => ['backtests', runId, 'analytics'] as const,
   backtestSyncHealth: (runId?: string) => ['backtests', 'sync-health', runId ?? 'all'] as const,
+  backtestInterrupted: (admin: boolean = false, limit?: number) =>
+    ['backtests', admin ? 'admin-interrupted' : 'interrupted', limit ?? 50] as const,
 
   // System
   systemStatus: ['system', 'status'] as const,
   health: ['system', 'health'] as const,
+  readiness: ['system', 'readiness'] as const,
+  botCapabilities: ['system', 'bot-capabilities'] as const,
+  runtimeDbConfig: ['system', 'runtime-db-config'] as const,
 } as const;
 
 // Create QueryClient with optimized defaults

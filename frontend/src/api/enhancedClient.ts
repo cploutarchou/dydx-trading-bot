@@ -455,6 +455,15 @@ class EnhancedAPIClient {
     }
   }
 
+  async getPositionHistory(
+    instanceId: string,
+    positionId: string,
+    hours: number = 24
+  ): Promise<ListResponse> {
+    const result = await this.baseClient.getBotPositionHistory(instanceId, positionId, hours);
+    return toListResponse(result, ['history', 'points', 'snapshots']);
+  }
+
   async getRealtimeStats(instanceId: string): Promise<Entity> {
     try {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/realtime-stats`, {
@@ -516,10 +525,47 @@ class EnhancedAPIClient {
     }
   }
 
+  async getBotHistory(instanceId: string, days: number = 7): Promise<Entity> {
+    const result = await this.baseClient.getBotHistory(instanceId, days);
+    return withDataFallback<Entity>(result, {});
+  }
+
+  async getBotJobs(instanceId: string, days: number = 7): Promise<Entity> {
+    const result = await this.baseClient.getBotJobs(instanceId, days);
+    return withDataFallback<Entity>(result, {});
+  }
+
+  async quickDeployBot(
+    instanceName: string,
+    autoStart: boolean,
+    config: Record<string, unknown>
+  ): Promise<Entity> {
+    const result = await this.baseClient.quickDeployBot(instanceName, autoStart, config);
+    return withDataFallback<Entity>(result, {});
+  }
+
   // ==================== Backtest Methods (delegate to existing) ====================
 
-  async listBacktests(params: { offset?: number; limit?: number } = {}): Promise<ListResponse> {
-    const result = await this.baseClient.listBacktests(params.offset || 0, params.limit || 50);
+  async listBacktests(
+    params: { offset?: number; limit?: number; status?: string; days?: number } = {}
+  ): Promise<ListResponse> {
+    const query = new URLSearchParams();
+    query.set('offset', String(params.offset ?? 0));
+    query.set('limit', String(params.limit ?? 50));
+    if (params.status) {
+      query.set('status', params.status);
+    }
+    if (params.days !== undefined) {
+      query.set('days', String(params.days));
+    }
+
+    const response = await this.fetchWithAuth(`/api/v1/backtests?${query.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    const result = await response.json();
     const data = (result.data ?? {}) as { total?: number; backtests?: Entity[] };
     return {
       count: data.total || 0,
@@ -666,18 +712,42 @@ class EnhancedAPIClient {
     return (result.data as Entity | undefined) ?? {};
   }
 
-  async deleteBacktest(_runId: string): Promise<void> {
-    // Implementation depends on backend having delete endpoint
+  async deleteBacktest(runId: string): Promise<void> {
+    await this.baseClient.deleteBacktest(runId);
   }
 
   async cancelBacktest(runId: string): Promise<{ message: string }> {
-    // Implementation depends on backend having cancel endpoint
-    return { message: `Backtest ${runId} cancelled` };
+    const result = await this.baseClient.cancelBacktest(runId);
+    const data = (result.data ?? {}) as { message?: string };
+    return { message: data.message || result.message || `Backtest ${runId} cancelled` };
   }
 
   async compareBacktests(runIds: string[], metrics: string[]): Promise<Entity> {
-    // Implementation for comparison
-    return { comparison: 'Mock comparison data', runIds, metrics };
+    const result = await this.baseClient.compareBacktests(runIds, metrics);
+    return withDataFallback<Entity>(result, {});
+  }
+
+  async getInterruptedBacktests(limit: number = 50, admin: boolean = false): Promise<Entity> {
+    const result = await this.baseClient.getInterruptedBacktests(limit, admin);
+    return withDataFallback<Entity>(result, {});
+  }
+
+  async reconcileInterruptedBacktests(
+    dryRun: boolean = true,
+    admin: boolean = false
+  ): Promise<Entity> {
+    const result = await this.baseClient.reconcileInterruptedBacktests(dryRun, admin);
+    return withDataFallback<Entity>(result, {});
+  }
+
+  async getCapabilities(): Promise<Entity> {
+    const result = await this.baseClient.getBotServiceCapabilities();
+    return withDataFallback<Entity>(result, {});
+  }
+
+  async getRuntimeDBConfig(): Promise<Entity> {
+    const result = await this.baseClient.getBotRuntimeDBConfig();
+    return withDataFallback<Entity>(result, {});
   }
 
   // ==================== System Methods ====================
@@ -719,12 +789,23 @@ class EnhancedAPIClient {
 
   async getHealth(): Promise<Entity> {
     try {
-      const response = await fetch('/health');
-      const result = await response.json();
+      const response = await fetch(resolveEnhancedApiUrl('/health'));
+      const result = await parseJsonResponse(response);
       return result;
     } catch (error) {
       console.error('getHealth error:', error);
       return { status: 'unknown' };
+    }
+  }
+
+  async getReadiness(): Promise<Entity> {
+    try {
+      const response = await fetch(resolveEnhancedApiUrl('/ready'));
+      const result = await parseJsonResponse(response);
+      return result;
+    } catch (error) {
+      console.error('getReadiness error:', error);
+      return { status: 'unknown', ready: false };
     }
   }
 }

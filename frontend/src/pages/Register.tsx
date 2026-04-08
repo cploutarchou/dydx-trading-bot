@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import AuthExperienceShell from '../components/AuthExperienceShell';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -144,31 +145,11 @@ export const RegisterPage: React.FC = () => {
     };
 
     return (
-        <div className="auth-stage flex items-center justify-center p-4">
-            <div className="premium-orb left-[10%] top-[14%] h-52 w-52 bg-cyan-500/12" />
-            <div className="premium-orb right-[10%] bottom-[8%] h-64 w-64 bg-emerald-500/10" />
-            <div className="auth-panel w-full max-w-xl">
-                <div className="rounded-t-[2rem] border-b border-slate-700/60 bg-gradient-to-r from-cyan-600/90 to-blue-600/90 p-8 text-white">
-                    <div className="premium-kicker border-white/20 bg-white/10 text-cyan-50">Create your operator account</div>
-                    <h1 className="mt-4 text-3xl font-bold">Build your trading command center</h1>
-                    <p className="mt-2 text-cyan-50/90">Join dYdX Bot and unlock premium backtesting, runtime control, and market intelligence.</p>
-                    <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3">
-                            <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">Runtime</p>
-                            <p className="mt-1 text-sm font-semibold text-white">Live strategy control</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3">
-                            <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">Research</p>
-                            <p className="mt-1 text-sm font-semibold text-white">Backtest intelligence</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3">
-                            <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">Market Pulse</p>
-                            <p className="mt-1 text-sm font-semibold text-white">News and token intel</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="p-8">
+        <AuthExperienceShell
+            kicker="Create your operator account"
+            title="Start your premium DeFi arbitrage workspace"
+            description="Register once, then move through security setup into a product built for live execution, research, and operator-grade decision making."
+        >
                     {registrationStatusQuery.data?.enabled === false && (
                         <div
                             role="alert"
@@ -375,8 +356,6 @@ export const RegisterPage: React.FC = () => {
                             Login
                         </button>
                     </p>
-                </div>
-            </div>
-        </div>
+        </AuthExperienceShell>
     );
 };

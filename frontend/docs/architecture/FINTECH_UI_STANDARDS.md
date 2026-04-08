@@ -45,6 +45,14 @@ Use this document as the frontend quality bar for production-grade DeFi surfaces
 - Header chrome should expose environment, online state, and operator context without overwhelming the page.
 - Breadcrumbs should reflect route intent, not raw URL segments.
 
+## Public website standards
+
+- The public website must explain the product before the user reaches auth.
+- Marketing, pricing, and auth pages should share the same premium visual language as the operator platform.
+- Pricing should describe operator value, not generic SaaS fluff.
+- Registration and security setup should feel like premium onboarding, not disconnected utility forms.
+- Public CTAs should move users cleanly into trial, subscription, or sign-in flows.
+
 ## Rollout targets
 
 - Backtests: complete

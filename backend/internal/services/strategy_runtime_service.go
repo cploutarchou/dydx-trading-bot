@@ -208,6 +208,20 @@ func (s *StrategyRuntimeService) startRuntime(
 		networkHint = strings.TrimSpace(runtimeState.Network)
 	}
 
+	readiness, readinessErr := s.GetRuntimeStartReadiness(strategy, networkHint)
+	if readinessErr != nil {
+		return nil, fmt.Errorf("failed to validate runtime readiness: %w", readinessErr)
+	}
+
+	ready, _ := readiness["ready"].(bool)
+	if !ready {
+		blockers := stringifyRuntimeBlockers(readiness["blockers"])
+		if len(blockers) == 0 {
+			blockers = append(blockers, "runtime readiness checks did not pass")
+		}
+		return nil, fmt.Errorf("runtime readiness failed: %s", strings.Join(blockers, "; "))
+	}
+
 	runtimeKey, err := s.resolveRuntimeKey(strategy.UserID, networkHint)
 	if err != nil {
 		return nil, err
@@ -585,6 +599,7 @@ func (s *StrategyRuntimeService) reconcileRuntimeState(
 			return runtimeState, false, err
 		}
 
+		// P1.7: Keep error status for backward compat, but set bot_status to unavailable for clarity
 		runtimeState.Status = "error"
 		runtimeState.BotStatus = "unavailable"
 		runtimeState.LastError = runtimeSyncErrorMessage(err)
@@ -602,6 +617,12 @@ func (s *StrategyRuntimeService) reconcileRuntimeState(
 
 	if remoteExists {
 		runtimeState = mergeRemoteRuntimeState(runtimeState, remoteStatus)
+		// P1.7: Detect recovery and degraded states from remote
+		botStatus := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", remoteStatus["status"])))
+		if botStatus == "recovering" || botStatus == "degraded" || botStatus == "safeguarded" {
+			runtimeState.Status = botStatus
+			runtimeState.BotStatus = botStatus
+		}
 		isRunning := isBotStatusRunning(remoteStatus)
 		if err := s.persistRuntimeState(executionState, runtimeState, isRunning); err != nil {
 			log.Printf(
@@ -617,10 +638,11 @@ func (s *StrategyRuntimeService) reconcileRuntimeState(
 	localInstance, localErr := s.botRepo.GetBotInstanceByInstanceID(runtimeState.InstanceID)
 	if localErr == nil && localInstance != nil {
 		localStatus := strings.ToLower(strings.TrimSpace(localInstance.Status))
-		if localStatus == "running" || localStatus == "starting" {
+		// P1.7: Include recovery states in missing detection
+		if localStatus == "running" || localStatus == "starting" || localStatus == "recovering" {
 			runtimeState.Status = "error"
 			runtimeState.BotStatus = "missing"
-			runtimeState.LastError = "runtime instance missing from bot API"
+			runtimeState.LastError = "runtime instance missing from bot API; may be recovering"
 			if persistErr := s.persistRuntimeState(executionState, runtimeState, false); persistErr != nil {
 				return runtimeState, false, persistErr
 			}
@@ -871,5 +893,28 @@ func extractIntPointer(value interface{}) *int {
 
 func isBotStatusRunning(remote map[string]interface{}) bool {
 	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", remote["status"])))
-	return status == "running" || status == "starting"
+	// P1.7: degraded and recovering are "running" in the sense they don't mean stopped
+	return status == "running" || status == "starting" || status == "degraded" || status == "recovering" || status == "safeguarded"
+}
+
+func stringifyRuntimeBlockers(raw interface{}) []string {
+	switch typed := raw.(type) {
+	case []string:
+		return typed
+	case []interface{}:
+		results := make([]string, 0, len(typed))
+		for _, entry := range typed {
+			candidate := strings.TrimSpace(fmt.Sprintf("%v", entry))
+			if candidate != "" {
+				results = append(results, candidate)
+			}
+		}
+		return results
+	default:
+		candidate := strings.TrimSpace(fmt.Sprintf("%v", raw))
+		if candidate == "" || candidate == "<nil>" {
+			return []string{}
+		}
+		return []string{candidate}
+	}
 }

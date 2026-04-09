@@ -61,6 +61,16 @@ func (r *StrategyRepository) ensureStrategySchema() error {
 			return fmt.Errorf("failed to add backtest strategy runtime_strategy column: %w", err)
 		}
 	}
+	if _, exists := columns["runtime_network"]; !exists {
+		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN runtime_network TEXT NOT NULL DEFAULT 'testnet'`); err != nil {
+			return fmt.Errorf("failed to add backtest strategy runtime_network column: %w", err)
+		}
+	}
+	if _, exists := columns["runtime_subaccount"]; !exists {
+		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN runtime_subaccount INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("failed to add backtest strategy runtime_subaccount column: %w", err)
+		}
+	}
 	if _, exists := columns["pair_selection_mode"]; !exists {
 		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN pair_selection_mode TEXT NOT NULL DEFAULT 'liquidity'`); err != nil {
 			return fmt.Errorf("failed to add backtest strategy pair_selection_mode column: %w", err)
@@ -182,13 +192,19 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 	if strings.TrimSpace(strategy.RuntimeStrategy) == "" {
 		strategy.RuntimeStrategy = "cointegration"
 	}
+	if strings.TrimSpace(strategy.RuntimeNetwork) == "" {
+		strategy.RuntimeNetwork = "testnet"
+	}
+	if strategy.RuntimeSubaccount < 0 {
+		strategy.RuntimeSubaccount = 0
+	}
 	if strings.TrimSpace(strategy.PairSelectionMode) == "" {
 		strategy.PairSelectionMode = "liquidity"
 	}
 
 	query := `
 		INSERT INTO backtest_strategies (
-			user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+			user_id, name, description, category, is_public, is_default, runtime_strategy, runtime_network, runtime_subaccount, pair_selection_mode,
 			zscore_threshold, stats_window, max_half_life, usd_per_trade,
 			usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 			manage_exits, place_trades, abort_all_positions, max_positions,
@@ -196,7 +212,7 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 			rebalance_interval_hours, position_timeout_hours, transaction_fee,
 			slippage, starting_balance, candle_resolution, max_history_days,
 			benchmark_symbol, risk_free_rate, initial_amount, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -204,7 +220,7 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 	err := r.db.QueryRow(
 		query,
 		strategy.UserID, strategy.Name, strategy.Description, strategy.Category,
-		strategy.IsPublic, strategy.IsDefault, strategy.RuntimeStrategy, strategy.PairSelectionMode, strategy.ZscoreThreshold,
+		strategy.IsPublic, strategy.IsDefault, strategy.RuntimeStrategy, strategy.RuntimeNetwork, strategy.RuntimeSubaccount, strategy.PairSelectionMode, strategy.ZscoreThreshold,
 		strategy.StatsWindow, strategy.MaxHalfLife, strategy.UsdPerTrade,
 		strategy.UsdMinCollateral, strategy.CloseAtZscoreCross, strategy.FindCointegratedPairs,
 		strategy.ManageExits, strategy.PlaceTrades, strategy.AbortAllPositions,
@@ -231,6 +247,7 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 
 	query := `
 		SELECT id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+		       runtime_network, runtime_subaccount,
 		       zscore_threshold, stats_window, max_half_life, usd_per_trade,
 		       usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 		       manage_exits, place_trades, abort_all_positions, max_positions,
@@ -248,6 +265,7 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 	err := r.db.QueryRow(query, id).Scan(
 		&strategy.ID, &strategy.UserID, &strategy.Name, &strategy.Description,
 		&strategy.Category, &strategy.IsPublic, &strategy.IsDefault, &strategy.RuntimeStrategy, &strategy.PairSelectionMode,
+		&strategy.RuntimeNetwork, &strategy.RuntimeSubaccount,
 		&strategy.ZscoreThreshold, &strategy.StatsWindow, &strategy.MaxHalfLife,
 		&strategy.UsdPerTrade, &strategy.UsdMinCollateral, &strategy.CloseAtZscoreCross,
 		&strategy.FindCointegratedPairs, &strategy.ManageExits, &strategy.PlaceTrades,
@@ -278,6 +296,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 
 	query := `
 		SELECT id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+		       runtime_network, runtime_subaccount,
 		       zscore_threshold, stats_window, max_half_life, usd_per_trade,
 		       usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 		       manage_exits, place_trades, abort_all_positions, max_positions,
@@ -307,6 +326,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 		err := rows.Scan(
 			&strategy.ID, &strategy.UserID, &strategy.Name, &strategy.Description,
 			&strategy.Category, &strategy.IsPublic, &strategy.IsDefault, &strategy.RuntimeStrategy, &strategy.PairSelectionMode,
+			&strategy.RuntimeNetwork, &strategy.RuntimeSubaccount,
 			&strategy.ZscoreThreshold, &strategy.StatsWindow, &strategy.MaxHalfLife,
 			&strategy.UsdPerTrade, &strategy.UsdMinCollateral, &strategy.CloseAtZscoreCross,
 			&strategy.FindCointegratedPairs, &strategy.ManageExits, &strategy.PlaceTrades,
@@ -335,6 +355,12 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 	if strings.TrimSpace(strategy.RuntimeStrategy) == "" {
 		strategy.RuntimeStrategy = "cointegration"
 	}
+	if strings.TrimSpace(strategy.RuntimeNetwork) == "" {
+		strategy.RuntimeNetwork = "testnet"
+	}
+	if strategy.RuntimeSubaccount < 0 {
+		strategy.RuntimeSubaccount = 0
+	}
 	if strings.TrimSpace(strategy.PairSelectionMode) == "" {
 		strategy.PairSelectionMode = "liquidity"
 	}
@@ -342,23 +368,23 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 	query := `
 		UPDATE backtest_strategies
 		SET name = $1, description = $2, category = $3, is_public = $4,
-		    runtime_strategy = $5, pair_selection_mode = $6, zscore_threshold = $7, stats_window = $8, max_half_life = $9,
-		    usd_per_trade = $10, usd_min_collateral = $11, close_at_zscore_cross = $12,
-		    find_cointegrated_pairs = $13, manage_exits = $14, place_trades = $15,
-		    abort_all_positions = $16, max_positions = $17, max_drawdown_pct = $18,
-		    stop_loss_pct = $19, take_profit_pct = $20, trailing_stop_pct = $21,
-		    rebalance_interval_hours = $22, position_timeout_hours = $23,
-		    transaction_fee = $24, slippage = $25, starting_balance = $26,
-		    candle_resolution = $27, max_history_days = $28, benchmark_symbol = $29,
-		    risk_free_rate = $30, initial_amount = $31, usage_count = $32, last_used_at = $33,
-		    updated_at = $34
-		WHERE id = $35
+		    runtime_strategy = $5, runtime_network = $6, runtime_subaccount = $7, pair_selection_mode = $8, zscore_threshold = $9, stats_window = $10, max_half_life = $11,
+		    usd_per_trade = $12, usd_min_collateral = $13, close_at_zscore_cross = $14,
+		    find_cointegrated_pairs = $15, manage_exits = $16, place_trades = $17,
+		    abort_all_positions = $18, max_positions = $19, max_drawdown_pct = $20,
+		    stop_loss_pct = $21, take_profit_pct = $22, trailing_stop_pct = $23,
+		    rebalance_interval_hours = $24, position_timeout_hours = $25,
+		    transaction_fee = $26, slippage = $27, starting_balance = $28,
+		    candle_resolution = $29, max_history_days = $30, benchmark_symbol = $31,
+		    risk_free_rate = $32, initial_amount = $33, usage_count = $34, last_used_at = $35,
+		    updated_at = $36
+		WHERE id = $37
 	`
 
 	result, err := r.db.Exec(
 		query,
 		strategy.Name, strategy.Description, strategy.Category, strategy.IsPublic,
-		strategy.RuntimeStrategy, strategy.PairSelectionMode, strategy.ZscoreThreshold, strategy.StatsWindow, strategy.MaxHalfLife,
+		strategy.RuntimeStrategy, strategy.RuntimeNetwork, strategy.RuntimeSubaccount, strategy.PairSelectionMode, strategy.ZscoreThreshold, strategy.StatsWindow, strategy.MaxHalfLife,
 		strategy.UsdPerTrade, strategy.UsdMinCollateral, strategy.CloseAtZscoreCross,
 		strategy.FindCointegratedPairs, strategy.ManageExits, strategy.PlaceTrades,
 		strategy.AbortAllPositions, strategy.MaxPositions, strategy.MaxDrawdownPct,

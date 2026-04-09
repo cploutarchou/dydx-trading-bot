@@ -1,17 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AreaSeries,
-  ColorType,
-  createChart,
-  createSeriesMarkers,
-  type HistogramData,
-  HistogramSeries,
-  type IChartApi,
-  type ISeriesApi,
-  type LineData,
-  type MouseEventParams,
-  type SeriesMarker,
+    AreaSeries,
+    createSeriesMarkers,
+    type HistogramData,
+    HistogramSeries,
+    type IChartApi,
+    type ISeriesApi,
+    type LineData,
+    type MouseEventParams,
+    type SeriesMarker,
 } from 'lightweight-charts';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createTradingChart } from './charts/lightweightTheme';
 
 export interface BacktestChartPoint {
   time: string;
@@ -123,35 +122,11 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
       return;
     }
 
-    const chart = createChart(container, {
-      width: container.clientWidth,
-      height,
-      layout: {
-        background: { type: ColorType.Solid, color: '#0f172a' },
-        textColor: '#cbd5e1',
-      },
-      grid: {
-        vertLines: { color: 'rgba(51, 65, 85, 0.25)' },
-        horzLines: { color: 'rgba(51, 65, 85, 0.25)' },
-      },
-      rightPriceScale: {
-        borderColor: '#334155',
-      },
+    const chart = createTradingChart(container, height, {
       leftPriceScale: {
         visible: true,
         borderColor: '#334155',
       },
-      timeScale: {
-        borderColor: '#334155',
-        timeVisible: false,
-        secondsVisible: false,
-      },
-      crosshair: {
-        vertLine: { color: 'rgba(148, 163, 184, 0.35)' },
-        horzLine: { color: 'rgba(148, 163, 184, 0.35)' },
-      },
-      handleScroll: true,
-      handleScale: true,
     });
 
     const areaSeries = chart.addSeries(AreaSeries, {
@@ -280,7 +255,9 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
       </div>
       <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-xl border border-slate-800/90 bg-slate-950/85 px-3 py-2 text-right backdrop-blur">
         <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Daily PnL</p>
-        <p className={`text-sm font-medium ${activePoint.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+        <p
+          className={`text-sm font-medium ${activePoint.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+        >
           {formatSignedCurrency(activePoint.pnl)}
         </p>
       </div>

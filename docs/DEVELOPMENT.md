@@ -61,20 +61,21 @@ make stack-down
 
 ## Default Ports
 
-| Component | Port |
-| --- | --- |
-| frontend | `5173` |
-| backend | `8888` |
-| bot API | `8889` |
+| Component          | Port   |
+| ------------------ | ------ |
+| frontend           | `5173` |
+| backend            | `8888` |
+| bot API            | `8889` |
 | backend PostgreSQL | `5432` |
-| bot PostgreSQL | `5433` |
-| Redis | `6379` |
+| bot PostgreSQL     | `5433` |
+| Redis              | `6379` |
 
 ## Verification Commands
 
 - frontend: `cd frontend && npm run lint && npm run build`
 - backend: `cd backend && make test`
 - bot: `cd bot && .venv/bin/pytest`
+- docs governance: `python3 scripts/validate_docs_governance.py`
 
 ## Development Rules
 

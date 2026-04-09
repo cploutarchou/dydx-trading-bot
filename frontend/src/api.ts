@@ -201,6 +201,135 @@ export interface CreateIBInvitationTokenPayload extends Record<string, unknown> 
   expires_in_hours?: number;
 }
 
+export interface PortalOverviewModule extends Record<string, unknown> {
+  key: string;
+  title: string;
+  description: string;
+  routes: string[];
+}
+
+export interface PortalOverviewCounts extends Record<string, unknown> {
+  clients: number;
+  ibs: number;
+  sub_ibs: number;
+  backoffice: number;
+  admins: number;
+  pending_partner_applications: number;
+}
+
+export interface PortalOverviewResponse extends Record<string, unknown> {
+  role: string;
+  modules: PortalOverviewModule[];
+  counts: PortalOverviewCounts;
+}
+
+export interface PartnerApplication extends Record<string, unknown> {
+  id: number;
+  applicant_user_id: number;
+  sponsor_user_id?: number;
+  requested_role: 'ib' | 'sub_ib' | string;
+  status: 'pending' | 'reviewing' | 'approved' | 'rejected' | string;
+  business_name: string;
+  notes: string;
+  review_notes: string;
+  reviewed_by_user_id?: number;
+  reviewed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PartnerApplicationListResponse extends Record<string, unknown> {
+  applications: PartnerApplication[];
+}
+
+export interface CreatePartnerApplicationPayload extends Record<string, unknown> {
+  requested_role: 'ib' | 'sub_ib';
+  sponsor_user_id?: number;
+  business_name?: string;
+  notes?: string;
+}
+
+export interface ReviewPartnerApplicationPayload extends Record<string, unknown> {
+  status: 'approved' | 'rejected' | 'reviewing';
+  review_notes?: string;
+}
+
+export interface CRMSummaryResponse extends Record<string, unknown> {
+  active_users: number;
+  clients: number;
+  ibs: number;
+  sub_ibs: number;
+  backoffice: number;
+  hierarchy_edges?: number;
+  sponsored_partners?: number;
+  net_commission_usd?: number;
+  pending_partner_applications: number;
+}
+
+export interface CRMUserRow extends Record<string, unknown> {
+  id: number;
+  username: string;
+  email: string;
+  role: string;
+  is_active: boolean;
+  sponsor_user_id: number;
+  relationship_type: string;
+  direct_partner_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CRMUsersTableResponse extends Record<string, unknown> {
+  users: CRMUserRow[];
+}
+
+export interface PartnerRelationship extends Record<string, unknown> {
+  id: number;
+  sponsor_user_id: number;
+  partner_user_id: number;
+  relationship_type: string;
+  source_application_id?: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PartnerHierarchyResponse extends Record<string, unknown> {
+  relationships: PartnerRelationship[];
+}
+
+export interface PartnerCommissionMetric extends Record<string, unknown> {
+  id?: number;
+  user_id: number;
+  period_start: string;
+  period_end: string;
+  direct_clients: number;
+  sub_ib_count: number;
+  notional_volume_usd: number;
+  gross_commission_usd: number;
+  rebate_usd: number;
+  net_commission_usd: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PartnerCommissionMetricEnvelope extends Record<string, unknown> {
+  owner: PartnerCommissionMetric;
+  downline: PartnerCommissionMetric;
+  direct_partner_ids: number[];
+}
+
+export interface UpsertPartnerCommissionMetricPayload extends Record<string, unknown> {
+  period_start?: string;
+  period_end?: string;
+  direct_clients: number;
+  sub_ib_count: number;
+  notional_volume_usd: number;
+  gross_commission_usd: number;
+  rebate_usd: number;
+  net_commission_usd: number;
+}
+
 export interface MailgunStatusResponse extends Record<string, unknown> {
   provider: string;
   configured: boolean;
@@ -1319,6 +1448,92 @@ class ApiClient {
     const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
       `/api/v1/admin/ib/invitations/${encodeURIComponent(tokenCode)}/revoke`,
       {}
+    );
+    return response.data;
+  }
+
+  async getPortalOverview(): Promise<ApiResponse<PortalOverviewResponse>> {
+    const response =
+      await this.client.get<ApiResponse<PortalOverviewResponse>>('/api/v1/portal/overview');
+    return response.data;
+  }
+
+  async listPartnerApplications(
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<ApiResponse<PartnerApplicationListResponse>> {
+    const response = await this.client.get<ApiResponse<PartnerApplicationListResponse>>(
+      `/api/v1/portal/applications?limit=${limit}&offset=${offset}`
+    );
+    return response.data;
+  }
+
+  async createPartnerApplication(
+    payload: CreatePartnerApplicationPayload
+  ): Promise<ApiResponse<{ application: PartnerApplication }>> {
+    const response = await this.client.post<ApiResponse<{ application: PartnerApplication }>>(
+      '/api/v1/portal/applications',
+      payload
+    );
+    return response.data;
+  }
+
+  async getCRMSummary(): Promise<ApiResponse<CRMSummaryResponse>> {
+    const response = await this.client.get<ApiResponse<CRMSummaryResponse>>(
+      '/api/v1/admin/crm/summary'
+    );
+    return response.data;
+  }
+
+  async getCRMUsersTable(): Promise<ApiResponse<CRMUsersTableResponse>> {
+    const response =
+      await this.client.get<ApiResponse<CRMUsersTableResponse>>('/api/v1/admin/crm/users');
+    return response.data;
+  }
+
+  async getCRMHierarchyTable(): Promise<ApiResponse<PartnerHierarchyResponse>> {
+    const response = await this.client.get<ApiResponse<PartnerHierarchyResponse>>(
+      '/api/v1/admin/crm/hierarchy'
+    );
+    return response.data;
+  }
+
+  async reviewPartnerApplication(
+    applicationId: number,
+    payload: ReviewPartnerApplicationPayload
+  ): Promise<ApiResponse<{ application: PartnerApplication }>> {
+    const response = await this.client.post<ApiResponse<{ application: PartnerApplication }>>(
+      `/api/v1/admin/crm/applications/${applicationId}/review`,
+      payload
+    );
+    return response.data;
+  }
+
+  async getPartnerHierarchy(): Promise<ApiResponse<PartnerHierarchyResponse>> {
+    const response = await this.client.get<ApiResponse<PartnerHierarchyResponse>>(
+      '/api/v1/portal/hierarchy'
+    );
+    return response.data;
+  }
+
+  async getPartnerCommissionMetrics(
+    userId?: number
+  ): Promise<ApiResponse<PartnerCommissionMetricEnvelope>> {
+    const query =
+      typeof userId === 'number' ? `?user_id=${encodeURIComponent(String(userId))}` : '';
+    const response = await this.client.get<ApiResponse<PartnerCommissionMetricEnvelope>>(
+      `/api/v1/portal/commission-metrics${query}`
+    );
+    return response.data;
+  }
+
+  async upsertPartnerCommissionMetric(
+    userId: number,
+    payload: UpsertPartnerCommissionMetricPayload
+  ): Promise<ApiResponse<{ metric: PartnerCommissionMetric }>> {
+    const response = await this.client.put<ApiResponse<{ metric: PartnerCommissionMetric }>>(
+      `/api/v1/admin/crm/commission-metrics/${userId}`,
+      payload
     );
     return response.data;
   }

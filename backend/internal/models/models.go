@@ -348,6 +348,47 @@ type InvitationToken struct {
 	UpdatedAt        time.Time  `db:"updated_at" json:"updated_at"`
 }
 
+type PartnerApplication struct {
+	ID               int        `db:"id" json:"id"`
+	ApplicantUserID  int        `db:"applicant_user_id" json:"applicant_user_id"`
+	SponsorUserID    *int       `db:"sponsor_user_id" json:"sponsor_user_id"`
+	RequestedRole    string     `db:"requested_role" json:"requested_role"`
+	Status           string     `db:"status" json:"status"`
+	BusinessName     string     `db:"business_name" json:"business_name"`
+	Notes            string     `db:"notes" json:"notes"`
+	ReviewNotes      string     `db:"review_notes" json:"review_notes"`
+	ReviewedByUserID *int       `db:"reviewed_by_user_id" json:"reviewed_by_user_id"`
+	ReviewedAt       *time.Time `db:"reviewed_at" json:"reviewed_at"`
+	CreatedAt        time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt        time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+type PartnerRelationship struct {
+	ID                  int       `db:"id" json:"id"`
+	SponsorUserID       int       `db:"sponsor_user_id" json:"sponsor_user_id"`
+	PartnerUserID       int       `db:"partner_user_id" json:"partner_user_id"`
+	RelationshipType    string    `db:"relationship_type" json:"relationship_type"`
+	SourceApplicationID *int      `db:"source_application_id" json:"source_application_id"`
+	IsActive            bool      `db:"is_active" json:"is_active"`
+	CreatedAt           time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type PartnerCommissionMetric struct {
+	ID                 int       `db:"id" json:"id"`
+	UserID             int       `db:"user_id" json:"user_id"`
+	PeriodStart        time.Time `db:"period_start" json:"period_start"`
+	PeriodEnd          time.Time `db:"period_end" json:"period_end"`
+	DirectClients      int       `db:"direct_clients" json:"direct_clients"`
+	SubIBCount         int       `db:"sub_ib_count" json:"sub_ib_count"`
+	NotionalVolumeUSD  float64   `db:"notional_volume_usd" json:"notional_volume_usd"`
+	GrossCommissionUSD float64   `db:"gross_commission_usd" json:"gross_commission_usd"`
+	RebateUSD          float64   `db:"rebate_usd" json:"rebate_usd"`
+	NetCommissionUSD   float64   `db:"net_commission_usd" json:"net_commission_usd"`
+	CreatedAt          time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
+}
+
 type RedisSetting struct {
 	ID        int       `db:"id" json:"id"`
 	Enabled   bool      `db:"enabled" json:"enabled"`

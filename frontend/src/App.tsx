@@ -8,8 +8,7 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-d
 import { QueryProvider } from './api/QueryProvider';
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
-import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer } from './components/ErrorBoundary';
-import { useToastStore } from './components/ErrorBoundary';
+import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer, useToastStore } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
@@ -19,6 +18,7 @@ import { BacktestsPage } from './pages/Backtests';
 import { CodexPage } from './pages/Codex';
 import { DashboardPage } from './pages/Dashboard';
 import { ForcePasswordChangePage } from './pages/ForcePasswordChange';
+import { IBPortalPage } from './pages/IBPortal';
 import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
 import { NewsPage } from './pages/News';
@@ -32,7 +32,11 @@ import { useAuthStore } from './store/auth';
 
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 12000;
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+const withTimeout = async <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -117,7 +121,9 @@ export const App: React.FC = () => {
 
     void bootstrapAuth();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [initializeSession]);
 
   useEffect(() => {
@@ -211,6 +217,14 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute>
                   <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/ib-portal"
+              element={
+                <ProtectedRoute>
+                  <IBPortalPage />
                 </ProtectedRoute>
               }
             />

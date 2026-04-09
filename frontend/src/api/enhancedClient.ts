@@ -164,8 +164,13 @@ class EnhancedAPIClient {
     return this.baseClient.login({ username, password });
   }
 
-  async register(username: string, email: string, password: string) {
-    return this.baseClient.register({ username, email, password });
+  async register(username: string, email: string, password: string, invitationCode?: string) {
+    return this.baseClient.register({
+      username,
+      email,
+      password,
+      ...(invitationCode ? { invitation_code: invitationCode } : {}),
+    });
   }
 
   async updateProfile(profile: Partial<User>) {

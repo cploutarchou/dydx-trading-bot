@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"log"
 	"net/http"
@@ -44,9 +45,10 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 
 // Request/Response models
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
+	Username       string `json:"username" binding:"required"`
+	Email          string `json:"email" binding:"required,email"`
+	Password       string `json:"password" binding:"required,min=6"`
+	InvitationCode string `json:"invitation_code"`
 }
 
 type LoginRequest struct {
@@ -76,8 +78,26 @@ type UserResponse struct {
 }
 
 type RegistrationStatusResponse struct {
-	Enabled bool   `json:"enabled"`
-	Reason  string `json:"reason"`
+	Enabled            bool   `json:"enabled"`
+	Reason             string `json:"reason"`
+	Mode               string `json:"mode"`
+	InvitationRequired bool   `json:"invitation_required"`
+}
+
+type registrationMode string
+
+const (
+	registrationModeOpen           registrationMode = "open"
+	registrationModeDisabled       registrationMode = "disabled"
+	registrationModeInvitationOnly registrationMode = "invitation_only"
+)
+
+type registrationPolicy struct {
+	Mode               registrationMode
+	Enabled            bool
+	Reason             string
+	InvitationCode     string
+	InvitationRequired bool
 }
 
 func toUserResponse(user *models.User) UserResponse {
@@ -99,7 +119,7 @@ func toUserResponse(user *models.User) UserResponse {
 // registerHandler handles user registration
 func registerHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		enabled, err := isPublicRegistrationEnabled(database)
+		policy, err := resolveRegistrationPolicy(database)
 		if err != nil {
 			log.Printf("Failed to resolve registration setting: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -108,10 +128,10 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 			})
 			return
 		}
-		if !enabled {
+		if !policy.Enabled {
 			c.JSON(http.StatusForbidden, gin.H{
 				"success": false,
-				"error":   "Public registration is currently disabled by the administrator",
+				"error":   policy.Reason,
 			})
 			return
 		}
@@ -136,6 +156,25 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 				"error":   "Username, email, and password are required",
 			})
 			return
+		}
+
+		if policy.Mode == registrationModeInvitationOnly {
+			providedCode := strings.TrimSpace(req.InvitationCode)
+			if providedCode == "" {
+				c.JSON(http.StatusForbidden, gin.H{
+					"success": false,
+					"error":   "A valid invitation code is required to register",
+				})
+				return
+			}
+		}
+
+		requiresOneTimeTokenRedemption := false
+		providedCode := strings.TrimSpace(req.InvitationCode)
+		if policy.Mode == registrationModeInvitationOnly {
+			sharedCode := strings.TrimSpace(policy.InvitationCode)
+			sharedMatch := sharedCode != "" && subtle.ConstantTimeCompare([]byte(providedCode), []byte(sharedCode)) == 1
+			requiresOneTimeTokenRedemption = !sharedMatch
 		}
 
 		// Hash password
@@ -170,6 +209,37 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		if requiresOneTimeTokenRedemption {
+			invitationRepo := repository.NewInvitationTokenRepository(database)
+			redeemed, redeemErr := invitationRepo.Redeem(providedCode, user.ID)
+			if redeemErr != nil {
+				log.Printf("Failed to redeem invitation token after user creation: %v", redeemErr)
+				_ = userRepo.Delete(user.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to validate invitation token",
+				})
+				return
+			}
+
+			if !redeemed {
+				if deleteErr := userRepo.Delete(user.ID); deleteErr != nil {
+					log.Printf("Failed to rollback user after invalid invitation token redemption: %v", deleteErr)
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"error":   "Invitation token validation failed and rollback was incomplete",
+					})
+					return
+				}
+
+				c.JSON(http.StatusForbidden, gin.H{
+					"success": false,
+					"error":   "Invitation code is invalid or already used",
+				})
+				return
+			}
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"success": true,
 			"message": "User registered successfully",
@@ -183,7 +253,7 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 
 func registrationStatusHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		enabled, err := isPublicRegistrationEnabled(database)
+		policy, err := resolveRegistrationPolicy(database)
 		if err != nil {
 			log.Printf("Failed to resolve registration status: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -193,19 +263,99 @@ func registrationStatusHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		reason := "Public registration is enabled"
-		if !enabled {
-			reason = "Public registration is currently disabled by the administrator"
-		}
-
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data": RegistrationStatusResponse{
-				Enabled: enabled,
-				Reason:  reason,
+				Enabled:            policy.Enabled,
+				Reason:             policy.Reason,
+				Mode:               string(policy.Mode),
+				InvitationRequired: policy.InvitationRequired,
 			},
 		})
 	}
+}
+
+func resolveRegistrationPolicy(database *sql.DB) (*registrationPolicy, error) {
+	mode, err := resolveRegistrationMode(database)
+	if err != nil {
+		return nil, err
+	}
+
+	invitationCode, err := getPlatformSettingValue(database, "registration_invitation_code")
+	if err != nil {
+		return nil, err
+	}
+	invitationCode = strings.TrimSpace(invitationCode)
+
+	policy := &registrationPolicy{
+		Mode:               mode,
+		Enabled:            true,
+		Reason:             "Public registration is enabled",
+		InvitationCode:     invitationCode,
+		InvitationRequired: mode == registrationModeInvitationOnly,
+	}
+
+	switch mode {
+	case registrationModeDisabled:
+		policy.Enabled = false
+		policy.Reason = "Public registration is currently disabled by the administrator"
+	case registrationModeInvitationOnly:
+		if invitationCode == "" {
+			policy.Reason = "Registration requires a valid invitation token"
+		} else {
+			policy.Reason = "Registration requires a valid invitation code or invitation token"
+		}
+	default:
+		policy.Mode = registrationModeOpen
+	}
+
+	return policy, nil
+}
+
+func resolveRegistrationMode(database *sql.DB) (registrationMode, error) {
+	modeValue, err := getPlatformSettingValue(database, "registration_mode")
+	if err != nil {
+		return registrationModeOpen, err
+	}
+
+	modeCandidate := strings.TrimSpace(strings.ToLower(modeValue))
+	switch modeCandidate {
+	case "open", "public", "enabled":
+		return registrationModeOpen, nil
+	case "disabled", "closed", "off":
+		return registrationModeDisabled, nil
+	case "invitation_only", "invite_only", "invitation":
+		return registrationModeInvitationOnly, nil
+	}
+
+	if modeCandidate != "" {
+		return registrationModeOpen, nil
+	}
+
+	enabled, err := isPublicRegistrationEnabled(database)
+	if err != nil {
+		return registrationModeOpen, err
+	}
+	if enabled {
+		return registrationModeOpen, nil
+	}
+	return registrationModeDisabled, nil
+}
+
+func getPlatformSettingValue(database *sql.DB, key string) (string, error) {
+	settingsRepo := repository.NewSettingsRepository(database)
+	setting, err := settingsRepo.GetBotSettingBySectionAndKey("platform", key)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") || strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+			return "", nil
+		}
+		return "", err
+	}
+	if setting == nil {
+		return "", nil
+	}
+
+	return setting.Value, nil
 }
 
 func isPublicRegistrationEnabled(database *sql.DB) (bool, error) {

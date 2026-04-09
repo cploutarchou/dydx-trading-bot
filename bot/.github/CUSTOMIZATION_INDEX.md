@@ -1,0 +1,31 @@
+# Bot Customization Index
+
+Use this file when the task is primarily inside the Python bot service.
+
+## Read in this order
+
+1. `../AGENTS.md`
+2. `.github/copilot-instructions.md`
+3. This file
+4. The most relevant agent, instruction, or prompt below
+
+## Preferred agent
+
+- `.github/agents/senior-python-defi-runtime.agent.md`
+  Use for runtime lifecycle, FastAPI, backtests, websocket, exchange, and execution-safety work.
+
+## Instructions
+
+- `.github/copilot-instructions.md`
+- `.github/instructions/runtime-safety.instructions.md`
+- `.github/instructions/migration-safety.instructions.md`
+- `.github/instructions/improvement-output.instructions.md`
+
+## Shared repo skill
+
+- `../.github/skills/defi-python-algo-trading/SKILL.md`
+
+## Prompts
+
+- `.github/prompts/improve-project.prompt.md`
+- `.github/prompts/review-migration.prompt.md`

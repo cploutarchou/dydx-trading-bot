@@ -4,9 +4,11 @@
  * Handles responsive design and mobile menu state
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
+import { getRecentPaths, persistRecentPath, WorkspaceCommandPalette } from './WorkspaceCommandPalette';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -14,6 +16,9 @@ interface MainLayoutProps {
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+  const location = useLocation();
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
@@ -23,24 +28,67 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     setIsMobileMenuOpen(false);
   };
 
+  useEffect(() => {
+    setRecentPaths(getRecentPaths());
+  }, []);
+
+  useEffect(() => {
+    persistRecentPath(location.pathname);
+    setRecentPaths(getRecentPaths());
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const handleKeyboardShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setIsCommandPaletteOpen((current) => !current);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyboardShortcut);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcut);
+  }, []);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   return (
-    <div className="premium-shell flex min-h-screen text-white">
+    <div className="premium-shell flex h-screen overflow-hidden text-white">
       <div className="premium-orb left-[-8rem] top-12 h-64 w-64 bg-cyan-500/10" />
       <div className="premium-orb right-[-6rem] top-28 h-72 w-72 bg-blue-500/12" />
 
       {/* Sidebar */}
-      <Sidebar isOpen={isMobileMenuOpen} onClose={closeMobileMenu} />
+      <Sidebar
+        isOpen={isMobileMenuOpen}
+        onClose={closeMobileMenu}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+      />
 
       {/* Main Content Area */}
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <Header onMenuToggle={toggleMobileMenu} />
+        <Header
+          onMenuToggle={toggleMobileMenu}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        />
 
         {/* Page Content */}
         <main className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto">
           {children}
         </main>
       </div>
+
+      <WorkspaceCommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        recentPaths={recentPaths}
+      />
     </div>
   );
 };

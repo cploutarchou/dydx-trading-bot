@@ -29,6 +29,29 @@ interface StrategyStatus {
   botStatus?: string;
   instanceId?: string;
   network?: string;
+  runtimeSubaccount?: number;
+  capitalAllocationUsd?: number;
+}
+
+interface StrategyStartReadiness {
+  selected_runtime_network: 'testnet' | 'mainnet';
+  selected_subaccount: number;
+  key_exists: boolean;
+  key_chain_address?: string;
+  available_collateral: number;
+  equity: number;
+  open_positions: number;
+  usd_per_trade: number;
+  usd_min_collateral: number;
+  capital_allocation_usd: number;
+  trade_size_to_collateral_ratio?: number | null;
+  sufficient_for_trade_size: boolean;
+  sufficient_for_min_collateral: boolean;
+  wallet_ready: boolean;
+  account_exists: boolean;
+  ready: boolean;
+  blockers: string[];
+  warnings: string[];
 }
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
@@ -81,6 +104,14 @@ export default function StrategyManager() {
   const [webSocketConnected, setWebSocketConnected] = useState(false);
   const [runningCount, setRunningCount] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [startDialogStrategy, setStartDialogStrategy] = useState<Strategy | null>(null);
+  const [startDialogNetwork, setStartDialogNetwork] = useState<'testnet' | 'mainnet'>('testnet');
+  const [startDialogLoading, setStartDialogLoading] = useState(false);
+  const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
+  const [startDialogError, setStartDialogError] = useState<string | null>(null);
+  const [startDialogReadiness, setStartDialogReadiness] = useState<StrategyStartReadiness | null>(
+    null
+  );
 
   const updateEditingConfig = (patch: Partial<Strategy>) => {
     setEditingConfig((current) => (current ? { ...current, ...patch } : current));
@@ -144,6 +175,14 @@ export default function StrategyManager() {
       instanceId:
         typeof runtimeData?.instance_id === 'string' ? runtimeData.instance_id : undefined,
       network: typeof runtimeData?.network === 'string' ? runtimeData.network : undefined,
+      runtimeSubaccount:
+        typeof runtimeData?.runtime_subaccount === 'number'
+          ? runtimeData.runtime_subaccount
+          : undefined,
+      capitalAllocationUsd:
+        typeof runtimeData?.capital_allocation_usd === 'number'
+          ? runtimeData.capital_allocation_usd
+          : undefined,
     };
   };
 
@@ -184,15 +223,47 @@ export default function StrategyManager() {
     };
 
     void syncStrategyRuntimeStatuses();
-    const intervalId = window.setInterval(() => {
-      void syncStrategyRuntimeStatuses();
-    }, 15000);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
     };
   }, [strategies]);
+
+  useEffect(() => {
+    if (!startDialogStrategy) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadReadiness = async () => {
+      setStartDialogLoading(true);
+      setStartDialogError(null);
+      try {
+        const response = await apiClient.getStrategyStartReadiness(
+          startDialogStrategy.id,
+          startDialogNetwork
+        );
+        if (!cancelled) {
+          setStartDialogReadiness(response.data as StrategyStartReadiness);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStartDialogReadiness(null);
+          setStartDialogError(getErrorMessage(error, 'Failed to load runtime readiness'));
+        }
+      } finally {
+        if (!cancelled) {
+          setStartDialogLoading(false);
+        }
+      }
+    };
+
+    void loadReadiness();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [startDialogNetwork, startDialogStrategy]);
 
   // Setup WebSocket for real-time strategy status
   useEffect(() => {
@@ -232,14 +303,12 @@ export default function StrategyManager() {
       }
 
       try {
-        const token = localStorage.getItem('access_token');
-        if (!token) return;
-
         clearReconnectTimer();
         const generation = ++connectionGeneration;
 
-        // Use centralized api helper to build WebSocket URL
-        const socket = apiClient.connectSocket ? apiClient.connectSocket('/ws/strategies', token) : null;
+        const socket = apiClient.connectStrategyRuntimeSocket
+          ? apiClient.connectStrategyRuntimeSocket()
+          : null;
         ws = socket;
 
         if (!socket) return;
@@ -334,9 +403,28 @@ export default function StrategyManager() {
     setTimeout(() => setMessage(null), timeoutMs);
   };
 
-  const handleRuntimeToggle = async (strategy: Strategy) => {
-    const currentStatus = strategyStatuses.get(strategy.id);
-    const shouldStop = currentStatus?.status === 'running' || currentStatus?.status === 'starting';
+  const closeStartDialog = (force: boolean = false) => {
+    if (startDialogSubmitting && !force) {
+      return;
+    }
+    setStartDialogStrategy(null);
+    setStartDialogReadiness(null);
+    setStartDialogError(null);
+    setStartDialogLoading(false);
+  };
+
+  const openStartDialog = (strategy: Strategy) => {
+    setStartDialogStrategy(strategy);
+    setStartDialogNetwork(strategy.runtime_network ?? 'testnet');
+    setStartDialogReadiness(null);
+    setStartDialogError(null);
+  };
+
+  const executeStrategyStart = async (
+    strategy: Strategy,
+    runtimeNetwork: 'testnet' | 'mainnet',
+    currentStatus: StrategyStatus | undefined
+  ) => {
     const confirmRecreate = () =>
       window.confirm(
         `A stale runtime record exists for "${strategy.name}". Recreate the runtime instance and continue?`
@@ -344,22 +432,25 @@ export default function StrategyManager() {
 
     setRuntimePending((prev) => ({
       ...prev,
-      [strategy.id]: shouldStop ? 'stop' : 'start',
+      [strategy.id]: 'start',
     }));
 
     mergeStrategyStatus({
       strategyId: strategy.id,
-      status: shouldStop ? 'stopping' : 'starting',
+      status: 'starting',
       lastError: undefined,
       updatedAt: new Date().toISOString(),
       instanceId: currentStatus?.instanceId,
-      network: currentStatus?.network,
-      botStatus: shouldStop ? 'stopping' : 'starting',
+      network: runtimeNetwork,
+      botStatus: 'starting',
+      runtimeSubaccount: startDialogReadiness?.selected_subaccount ?? strategy.runtime_subaccount,
+      capitalAllocationUsd:
+        startDialogReadiness?.capital_allocation_usd ?? strategy.initial_amount,
     });
 
     try {
       let forceRecreate = false;
-      if (!shouldStop && needsRuntimeRecreateConfirmation(currentStatus?.lastError)) {
+      if (needsRuntimeRecreateConfirmation(currentStatus?.lastError)) {
         forceRecreate = confirmRecreate();
         if (!forceRecreate) {
           mergeStrategyStatus({
@@ -370,16 +461,19 @@ export default function StrategyManager() {
             instanceId: currentStatus?.instanceId,
             network: currentStatus?.network,
             botStatus: currentStatus?.botStatus,
+            runtimeSubaccount: currentStatus?.runtimeSubaccount,
+            capitalAllocationUsd: currentStatus?.capitalAllocationUsd,
           });
           return;
         }
       }
 
-      let response = shouldStop
-        ? await apiClient.stopStrategyRuntime(strategy.id)
-        : await apiClient.startStrategyRuntime(strategy.id, undefined, forceRecreate);
+      let response = await apiClient.startStrategyRuntime(strategy.id, runtimeNetwork, forceRecreate);
 
-      if (!shouldStop && !forceRecreate && needsRuntimeRecreateConfirmation(response?.data?.last_error ?? response?.message)) {
+      if (
+        !forceRecreate &&
+        needsRuntimeRecreateConfirmation(response?.data?.last_error ?? response?.message)
+      ) {
         if (!confirmRecreate()) {
           mergeStrategyStatus({
             strategyId: strategy.id,
@@ -389,35 +483,37 @@ export default function StrategyManager() {
             instanceId: currentStatus?.instanceId,
             network: currentStatus?.network,
             botStatus: currentStatus?.botStatus,
+            runtimeSubaccount: currentStatus?.runtimeSubaccount,
+            capitalAllocationUsd: currentStatus?.capitalAllocationUsd,
           });
           return;
         }
-        response = await apiClient.startStrategyRuntime(strategy.id, undefined, true);
+        response = await apiClient.startStrategyRuntime(strategy.id, runtimeNetwork, true);
       }
 
       mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
       showTransientMessage(
         {
           type: 'success',
-          text: shouldStop
-            ? `✅ Stopped strategy "${strategy.name}"`
-            : `✅ Started strategy "${strategy.name}"${forceRecreate ? ' after runtime recovery' : ''}`,
+          text: `✅ Started strategy "${strategy.name}" on ${runtimeNetwork}${
+            forceRecreate ? ' after runtime recovery' : ''
+          }`,
         },
         4000
       );
     } catch (error: unknown) {
       let resolvedError = error;
 
-      if (!shouldStop && needsRuntimeRecreateConfirmation(getErrorMessage(resolvedError, ''))) {
+      if (needsRuntimeRecreateConfirmation(getErrorMessage(resolvedError, ''))) {
         const confirmed = confirmRecreate();
         if (confirmed) {
           try {
-            const response = await apiClient.startStrategyRuntime(strategy.id, undefined, true);
+            const response = await apiClient.startStrategyRuntime(strategy.id, runtimeNetwork, true);
             mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
             showTransientMessage(
               {
                 type: 'success',
-                text: `✅ Started strategy "${strategy.name}" after runtime recovery`,
+                text: `✅ Started strategy "${strategy.name}" on ${runtimeNetwork} after runtime recovery`,
               },
               4000
             );
@@ -431,7 +527,88 @@ export default function StrategyManager() {
       mergeStrategyStatus({
         strategyId: strategy.id,
         status: 'error',
-        lastError: getErrorMessage(resolvedError, 'Failed to update strategy runtime'),
+        lastError: getErrorMessage(resolvedError, 'Failed to start strategy runtime'),
+        updatedAt: new Date().toISOString(),
+        instanceId: currentStatus?.instanceId,
+        network: runtimeNetwork,
+        runtimeSubaccount: currentStatus?.runtimeSubaccount,
+        capitalAllocationUsd: currentStatus?.capitalAllocationUsd,
+      });
+      showTransientMessage(
+        {
+          type: 'error',
+          text: `❌ Failed to start strategy: ${getErrorMessage(error, 'Unknown error')}`,
+        },
+        6000
+      );
+      throw resolvedError;
+    } finally {
+      setRuntimePending((prev) => ({
+        ...prev,
+        [strategy.id]: undefined,
+      }));
+    }
+  };
+
+  const handleConfirmStrategyStart = async () => {
+    if (!startDialogStrategy) {
+      return;
+    }
+    setStartDialogSubmitting(true);
+    try {
+      await executeStrategyStart(
+        startDialogStrategy,
+        startDialogNetwork,
+        strategyStatuses.get(startDialogStrategy.id)
+      );
+    } catch {
+      // User-facing message already handled in executeStrategyStart.
+    } finally {
+      setStartDialogSubmitting(false);
+      closeStartDialog(true);
+    }
+  };
+
+  const handleRuntimeToggle = async (strategy: Strategy) => {
+    const currentStatus = strategyStatuses.get(strategy.id);
+    const shouldStop = currentStatus?.status === 'running' || currentStatus?.status === 'starting';
+
+    if (!shouldStop) {
+      openStartDialog(strategy);
+      return;
+    }
+
+    setRuntimePending((prev) => ({
+      ...prev,
+      [strategy.id]: 'stop',
+    }));
+
+    mergeStrategyStatus({
+      strategyId: strategy.id,
+      status: 'stopping',
+      lastError: undefined,
+      updatedAt: new Date().toISOString(),
+      instanceId: currentStatus?.instanceId,
+      network: currentStatus?.network,
+      botStatus: 'stopping',
+    });
+
+    try {
+      const response = await apiClient.stopStrategyRuntime(strategy.id);
+
+      mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
+      showTransientMessage(
+        {
+          type: 'success',
+          text: `✅ Stopped strategy "${strategy.name}"`,
+        },
+        4000
+      );
+    } catch (error: unknown) {
+      mergeStrategyStatus({
+        strategyId: strategy.id,
+        status: 'error',
+        lastError: getErrorMessage(error, 'Failed to update strategy runtime'),
         updatedAt: new Date().toISOString(),
         instanceId: currentStatus?.instanceId,
         network: currentStatus?.network,
@@ -439,9 +616,7 @@ export default function StrategyManager() {
       showTransientMessage(
         {
           type: 'error',
-          text: shouldStop
-            ? `❌ Failed to stop strategy: ${getErrorMessage(error, 'Unknown error')}`
-            : `❌ Failed to start strategy: ${getErrorMessage(error, 'Unknown error')}`,
+          text: `❌ Failed to stop strategy: ${getErrorMessage(error, 'Unknown error')}`,
         },
         6000
       );
@@ -497,6 +672,8 @@ export default function StrategyManager() {
         category: editingConfig.category,
         description: editingConfig.description,
         runtime_strategy: editingConfig.runtime_strategy || 'cointegration',
+        runtime_network: editingConfig.runtime_network || 'testnet',
+        runtime_subaccount: editingConfig.runtime_subaccount ?? 0,
         resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
         candle_resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
         zscore_threshold: editingConfig.zscore_threshold,
@@ -842,6 +1019,39 @@ export default function StrategyManager() {
                   </div>
                 </div>
 
+                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">
+                      Runtime Network
+                    </p>
+                    <p className="text-white font-semibold capitalize">
+                      {strategy.runtime_network || status.network || 'testnet'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">
+                      Subaccount
+                    </p>
+                    <p className="text-white font-semibold">
+                      #{status.runtimeSubaccount ?? strategy.runtime_subaccount ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">
+                      Allocated Capital
+                    </p>
+                    <p className="text-white font-semibold">
+                      $
+                      {(
+                        status.capitalAllocationUsd ??
+                        strategy.initial_amount ??
+                        strategy.usd_min_collateral ??
+                        0
+                      ).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
                 {/* Stats */}
                 {status.tradesExecuted !== undefined && (
                   <div className="grid grid-cols-3 gap-4 mb-6">
@@ -1051,6 +1261,40 @@ export default function StrategyManager() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Runtime network</label>
+                    <select
+                      value={editingConfig.runtime_network ?? 'testnet'}
+                      onChange={(e) =>
+                        updateEditingConfig({
+                          runtime_network: e.target.value as Strategy['runtime_network'],
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="testnet">dYdX Testnet</option>
+                      <option value="mainnet">dYdX Mainnet</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-white font-medium">Runtime subaccount</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={editingConfig.runtime_subaccount ?? 0}
+                      onChange={(e) =>
+                        updateEditingConfig({
+                          runtime_subaccount: parseInt(e.target.value, 10) || 0,
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="mt-2 text-xs text-slate-400">
+                      Separate dYdX subaccounts are the safest way to isolate live margin per
+                      strategy.
+                    </p>
                   </div>
                   <div>
                     <label className="mb-2 block text-white font-medium">Resolution</label>

@@ -2,6 +2,7 @@ import { Loader2, LockKeyhole } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import AuthExperienceShell from '../components/AuthExperienceShell';
 import { useAuthStore } from '../store/auth';
 
 const getErrorMessage = (error: unknown): string =>
@@ -49,16 +50,14 @@ export function ForcePasswordChangePage() {
   };
 
   return (
-    <div className="auth-stage flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="premium-orb left-[8%] top-[12%] h-48 w-48 bg-cyan-500/15" />
-      <div className="premium-orb right-[8%] bottom-[10%] h-56 w-56 bg-amber-500/15" />
-
-      <div className="auth-panel relative z-10 w-full max-w-xl p-8 sm:p-10">
-        <div className="premium-kicker">Security checkpoint</div>
-        <h1 className="mt-4 text-3xl font-bold text-white">Change your temporary password</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-400">
-          {user?.username ? `${user.username},` : 'Your account'} is in first-login mode. You need to rotate the temporary password before entering the trading workspace.
-        </p>
+    <AuthExperienceShell
+      kicker="Security checkpoint"
+      title="Rotate your temporary password"
+      description={`${user?.username ? `${user.username}, ` : ''}your account is in first-login mode. Rotate the temporary password before entering the live trading workspace.`}
+      sideLabel="Account Hardening"
+      sideTitle="Secure entry should feel premium, not punitive."
+      sideDescription="This first-login checkpoint keeps account access aligned with the production-grade environment behind the platform."
+    >
 
         {error && (
           <div className="mt-6 rounded-2xl border border-red-700 bg-red-950/55 p-4 text-sm text-red-200">
@@ -132,7 +131,6 @@ export function ForcePasswordChangePage() {
         >
           Sign out instead
         </button>
-      </div>
-    </div>
+    </AuthExperienceShell>
   );
 }

@@ -9,6 +9,8 @@ interface StrategyFormData {
   category: string;
   description: string;
   is_public: boolean;
+  runtime_network: 'testnet' | 'mainnet';
+  runtime_subaccount: number;
   resolution: string; // 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
   zscore_threshold: number;
   stats_window: number;
@@ -110,6 +112,8 @@ export default function StrategyBuilder() {
       category: 'pairs_trading',
       description: '',
       is_public: false,
+      runtime_network: 'testnet',
+      runtime_subaccount: 0,
       resolution: '1HOUR',
       zscore_threshold: 1.5,
       stats_window: 21,
@@ -206,6 +210,8 @@ export default function StrategyBuilder() {
       const initialAmount = Number(data.initial_amount);
       const cleanedData = {
         ...data,
+        runtime_network: data.runtime_network,
+        runtime_subaccount: Number(data.runtime_subaccount),
         zscore_threshold: Number(data.zscore_threshold),
         stats_window: Number(data.stats_window),
         max_half_life: Number(data.max_half_life),
@@ -428,6 +434,59 @@ export default function StrategyBuilder() {
             {errors.initial_amount && (
               <p className="mt-1 text-red-400 text-sm">{errors.initial_amount.message}</p>
             )}
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Runtime Network
+              </label>
+              <Controller
+                name="runtime_network"
+                control={control}
+                render={({ field }) => (
+                  <select
+                    {...field}
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="testnet">dYdX Testnet</option>
+                    <option value="mainnet">dYdX Mainnet</option>
+                  </select>
+                )}
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                Strategy runtime startup will use the stored key for this network via the backend.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Runtime Subaccount
+              </label>
+              <Controller
+                name="runtime_subaccount"
+                control={control}
+                rules={{
+                  min: { value: 0, message: 'Subaccount must be 0 or higher' },
+                }}
+                render={({ field }) => (
+                  <input
+                    {...field}
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={field.value ?? 0}
+                    onChange={(event) => field.onChange(Number(event.target.value))}
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  />
+                )}
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                Use a dedicated dYdX subaccount to isolate live collateral for this strategy.
+              </p>
+              {errors.runtime_subaccount && (
+                <p className="mt-1 text-red-400 text-sm">{errors.runtime_subaccount.message}</p>
+              )}
+            </div>
           </div>
 
           {/* Divider */}

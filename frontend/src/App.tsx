@@ -4,23 +4,29 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
+import { getUserWorkspaceRole, roleMatches, type WorkspaceRole } from './auth/roles';
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
-import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer } from './components/ErrorBoundary';
-import { useToastStore } from './components/ErrorBoundary';
+import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer, useToastStore } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
 import StrategyManager from './components/StrategyManager';
+import { AdminHubPage } from './pages/AdminHub';
 import BacktestDetailsV2 from './pages/BacktestDetailsV2';
 import { BacktestsPage } from './pages/Backtests';
+import { ClientAreaPage } from './pages/ClientArea';
 import { CodexPage } from './pages/Codex';
+import { CRMPage } from './pages/CRM';
 import { DashboardPage } from './pages/Dashboard';
 import { ForcePasswordChangePage } from './pages/ForcePasswordChange';
+import { IBPortalPage } from './pages/IBPortal';
+import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
 import { NewsPage } from './pages/News';
+import { PricingPage } from './pages/Pricing';
 import { RegisterPage } from './pages/Register';
 import SettingsPage from './pages/Settings';
 import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
@@ -30,7 +36,11 @@ import { useAuthStore } from './store/auth';
 
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 12000;
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+const withTimeout = async <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -47,7 +57,10 @@ const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: st
   }
 };
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
+  children,
+  allowedRoles,
+}) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const user = useAuthStore((state) => state.user);
 
@@ -57,6 +70,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (user.password_change_required) {
     return <Navigate to="/force-password" replace />;
+  }
+
+  if (!roleMatches(getUserWorkspaceRole(user), allowedRoles)) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <MainLayout>{children}</MainLayout>;
@@ -115,7 +132,9 @@ export const App: React.FC = () => {
 
     void bootstrapAuth();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [initializeSession]);
 
   useEffect(() => {
@@ -158,6 +177,8 @@ export const App: React.FC = () => {
         <Router>
           <ToastContainer />
           <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
@@ -167,6 +188,14 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute>
                   <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/client-area"
+              element={
+                <ProtectedRoute>
+                  <ClientAreaPage />
                 </ProtectedRoute>
               }
             />
@@ -203,10 +232,34 @@ export const App: React.FC = () => {
               }
             />
             <Route
+              path="/crm"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                  <CRMPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminHubPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/settings"
               element={
                 <ProtectedRoute>
                   <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/ib-portal"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'backoffice', 'ib', 'sub_ib']}>
+                  <IBPortalPage />
                 </ProtectedRoute>
               }
             />
@@ -258,9 +311,7 @@ export const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            {/* Catch-all: redirect unknown routes to login */}
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
       </EnhancedErrorBoundary>

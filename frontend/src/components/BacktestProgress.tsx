@@ -28,7 +28,7 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
   const errorMessage =
     (progressQuery.error as Error | null)?.message ||
     (progressQuery.isError ? 'Failed to fetch backtest progress' : null);
-  const isConnected = !progressQuery.isError;
+  const isConnected = progressQuery.isConnected ?? !progressQuery.isError;
 
   React.useEffect(() => {
     completionHandledRef.current = false;

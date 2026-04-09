@@ -1,6 +1,7 @@
-import { AlertCircle, CheckCircle, Copy, Eye, EyeOff, Loader, Shield } from 'lucide-react';
+import { AlertCircle, CheckCircle, Copy, Eye, EyeOff, Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import AuthExperienceShell from '../components/AuthExperienceShell';
 import { useAuthStore } from '../store/auth';
 
 type TwoFAStep = 'setup' | 'verify' | 'backup-codes' | 'complete';
@@ -82,18 +83,14 @@ export const TwoFactorAuthPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl w-full max-w-2xl">
-                {/* Header */}
-                <div className="bg-linear-to-r from-blue-600 to-blue-700 p-8 text-white flex items-center gap-4">
-                    <Shield className="w-8 h-8" />
-                    <div>
-                        <h1 className="text-3xl font-bold">Two-Factor Authentication</h1>
-                        <p className="text-blue-100">Secure your account with TOTP</p>
-                    </div>
-                </div>
-
-                <div className="p-8">
+        <AuthExperienceShell
+            kicker="Security setup"
+            title="Activate two-factor authentication"
+            description="Protect access to your trading workspace before entering live operations. This is a critical step for any production-grade operator account."
+            sideLabel="Operator Security"
+            sideTitle="Security belongs in the core product experience, not as an afterthought."
+            sideDescription="2FA setup should feel like part of a premium operating system: clear, trustworthy, and aligned with the value of the platform behind it."
+        >
                     {/* Error Alert */}
                     {error && (
                         <div
@@ -341,8 +338,6 @@ export const TwoFactorAuthPage: React.FC = () => {
                             </button>
                         </div>
                     )}
-                </div>
-            </div>
-        </div>
+        </AuthExperienceShell>
     );
 };

@@ -29,21 +29,25 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../api';
+import api, { classifyApiError } from '../api';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
-import { CoinDeskNewsPanel } from '../components/CoinDeskNewsPanel';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
+import { CoinDeskNewsPanel } from '../components/CoinDeskNewsPanel';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
 import { SyncHealthPanel } from '../components/SyncHealthPanel';
 import {
-  buildIntelligence,
   type BacktestRun,
+  buildIntelligence,
   formatCurrency as formatIntelligenceCurrency,
   formatPercent as formatIntelligencePercent,
 } from '../features/backtests/intelligence';
-import { buildCodexAssetContextRequest, formatPct as formatCodexPct, formatUsd as formatCodexUsd } from '../features/codex/marketIntel';
+import {
+  buildCodexAssetContextRequest,
+  formatPct as formatCodexPct,
+  formatUsd as formatCodexUsd,
+} from '../features/codex/marketIntel';
 import { useAuthStore } from '../store/auth';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -123,17 +127,25 @@ interface KpiCardProps {
 }
 
 const colorMap: Record<KpiCardProps['color'], { border: string; bg: string; icon: string }> = {
-  blue:    { border: 'border-blue-500/30',    bg: 'bg-blue-500/10',    icon: 'text-blue-400'    },
-  green:   { border: 'border-green-500/30',   bg: 'bg-green-500/10',   icon: 'text-green-400'   },
-  red:     { border: 'border-red-500/30',     bg: 'bg-red-500/10',     icon: 'text-red-400'     },
-  purple:  { border: 'border-purple-500/30',  bg: 'bg-purple-500/10',  icon: 'text-purple-400'  },
-  amber:   { border: 'border-amber-500/30',   bg: 'bg-amber-500/10',   icon: 'text-amber-400'   },
-  cyan:    { border: 'border-cyan-500/30',    bg: 'bg-cyan-500/10',    icon: 'text-cyan-400'    },
+  blue: { border: 'border-blue-500/30', bg: 'bg-blue-500/10', icon: 'text-blue-400' },
+  green: { border: 'border-green-500/30', bg: 'bg-green-500/10', icon: 'text-green-400' },
+  red: { border: 'border-red-500/30', bg: 'bg-red-500/10', icon: 'text-red-400' },
+  purple: { border: 'border-purple-500/30', bg: 'bg-purple-500/10', icon: 'text-purple-400' },
+  amber: { border: 'border-amber-500/30', bg: 'bg-amber-500/10', icon: 'text-amber-400' },
+  cyan: { border: 'border-cyan-500/30', bg: 'bg-cyan-500/10', icon: 'text-cyan-400' },
   emerald: { border: 'border-emerald-500/30', bg: 'bg-emerald-500/10', icon: 'text-emerald-400' },
-  rose:    { border: 'border-rose-500/30',    bg: 'bg-rose-500/10',    icon: 'text-rose-400'    },
+  rose: { border: 'border-rose-500/30', bg: 'bg-rose-500/10', icon: 'text-rose-400' },
 };
 
-const KpiCard: React.FC<KpiCardProps> = ({ label, value, subtitle, icon, color, trend, animDelay = 0 }) => {
+const KpiCard: React.FC<KpiCardProps> = ({
+  label,
+  value,
+  subtitle,
+  icon,
+  color,
+  trend,
+  animDelay = 0,
+}) => {
   const c = colorMap[color];
   return (
     <div
@@ -146,8 +158,14 @@ const KpiCard: React.FC<KpiCardProps> = ({ label, value, subtitle, icon, color, 
           <div className={c.icon}>{icon}</div>
         </div>
         {trend && trend !== 'neutral' && (
-          <span className={`text-xs font-medium flex items-center gap-0.5 ${trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
-            {trend === 'up' ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+          <span
+            className={`text-xs font-medium flex items-center gap-0.5 ${trend === 'up' ? 'text-green-400' : 'text-red-400'}`}
+          >
+            {trend === 'up' ? (
+              <TrendingUp className="w-3.5 h-3.5" />
+            ) : (
+              <TrendingDown className="w-3.5 h-3.5" />
+            )}
           </span>
         )}
       </div>
@@ -171,7 +189,9 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
             {isRunning && (
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
             )}
-            <span className={`relative inline-flex rounded-full h-2 w-2 ${isRunning ? 'bg-blue-400' : 'bg-yellow-400'}`} />
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${isRunning ? 'bg-blue-400' : 'bg-yellow-400'}`}
+            />
           </span>
           <span className="text-xs font-mono text-blue-400 truncate">
             {(run.name || run.run_id).substring(0, 22)}
@@ -283,9 +303,7 @@ const getRunTimestamp = (run: BacktestRunSummary): number | null => {
 
   const raw = run as unknown as Record<string, unknown>;
   return (
-    parseTimestamp(raw.updated_at) ??
-    parseTimestamp(raw.start_date) ??
-    parseTimestamp(raw.end_date)
+    parseTimestamp(raw.updated_at) ?? parseTimestamp(raw.start_date) ?? parseTimestamp(raw.end_date)
   );
 };
 
@@ -356,12 +374,20 @@ export const DashboardPage: React.FC = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [runs, setRuns] = useState<BacktestRunSummary[]>([]);
   const [stats, setStats] = useState<DashboardStats>({
-    total: 0, completed: 0, running: 0, failed: 0,
-    totalPnl: 0, bestWinRate: 0, bestSharpe: 0,
-    totalTrades: 0, avgPnlPerRun: 0,
-    activeRuns: [], pnlTimeSeries: [],
+    total: 0,
+    completed: 0,
+    running: 0,
+    failed: 0,
+    totalPnl: 0,
+    bestWinRate: 0,
+    bestSharpe: 0,
+    totalTrades: 0,
+    avgPnlPerRun: 0,
+    activeRuns: [],
+    pnlTimeSeries: [],
   });
   const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isComputingRef = useRef(false);
@@ -379,9 +405,14 @@ export const DashboardPage: React.FC = () => {
 
     try {
       const statsPromise = api.listBacktests(0, 500);
-      const timeoutPromise = new Promise<Awaited<ReturnType<typeof api.listBacktests>>>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('Timed out while loading dashboard stats')), 15000);
-      });
+      const timeoutPromise = new Promise<Awaited<ReturnType<typeof api.listBacktests>>>(
+        (_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error('Timed out while loading dashboard stats')),
+            25000
+          );
+        }
+      );
 
       const response = await Promise.race([statsPromise, timeoutPromise]);
       if (activeComputeIdRef.current !== computeId) {
@@ -402,11 +433,22 @@ export const DashboardPage: React.FC = () => {
 
       setRuns(rawRuns);
       setStats(buildDashboardStats(rawRuns));
+      setStatsError(null);
     } catch (error) {
       if (activeComputeIdRef.current !== computeId) {
         return;
       }
       console.error('❌ Dashboard: failed to load stats', error);
+      const classification = classifyApiError(error);
+      if (classification.kind === 'transport') {
+        setStatsError(
+          'Backend service is unreachable from the browser. Verify API connectivity or Vite proxy setup.'
+        );
+      } else if (classification.statusCode === 401) {
+        setStatsError('Your session appears to be unauthorized. Please sign in again.');
+      } else {
+        setStatsError(error instanceof Error ? error.message : 'Failed to load dashboard stats.');
+      }
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -418,7 +460,9 @@ export const DashboardPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { void computeStats(); }, [computeStats, refreshTrigger]);
+  useEffect(() => {
+    void computeStats();
+  }, [computeStats, refreshTrigger]);
 
   useEffect(() => {
     if (stats.running > 0 && !pollRef.current) {
@@ -428,21 +472,24 @@ export const DashboardPage: React.FC = () => {
       pollRef.current = null;
     }
     return () => {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, [stats.running, computeStats]);
 
   // Animated counters
-  const countTotal    = useCountUp(stats.total);
+  const countTotal = useCountUp(stats.total);
   const countComplete = useCountUp(stats.completed);
-  const countRunning  = useCountUp(stats.running);
-  const countFailed   = useCountUp(stats.failed);
-  const countTrades   = useCountUp(stats.totalTrades);
+  const countRunning = useCountUp(stats.running);
+  const countFailed = useCountUp(stats.failed);
+  const countTrades = useCountUp(stats.totalTrades);
 
   const fmtPnl = (v: number) =>
     (v >= 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
   const fmtPct = (v: number) => v.toFixed(1) + '%';
-  const fmtN   = (v: number) => Math.round(v).toLocaleString('en-US');
+  const fmtN = (v: number) => Math.round(v).toLocaleString('en-US');
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -454,15 +501,16 @@ export const DashboardPage: React.FC = () => {
     queryFn: async (): Promise<Array<{ id: number; name?: string; benchmark_symbol?: string }>> => {
       const response = await api.listStrategies(0, 500);
       return Array.isArray(response.data?.strategies)
-        ? (response.data?.strategies as Array<{ id: number; name?: string; benchmark_symbol?: string }>)
+        ? (response.data?.strategies as Array<{
+            id: number;
+            name?: string;
+            benchmark_symbol?: string;
+          }>)
         : [];
     },
     staleTime: 60_000,
   });
-  const intelligence = useMemo(
-    () => buildIntelligence(runs, new Map<number, string>()),
-    [runs]
-  );
+  const intelligence = useMemo(() => buildIntelligence(runs, new Map<number, string>()), [runs]);
   const spotlightIntelRequest = useMemo(() => {
     const strategiesById = new Map(
       (strategiesQuery.data ?? [])
@@ -471,11 +519,7 @@ export const DashboardPage: React.FC = () => {
     );
 
     return buildCodexAssetContextRequest(
-      [
-        intelligence.bestStrategy,
-        intelligence.safestStrategy,
-        intelligence.mostConsistentStrategy,
-      ]
+      [intelligence.bestStrategy, intelligence.safestStrategy, intelligence.mostConsistentStrategy]
         .filter((strategy): strategy is NonNullable<typeof strategy> => Boolean(strategy))
         .map((aggregate) => ({
           label: aggregate.label,
@@ -483,7 +527,12 @@ export const DashboardPage: React.FC = () => {
         })),
       1
     );
-  }, [intelligence.bestStrategy, intelligence.mostConsistentStrategy, intelligence.safestStrategy, strategiesQuery.data]);
+  }, [
+    intelligence.bestStrategy,
+    intelligence.mostConsistentStrategy,
+    intelligence.safestStrategy,
+    strategiesQuery.data,
+  ]);
 
   const codexOverviewQuery = useQuery({
     queryKey: ['codex', 'dashboard-overview'],
@@ -496,11 +545,13 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
-
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <div
         className="relative rounded-2xl overflow-hidden border border-slate-700/60 animate-fade-in"
-        style={{ background: 'linear-gradient(135deg,rgba(30,41,59,.9) 0%,rgba(15,23,42,.95) 60%,rgba(20,30,50,.9) 100%)' }}
+        style={{
+          background:
+            'linear-gradient(135deg,rgba(30,41,59,.9) 0%,rgba(15,23,42,.95) 60%,rgba(20,30,50,.9) 100%)',
+        }}
       >
         <div className="absolute -top-20 -right-20 w-72 h-72 bg-blue-600/8 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-purple-600/8 rounded-full blur-3xl pointer-events-none" />
@@ -512,7 +563,12 @@ export const DashboardPage: React.FC = () => {
               {user?.username ?? 'Trader'} <span className="gradient-text">👋</span>
             </h1>
             <p className="text-slate-500 text-sm mt-1">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              {new Date().toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
             </p>
           </div>
 
@@ -527,54 +583,106 @@ export const DashboardPage: React.FC = () => {
                 {stats.running} active {stats.running === 1 ? 'run' : 'runs'}
               </div>
             )}
-            <div className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium border ${
-              stats.totalPnl >= 0
-                ? 'text-green-300 bg-green-500/10 border-green-500/20'
-                : 'text-red-300 bg-red-500/10 border-red-500/20'
-            }`}>
-              {stats.totalPnl >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+            <div
+              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium border ${
+                stats.totalPnl >= 0
+                  ? 'text-green-300 bg-green-500/10 border-green-500/20'
+                  : 'text-red-300 bg-red-500/10 border-red-500/20'
+              }`}
+            >
+              {stats.totalPnl >= 0 ? (
+                <TrendingUp className="w-3.5 h-3.5" />
+              ) : (
+                <TrendingDown className="w-3.5 h-3.5" />
+              )}
               {fmtPnl(stats.totalPnl)} lifetime P&L
             </div>
           </div>
         </div>
       </div>
 
+      {statsError && (
+        <div className="rounded-xl border border-red-700/60 bg-red-900/25 px-4 py-3 text-sm text-red-200">
+          {statsError}
+        </div>
+      )}
+
       {/* ── KPI row 1 ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Total Runs" icon={<BarChart2 className="w-5 h-5" />}
+        <KpiCard
+          label="Total Runs"
+          icon={<BarChart2 className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countTotal)}
-          subtitle={`${stats.completed} completed`} color="blue" animDelay={0} />
-        <KpiCard label="Completed" icon={<Target className="w-5 h-5" />}
+          subtitle={`${stats.completed} completed`}
+          color="blue"
+          animDelay={0}
+        />
+        <KpiCard
+          label="Completed"
+          icon={<Target className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countComplete)}
-          subtitle={stats.total > 0 ? `${((stats.completed / stats.total) * 100).toFixed(0)}% success` : undefined}
-          color="green" animDelay={60} />
-        <KpiCard label="Active Now" icon={<Activity className="w-5 h-5" />}
+          subtitle={
+            stats.total > 0
+              ? `${((stats.completed / stats.total) * 100).toFixed(0)}% success`
+              : undefined
+          }
+          color="green"
+          animDelay={60}
+        />
+        <KpiCard
+          label="Active Now"
+          icon={<Activity className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countRunning)}
           subtitle={stats.running > 0 ? 'In progress' : 'All idle'}
           color={stats.running > 0 ? 'cyan' : 'blue'}
-          trend={stats.running > 0 ? 'up' : 'neutral'} animDelay={120} />
-        <KpiCard label="Failed / Cancelled" icon={<AlertCircle className="w-5 h-5" />}
+          trend={stats.running > 0 ? 'up' : 'neutral'}
+          animDelay={120}
+        />
+        <KpiCard
+          label="Failed / Cancelled"
+          icon={<AlertCircle className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countFailed)}
           subtitle={stats.failed === 0 ? 'No failures 🎉' : 'Review errors'}
-          color={stats.failed > 0 ? 'rose' : 'emerald'} animDelay={180} />
+          color={stats.failed > 0 ? 'rose' : 'emerald'}
+          animDelay={180}
+        />
       </div>
 
       {/* ── KPI row 2 ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Lifetime P&L" icon={<TrendingUp className="w-5 h-5" />}
+        <KpiCard
+          label="Lifetime P&L"
+          icon={<TrendingUp className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtPnl(stats.totalPnl)}
           subtitle={`avg ${fmtPnl(stats.avgPnlPerRun)}/run`}
           color={stats.totalPnl >= 0 ? 'green' : 'red'}
-          trend={stats.totalPnl >= 0 ? 'up' : 'down'} animDelay={240} />
-        <KpiCard label="Best Win Rate" icon={<Zap className="w-5 h-5" />}
+          trend={stats.totalPnl >= 0 ? 'up' : 'down'}
+          animDelay={240}
+        />
+        <KpiCard
+          label="Best Win Rate"
+          icon={<Zap className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtPct(stats.bestWinRate)}
-          subtitle="Best completed run" color="amber" animDelay={300} />
-        <KpiCard label="Best Sharpe" icon={<Rocket className="w-5 h-5" />}
+          subtitle="Best completed run"
+          color="amber"
+          animDelay={300}
+        />
+        <KpiCard
+          label="Best Sharpe"
+          icon={<Rocket className="w-5 h-5" />}
           value={statsLoading ? '—' : stats.bestSharpe.toFixed(2)}
-          subtitle="Risk-adj. return" color="purple" animDelay={360} />
-        <KpiCard label="Trades Simulated" icon={<Play className="w-5 h-5" />}
+          subtitle="Risk-adj. return"
+          color="purple"
+          animDelay={360}
+        />
+        <KpiCard
+          label="Trades Simulated"
+          icon={<Play className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countTrades)}
-          subtitle="Across all runs" color="cyan" animDelay={420} />
+          subtitle="Across all runs"
+          color="cyan"
+          animDelay={420}
+        />
       </div>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr,0.8fr]">
@@ -587,8 +695,8 @@ export const DashboardPage: React.FC = () => {
             <div>
               <h2 className="text-lg font-semibold text-white">Market context, not just metrics</h2>
               <p className="mt-1 text-sm leading-6 text-slate-400">
-                Use the newsroom and market-intel workspace together so client-facing decisions feel informed,
-                current, and grounded in real market regime changes.
+                Use the newsroom and market-intel workspace together so client-facing decisions feel
+                informed, current, and grounded in real market regime changes.
               </p>
             </div>
           </div>
@@ -598,14 +706,18 @@ export const DashboardPage: React.FC = () => {
               className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-950/70"
             >
               <p className="text-sm font-semibold text-white">Open Market News</p>
-              <p className="mt-1 text-xs text-slate-400">See the full CoinDesk-powered newsroom view.</p>
+              <p className="mt-1 text-xs text-slate-400">
+                See the full CoinDesk-powered newsroom view.
+              </p>
             </Link>
             <Link
               to="/codex"
               className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-950/70"
             >
               <p className="text-sm font-semibold text-white">Open Market Intel</p>
-              <p className="mt-1 text-xs text-slate-400">Inspect movers, safer tokens, and asset context in one place.</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Inspect movers, safer tokens, and asset context in one place.
+              </p>
             </Link>
           </div>
         </div>
@@ -683,17 +795,26 @@ export const DashboardPage: React.FC = () => {
             </div>
             <h2 className="text-lg font-semibold text-white">Codex.io Snapshot</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              Keep one eye on fast movers and another on liquid, safer setups before you jump from analysis into action.
+              Keep one eye on fast movers and another on liquid, safer setups before you jump from
+              analysis into action.
             </p>
             <div className="mt-4 space-y-3">
-              {[...(codexOverviewQuery.data?.movers ?? []).slice(0, 1), ...(codexOverviewQuery.data?.safe_movers ?? []).slice(0, 1)].map((token) => (
-                <div key={token.id} className="rounded-xl border border-slate-700/60 bg-slate-950/45 px-3 py-2">
+              {[
+                ...(codexOverviewQuery.data?.movers ?? []).slice(0, 1),
+                ...(codexOverviewQuery.data?.safe_movers ?? []).slice(0, 1),
+              ].map((token) => (
+                <div
+                  key={token.id}
+                  className="rounded-xl border border-slate-700/60 bg-slate-950/45 px-3 py-2"
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">{token.symbol}</p>
                       <p className="text-xs text-slate-500">{formatCodexUsd(token.price_usd)}</p>
                     </div>
-                    <p className={`text-sm font-semibold ${token.price_change_pct_24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <p
+                      className={`text-sm font-semibold ${token.price_change_pct_24h >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                    >
                       {formatCodexPct(token.price_change_pct_24h)}
                     </p>
                   </div>
@@ -711,10 +832,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      <CodexAssetIntelStrip
-        title="Strategy Asset Context"
-        request={spotlightIntelRequest}
-      />
+      <CodexAssetIntelStrip title="Strategy Asset Context" request={spotlightIntelRequest} />
 
       {/* ── Equity curve ────────────────────────────────────────────── */}
       <div
@@ -732,17 +850,23 @@ export const DashboardPage: React.FC = () => {
             </p>
           </div>
           {pnlTimeSeries.length > 0 && (
-            <div className={`text-lg font-bold ${stats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <div
+              className={`text-lg font-bold ${stats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+            >
               {fmtPnl(stats.totalPnl)}
             </div>
           )}
         </div>
-        <CumulativePnlChart data={pnlTimeSeries} height={300} positiveColor="#22c55e" negativeColor="#ef4444" />
+        <CumulativePnlChart
+          data={pnlTimeSeries}
+          height={300}
+          positiveColor="#22c55e"
+          negativeColor="#ef4444"
+        />
       </div>
 
       {/* ── Quick Launch + Active Runs ──────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
         {/* Quick Launch accordion */}
         <div
           className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl overflow-hidden animate-fade-slide-up"
@@ -763,16 +887,22 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
             <div className="text-slate-400">
-              {launcherOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              {launcherOpen ? (
+                <ChevronUp className="w-5 h-5" />
+              ) : (
+                <ChevronDown className="w-5 h-5" />
+              )}
             </div>
           </button>
 
           {launcherOpen && (
             <div className="border-t border-slate-700/60">
-              <BacktestRunner onBacktestComplete={() => {
-                setRefreshTrigger((t) => t + 1);
-                setLauncherOpen(false);
-              }} />
+              <BacktestRunner
+                onBacktestComplete={() => {
+                  setRefreshTrigger((t) => t + 1);
+                  setLauncherOpen(false);
+                }}
+              />
             </div>
           )}
         </div>
@@ -829,7 +959,9 @@ export const DashboardPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-[11px] text-slate-500">Avg P&L / Run</p>
-                <p className={`text-sm font-semibold ${stats.avgPnlPerRun >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                <p
+                  className={`text-sm font-semibold ${stats.avgPnlPerRun >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                >
                   {fmtPnl(stats.avgPnlPerRun)}
                 </p>
               </div>

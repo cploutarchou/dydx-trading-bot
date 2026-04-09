@@ -1,27 +1,16 @@
-import {
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  Pause,
-  Play,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Zap,
-} from 'lucide-react';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, ChevronDown, ChevronUp, Pause, Play, Plus, RefreshCw, Trash2, Zap } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { classifyApiError } from '../api';
 import {
   useBotInstances,
+  useBotRuntimeStatsStream,
+  useBotStats,
   useCreateBotInstance,
   useDeleteBotInstance,
   useRestartBotInstance,
   useStartBotInstance,
   useStopBotInstance,
 } from '../api/hooks';
-import { enhancedApiClient } from '../api/enhancedClient';
-import { queryKeys } from '../api/queryClient';
 
 interface BotInstance {
   instance_id: string;
@@ -102,21 +91,35 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
       : {};
 
   const totalTrades = toNumber(tradeStatistics.total_trades, toNumber(botStatistics.total_trades));
+  const openPositions = toNumber(raw.open_positions, toNumber(raw.total_open_positions));
+  const closedPositions = toNumber(raw.closed_positions, toNumber(raw.daily_trades_closed, totalTrades));
+  const totalPnl = toNumber(
+    tradeStatistics.net_profit,
+    toNumber(
+      botStatistics.total_profit_loss,
+      toNumber(raw.total_pnl, toNumber(raw.total_unrealized_pnl, toNumber(raw.daily_pnl)))
+    )
+  );
+  const winRateRaw = toNumber(
+    tradeStatistics.win_rate,
+    toNumber(botStatistics.win_rate, toNumber(raw.win_rate, toNumber(raw.daily_win_rate)))
+  );
 
   return {
-    total_positions: totalTrades,
-    open_positions: toNumber(raw.open_positions),
-    closed_positions: totalTrades,
-    total_pnl: toNumber(
-      tradeStatistics.net_profit,
-      toNumber(botStatistics.total_profit_loss, toNumber(raw.total_pnl))
-    ),
+    total_positions: openPositions + closedPositions,
+    open_positions: openPositions,
+    closed_positions: closedPositions,
+    total_pnl: totalPnl,
     realized_pnl: toNumber(tradeStatistics.total_profit, toNumber(raw.realized_pnl)),
     unrealized_pnl: toNumber(raw.unrealized_pnl),
     total_trades: totalTrades,
-    win_rate: toNumber(tradeStatistics.win_rate, toNumber(botStatistics.win_rate)) / 100,
+    win_rate: Math.abs(winRateRaw) <= 1 ? winRateRaw : winRateRaw / 100,
     last_update:
-      typeof raw.last_update === 'string' ? raw.last_update : new Date().toISOString(),
+      typeof raw.last_update === 'string'
+        ? raw.last_update
+        : typeof raw.updated_at === 'string'
+          ? raw.updated_at
+          : new Date().toISOString(),
     degraded: raw.degraded === true,
     warning: typeof raw.warning === 'string' ? raw.warning : undefined,
   };
@@ -148,8 +151,194 @@ const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
   return error instanceof Error ? error.message : fallback;
 };
 
+interface BotCardProps {
+  bot: BotInstance;
+  isExpanded: boolean;
+  actionLoading: string | null;
+  onToggleExpand: (_instanceId: string) => void;
+  onStart: (_instanceId: string) => void;
+  onStop: (_instanceId: string) => void;
+  onRestart: (_instanceId: string) => void;
+  onDelete: (_instanceId: string) => void;
+}
+
+const BotCard: React.FC<BotCardProps> = ({
+  bot,
+  isExpanded,
+  actionLoading,
+  onToggleExpand,
+  onStart,
+  onStop,
+  onRestart,
+  onDelete,
+}) => {
+  const shouldStreamRuntime =
+    isExpanded || ['RUNNING', 'STARTING', 'STOPPING'].includes(bot.status);
+  const statsQuery = useBotStats(bot.instance_id, true);
+  const liveStatsQuery = useBotRuntimeStatsStream(bot.instance_id, shouldStreamRuntime);
+  const rawStats =
+    liveStatsQuery.data && isRecord(liveStatsQuery.data)
+      ? liveStatsQuery.data
+      : statsQuery.data && isRecord(statsQuery.data)
+        ? statsQuery.data
+        : null;
+  const stats = rawStats ? mapBotStats(rawStats) : { ...EMPTY_BOT_STATS };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'RUNNING':
+        return 'bg-green-100 text-green-800';
+      case 'STOPPED':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'STARTING':
+      case 'STOPPING':
+        return 'bg-blue-100 text-blue-800';
+      case 'FAILED':
+      case 'ERROR':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+      <div
+        className="p-4 flex items-center justify-between hover:bg-slate-750 transition cursor-pointer"
+        onClick={() => onToggleExpand(bot.instance_id)}
+      >
+        <div className="flex items-center gap-4 flex-1">
+          <button
+            className="text-slate-400 hover:text-white"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand(bot.instance_id);
+            }}
+          >
+            {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+          </button>
+
+          <div>
+            <h3 className="font-semibold text-white">{bot.instance_name || bot.instance_id}</h3>
+            <p className="text-xs text-slate-500">ID: {bot.instance_id}</p>
+            {isManagedStrategyRuntime(bot) && (
+              <p className="text-xs text-cyan-400">Managed strategy runtime</p>
+            )}
+            <p className="text-sm text-slate-400">
+              Started: {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
+            </p>
+            {bot.error_message && <p className="text-xs text-amber-300">{bot.error_message}</p>}
+            {shouldStreamRuntime && (
+              <p className={`text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : 'text-slate-500'}`}>
+                {liveStatsQuery.isConnected ? 'Live runtime stream connected' : 'Runtime stream reconnecting'}
+              </p>
+            )}
+          </div>
+
+          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(bot.status)}`}>
+            {bot.status}
+          </span>
+
+          <div className="ml-auto text-right">
+            <p className="text-sm font-semibold text-white">
+              P&amp;L:{' '}
+              <span className={stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                ${stats.total_pnl.toFixed(2)}
+              </span>
+            </p>
+            <p className="text-xs text-slate-400">
+              Positions: {stats.open_positions} open, {stats.closed_positions} closed
+            </p>
+            {stats.degraded && (
+              <p className="text-xs text-amber-300">
+                {stats.warning || 'Runtime stats temporarily unavailable'}
+              </p>
+            )}
+            {!stats.degraded && liveStatsQuery.error && (
+              <p className="text-xs text-amber-300">Live runtime stats unavailable</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
+          {bot.status === 'RUNNING' ? (
+            <>
+              <button
+                onClick={() => onStop(bot.instance_id)}
+                disabled={actionLoading === `stop:${bot.instance_id}`}
+                className="p-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded transition disabled:opacity-60"
+                title="Stop bot"
+              >
+                <Pause size={18} />
+              </button>
+              <button
+                onClick={() => onRestart(bot.instance_id)}
+                disabled={actionLoading === `restart:${bot.instance_id}`}
+                className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition disabled:opacity-60"
+                title="Restart bot"
+              >
+                <RefreshCw size={18} />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => onStart(bot.instance_id)}
+              disabled={actionLoading === `start:${bot.instance_id}`}
+              className="p-2 bg-green-600 hover:bg-green-700 text-white rounded transition disabled:opacity-60"
+              title="Start bot"
+            >
+              <Play size={18} />
+            </button>
+          )}
+          <button
+            onClick={() => onDelete(bot.instance_id)}
+            disabled={actionLoading === `delete:${bot.instance_id}`}
+            className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition disabled:opacity-60"
+            title="Delete bot"
+          >
+            <Trash2 size={18} />
+          </button>
+        </div>
+      </div>
+
+      {isExpanded && (
+        <div className="bg-slate-750 border-t border-slate-700 p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-slate-800 p-3 rounded">
+              <p className="text-xs text-slate-400">Total P&amp;L</p>
+              <p
+                className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+              >
+                ${stats.total_pnl.toFixed(2)}
+              </p>
+            </div>
+            <div className="bg-slate-800 p-3 rounded">
+              <p className="text-xs text-slate-400">Win Rate</p>
+              <p className="text-lg font-semibold text-white">
+                {(stats.win_rate * 100).toFixed(1)}%
+              </p>
+            </div>
+            <div className="bg-slate-800 p-3 rounded">
+              <p className="text-xs text-slate-400">Total Trades</p>
+              <p className="text-lg font-semibold text-white">{stats.total_trades}</p>
+            </div>
+          </div>
+
+          {bot.configuration && (
+            <div className="bg-slate-800 p-3 rounded">
+              <p className="text-xs text-slate-400 mb-2">Configuration</p>
+              <pre className="text-xs text-slate-300 overflow-auto max-h-32">
+                {JSON.stringify(bot.configuration, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const BotManager: React.FC = () => {
-  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [expandedBot, setExpandedBot] = useState<string | null>(null);
@@ -169,26 +358,6 @@ const BotManager: React.FC = () => {
   const botsQuery = useBotInstances({ limit: 100 });
   const bots = mapBots(botsQuery.data?.data);
 
-  const statsQueries = useQueries({
-    queries: bots.map((bot) => ({
-      queryKey: queryKeys.botStats(bot.instance_id),
-      queryFn: () => enhancedApiClient.getBotStats(bot.instance_id),
-      enabled: !!bot.instance_id,
-      staleTime: 30 * 1000,
-      gcTime: 5 * 60 * 1000,
-    })),
-  });
-
-  const statsByBotId = bots.reduce<Record<string, BotStats>>((acc, bot, index) => {
-    const raw = statsQueries[index]?.data;
-    if (raw && isRecord(raw)) {
-      acc[bot.instance_id] = mapBotStats(raw);
-    } else {
-      acc[bot.instance_id] = { ...EMPTY_BOT_STATS };
-    }
-    return acc;
-  }, {});
-
   const createBotMutation = useCreateBotInstance();
   const startBotMutation = useStartBotInstance();
   const stopBotMutation = useStopBotInstance();
@@ -206,17 +375,17 @@ const BotManager: React.FC = () => {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: ['bots'] });
-    }, 10000);
+      void botsQuery.refetch();
+    }, 30000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [queryClient]);
+  }, [botsQuery.refetch]);
 
   const refreshBots = async () => {
     setError(null);
-    await queryClient.invalidateQueries({ queryKey: ['bots'] });
+    await botsQuery.refetch();
   };
 
   const resetCreateForm = () => {
@@ -325,23 +494,6 @@ const BotManager: React.FC = () => {
   const isCreating = createBotMutation.isPending;
   const isRefreshing = botsQuery.isFetching && bots.length > 0;
   const isInitialLoading = botsQuery.isLoading && bots.length === 0;
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'RUNNING':
-        return 'bg-green-100 text-green-800';
-      case 'STOPPED':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'STARTING':
-      case 'STOPPING':
-        return 'bg-blue-100 text-blue-800';
-      case 'FAILED':
-      case 'ERROR':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
 
   return (
     <div className="space-y-6 p-6">
@@ -509,150 +661,21 @@ const BotManager: React.FC = () => {
           </div>
         ) : (
           bots.map((bot) => {
-            const stats = statsByBotId[bot.instance_id];
             const isExpanded = expandedBot === bot.instance_id;
-
             return (
-              <div
+              <BotCard
                 key={bot.instance_id}
-                className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden"
-              >
-                <div
-                  className="p-4 flex items-center justify-between hover:bg-slate-750 transition cursor-pointer"
-                  onClick={() => setExpandedBot(isExpanded ? null : bot.instance_id)}
-                >
-                  <div className="flex items-center gap-4 flex-1">
-                    <button
-                      className="text-slate-400 hover:text-white"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedBot(isExpanded ? null : bot.instance_id);
-                      }}
-                    >
-                      {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                    </button>
-
-                    <div>
-                      <h3 className="font-semibold text-white">
-                        {bot.instance_name || bot.instance_id}
-                      </h3>
-                      <p className="text-xs text-slate-500">ID: {bot.instance_id}</p>
-                      {isManagedStrategyRuntime(bot) && (
-                        <p className="text-xs text-cyan-400">Managed strategy runtime</p>
-                      )}
-                      <p className="text-sm text-slate-400">
-                        Started: {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
-                      </p>
-                      {bot.error_message && (
-                        <p className="text-xs text-amber-300">{bot.error_message}</p>
-                      )}
-                    </div>
-
-                    <span
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(bot.status)}`}
-                    >
-                      {bot.status}
-                    </span>
-
-                    {stats && (
-                      <div className="ml-auto text-right">
-                        <p className="text-sm font-semibold text-white">
-                          P&amp;L:{' '}
-                          <span
-                            className={stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}
-                          >
-                            ${stats.total_pnl.toFixed(2)}
-                          </span>
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          Positions: {stats.open_positions} open, {stats.closed_positions} closed
-                        </p>
-                        {stats.degraded && (
-                          <p className="text-xs text-amber-300">
-                            {stats.warning || 'Runtime stats temporarily unavailable'}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
-                    {bot.status === 'RUNNING' ? (
-                      <>
-                        <button
-                          onClick={() => void handleStopBot(bot.instance_id)}
-                          disabled={actionLoading === `stop:${bot.instance_id}`}
-                          className="p-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded transition disabled:opacity-60"
-                          title="Stop bot"
-                        >
-                          <Pause size={18} />
-                        </button>
-                        <button
-                          onClick={() => void handleRestartBot(bot.instance_id)}
-                          disabled={actionLoading === `restart:${bot.instance_id}`}
-                          className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition disabled:opacity-60"
-                          title="Restart bot"
-                        >
-                          <RefreshCw size={18} />
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => void handleStartBot(bot.instance_id)}
-                        disabled={actionLoading === `start:${bot.instance_id}`}
-                        className="p-2 bg-green-600 hover:bg-green-700 text-white rounded transition disabled:opacity-60"
-                        title="Start bot"
-                      >
-                        <Play size={18} />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => void handleDeleteBot(bot.instance_id)}
-                      disabled={actionLoading === `delete:${bot.instance_id}`}
-                      className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition disabled:opacity-60"
-                      title="Delete bot"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="bg-slate-750 border-t border-slate-700 p-4 space-y-3">
-                    {stats && (
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-slate-800 p-3 rounded">
-                          <p className="text-xs text-slate-400">Total P&amp;L</p>
-                          <p
-                            className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                          >
-                            ${stats.total_pnl.toFixed(2)}
-                          </p>
-                        </div>
-                        <div className="bg-slate-800 p-3 rounded">
-                          <p className="text-xs text-slate-400">Win Rate</p>
-                          <p className="text-lg font-semibold text-white">
-                            {(stats.win_rate * 100).toFixed(1)}%
-                          </p>
-                        </div>
-                        <div className="bg-slate-800 p-3 rounded">
-                          <p className="text-xs text-slate-400">Total Trades</p>
-                          <p className="text-lg font-semibold text-white">{stats.total_trades}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {bot.configuration && (
-                      <div className="bg-slate-800 p-3 rounded">
-                        <p className="text-xs text-slate-400 mb-2">Configuration</p>
-                        <pre className="text-xs text-slate-300 overflow-auto max-h-32">
-                          {JSON.stringify(bot.configuration, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                bot={bot}
+                isExpanded={isExpanded}
+                actionLoading={actionLoading}
+                onToggleExpand={(instanceId) =>
+                  setExpandedBot((current) => (current === instanceId ? null : instanceId))
+                }
+                onStart={(instanceId) => void handleStartBot(instanceId)}
+                onStop={(instanceId) => void handleStopBot(instanceId)}
+                onRestart={(instanceId) => void handleRestartBot(instanceId)}
+                onDelete={(instanceId) => void handleDeleteBot(instanceId)}
+              />
             );
           })
         )}

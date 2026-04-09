@@ -6,6 +6,13 @@
 - Main runtime flow is: Gin middleware -> handler -> service -> repository -> SQL DB; most protected endpoints use `middleware.RequireAuth()`.
 - This backend also acts as a proxy to a Python bot API (`BOT_API_URL`, default `http://127.0.0.1:8889`) for backtests/bot runtime endpoints via `internal/routes/bot_api_delegate_routes.go`.
 
+## Start-of-task checklist
+
+1. Read `../.github/copilot-instructions.md`
+2. Read `.github/copilot-instructions.md`
+3. Read `.github/CUSTOMIZATION_INDEX.md`
+4. Prefer `.github/agents/senior-go-defi-backend.agent.md` for backend implementation work
+
 ## Critical Runtime Behavior
 - `cmd/server/main.go` loads `.env` from repo-root candidates, then `config.LoadConfig()`, then starts DB with `AutoMigrate: true` using `config.Database.MigrationsPath()`.
 - The backend runtime supports PostgreSQL only; `config.LoadConfig()` rejects other `DB_TYPE` values and normalizes runtime usage to `postgres`.

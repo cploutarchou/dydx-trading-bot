@@ -2,6 +2,13 @@
 
 Repository-level guidance for coding agents working on this project.
 
+## Start-of-task checklist
+
+1. Read `../.github/copilot-instructions.md`
+2. Read `.github/copilot-instructions.md`
+3. Read `.github/CUSTOMIZATION_INDEX.md`
+4. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
+
 ## Primary goals
 
 - Preserve trading safety over convenience.
@@ -24,7 +31,7 @@ Repository-level guidance for coding agents working on this project.
 6. **State safety**
    - Any change touching `bot_states/*` handling must include restart/recovery reconciliation notes.
 7. **Documentation sync**
-   - If runtime behavior or operations change, update `PRODUCTION_READINESS.md`, `LOCAL_SETUP.md`, `API_CONTRACT.md`, `openapi.json`, and `tasks.md` in the same change.
+   - If runtime behavior or operations change, update `README.md`, `../docs/OPERATIONS.md`, `openapi.json`, and `tasks.md` in the same change.
 8. **Canonical API entrypoints**
    - Treat `src/api/server.py` as the canonical API; keep `app.py` and `start_api.py` as compatibility wrappers around `src.api.server` / `src.api.start_api`.
 9. **API/auth contract stability**
@@ -47,9 +54,8 @@ Repository-level guidance for coding agents working on this project.
 
 ## Key documentation map
 
-- `PRODUCTION_READINESS.md`
-- `LOCAL_SETUP.md`
-- `API_CONTRACT.md`
+- `README.md`
 - `openapi.json`
+- `../docs/OPERATIONS.md`
 - `.github/copilot-instructions.md`
 - `tasks.md`

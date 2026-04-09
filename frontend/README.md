@@ -1,99 +1,67 @@
-# dYdX Trading Bot Frontend
+# Frontend Service
 
-React + TypeScript frontend for the dYdX trading dashboard and backtest workflows.
+The frontend is the React application for the public website, authentication flows, and operator workspace.
 
-## Quick start
+## Responsibilities
+
+- render the public marketing site and pricing pages
+- handle login, registration, 2FA, and account flows
+- provide the authenticated trading workspace
+- display live backtests, strategies, bots, and market views
+- consume backend HTTP and websocket routes only
+
+## Runtime
+
+- framework: React 19 + TypeScript + Vite
+- default dev port: `5173`
+- API target: backend on `8888`
+
+## Integration Rule
+
+The frontend must never talk directly to the Python bot API in product code.
+
+Allowed:
+
+- backend HTTP routes
+- backend websocket routes
+
+Not allowed:
+
+- direct bot HTTP or websocket routes
+- direct database access
+
+## Commands
 
 ```bash
 npm install
-make config-keygen
-make dev-config
-make dev
-make infra-up
-npm run dev
-```
-
-Visit <http://localhost:5173> for local development.
-
-## Prerequisites
-
-- **Development:** Node 20+, npm, Python 3 with `cryptography`, repo-root `.configkey.bin`, and access to `run.json` generated from `config/profiles/*.config.enc.json`
-- **Integration services:** Docker + `make`
-
-## Common commands
-
-```bash
 npm run dev
 npm run build
 npm run lint
 npm run preview
-make infra-up
-make stack-up-dev
+npm run test:contracts
 ```
 
-## Documentation
+## Key Directories
 
-Use the docs in this order:
+- `src/pages` for route-level screens
+- `src/components` for reusable UI blocks
+- `src/api` for API and websocket helpers
+- `src/store` for Zustand state
+- `src/navigation` for workspace navigation and command palette
 
-1. **[Documentation Home](docs/README.md)** - main frontend documentation entry point
-2. **[Setup Guide](docs/SETUP.md)** - local setup, build, preview, and integration commands
-3. **[Troubleshooting](docs/guides/TROUBLESHOOTING.md)** - common issues and fixes
-4. **[Architecture](docs/architecture/README.md)** - data flow, patterns, and API structure
-5. **[Code Patterns](.github/copilot-instructions.md)** - project conventions and implementation guidance
+## UI Standard
 
-Detailed setup, preview, and Docker usage live in [docs/SETUP.md](docs/SETUP.md).
+The current UI direction is production DeFi:
 
-## Project structure
+- websocket-first live surfaces
+- backend-only integration
+- trading-terminal style density where appropriate
+- responsive layouts across mobile, tablet, and desktop
+- smaller, intentional surfaces instead of oversized marketing boxes
 
-```text
-src/
-├── components/       # Reusable React components
-├── pages/           # Route-level components
-├── store/           # Zustand state management
-├── api.ts           # API client with interceptors
-└── hooks/           # Custom React hooks
+## Supporting Docs
 
-docs/               # All documentation
-├── architecture/   # System design
-└── guides/         # Detailed guides
-```
-
-## Tech stack
-
-- **React 19** + **TypeScript** + **Vite**
-- **Zustand** (state management)
-- **TailwindCSS v4** (styling)
-- **Recharts** (data visualization)
-- **Axios** (HTTP client)
-- **React Router** (navigation)
-
-## Architecture
-
-For detailed architecture information, see [docs/architecture/README.md](docs/architecture/README.md).
-
-## Code patterns
-
-See [.github/copilot-instructions.md](.github/copilot-instructions.md) for project-specific conventions and implementation patterns.
-
-## Contributing
-
-1. Create a branch from `master`
-2. Make your changes
-3. Run: `npm run lint -- --fix`
-4. Commit with descriptive messages
-5. Push and create a pull request
-
-## Help
-
-- **Setup issues?** → [docs/SETUP.md](docs/SETUP.md)
-- **Troubleshooting?** → [docs/guides/TROUBLESHOOTING.md](docs/guides/TROUBLESHOOTING.md)
-- **Architecture questions?** → [docs/architecture/](docs/architecture/)
-- **Code patterns?** → [.github/copilot-instructions.md](.github/copilot-instructions.md)
-
-## License
-
-See LICENSE file in root directory
-
----
-
-Start with [docs/SETUP.md](docs/SETUP.md).
+- [Frontend Architecture Notes](/home/chris/workspace/dydx-trading-bot/frontend/docs/architecture/README.md)
+- [Fintech UI Standards](/home/chris/workspace/dydx-trading-bot/frontend/docs/architecture/FINTECH_UI_STANDARDS.md)
+- [Troubleshooting](/home/chris/workspace/dydx-trading-bot/frontend/docs/guides/TROUBLESHOOTING.md)
+- [Root Wiki Home](/home/chris/workspace/dydx-trading-bot/docs/README.md)

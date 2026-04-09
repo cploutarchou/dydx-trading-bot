@@ -10,6 +10,14 @@ For each new task, first consult:
 2. `.github/CUSTOMIZATION_INDEX.md`
 3. Any relevant skill/agent/prompt listed in the index
 
+Preferred agent selection:
+
+- root or cross-service work: `.github/agents/senior-defi-monorepo-platform.agent.md`
+- trading/quant-heavy mixed-stack work: `.github/agents/senior-defi-dev.agent.md`
+- backend-only work: `backend/.github/agents/senior-go-defi-backend.agent.md`
+- bot-only work: `bot/.github/agents/senior-python-defi-runtime.agent.md`
+- frontend-only work: `frontend/.github/agents/senior-react-defi-product.agent.md`
+
 ## Architecture
 
 This is a monorepo with 3 practical areas:
@@ -86,9 +94,9 @@ When editing `bot/src/**`, follow these rules:
 
 - Monorepo runtime and workflows: `README.md`
 - Customization map: `.github/CUSTOMIZATION_INDEX.md`
-- Bot deep guidance: `bot/.github/copilot-instructions.md`, `bot/LOCAL_SETUP.md`, `bot/API_CONTRACT.md`, `bot/PRODUCTION_READINESS.md`
-- Backend deep guidance: `backend/.github/copilot-instructions.md`, `backend/tasks.md`
-- Frontend deep guidance: `frontend/.github/copilot-instructions.md`, `frontend/docs/architecture/README.md`
+- Bot deep guidance: `bot/.github/copilot-instructions.md`, `bot/README.md`
+- Backend deep guidance: `backend/.github/copilot-instructions.md`, `backend/README.md`, `backend/tasks.md`
+- Frontend deep guidance: `frontend/.github/copilot-instructions.md`, `frontend/README.md`, `frontend/docs/architecture/README.md`
 - Specialized customization: `.github/skills/defi-python-algo-trading/SKILL.md`, `.github/agents/senior-defi-dev.agent.md`, `.github/prompts/*.prompt.md`
 
 ## Scope guidance

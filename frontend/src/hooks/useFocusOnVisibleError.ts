@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
 import type { DependencyList, RefObject } from 'react';
+import { useEffect } from 'react';
 
 type FocusTarget = {
   when: boolean;

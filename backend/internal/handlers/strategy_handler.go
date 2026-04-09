@@ -205,6 +205,19 @@ func normalizeRuntimeNetwork(value string) string {
 	}
 }
 
+func parseExplicitRuntimeNetwork(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "", fmt.Errorf("runtime network selection is required")
+	}
+	switch normalized {
+	case "testnet", "mainnet":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("invalid runtime network %q; use testnet or mainnet", value)
+	}
+}
+
 // NewStrategyHandler creates a new strategy handler
 func NewStrategyHandler(service *services.StrategyService, runtimeService *services.StrategyRuntimeService) *StrategyHandler {
 	return &StrategyHandler{
@@ -545,6 +558,16 @@ func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
 		return
 	}
 
+	runtimeNetwork, parseErr := parseExplicitRuntimeNetwork(c.Query("network"))
+	if parseErr != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Invalid runtime network selection: %v", parseErr),
+		})
+		return
+	}
+
 	forceRecreate, _ := strconv.ParseBool(c.DefaultQuery("force_recreate", "false"))
 	runtimeService := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 	var (
@@ -552,9 +575,9 @@ func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
 		err          error
 	)
 	if forceRecreate {
-		runtimeState, err = runtimeService.StartRuntimeWithForceRecreate(strategy, c.Query("network"))
+		runtimeState, err = runtimeService.StartRuntimeWithForceRecreate(strategy, runtimeNetwork)
 	} else {
-		runtimeState, err = runtimeService.StartRuntime(strategy, c.Query("network"))
+		runtimeState, err = runtimeService.StartRuntime(strategy, runtimeNetwork)
 	}
 	if err != nil {
 		normalizedErr := strings.ToLower(err.Error())

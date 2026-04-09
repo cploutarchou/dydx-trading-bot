@@ -86,7 +86,7 @@ Status:
 
 ### P1. Trading and Execution Readiness
 
-1. Testnet and mainnet live deployment workflow
+1. [x] Testnet and mainnet live deployment workflow
 Owner: bot + backend + frontend
 Why: the docs now support environment-aware launches, but the operator workflow can be safer and clearer.
 Deliverables:
@@ -94,8 +94,14 @@ Deliverables:
 - explicit environment selection every time a strategy is launched
 - network-aware credential validation
 - clearer testnet vs production risk messaging in UI
+Status:
+- completed 2026-04-10
+- backend start endpoint now requires explicit `network` selection (`testnet` or `mainnet`) and rejects missing/invalid values
+- strategy runtime route coverage now validates missing-network rejection and explicit-network start flow
+- frontend runtime start calls now always pass selected `network`
+- launch dialog now shows environment-specific risk messaging for testnet vs mainnet
 
-1. Capital allocation and subaccount management
+1. [x] Capital allocation and subaccount management
 Owner: bot + backend
 Why: runtime readiness checks exist, but collateral management is still partly operational/manual.
 Deliverables:
@@ -103,8 +109,14 @@ Deliverables:
 - improved per-strategy capital allocation model
 - better available collateral display and guardrails
 - explicit handling for insufficient funds and minimum collateral buffers
+Status:
+- completed 2026-04-10
+- enhanced bot preflight with collateral safety buffer (25% above minimum) and aggressive trade-size warnings
+- added trade execution guard: prevents trades if remaining buffer would be insufficient
+- bot position manager now checks buffer reserves before opening next position to prevent cascade failures
+- frontend launch dialog already displays collateral metrics; warnings now include buffer state and trade-size ratios
 
-1. Live runtime reconciliation and fail-safe behavior
+1. [x] Live runtime reconciliation and fail-safe behavior
 Owner: bot + backend
 Why: production readiness depends on restart, recovery, and state reconciliation.
 Deliverables:
@@ -112,6 +124,14 @@ Deliverables:
 - stronger reconciliation after restarts
 - better dead-worker detection and operator-visible recovery state
 - explicit incident-safe runtime statuses
+Status:
+- completed 2026-04-10
+- extended BotStatus enum with incident-safe states: RECOVERING, DEGRADED, SAFEGUARDED
+- added bot manager heartbeat tracking: last_heartbeat timestamp and heartbeat staleness detection
+- added liveness monitor: automatically marks instances as degraded if heartbeat stale >30s
+- backend reconciliation now recognizes and propagates recovery/degraded/safeguarded states
+- bot manager dead-process detection triggers recovery state transition
+- enhanced status payload includes recovery_state and recovery_reason for operator Visibility
 
 ### P1. Product and Commercial Platform
 

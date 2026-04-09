@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pandas as pd
 from loguru import logger
-
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
     USD_MIN_COLLATERAL,
@@ -178,12 +177,26 @@ async def open_positions(client):
                             USD_MIN_COLLATERAL,
                         )
 
-                        # Guard: Ensure collateral
+                        # P1.6: Guard 1 - Ensure minimum collateral
                         if free_collateral < USD_MIN_COLLATERAL:
                             logger.warning(
                                 "Insufficient collateral {:.2f} < {:.2f}; skipping trade",
                                 free_collateral,
                                 USD_MIN_COLLATERAL,
+                            )
+                            break
+                        
+                        # P1.6: Guard 2 - Ensure buffer above trade size (fail-safe for subsequent trades)
+                        # Keep at least 1.25x min collateral remaining after this trade
+                        COLLATERAL_BUFFER_RATIO = 1.25
+                        remaining_after_trade = free_collateral - USD_PER_TRADE
+                        required_buffer = USD_MIN_COLLATERAL * COLLATERAL_BUFFER_RATIO
+                        if remaining_after_trade < required_buffer:
+                            logger.warning(
+                                "Trade would breach collateral buffer: {:.2f} - {:.2f} < {:.2f}; stopping execution",
+                                free_collateral,
+                                USD_PER_TRADE,
+                                required_buffer,
                             )
                             break
 

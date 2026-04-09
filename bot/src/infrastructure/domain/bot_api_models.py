@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class BotStatus(str, Enum):
-    """Bot status enumeration."""
+    """Bot status enumeration with incident-safe recovery states."""
 
     CREATED = "created"
     STARTING = "starting"
@@ -16,6 +16,9 @@ class BotStatus(str, Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
     ERROR = "error"
+    RECOVERING = "recovering"  # P1.7: Recovery in progress after crash/restart
+    DEGRADED = "degraded"  # P1.7: Operational but with guardrails active
+    SAFEGUARDED = "safeguarded"  # P1.7: Active incident-response mode (capital/position locked)
 
 
 class TradingParameters(BaseModel):
@@ -125,6 +128,11 @@ class BotInstanceState(BaseModel):
     trading_stats: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     last_update: datetime
+    # P1.7: Liveness and recovery tracking
+    last_heartbeat: Optional[datetime] = None  # Last verified alive signal
+    heartbeat_stale_seconds: int = 30  # Time before marking as stale/degraded
+    recovery_state: Optional[str] = None  # "recovering", "degraded", "safeguarded", or None
+    recovery_reason: Optional[str] = None  # Why recovery state was activated
 
     def to_api_status(self) -> BotInstanceStatus:
         """Convert internal state to API status view."""

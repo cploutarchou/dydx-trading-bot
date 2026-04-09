@@ -1,5 +1,7 @@
 # dYdX Trading Bot - AI Coding Agent Instructions
 
+Preferred service agent: `.github/agents/senior-python-defi-runtime.agent.md`
+
 ## System Architecture Overview
 
 This repository is a **multi-instance API-controlled trading bot** with process-isolated workers, shared persistence, and operational safety controls.
@@ -72,10 +74,9 @@ Use project `.venv` interpreter consistently across tasks, tests, scripts, and p
 
 When behavior, operations, or safety constraints change, update docs in the same PR:
 
-- `PRODUCTION_READINESS.md`
-- `LOCAL_SETUP.md`
-- `API_CONTRACT.md`
+- `README.md`
 - `openapi.json`
+- `../docs/OPERATIONS.md`
 - `tasks.md`
 
 ## High-Signal Developer Commands

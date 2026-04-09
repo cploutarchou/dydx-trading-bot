@@ -1,5 +1,7 @@
 # dYdX Trading Bot Frontend - AI Coding Agent Instructions
 
+Preferred service agent: `.github/agents/senior-react-defi-product.agent.md`
+
 ## Project Overview
 
 React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Frontend uses the Go backend on `localhost:8888`, which orchestrates/proxies Bot API operations.

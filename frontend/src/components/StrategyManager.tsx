@@ -288,10 +288,7 @@ export default function StrategyManager() {
       socket.onmessage = null;
       socket.onerror = null;
       socket.onclose = null;
-      if (
-        socket.readyState === WebSocket.OPEN ||
-        socket.readyState === WebSocket.CONNECTING
-      ) {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
         socket.close();
       }
     };
@@ -444,8 +441,7 @@ export default function StrategyManager() {
       network: runtimeNetwork,
       botStatus: 'starting',
       runtimeSubaccount: startDialogReadiness?.selected_subaccount ?? strategy.runtime_subaccount,
-      capitalAllocationUsd:
-        startDialogReadiness?.capital_allocation_usd ?? strategy.initial_amount,
+      capitalAllocationUsd: startDialogReadiness?.capital_allocation_usd ?? strategy.initial_amount,
     });
 
     try {
@@ -468,7 +464,11 @@ export default function StrategyManager() {
         }
       }
 
-      let response = await apiClient.startStrategyRuntime(strategy.id, runtimeNetwork, forceRecreate);
+      let response = await apiClient.startStrategyRuntime(
+        strategy.id,
+        runtimeNetwork,
+        forceRecreate
+      );
 
       if (
         !forceRecreate &&
@@ -508,7 +508,11 @@ export default function StrategyManager() {
         const confirmed = confirmRecreate();
         if (confirmed) {
           try {
-            const response = await apiClient.startStrategyRuntime(strategy.id, runtimeNetwork, true);
+            const response = await apiClient.startStrategyRuntime(
+              strategy.id,
+              runtimeNetwork,
+              true
+            );
             mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
             showTransientMessage(
               {
@@ -1033,9 +1037,7 @@ export default function StrategyManager() {
                     </p>
                   </div>
                   <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3">
-                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">
-                      Subaccount
-                    </p>
+                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">Subaccount</p>
                     <p className="text-white font-semibold">
                       #{status.runtimeSubaccount ?? strategy.runtime_subaccount ?? 0}
                     </p>
@@ -1237,6 +1239,24 @@ export default function StrategyManager() {
                 </div>
               </div>
 
+              {startDialogNetwork === 'mainnet' ? (
+                <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                  <p className="font-semibold text-red-200">Mainnet risk notice</p>
+                  <p className="mt-1">
+                    You are about to launch on production capital. Confirm key ownership,
+                    subaccount, collateral, and trade sizing before continuing.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+                  <p className="font-semibold text-cyan-200">Testnet mode</p>
+                  <p className="mt-1">
+                    Testnet launch is recommended for strategy shakeout and credential verification
+                    before production deployment.
+                  </p>
+                </div>
+              )}
+
               {startDialogError && (
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                   {startDialogError}
@@ -1282,9 +1302,7 @@ export default function StrategyManager() {
                       </p>
                     </div>
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                        Ready
-                      </p>
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Ready</p>
                       <p
                         className={`mt-2 text-lg font-semibold ${
                           startDialogReadiness.ready ? 'text-emerald-400' : 'text-amber-300'
@@ -1346,9 +1364,7 @@ export default function StrategyManager() {
                                 : 'text-amber-300'
                             }
                           >
-                            {startDialogReadiness.sufficient_for_min_collateral
-                              ? 'OK'
-                              : 'Too low'}
+                            {startDialogReadiness.sufficient_for_min_collateral ? 'OK' : 'Too low'}
                           </span>
                         </div>
                       </div>
@@ -1387,9 +1403,9 @@ export default function StrategyManager() {
                             <div className="flex items-center justify-between">
                               <span>Trade size / free collateral</span>
                               <span className="font-medium text-white">
-                                {(startDialogReadiness.trade_size_to_collateral_ratio * 100).toFixed(
-                                  2
-                                )}
+                                {(
+                                  startDialogReadiness.trade_size_to_collateral_ratio * 100
+                                ).toFixed(2)}
                                 %
                               </span>
                             </div>

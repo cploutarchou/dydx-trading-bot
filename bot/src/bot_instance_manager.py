@@ -16,10 +16,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TextIO
 
-from loguru import logger
 import psutil
 from config.config import config as load_app_config
 from internal.domain.models import BotStatusEnum
+from loguru import logger
 from sqlalchemy import text
 from src.infrastructure.database import db
 from src.infrastructure.domain.bot_api_models import (
@@ -449,8 +449,17 @@ class BotInstanceManager:
         instance_id: str,
         event: str = "status",
         last_error: Optional[str] = None,
+        message: Optional[str] = None,
     ):
         """Publish status update for strategy-managed instances when configured."""
+        # P1.7: Update heartbeat on any status update (alive signal)
+        if instance_id in self.instances:
+            self.instances[instance_id].last_heartbeat = datetime.now(timezone.utc)
+            # Clear degraded state if instance is running again
+            if event == "running" and self.instances[instance_id].recovery_state == "degraded":
+                self.instances[instance_id].recovery_state = None
+                self.instances[instance_id].recovery_reason = None
+        
         if self.status_event_publisher is None:
             return
 
@@ -1188,6 +1197,10 @@ class BotInstanceManager:
                     f"Background monitor detected crashed process for {instance_id} (exit_code={process.returncode})"
                 )
                 if self._mark_instance_error(instance_id, error_message, exit_code=process.returncode):
+                    # P1.7: Mark as recovering state
+                    if instance_id in self.instances:
+                        self.instances[instance_id].recovery_state = "recovering"
+                        self.instances[instance_id].recovery_reason = error_message
                     await self._publish_strategy_status(
                         instance_id,
                         event="error",
@@ -1195,6 +1208,34 @@ class BotInstanceManager:
                     )
 
         self._save_instances_state()
+        
+        # P1.7: Check for stale heartbeats and mark as degraded
+        await self._check_liveness_and_degrade()
+
+    async def _check_liveness_and_degrade(self):
+        """P1.7: Monitor heartbeat staleness and degrade status if needed"""
+        now = datetime.now(timezone.utc)
+        for instance_id, instance in list(self.instances.items()):
+            if instance.status != BotStatus.RUNNING:
+                continue
+            
+            # Check if heartbeat is stale
+            if instance.last_heartbeat is not None:
+                time_since_heartbeat = (now - instance.last_heartbeat).total_seconds()
+                if time_since_heartbeat > instance.heartbeat_stale_seconds:
+                    # Mark as degraded if not already in recovery
+                    if instance.recovery_state != "recovering":
+                        logger.warning(
+                            f"Instance {instance_id} heartbeat stale for {time_since_heartbeat:.0f}s; marking degraded"
+                        )
+                        instance.recovery_state = "degraded"
+                        instance.recovery_reason = f"Heartbeat stale for {time_since_heartbeat:.0f}s"
+                        instance.status = BotStatus.DEGRADED
+                        await self._publish_strategy_status(
+                            instance_id,
+                            event="degraded",
+                            message="Runtime heartbeat stale; operating with caution",
+                        )
 
     def get_recovery_diagnostics(self) -> Dict[str, Any]:
         """Return startup recovery diagnostics for observability endpoints."""

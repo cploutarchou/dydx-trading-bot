@@ -2,12 +2,12 @@
  * API client for dYdX Backtest system
  */
 
-import axios, { AxiosError, AxiosInstance } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-  guardBacktestStatusContract,
-  guardListBacktestsContract,
-  guardRunBacktestContract,
-  guardSyncHealthContract,
+	guardBacktestStatusContract,
+	guardListBacktestsContract,
+	guardRunBacktestContract,
+	guardSyncHealthContract,
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
@@ -907,7 +907,8 @@ class ApiClient {
 
     // Request interceptor to add an auth token
     this.client.interceptors.request.use((config) => {
-      const headers = (config.headers ??= {});
+      config.headers ??= {} as AxiosRequestHeaders;
+      const headers = config.headers as AxiosRequestHeaders;
       attachTraceHeader(headers as Record<string, string>);
 
       // Prefer in-memory accessToken, but fall back to storage (localStorage or cookie)
@@ -1887,18 +1888,16 @@ class ApiClient {
 
   async startStrategyRuntime(
     strategyId: number,
-    network?: 'testnet' | 'mainnet',
+    network: 'testnet' | 'mainnet',
     forceRecreate: boolean = false
   ): Promise<ApiResponse<StrategyRuntimeResponse>> {
     try {
       const params = new URLSearchParams();
-      if (network) {
-        params.set('network', network);
-      }
+      params.set('network', network);
       if (forceRecreate) {
         params.set('force_recreate', 'true');
       }
-      const query = params.toString() ? `?${params.toString()}` : '';
+      const query = `?${params.toString()}`;
       const response = await this.client.post<ApiResponse<StrategyRuntimeResponse>>(
         `/api/v1/strategies/${strategyId}/start${query}`
       );

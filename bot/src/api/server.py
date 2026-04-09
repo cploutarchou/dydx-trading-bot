@@ -16,7 +16,6 @@ from uuid import uuid4
 
 import httpx
 import uvicorn
-from loguru import logger
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -29,6 +28,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 from src.shared.env_loader import load_repo_env
 
@@ -111,8 +111,8 @@ from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
-from src.shared.notifications import TelegramMessenger
 from src.shared.logging_setup import setup_logging
+from src.shared.notifications import TelegramMessenger
 from src.shared.time_utils import utc_now_iso
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime
 
@@ -744,6 +744,11 @@ async def runtime_preflight(
             request.trading_params.capital_allocation_usd or 0.0
         )
 
+        # P1.6: Enhanced collateral guardrails
+        # Recommended minimum buffer: 25% above required minimums to prevent accidental liquidation
+        COLLATERAL_SAFETY_BUFFER_RATIO = 1.25
+        required_collateral_with_buffer = max(usd_per_trade, usd_min_collateral) * COLLATERAL_SAFETY_BUFFER_RATIO
+        
         if account_exists and available_collateral < usd_per_trade:
             blockers.append(
                 f"Free collateral ${available_collateral:.2f} is below per-trade size ${usd_per_trade:.2f}."
@@ -759,6 +764,26 @@ async def runtime_preflight(
         ):
             warnings.append(
                 f"Configured capital allocation ${capital_allocation_usd:.2f} exceeds current free collateral ${available_collateral:.2f}."
+            )
+        
+        # P1.6: Warn if available collateral is below safety buffer
+        if account_exists and available_collateral < required_collateral_with_buffer:
+            warnings.append(
+                f"Available collateral ${available_collateral:.2f} is below recommended buffer (25% above minimum). Consider funding before production deployment."
+            )
+        
+        # P1.6: Warn if trade size is aggressive relative to collateral (>10% per trade)
+        if account_exists and usd_per_trade > 0:
+            trade_size_ratio = usd_per_trade / available_collateral if available_collateral > 0 else 1.0
+            if trade_size_ratio > 0.10:
+                warnings.append(
+                    f"Trade size ${usd_per_trade:.2f} is {(trade_size_ratio * 100):.1f}% of available collateral. Higher risk if multiple positions open simultaneously."
+                )
+        
+        # P1.6: Note subaccount isolation for operator awareness
+        if subaccount_number > 0:
+            warnings.append(
+                f"Subaccount {subaccount_number} is isolated from subaccount 0. Ensure strategy capital is segregated intentionally."
             )
 
         data = {

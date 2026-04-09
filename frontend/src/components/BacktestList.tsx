@@ -25,7 +25,15 @@ interface BacktestRun {
   max_drawdown_pct?: number;
   created_at: string;
   updated_at?: string;
+  error?: string;
+  error_message?: string;
 }
+
+type FailureDiagnostic = {
+  category: 'data' | 'network' | 'timeout' | 'config' | 'runtime' | 'unknown';
+  summary: string;
+  hint: string;
+};
 
 const normalizeStatus = (status?: string): RunStatus => {
   const normalized = String(status || '')
@@ -111,6 +119,65 @@ const formatUtcDate = (value?: string): string => {
   return parsed.toISOString().substring(0, 10);
 };
 
+const classifyFailureDiagnostic = (run: BacktestRun): FailureDiagnostic => {
+  const rawMessage = String(run.error_message || run.error || '').trim();
+  const normalized = rawMessage.toLowerCase();
+
+  if (!rawMessage) {
+    return {
+      category: 'unknown',
+      summary: 'No explicit failure reason was returned by the backend.',
+      hint: 'Open details and verify worker logs + API logs for the same run ID.',
+    };
+  }
+
+  if (/timeout|timed out|deadline/.test(normalized)) {
+    return {
+      category: 'timeout',
+      summary: rawMessage,
+      hint: 'Try a shorter period or fewer pairs, then re-run and monitor progress cadence.',
+    };
+  }
+
+  if (/network|connection|unreachable|refused|socket|dns/.test(normalized)) {
+    return {
+      category: 'network',
+      summary: rawMessage,
+      hint: 'Check API/worker connectivity and verify infrastructure services are healthy.',
+    };
+  }
+
+  if (/insufficient|balance|margin|equity|collateral/.test(normalized)) {
+    return {
+      category: 'data',
+      summary: rawMessage,
+      hint: 'Review account state and ensure required balances/inputs are available.',
+    };
+  }
+
+  if (/config|invalid|missing|required|parameter|env/.test(normalized)) {
+    return {
+      category: 'config',
+      summary: rawMessage,
+      hint: 'Validate bot configuration and required runtime variables before retrying.',
+    };
+  }
+
+  if (/panic|exception|traceback|internal/.test(normalized)) {
+    return {
+      category: 'runtime',
+      summary: rawMessage,
+      hint: 'Inspect backend stack traces for this run and retry after applying the fix.',
+    };
+  }
+
+  return {
+    category: 'unknown',
+    summary: rawMessage,
+    hint: 'Open run details for deeper logs and execution context.',
+  };
+};
+
 const normalizePercent = (value: number | undefined | null): number | null => {
   if (value === undefined || value === null || Number.isNaN(Number(value))) return null;
   const numeric = Number(value);
@@ -124,6 +191,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
+  const [pollFailures, setPollFailures] = useState(0);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
   const activeRequestIdRef = useRef(0);
@@ -148,6 +216,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       pollRef.current = setTimeout(async () => {
         const ok = await loadBacktestsSilent();
         pollFailureRef.current = ok ? 0 : Math.min(pollFailureRef.current + 1, 4);
+        setPollFailures(pollFailureRef.current);
         const nextDelay = ok
           ? POLL_INTERVAL_MS
           : Math.min(POLL_INTERVAL_MS * 2 ** pollFailureRef.current, MAX_POLL_INTERVAL_MS);
@@ -161,6 +230,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       }
     } else {
       pollFailureRef.current = 0;
+      setPollFailures(0);
       if (pollRef.current) {
         clearTimeout(pollRef.current);
         pollRef.current = null;
@@ -309,14 +379,14 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         <div className="flex flex-wrap gap-2">
           {(
             [
-              ['ALL', runs.length],
-              ['PENDING', statusCounts.PENDING],
-              ['RUNNING', statusCounts.RUNNING],
-              ['COMPLETED', statusCounts.COMPLETED],
-              ['FAILED', statusCounts.FAILED],
-              ['CANCELLED', statusCounts.CANCELLED],
+              ['ALL', runs.length, 'All runs'],
+              ['PENDING', statusCounts.PENDING, 'Pending'],
+              ['RUNNING', statusCounts.RUNNING, 'Running'],
+              ['COMPLETED', statusCounts.COMPLETED, 'Completed'],
+              ['FAILED', statusCounts.FAILED, 'Failed'],
+              ['CANCELLED', statusCounts.CANCELLED, 'Cancelled'],
             ] as const
-          ).map(([status, count]) => (
+          ).map(([status, count, label]) => (
             <button
               key={status}
               onClick={() => setStatusFilter(status)}
@@ -326,24 +396,45 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                   : 'bg-slate-700 text-slate-200 border-slate-600 hover:bg-slate-600'
               }`}
             >
-              {status} ({count})
+              {label} ({count})
             </button>
           ))}
         </div>
       </div>
 
       {error && (
-        <div className="mx-6 my-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm flex items-center gap-2">
-          {error}
+        <div className="mx-6 my-4 rounded-lg border border-red-700/60 bg-red-900/30 p-3 text-sm text-red-200">
+          <span className="font-semibold">Failed to load runs.</span> {error} — check your
+          connection or try refreshing the page.
+        </div>
+      )}
+
+      {pollFailures > 0 && !error && (
+        <div className="mx-6 my-4 rounded-lg border border-amber-600/60 bg-amber-900/25 p-3 text-xs text-amber-200">
+          <span className="font-semibold">Live updates slowed</span> — retry {pollFailures} of 4.
+          Displayed data may be slightly behind. The page will recover automatically.
         </div>
       )}
 
       {filteredRuns.length === 0 ? (
         <div className="py-16 text-center px-6">
-          <p className="text-slate-400 text-sm">No backtest runs found.</p>
-          <p className="text-slate-500 text-xs mt-1">
-            Start a new analysis from the dashboard to see results here.
-          </p>
+          {runs.length === 0 ? (
+            <>
+              <p className="text-sm font-medium text-slate-300">No runs recorded yet</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Kick off a new backtest from the Dashboard to populate this list.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-slate-300">
+                No {statusFilter.toLowerCase()} runs
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Try a different filter tab to see results.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -386,6 +477,8 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
               {filteredRuns.map((run) => {
                 const normalizedStatus = normalizeStatus(run.status);
                 const isActive = normalizedStatus === 'RUNNING' || normalizedStatus === 'PENDING';
+                const isFailed = normalizedStatus === 'FAILED' || normalizedStatus === 'CANCELLED';
+                const failureDiagnostic = isFailed ? classifyFailureDiagnostic(run) : null;
                 const progressPct = run.progress_pct ?? 0;
                 const eta = isActive ? calcEta(run.created_at, progressPct) : null;
 
@@ -482,6 +575,23 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                               <span className="text-slate-600 italic">Calculating ETA…</span>
                             ) : null}
                           </div>
+                        </td>
+                      </tr>
+                    )}
+
+                    {isFailed && failureDiagnostic && (
+                      <tr className="border-b border-slate-700 bg-rose-950/20">
+                        <td colSpan={10} className="px-4 pb-3 pt-2">
+                          <div className="flex flex-wrap items-center gap-3 text-xs">
+                            <span className="rounded-full border border-rose-700/60 bg-rose-900/40 px-2 py-0.5 uppercase tracking-[0.12em] text-rose-200">
+                              {failureDiagnostic.category}
+                            </span>
+                            <span className="text-rose-100">{failureDiagnostic.summary}</span>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-300">
+                            <span className="font-semibold text-slate-200">Next step:</span>{' '}
+                            {failureDiagnostic.hint}
+                          </p>
                         </td>
                       </tr>
                     )}

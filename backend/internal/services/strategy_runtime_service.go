@@ -100,6 +100,79 @@ func (s *StrategyRuntimeService) StartRuntime(strategy *models.BacktestStrategy,
 	return s.startRuntime(strategy, requestedNetwork, false)
 }
 
+func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.BacktestStrategy, requestedNetwork string) (map[string]interface{}, error) {
+	network := strings.TrimSpace(requestedNetwork)
+	if network == "" {
+		network = strings.TrimSpace(strategy.RuntimeNetwork)
+	}
+	if network == "" {
+		network = "testnet"
+	}
+	network = strings.ToLower(network)
+
+	response := map[string]interface{}{
+		"strategy_id":              strategy.ID,
+		"strategy_name":            strategy.Name,
+		"selected_runtime_network": network,
+		"selected_subaccount":      strategy.RuntimeSubaccount,
+		"usd_per_trade":            strategy.UsdPerTrade,
+		"usd_min_collateral":       strategy.UsdMinCollateral,
+		"capital_allocation_usd":   resolveCapitalAllocation(strategy),
+		"key_exists":               false,
+		"ready":                    false,
+		"blockers":                 []string{},
+		"warnings":                 []string{},
+	}
+
+	keyInfo, err := s.keyService.GetKeyInfo(strategy.UserID, network)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect runtime key: %w", err)
+	}
+	if keyInfo == nil {
+		response["blockers"] = []string{
+			fmt.Sprintf("No active %s dYdX key is stored for this user.", network),
+		}
+		return response, nil
+	}
+	response["key_exists"] = true
+	response["key_chain_address"] = keyInfo["chain_address"]
+
+	keyPayload, err := s.keyService.GetKey(strategy.UserID, network)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve runtime key material: %w", err)
+	}
+	if keyPayload == nil {
+		response["blockers"] = []string{
+			fmt.Sprintf("No active %s dYdX key is stored for this user.", network),
+		}
+		return response, nil
+	}
+
+	preflightPayload := map[string]interface{}{
+		"instance_name": strategy.Name,
+		"credentials": map[string]interface{}{
+			"chain_id": chainIDForNetwork(network),
+			"address":  keyPayload["chain_address"],
+			"mnemonic": keyPayload["secret_phrase"],
+		},
+		"trading_params": s.buildTradingParams(strategy, network),
+	}
+
+	result, err := s.botService.GetRuntimePreflight(preflightPayload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate runtime readiness: %w", err)
+	}
+
+	for key, value := range unwrapBotEnvelope(result) {
+		response[key] = value
+	}
+	response["selected_runtime_network"] = network
+	response["selected_subaccount"] = strategy.RuntimeSubaccount
+	response["key_exists"] = true
+	response["key_chain_address"] = keyInfo["chain_address"]
+	return response, nil
+}
+
 func (s *StrategyRuntimeService) StartRuntimeWithForceRecreate(strategy *models.BacktestStrategy, requestedNetwork string) (map[string]interface{}, error) {
 	return s.startRuntime(strategy, requestedNetwork, true)
 }
@@ -128,6 +201,9 @@ func (s *StrategyRuntimeService) startRuntime(
 	}
 
 	networkHint := strings.TrimSpace(requestedNetwork)
+	if networkHint == "" {
+		networkHint = strings.TrimSpace(strategy.RuntimeNetwork)
+	}
 	if networkHint == "" {
 		networkHint = strings.TrimSpace(runtimeState.Network)
 	}
@@ -377,6 +453,8 @@ func (s *StrategyRuntimeService) buildBotInstanceRecord(
 		"strategy_name":      strategy.Name,
 		"managed_by":         "strategy_runtime",
 		"runtime_strategy":   resolvedRuntimeStrategy(strategy),
+		"runtime_network":    runtimeKey.Network,
+		"runtime_subaccount": strategy.RuntimeSubaccount,
 	}
 	tradingParamsRaw, _ := json.Marshal(tradingParams)
 	configRaw, _ := json.Marshal(configPayload)
@@ -415,6 +493,8 @@ func (s *StrategyRuntimeService) buildBotCreatePayload(
 		"telegram":           s.buildTelegramParams(),
 		"trading_params":     s.buildTradingParams(strategy, runtimeKey.Network),
 		"backtesting_params": s.buildBacktestingParams(strategy),
+		"runtime_network":    runtimeKey.Network,
+		"runtime_subaccount": strategy.RuntimeSubaccount,
 	}
 }
 
@@ -450,6 +530,8 @@ func (s *StrategyRuntimeService) buildTelegramParams() map[string]interface{} {
 func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStrategy, network string) map[string]interface{} {
 	return map[string]interface{}{
 		"is_testnet":               !strings.EqualFold(network, "mainnet"),
+		"subaccount_number":        strategy.RuntimeSubaccount,
+		"capital_allocation_usd":   resolveCapitalAllocation(strategy),
 		"find_cointegrated_pairs":  strategy.FindCointegratedPairs,
 		"manage_exits":             strategy.ManageExits,
 		"place_trades":             strategy.PlaceTrades,
@@ -706,22 +788,35 @@ func buildStrategyRuntimeResponse(
 	isRunning bool,
 ) map[string]interface{} {
 	return map[string]interface{}{
-		"strategy_id":    strategy.ID,
-		"strategy_name":  strategy.Name,
-		"instance_id":    runtimeState.InstanceID,
-		"network":        runtimeState.Network,
-		"status":         runtimeState.Status,
-		"bot_status":     runtimeState.BotStatus,
-		"is_running":     isRunning,
-		"process_id":     runtimeState.ProcessID,
-		"last_error":     runtimeState.LastError,
-		"started_at":     runtimeState.StartedAt,
-		"stopped_at":     runtimeState.StoppedAt,
-		"last_run_at":    executionState.LastRunAt,
-		"next_run_at":    executionState.NextRunAt,
-		"updated_at":     executionState.UpdatedAt,
-		"last_synced_at": runtimeState.LastSyncedAt,
+		"strategy_id":            strategy.ID,
+		"strategy_name":          strategy.Name,
+		"instance_id":            runtimeState.InstanceID,
+		"runtime_network":        strategy.RuntimeNetwork,
+		"runtime_subaccount":     strategy.RuntimeSubaccount,
+		"capital_allocation_usd": resolveCapitalAllocation(strategy),
+		"network":                runtimeState.Network,
+		"status":                 runtimeState.Status,
+		"bot_status":             runtimeState.BotStatus,
+		"is_running":             isRunning,
+		"process_id":             runtimeState.ProcessID,
+		"last_error":             runtimeState.LastError,
+		"started_at":             runtimeState.StartedAt,
+		"stopped_at":             runtimeState.StoppedAt,
+		"last_run_at":            executionState.LastRunAt,
+		"next_run_at":            executionState.NextRunAt,
+		"updated_at":             executionState.UpdatedAt,
+		"last_synced_at":         runtimeState.LastSyncedAt,
 	}
+}
+
+func resolveCapitalAllocation(strategy *models.BacktestStrategy) float64 {
+	if strategy == nil {
+		return 0
+	}
+	if strategy.InitialAmount > 0 {
+		return strategy.InitialAmount
+	}
+	return strategy.UsdMinCollateral
 }
 
 func strategyRuntimeInstanceID(strategy *models.BacktestStrategy) string {

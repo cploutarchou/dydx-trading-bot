@@ -233,6 +233,11 @@ func (c *BotAPIClient) GetRuntimeDBConfig() (map[string]interface{}, error) {
 	return c.makeRequest("GET", "/api/v1/runtime/db-config", nil)
 }
 
+// GetRuntimePreflight evaluates whether a runtime can safely start on the upstream bot service.
+func (c *BotAPIClient) GetRuntimePreflight(config map[string]interface{}) (map[string]interface{}, error) {
+	return c.makeRequest("POST", "/api/v1/runtime/preflight", config)
+}
+
 // GetInterruptedBacktests retrieves interrupted/orphaned backtest visibility data.
 func (c *BotAPIClient) GetInterruptedBacktests(limit int, admin bool) (map[string]interface{}, error) {
 	query := url.Values{}

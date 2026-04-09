@@ -10,8 +10,26 @@
  * NOTE: Bot Settings and Backtesting moved to Strategies page for per-strategy configuration
  */
 
-import { Loader } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertCircle,
+  BarChart2,
+  Check,
+  ChevronRight,
+  KeyRound,
+  Loader,
+  Mail,
+  MessageSquare,
+  Newspaper,
+  RefreshCw,
+  Save,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserCircle,
+  Users,
+  Zap,
+} from 'lucide-react';
+import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
@@ -25,7 +43,14 @@ import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
 import { useAuthStore } from '../store/auth';
 
-type SettingValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[];
+type SettingValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | Record<string, unknown>
+  | unknown[];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -95,7 +120,8 @@ const SETTINGS_LAST_SECTION_KEY = 'settings:last-section';
 const getSettingsFieldDomId = (section: string, fieldKey: string): string =>
   `settings-${section}-${fieldKey}`.replace(/[^a-zA-Z0-9_-]/g, '-');
 
-const getSettingsFieldRefKey = (section: string, fieldKey: string): string => `${section}.${fieldKey}`;
+const getSettingsFieldRefKey = (section: string, fieldKey: string): string =>
+  `${section}.${fieldKey}`;
 
 const MANUAL_SECTION_IDS = new Set([
   'codex_io',
@@ -111,6 +137,77 @@ const MANUAL_SECTION_IDS = new Set([
   'bot_settings',
   'platform',
 ]);
+
+// ── Section icon map ──────────────────────────────────────────────────────────
+const SECTION_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
+  profile: UserCircle,
+  dydx_keys: KeyRound,
+  codex_io: BarChart2,
+  access_control: Users,
+  telegram: MessageSquare,
+  mailgun: Mail,
+  market_news: Newspaper,
+  security: ShieldCheck,
+};
+const getSectionIcon = (id: string): ComponentType<{ className?: string }> =>
+  SECTION_ICON_MAP[id] ?? SlidersHorizontal;
+
+// ── Sidebar grouping ─────────────────────────────────────────────────────────
+const SIDEBAR_GROUPS: Array<{ label: string; sectionIds: string[] }> = [
+  { label: 'Identity', sectionIds: ['profile', 'security'] },
+  { label: 'API Keys', sectionIds: ['dydx_keys', 'codex_io'] },
+  { label: 'Integrations', sectionIds: ['access_control', 'telegram', 'mailgun', 'market_news'] },
+];
+
+interface SidebarNavGroup {
+  label: string;
+  items: SidebarSectionItem[];
+}
+
+const buildGroupedNav = (sections: SidebarSectionItem[]): SidebarNavGroup[] => {
+  const assigned = new Set<string>();
+  const groups: SidebarNavGroup[] = [];
+  for (const { label, sectionIds } of SIDEBAR_GROUPS) {
+    const items = sectionIds
+      .map((id) => sections.find((s) => s.section === id))
+      .filter(Boolean) as SidebarSectionItem[];
+    if (items.length > 0) {
+      groups.push({ label, items });
+      items.forEach((i) => assigned.add(i.section));
+    }
+  }
+  const rest = sections.filter((s) => !assigned.has(s.section));
+  if (rest.length > 0) groups.push({ label: 'System', items: rest });
+  return groups;
+};
+
+// ── Toggle switch ─────────────────────────────────────────────────────────────
+const ToggleSwitch = ({
+  checked,
+  onChange,
+  id,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  id: string;
+}) => (
+  <button
+    type="button"
+    id={id}
+    role="switch"
+    aria-checked={checked}
+    onClick={() => onChange(!checked)}
+    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+      checked ? 'border-cyan-500 bg-cyan-500' : 'border-slate-600 bg-slate-700'
+    }`}
+  >
+    <span
+      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+        checked ? 'translate-x-5' : 'translate-x-0.5'
+      }`}
+    />
+  </button>
+);
 
 const parseFieldInputValue = (field: SettingField, rawValue: string): SettingValue => {
   if (field.value_type === 'float') {
@@ -170,8 +267,14 @@ const validateFieldValue = (field: SettingField, value: SettingValue): string | 
     return `${field.label} is required.`;
   }
 
-  if ((field.value_type === 'float' || field.value_type === 'int' || field.value_type === 'integer') &&
-    value !== undefined && value !== null && value !== '') {
+  if (
+    (field.value_type === 'float' ||
+      field.value_type === 'int' ||
+      field.value_type === 'integer') &&
+    value !== undefined &&
+    value !== null &&
+    value !== ''
+  ) {
     const numericValue = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(numericValue)) {
       return `${field.label} must be a valid number.`;
@@ -225,7 +328,9 @@ export default function Settings() {
   const [schema, setSchema] = useState<SettingsSchema | null>(null);
   const [settings, setSettings] = useState<SavedSettings | null>(null);
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
-  const [initialFormValues, setInitialFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
+  const [initialFormValues, setInitialFormValues] = useState<
+    Record<string, Record<string, SettingValue>>
+  >({});
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -249,18 +354,22 @@ export default function Settings() {
 
   const sidebarSections = useMemo<SidebarSectionItem[]>(() => {
     const manualSections: SidebarSectionItem[] = [
-      { section: 'profile', title: '👤 Profile', description: 'Account & Avatar' },
-      { section: 'dydx_keys', title: '🔑 dYdX Keys', description: 'Testnet & Mainnet' },
-      { section: 'codex_io', title: '📈 Codex.io', description: 'Market Intel Key' },
+      { section: 'profile', title: 'Profile', description: 'Account & avatar' },
+      { section: 'security', title: 'Security', description: '2FA & sessions' },
+      { section: 'dydx_keys', title: 'dYdX Keys', description: 'Testnet & mainnet' },
+      { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
       ...(user?.is_admin
         ? [
-            { section: 'access_control', title: '🧭 Access Control', description: 'Roles & Registration' },
-            { section: 'telegram', title: '💬 Telegram', description: 'Shared Notifications' },
-            { section: 'mailgun', title: '✉️ Mailgun', description: 'Onboarding Email' },
-            { section: 'market_news', title: '📰 Market News', description: 'CoinDesk Feed' },
+            {
+              section: 'access_control',
+              title: 'Access Control',
+              description: 'Roles & registration',
+            },
+            { section: 'telegram', title: 'Telegram', description: 'Bot notifications' },
+            { section: 'mailgun', title: 'Mailgun', description: 'Outbound email' },
+            { section: 'market_news', title: 'Market News', description: 'CoinDesk feed' },
           ]
         : []),
-      { section: 'security', title: '🛡️ Security', description: '2FA & Session Controls' },
     ];
 
     return [
@@ -417,7 +526,8 @@ export default function Settings() {
 
     if (hasAnyFieldErrors(nextErrors)) {
       const firstInvalidSection = schema.sections.find(
-        (section) => nextErrors[section.section] && Object.keys(nextErrors[section.section]).length > 0
+        (section) =>
+          nextErrors[section.section] && Object.keys(nextErrors[section.section]).length > 0
       );
       if (firstInvalidSection) {
         const firstInvalidFieldKey = Object.keys(nextErrors[firstInvalidSection.section] || {})[0];
@@ -508,10 +618,10 @@ export default function Settings() {
   if (loading) {
     return (
       <PageContainer size="wide">
-        <div className="flex h-96 items-center justify-center rounded-2xl border border-slate-700 bg-slate-800/70">
-          <div className="text-center">
-            <Loader className="mx-auto h-12 w-12 animate-spin text-blue-500" />
-            <p className="mt-4 text-slate-300">Loading settings...</p>
+        <div className="flex h-64 items-center justify-center rounded-2xl border border-slate-700/60 bg-slate-900/60">
+          <div className="flex flex-col items-center gap-3">
+            <Loader className="h-8 w-8 animate-spin text-cyan-400" />
+            <p className="text-sm text-slate-400">Loading settings…</p>
           </div>
         </div>
       </PageContainer>
@@ -521,12 +631,13 @@ export default function Settings() {
   if (!schema || !settings) {
     return (
       <PageContainer size="wide">
-        <div className="rounded-xl border border-red-700 bg-red-900 px-4 py-3 text-red-100">
-          Failed to load settings. Please try again.
+        <div className="flex items-center gap-3 rounded-xl border border-red-700/60 bg-red-900/20 px-5 py-4 text-red-200">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          <span className="text-sm">Failed to load settings. Please try again.</span>
           <button
             type="button"
             onClick={fetchSettingsData}
-            className="ml-4 text-sm underline underline-offset-2 hover:text-white"
+            className="ml-auto text-sm font-medium underline underline-offset-2 hover:text-red-100"
           >
             Retry
           </button>
@@ -536,315 +647,353 @@ export default function Settings() {
   }
 
   const currentSection = visibleSchemaSections.find((s) => s.section === activeSection);
+  const CurrentSectionIcon = getSectionIcon(activeSection);
+  const groupedNav = buildGroupedNav(filteredSidebarSections);
+  const totalFieldErrors = Object.values(fieldErrors).reduce(
+    (n, e) => n + Object.keys(e).length,
+    0
+  );
 
   return (
-    <PageContainer size="wide" className="space-y-8">
-      <section className="premium-hero px-6 py-7 sm:px-8">
-        <div className="premium-orb -right-10 top-0 h-44 w-44 bg-cyan-500/10" />
-        <div className="premium-orb -left-8 bottom-0 h-36 w-36 bg-emerald-500/10" />
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <div className="premium-kicker">Settings</div>
-            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
-              Control identity, infrastructure, and premium data access from one command layer.
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              This workspace is designed for operators. Profile, security, provider keys, and system
-              configuration now live inside a cleaner, faster settings experience.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:min-w-[320px]">
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Sections</p>
-              <p className="mt-1 text-3xl font-semibold text-white">{sidebarSections.length}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">State</p>
-              <p className={`mt-1 text-sm font-semibold ${hasUnsavedChanges ? 'text-amber-300' : 'text-emerald-300'}`}>
-                {hasUnsavedChanges ? 'Unsaved changes' : 'Fully synced'}
-              </p>
-            </div>
-          </div>
+    <PageContainer size="wide">
+      {/* Page Header */}
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <span className="premium-kicker">System</span>
+          <h1 className="mt-3 text-2xl font-bold text-white">Settings</h1>
+          <p className="mt-1 max-w-xl text-sm text-slate-400">
+            Profile, API keys, integrations and runtime configuration — all from one place.
+          </p>
         </div>
-      </section>
-
-      <div className="rounded-3xl border border-slate-700/70 bg-linear-to-br from-slate-900 to-slate-800 p-4 shadow-2xl shadow-slate-950/30 sm:p-6 lg:p-8">
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-          {/* Sidebar Navigation */}
-          <div className="lg:col-span-1">
-            <div className="premium-panel">
-              <div className="p-4 border-b border-slate-700">
-                <label htmlFor="settings-section-search" className="sr-only">
-                  Search settings sections
-                </label>
-                <input
-                  id="settings-section-search"
-                  type="search"
-                  value={sectionSearchQuery}
-                  onChange={(e) => setSectionSearchQuery(e.target.value)}
-                  placeholder="Search sections..."
-                  className="premium-input"
-                />
-              </div>
-              <nav className="space-y-1">
-                {filteredSidebarSections.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-slate-400">
-                    No settings sections match your search.
-                  </div>
-                ) : (
-                  filteredSidebarSections.map((section) => (
-                    <button
-                      key={section.section}
-                      type="button"
-                      onClick={() => setActiveSection(section.section)}
-                      className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-medium transition-colors ${
-                        activeSection === section.section
-                          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white'
-                          : 'text-gray-300 hover:bg-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <div className="font-semibold">{section.title}</div>
-                      <div className="text-xs opacity-75">{section.description}</div>
-                    </button>
-                  ))
-                )}
-              </nav>
-            </div>
-          </div>
-
-          {/* Settings Form */}
-          <div className="lg:col-span-3">
-            {/* Profile Settings Panel */}
-            {activeSection === 'profile' && <ProfileSettings />}
-
-            {/* dYdX Key Management Panel */}
-            {activeSection === 'dydx_keys' && <DYDXKeyManager />}
-
-            {/* Codex.io Panel */}
-            {activeSection === 'codex_io' && <CodexSettings />}
-
-            {/* Access Control Panel */}
-            {activeSection === 'access_control' && user?.is_admin && <AdminAccessControlSettings />}
-
-            {/* Mailgun Panel */}
-            {activeSection === 'mailgun' && user?.is_admin && <MailgunSettings />}
-
-            {/* Telegram Panel */}
-            {activeSection === 'telegram' && user?.is_admin && <TelegramSettings />}
-
-            {/* CoinDesk News Panel */}
-            {activeSection === 'market_news' && user?.is_admin && <CoinDeskNewsSettings />}
-
-            {/* Security & Session Management Panel */}
-            {activeSection === 'security' && (
-              <AuthSettingsComponent
-                defaultTab="security"
-                visibleTabs={['security', 'sessions']}
-                showHeader={false}
-              />
-            )}
-
-            {/* Bot Settings Panel */}
-            {currentSection && (
-              <div className="premium-panel">
-                {/* Section Header */}
-                <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-white">{currentSection.title}</h2>
-                  <p className="text-gray-400 mt-1">{currentSection.description}</p>
-                  <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-                    <span
-                      className={`px-3 py-1 rounded-full border ${
-                        hasUnsavedChanges
-                          ? 'bg-yellow-900/40 border-yellow-700 text-yellow-200'
-                          : 'bg-slate-700 border-slate-600 text-slate-300'
-                      }`}
-                    >
-                      {hasUnsavedChanges ? 'Unsaved changes' : 'All changes saved'}
-                    </span>
-                    {hasValidationErrors && (
-                      <span className="px-3 py-1 rounded-full border bg-red-900/40 border-red-700 text-red-200">
-                        Validation errors need attention
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Form Fields */}
-                <div className="space-y-6">
-                  {currentSection.fields.map((field) => {
-                    const value = formValues[activeSection]?.[field.key] ?? field.default_value;
-                    const inputValue = typeof value === 'string' || typeof value === 'number' ? value : '';
-                    const selectValue =
-                      typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-                    const fieldDomId = getSettingsFieldDomId(activeSection, field.key);
-                    const fieldRefKey = getSettingsFieldRefKey(activeSection, field.key);
-                    const errorMessage = fieldErrors[activeSection]?.[field.key];
-
-                    return (
-                      <div
-                        key={field.key}
-                        className="border-b border-slate-700 pb-6 last:border-b-0"
-                      >
-                        <label className="block">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="font-semibold text-white">{field.label}</span>
-                            {field.required && <span className="text-red-500">*</span>}
-                          </div>
-                          <p className="text-sm text-gray-400 mb-3">{field.description}</p>
-
-                          {/* Text/Number Input */}
-                          {(field.value_type === 'string' ||
-                            field.value_type === 'float' ||
-                            field.value_type === 'int' ||
-                            field.value_type === 'integer') &&
-                            !field.options && (
-                              <input
-                                id={fieldDomId}
-                                ref={(element) => {
-                                  fieldRefs.current[fieldRefKey] = element;
-                                }}
-                                type={
-                                  field.value_type === 'float' ||
-                                  field.value_type === 'int' ||
-                                  field.value_type === 'integer'
-                                    ? 'number'
-                                    : 'text'
-                                }
-                                aria-invalid={!!errorMessage}
-                                aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
-                                value={inputValue}
-                                onChange={(e) =>
-                                  handleFieldChange(
-                                    activeSection,
-                                    field.key,
-                                    parseFieldInputValue(field, e.target.value)
-                                  )
-                                }
-                                step={field.value_type === 'float' ? '0.01' : undefined}
-                                min={field.min_value}
-                                max={field.max_value}
-                                placeholder={field.placeholder}
-                                className="premium-input"
-                              />
-                            )}
-
-                          {/* Select Dropdown */}
-                          {field.options && (
-                            <select
-                              id={fieldDomId}
-                              ref={(element) => {
-                                fieldRefs.current[fieldRefKey] = element;
-                              }}
-                              aria-invalid={!!errorMessage}
-                              aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
-                              value={selectValue}
-                              onChange={(e) =>
-                                handleFieldChange(activeSection, field.key, e.target.value)
-                              }
-                              className="premium-input"
-                            >
-                              {field.options.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-
-                          {/* Checkbox */}
-                          {field.value_type === 'boolean' && (
-                            <label className="flex items-center gap-3 cursor-pointer">
-                              <input
-                                id={fieldDomId}
-                                ref={(element) => {
-                                  fieldRefs.current[fieldRefKey] = element;
-                                }}
-                                type="checkbox"
-                                aria-invalid={!!errorMessage}
-                                aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
-                                checked={Boolean(value)}
-                                onChange={(e) =>
-                                  handleFieldChange(activeSection, field.key, e.target.checked)
-                                }
-                                className="w-5 h-5 text-blue-600 border-slate-600 rounded focus:ring-2 focus:ring-blue-500"
-                              />
-                              <span className="text-gray-300">
-                                {value ? 'Enabled' : 'Disabled'}
-                              </span>
-                            </label>
-                          )}
-
-                          {/* Constraints */}
-                          {field.min_value !== undefined || field.max_value !== undefined ? (
-                            <p className="text-xs text-gray-500 mt-2">
-                              {field.min_value !== undefined && `Min: ${field.min_value}`}
-                              {field.min_value !== undefined &&
-                                field.max_value !== undefined &&
-                                ' | '}
-                              {field.max_value !== undefined && `Max: ${field.max_value}`}
-                            </p>
-                          ) : null}
-
-                          {errorMessage && (
-                            <p id={`${fieldDomId}-error`} className="text-xs text-red-300 mt-2">
-                              {errorMessage}
-                            </p>
-                          )}
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Action Buttons */}
-                <div className="mt-8 flex flex-col gap-4 pt-6 border-t border-slate-700">
-                  <div className="flex gap-3">
-                    <button
-                      type="button"
-                      onClick={handleSave}
-                      disabled={saving || !hasUnsavedChanges}
-                      className="premium-button premium-button-primary disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {saving ? 'Saving...' : 'Save Changes'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleReset}
-                      disabled={saving || !hasUnsavedChanges}
-                      className="premium-button premium-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Reset
-                    </button>
-                    {activeSection === 'redis' && (
-                      <button
-                        type="button"
-                        onClick={handleTestConnection}
-                        disabled={testingConnection || saving}
-                        className="premium-button rounded-2xl bg-teal-700 text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {testingConnection ? 'Testing…' : '⚡ Test Connection'}
-                      </button>
-                    )}
-                  </div>
-
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Info Box */}
-        <div className="premium-panel mt-8">
-          <h3 className="mb-2 font-semibold text-cyan-300">Operational Notes</h3>
-          <ul className="ml-4 list-disc space-y-1 text-sm text-gray-300">
-            <li>Profile and key changes are saved immediately after confirmation.</li>
-            <li>Sensitive credentials are never shown in plain text after storage.</li>
-            <li>For live trading, validate all settings in testnet first.</li>
-            <li>Runtime strategy controls are available under Strategy Runtime and Bot Manager.</li>
-          </ul>
+        <div className="shrink-0 pt-1">
+          {hasUnsavedChanges ? (
+            <span className="inline-flex items-center gap-2 rounded-full border border-amber-600/50 bg-amber-900/30 px-3 py-1.5 text-xs font-medium text-amber-200">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+              Unsaved changes
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1.5 text-xs font-medium text-emerald-300">
+              <Check className="h-3 w-3" />
+              All saved
+            </span>
+          )}
         </div>
       </div>
+
+      {/* Main Layout */}
+      <div className="flex items-start gap-5">
+        {/* Sidebar */}
+        <aside className="sticky top-20 w-60 shrink-0">
+          <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/80 shadow-2xl">
+            {/* Search */}
+            <div className="border-b border-slate-700/60 px-3 py-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="search"
+                  placeholder="Search…"
+                  value={sectionSearchQuery}
+                  onChange={(e) => setSectionSearchQuery(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-800 py-2 pl-9 pr-3 text-sm text-slate-200 placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                />
+              </div>
+            </div>
+
+            {/* Grouped nav */}
+            <nav className="p-2">
+              {filteredSidebarSections.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-slate-500">No sections match.</p>
+              ) : (
+                groupedNav.map((group) => (
+                  <div key={group.label} className="mb-3 last:mb-0">
+                    {!sectionSearchQuery && (
+                      <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+                        {group.label}
+                      </p>
+                    )}
+                    {group.items.map((s) => {
+                      const Icon = getSectionIcon(s.section);
+                      const isActive = activeSection === s.section;
+                      const sectionFieldErrors = fieldErrors[s.section];
+                      const hasErrors =
+                        sectionFieldErrors && Object.keys(sectionFieldErrors).length > 0;
+                      return (
+                        <button
+                          key={s.section}
+                          type="button"
+                          onClick={() => setActiveSection(s.section)}
+                          className={`group mb-0.5 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition-all ${
+                            isActive
+                              ? 'bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30'
+                              : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                          }`}
+                        >
+                          <span
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                              isActive
+                                ? 'bg-cyan-500/20 text-cyan-400'
+                                : 'bg-slate-800 text-slate-500 group-hover:text-slate-300'
+                            }`}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-semibold leading-tight">
+                              {s.title}
+                            </p>
+                            <p className="truncate text-[11px] leading-tight opacity-60">
+                              {s.description}
+                            </p>
+                          </div>
+                          {hasErrors && (
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" />
+                          )}
+                          {isActive && !hasErrors && (
+                            <ChevronRight className="h-3 w-3 shrink-0 opacity-60" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </nav>
+
+            {/* Sidebar footer */}
+            <div className="border-t border-slate-700/60 px-4 py-3">
+              {totalFieldErrors > 0 ? (
+                <p className="text-[11px] text-red-400">
+                  {totalFieldErrors} validation error{totalFieldErrors !== 1 ? 's' : ''} across
+                  sections
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-600">
+                  {sidebarSections.length} section{sidebarSections.length !== 1 ? 's' : ''}{' '}
+                  configured
+                </p>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        {/* Content */}
+        <div className="min-w-0 flex-1">
+          {activeSection === 'profile' && <ProfileSettings />}
+          {activeSection === 'dydx_keys' && <DYDXKeyManager />}
+          {activeSection === 'codex_io' && <CodexSettings />}
+          {activeSection === 'access_control' && user?.is_admin && <AdminAccessControlSettings />}
+          {activeSection === 'mailgun' && user?.is_admin && <MailgunSettings />}
+          {activeSection === 'telegram' && user?.is_admin && <TelegramSettings />}
+          {activeSection === 'market_news' && user?.is_admin && <CoinDeskNewsSettings />}
+          {activeSection === 'security' && <AuthSettingsComponent />}
+
+          {/* Schema-driven sections */}
+          {currentSection && (
+            <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/80 shadow-xl">
+              {/* Section header */}
+              <div className="border-b border-slate-700/60 px-6 py-5">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-400">
+                    <CurrentSectionIcon className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h2 className="text-base font-bold text-white">{currentSection.title}</h2>
+                    <p className="text-xs text-slate-400">{currentSection.description}</p>
+                  </div>
+                  <div className="ml-auto flex items-center gap-2">
+                    {hasUnsavedChanges && (
+                      <span className="rounded-full border border-amber-600/40 bg-amber-900/20 px-2.5 py-0.5 text-xs text-amber-300">
+                        Unsaved
+                      </span>
+                    )}
+                    {fieldErrors[activeSection] &&
+                      Object.keys(fieldErrors[activeSection]).length > 0 && (
+                        <span className="rounded-full border border-red-700/40 bg-red-900/20 px-2.5 py-0.5 text-xs text-red-300">
+                          Errors
+                        </span>
+                      )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Fields */}
+              <div className="divide-y divide-slate-700/50">
+                {currentSection.fields.map((field) => {
+                  const value = formValues[activeSection]?.[field.key] ?? field.default_value;
+                  const inputValue =
+                    typeof value === 'string' || typeof value === 'number' ? value : '';
+                  const selectValue =
+                    typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+                  const fieldDomId = getSettingsFieldDomId(activeSection, field.key);
+                  const fieldRefKey = getSettingsFieldRefKey(activeSection, field.key);
+                  const errorMessage = fieldErrors[activeSection]?.[field.key];
+
+                  return (
+                    <div key={field.key} className="grid grid-cols-5 gap-4 px-6 py-5">
+                      {/* Label column */}
+                      <div className="col-span-2 flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label
+                            htmlFor={fieldDomId}
+                            className="text-sm font-semibold text-slate-200"
+                          >
+                            {field.label}
+                          </label>
+                          {field.required && (
+                            <span className="rounded border border-red-700/40 bg-red-900/20 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+                              Required
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs leading-snug text-slate-500">{field.description}</p>
+                        {(field.min_value !== undefined || field.max_value !== undefined) && (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {field.min_value !== undefined && (
+                              <span className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
+                                min {field.min_value}
+                              </span>
+                            )}
+                            {field.max_value !== undefined && (
+                              <span className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
+                                max {field.max_value}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Control column */}
+                      <div className="col-span-3 flex flex-col gap-1.5">
+                        {field.value_type === 'bool' || field.value_type === 'boolean' ? (
+                          <div className="flex items-center gap-3 pt-1">
+                            <ToggleSwitch
+                              id={fieldDomId}
+                              checked={Boolean(value)}
+                              onChange={(v) => handleFieldChange(activeSection, field.key, v)}
+                            />
+                            <span className="text-xs text-slate-400">
+                              {value ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        ) : field.options ? (
+                          <select
+                            id={fieldDomId}
+                            ref={(element) => {
+                              fieldRefs.current[fieldRefKey] = element;
+                            }}
+                            value={selectValue}
+                            aria-invalid={!!errorMessage}
+                            aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
+                            onChange={(e) =>
+                              handleFieldChange(activeSection, field.key, e.target.value)
+                            }
+                            className="premium-input"
+                          >
+                            {field.options.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            id={fieldDomId}
+                            ref={(element) => {
+                              fieldRefs.current[fieldRefKey] = element;
+                            }}
+                            type={
+                              field.value_type === 'float' ||
+                              field.value_type === 'int' ||
+                              field.value_type === 'integer'
+                                ? 'number'
+                                : 'text'
+                            }
+                            aria-invalid={!!errorMessage}
+                            aria-describedby={errorMessage ? `${fieldDomId}-error` : undefined}
+                            value={inputValue}
+                            placeholder={field.placeholder ?? ''}
+                            step={field.value_type === 'float' ? 'any' : undefined}
+                            onChange={(e) =>
+                              handleFieldChange(
+                                activeSection,
+                                field.key,
+                                parseFieldInputValue(field, e.target.value)
+                              )
+                            }
+                            className={`premium-input ${errorMessage ? 'border-red-600 focus:border-red-500 focus:ring-red-500' : ''}`}
+                          />
+                        )}
+                        {errorMessage && (
+                          <p
+                            id={`${fieldDomId}-error`}
+                            role="alert"
+                            className="flex items-center gap-1.5 text-xs text-red-400"
+                          >
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            {errorMessage}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Action bar */}
+              <div className="flex items-center justify-between border-t border-slate-700/60 px-6 py-4">
+                <div>
+                  {activeSection === 'redis' && (
+                    <button
+                      type="button"
+                      onClick={handleTestConnection}
+                      disabled={testingConnection}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {testingConnection ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Zap className="h-4 w-4" />
+                      )}
+                      Test connection
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    disabled={!hasUnsavedChanges}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-40"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Discard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving || !hasUnsavedChanges || hasValidationErrors}
+                    className="premium-button inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {saving ? (
+                      <Loader className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Save changes
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Operational note */}
+      <p className="text-[10px] uppercase tracking-widest text-slate-700">
+        Changes to runtime config take effect on next bot restart · Schema-driven sections persist
+        to database · Manual sections (profile, keys, integrations) use dedicated APIs · Admin
+        sections are hidden for non-admin users
+      </p>
     </PageContainer>
   );
 }

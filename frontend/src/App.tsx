@@ -4,16 +4,12 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
 import { getUserWorkspaceRole, roleMatches, type WorkspaceRole } from './auth/roles';
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
-import {
-    ErrorBoundary as EnhancedErrorBoundary,
-    ToastContainer,
-    useToastStore,
-} from './components/ErrorBoundary';
+import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer, useToastStore } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';

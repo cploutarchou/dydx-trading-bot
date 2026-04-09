@@ -7,17 +7,17 @@ import api from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
-    BacktestConfig,
-    BotInstance,
-    CreateBotRequest,
-    ListAlertsParams,
-    ListBacktestsParams,
-    ListBotsParams,
-    ListTradesParams,
-    QuickDeployBotRequest,
-    StartBotRequest,
-    UpdateBotRequest,
-    User,
+  BacktestConfig,
+  BotInstance,
+  CreateBotRequest,
+  ListAlertsParams,
+  ListBacktestsParams,
+  ListBotsParams,
+  ListTradesParams,
+  QuickDeployBotRequest,
+  StartBotRequest,
+  UpdateBotRequest,
+  User,
 } from './types';
 
 interface ManagedWebSocketOptions {

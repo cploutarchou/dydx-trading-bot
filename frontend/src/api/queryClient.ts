@@ -1,8 +1,8 @@
 // React Query setup and configuration
 // Provides advanced caching, background updates, and data synchronization
 
-import { QueryClient } from '@tanstack/react-query';
 import type { QueryKey } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
 
 type QueryParams = object;
 

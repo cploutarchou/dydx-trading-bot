@@ -1,5 +1,7 @@
 # dYdX Trading Bot Backend - AI Coding Guide
 
+Preferred service agent: `.github/agents/senior-go-defi-backend.agent.md`
+
 ## Architecture Overview
 
 This is a **layered Go REST API** for managing dYdX trading credentials and backtest data. The architecture follows **dependency injection** and **repository patterns**:

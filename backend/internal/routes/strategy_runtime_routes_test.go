@@ -374,7 +374,7 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 		return payload
 	}
 
-	startPayload := request(http.MethodPost, "/api/v1/strategies/101/start")
+	startPayload := request(http.MethodPost, "/api/v1/strategies/101/start?network=testnet")
 	runtimePayload := request(http.MethodGet, "/api/v1/strategies/101/runtime")
 	stopPayload := request(http.MethodPost, "/api/v1/strategies/101/stop?force=true")
 
@@ -613,7 +613,7 @@ func TestStrategyRuntimeStartRequiresActiveKey(t *testing.T) {
 	defer backendServer.Close()
 	token := loginStrategyRuntimeUser(t, backendServer.URL)
 
-	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -625,6 +625,39 @@ func TestStrategyRuntimeStartRequiresActiveKey(t *testing.T) {
 		var payload map[string]interface{}
 		_ = json.NewDecoder(resp.Body).Decode(&payload)
 		t.Fatalf("expected 400 when no key is configured, got %d payload=%v", resp.StatusCode, payload)
+	}
+}
+
+func TestStrategyRuntimeStartRequiresExplicitNetworkSelection(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request start runtime without network: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected 400 when runtime network query is missing, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode missing-network response: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(fmt.Sprintf("%v", payload["error"])), "network") {
+		t.Fatalf("expected network-specific validation error, got %v", payload["error"])
 	}
 }
 
@@ -643,7 +676,7 @@ func TestStrategyRuntimeStartBlocksWhenReadinessFails(t *testing.T) {
 	defer backendServer.Close()
 	token := loginStrategyRuntimeUser(t, backendServer.URL)
 
-	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -789,7 +822,7 @@ func TestStrategyRuntimeStartRequiresConfirmBeforeForceRecreate(t *testing.T) {
 	defer backendServer.Close()
 	token := loginStrategyRuntimeUser(t, backendServer.URL)
 
-	firstReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	firstReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
 	firstReq.Header.Set("Authorization", "Bearer "+token)
 	firstResp, err := http.DefaultClient.Do(firstReq)
 	if err != nil {
@@ -811,7 +844,7 @@ func TestStrategyRuntimeStartRequiresConfirmBeforeForceRecreate(t *testing.T) {
 		t.Fatalf("expected recreate confirmation hint, got %v", firstPayload["error"])
 	}
 
-	secondReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?force_recreate=true", nil)
+	secondReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet&force_recreate=true", nil)
 	secondReq.Header.Set("Authorization", "Bearer "+token)
 	secondResp, err := http.DefaultClient.Do(secondReq)
 	if err != nil {
@@ -857,7 +890,7 @@ func TestStrategyRuntimeStartMapsDuplicateInstanceMessageToConflict(t *testing.T
 	defer backendServer.Close()
 	token := loginStrategyRuntimeUser(t, backendServer.URL)
 
-	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

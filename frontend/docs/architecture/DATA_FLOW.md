@@ -197,7 +197,7 @@ Page mounts with params: { id }
                             └─ useBacktestProgress(run_id)
                                    │
                                    ├─ Connect to:
-                                   │  /ws/backtest/{run_id}?token={jwt}
+                                   │  /api/v1/backtests/{run_id}/live?access_token={jwt}
                                    │
                                    └─ Listen for messages:
                                           │
@@ -509,7 +509,7 @@ Hook called with run_id
               │
               ├─ Create WebSocket:
               │  const ws = new WebSocket(
-              │    `ws://localhost:8888/ws/backtest/${runId}?token=${token}`
+              │    `ws://localhost:8888/api/v1/backtests/${runId}/live?access_token=${token}`
               │  )
               │
               ├─ ws.onopen:

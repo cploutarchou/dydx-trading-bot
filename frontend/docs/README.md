@@ -28,6 +28,7 @@ This is the main entry point for frontend docs. Use it to find the right guide q
 | [SETUP.md](SETUP.md)                                   | Supported local workflow on macOS/Linux                     |
 | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) | Fix common environment, dependency, and service issues      |
 | [architecture/README.md](architecture/README.md)       | Architecture index for flows, patterns, and API integration |
+| [architecture/BACKEND_ONLY_INTEGRATION_CHECKLIST.md](architecture/BACKEND_ONLY_INTEGRATION_CHECKLIST.md) | Contract lock for frontend -> backend only communication |
 
 ### QA and operational docs
 

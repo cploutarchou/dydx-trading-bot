@@ -12,6 +12,8 @@ How to communicate with the dYdX Trading Bot backend API.
 
 **Full URL Pattern:** `{BASE_URL}/api/v1/{endpoint}`
 
+Frontend browser code must communicate with the Go backend only. Do not call the Python bot service directly from the browser.
+
 ---
 
 ## Authentication
@@ -316,16 +318,18 @@ const handleDelete = async (runId: string) => {
 
 ### Real-time Backtest Progress
 
-**Endpoint:** `/ws/backtest/{run_id}`
+**Primary Endpoint:** `/api/v1/backtests/{run_id}/live`
+
+**Alias Endpoint:** `/ws/backtests/{run_id}`
 
 **Query Parameters:**
 
-- `token` (required) - JWT token for authentication
+- `access_token` (required) - JWT token for authentication
 
 **Full URL:**
 
 ```text
-ws://localhost:8888/ws/backtest/backtest-002?token=eyJhbGci...
+ws://localhost:8888/api/v1/backtests/backtest-002/live?access_token=eyJhbGci...
 ```
 
 ### Connection Flow
@@ -334,7 +338,7 @@ ws://localhost:8888/ws/backtest/backtest-002?token=eyJhbGci...
 // In useBacktestProgress hook
 const connectToBacktest = (runId: string, token: string) => {
   const ws = new WebSocket(
-    `ws://localhost:8888/ws/backtest/${runId}?token=${token}`
+    `ws://localhost:8888/api/v1/backtests/${runId}/live?access_token=${token}`
   );
 
   ws.onopen = () => {

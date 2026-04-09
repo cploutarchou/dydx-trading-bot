@@ -9,6 +9,7 @@ Comprehensive documentation of the dYdX Trading Bot Frontend architecture.
 | **[Data Flow](DATA_FLOW.md)**             | Component interactions and data movement | 10 min    |
 | **[Patterns](PATTERNS.md)**               | Code patterns and conventions            | 15 min    |
 | **[API Integration](API_INTEGRATION.md)** | Backend communication patterns           | 10 min    |
+| **[Backend-Only Integration Checklist](BACKEND_ONLY_INTEGRATION_CHECKLIST.md)** | Contract lock for frontend -> backend only communication | 8 min |
 | **[Fintech UI Standards](FINTECH_UI_STANDARDS.md)** | Production-grade live trading UI bar | 8 min |
 
 ## System Architecture
@@ -215,7 +216,7 @@ BacktestDetails component mounts
        │
        ▼ useBacktestProgress hook initializes
 Creates WebSocket connection to:
-/ws/backtest/{runId}?token={jwt}
+/api/v1/backtests/{runId}/live?access_token={jwt}
        │
        ├─ Logs: "🔌 Connecting to backtest progress..."
        │

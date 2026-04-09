@@ -4,12 +4,12 @@ This document provides comprehensive guidance on how the React frontend integrat
 
 ## Architecture Overview
 
-```
+```text
 Frontend (React @ localhost:5173)
     ↓
 Backend API (Go @ localhost:8888)
     ↓
-Bot API Proxy (FastAPI @ localhost:8000)
+Bot API Proxy (FastAPI @ localhost:8889)
 ```
 
 The backend acts as a **proxy and orchestration layer**:
@@ -19,6 +19,8 @@ The backend acts as a **proxy and orchestration layer**:
 - Backend proxies eligible requests to the bot API
 - Backend manages database state and persistence
 - Backend handles caching, rate limiting, and security
+
+Frontend browser code must not call the bot API directly.
 
 ## Authentication
 
@@ -992,7 +994,9 @@ Response 200:
 
 ```typescript
 // Real-time updates via WebSocket
-const socket = new WebSocket(`ws://localhost:8888/api/v1/backtests/:run_id/live-progress?token=${accessToken}`);
+const socket = new WebSocket(
+  `ws://localhost:8888/api/v1/backtests/:run_id/live?access_token=${accessToken}`
+);
 
 socket.onmessage = (event) => {
   const progress = JSON.parse(event.data);
@@ -1237,7 +1241,7 @@ X-RateLimit-Reset: 1667500200
 
 ```typescript
 const socket = new WebSocket(
-  `ws://localhost:8888/api/v1/bots/:instance_id/updates?token=${accessToken}`
+  `ws://localhost:8888/ws/bots/:instance_id?access_token=${accessToken}`
 );
 
 socket.onmessage = (event) => {

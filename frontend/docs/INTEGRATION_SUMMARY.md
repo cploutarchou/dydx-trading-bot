@@ -11,9 +11,9 @@
 - ✅ **Database**: PostgreSQL connected
 - ✅ **Migrations**: All 21 applied successfully
 - ✅ **Authentication**: JWT middleware active
-- ✅ **Bot API Client**: Connected to localhost:8000
+- ✅ **Bot API Client**: Connected to localhost:8889
 
-### Bot API (Python @ localhost:8000)
+### Bot API (Python @ localhost:8889)
 
 - ✅ **30 Bot endpoints** available
 - ✅ **Backtest engine** operational

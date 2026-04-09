@@ -1,16 +1,21 @@
 import {
   BarChart3,
   Bot,
+  BriefcaseBusiness,
+  Building2,
   Home,
+  KeyRound,
   Library,
+  type LucideIcon,
   Newspaper,
   PlayCircle,
   PlusCircle,
   Settings,
+  ShieldCheck,
   Sparkles,
   Target,
-  type LucideIcon,
 } from 'lucide-react';
+import { roleMatches, type WorkspaceRole } from '../auth/roles';
 
 export interface WorkspaceNavItem {
   label: string;
@@ -21,6 +26,7 @@ export interface WorkspaceNavItem {
   exact?: boolean;
   icon: LucideIcon;
   shortcut?: string;
+  allowedRoles?: WorkspaceRole[];
 }
 
 export const workspaceNavItems: WorkspaceNavItem[] = [
@@ -33,6 +39,16 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     exact: true,
     icon: Home,
     shortcut: 'G D',
+  },
+  {
+    label: 'Client Area',
+    path: '/client-area',
+    description: 'Onboarding, account progression, and partner upgrade requests.',
+    section: 'Cockpit',
+    keywords: ['client', 'account', 'onboarding', 'promotion'],
+    exact: true,
+    icon: Building2,
+    shortcut: 'G C',
   },
   {
     label: 'Backtests',
@@ -101,6 +117,17 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     icon: Newspaper,
   },
   {
+    label: 'CRM',
+    path: '/crm',
+    description: 'Backoffice workflows for clients, IB approvals, and partner reviews.',
+    section: 'System',
+    keywords: ['crm', 'backoffice', 'approvals', 'partners'],
+    exact: true,
+    icon: BriefcaseBusiness,
+    shortcut: 'G R',
+    allowedRoles: ['admin', 'backoffice'],
+  },
+  {
     label: 'Settings',
     path: '/settings',
     description: 'Operator preferences, credentials, integrations, and system config.',
@@ -109,6 +136,28 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     exact: false,
     icon: Settings,
     shortcut: 'G ,',
+  },
+  {
+    label: 'IB Portal',
+    path: '/ib-portal',
+    description: 'Invitation tokens and Introducing Broker onboarding operations.',
+    section: 'System',
+    keywords: ['ib', 'invites', 'tokens', 'partners', 'onboarding'],
+    exact: true,
+    icon: KeyRound,
+    shortcut: 'G I',
+    allowedRoles: ['admin', 'backoffice', 'ib', 'sub_ib'],
+  },
+  {
+    label: 'Admin Hub',
+    path: '/admin',
+    description: 'Platform operating center for access, controls, and cross-portal oversight.',
+    section: 'System',
+    keywords: ['admin', 'hub', 'controls', 'governance'],
+    exact: true,
+    icon: ShieldCheck,
+    shortcut: 'G A',
+    allowedRoles: ['admin'],
   },
 ];
 
@@ -135,6 +184,11 @@ export const workspaceSections: Array<WorkspaceNavItem['section']> = [
   'System',
 ];
 
+export const filterNavItemsForRole = (
+  items: WorkspaceNavItem[],
+  role: WorkspaceRole
+): WorkspaceNavItem[] => items.filter((item) => roleMatches(role, item.allowedRoles));
+
 export const isNavItemActive = (pathname: string, item: WorkspaceNavItem): boolean =>
   item.exact ? pathname === item.path : pathname.startsWith(item.path);
 
@@ -144,6 +198,14 @@ export const getWorkspaceBreadcrumbs = (pathname: string) => {
 
   if (paths.includes('settings')) {
     breadcrumbs.push({ label: 'Settings', path: '/settings' });
+  } else if (paths.includes('admin')) {
+    breadcrumbs.push({ label: 'Admin Hub', path: '/admin' });
+  } else if (paths.includes('crm')) {
+    breadcrumbs.push({ label: 'CRM', path: '/crm' });
+  } else if (paths.includes('client-area')) {
+    breadcrumbs.push({ label: 'Client Area', path: '/client-area' });
+  } else if (paths.includes('ib-portal')) {
+    breadcrumbs.push({ label: 'IB Portal', path: '/ib-portal' });
   } else if (paths.includes('backtests') || paths.includes('backtest')) {
     const backtestIndex = paths.findIndex(
       (segment) => segment === 'backtests' || segment === 'backtest'

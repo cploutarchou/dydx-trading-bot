@@ -1,23 +1,23 @@
 // Custom React Query Hooks for API Endpoints
 // Provides optimized data fetching with loading states, error handling, and caching
 
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
-    BacktestConfig,
-    BotInstance,
-    CreateBotRequest,
-    ListAlertsParams,
-    ListBacktestsParams,
-    ListBotsParams,
-    ListTradesParams,
-    QuickDeployBotRequest,
-    StartBotRequest,
-    UpdateBotRequest,
-    User,
+  BacktestConfig,
+  BotInstance,
+  CreateBotRequest,
+  ListAlertsParams,
+  ListBacktestsParams,
+  ListBotsParams,
+  ListTradesParams,
+  QuickDeployBotRequest,
+  StartBotRequest,
+  UpdateBotRequest,
+  User,
 } from './types';
 
 interface ManagedWebSocketOptions {
@@ -240,11 +240,13 @@ export function useRegister() {
       username,
       email,
       password,
+      invitationCode,
     }: {
       username: string;
       email: string;
       password: string;
-    }) => apiClient.register(username, email, password),
+      invitationCode?: string;
+    }) => apiClient.register(username, email, password, invitationCode),
   });
 }
 
@@ -432,7 +434,9 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
           ? (record.data as Record<string, unknown>)
           : null;
       const statsRecord =
-        dataRecord?.stats && typeof dataRecord.stats === 'object' && !Array.isArray(dataRecord.stats)
+        dataRecord?.stats &&
+        typeof dataRecord.stats === 'object' &&
+        !Array.isArray(dataRecord.stats)
           ? (dataRecord.stats as Record<string, unknown>)
           : null;
       return statsRecord;
@@ -778,7 +782,10 @@ export function useBacktestAnalysis(runId: string) {
  * Automatically stops polling when backtest is complete
  */
 export function useBacktestProgress(runId: string) {
-  const normalizeStatus = (status: unknown): string => String(status || '').trim().toUpperCase();
+  const normalizeStatus = (status: unknown): string =>
+    String(status || '')
+      .trim()
+      .toUpperCase();
   const [data, setData] = useState<Record<string, unknown> | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
@@ -810,7 +817,8 @@ export function useBacktestProgress(runId: string) {
 
   const extractEtaSeconds = useCallback((data: unknown): number | null => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
-    const rawEta = record.estimated_completion_seconds ?? record.eta_seconds ?? record.remaining_seconds;
+    const rawEta =
+      record.estimated_completion_seconds ?? record.eta_seconds ?? record.remaining_seconds;
     if (typeof rawEta !== 'number' && typeof rawEta !== 'string') {
       return null;
     }
@@ -818,97 +826,106 @@ export function useBacktestProgress(runId: string) {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
   }, []);
 
-  const mergeProgressData = useCallback((
-    current: Record<string, unknown> | undefined,
-    patch: Record<string, unknown>
-  ): Record<string, unknown> => {
-    const next = { ...(current || {}) };
+  const mergeProgressData = useCallback(
+    (
+      current: Record<string, unknown> | undefined,
+      patch: Record<string, unknown>
+    ): Record<string, unknown> => {
+      const next = { ...(current || {}) };
 
-    for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined) {
-        next[key] = value;
+      for (const [key, value] of Object.entries(patch)) {
+        if (value !== undefined) {
+          next[key] = value;
+        }
       }
-    }
 
-    return next;
-  }, []);
+      return next;
+    },
+    []
+  );
 
-  const parseSocketPayload = useCallback((payload: unknown): Record<string, unknown> | null => {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return null;
-    }
+  const parseSocketPayload = useCallback(
+    (payload: unknown): Record<string, unknown> | null => {
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return null;
+      }
 
-    const record = payload as Record<string, unknown>;
-    const progress =
-      record.progress_percent ?? record.progress_pct ?? record.progress ?? record.percent_complete;
-    const message =
-      typeof record.message === 'string'
-        ? record.message
-        : typeof record.type === 'string'
-          ? record.type
-          : undefined;
+      const record = payload as Record<string, unknown>;
+      const progress =
+        record.progress_percent ??
+        record.progress_pct ??
+        record.progress ??
+        record.percent_complete;
+      const message =
+        typeof record.message === 'string'
+          ? record.message
+          : typeof record.type === 'string'
+            ? record.type
+            : undefined;
 
-    return {
-      run_id: typeof record.run_id === 'string' ? record.run_id : runId,
-      status: typeof record.status === 'string' ? normalizeStatus(record.status) : undefined,
-      progress_percent:
-        typeof progress === 'number' || typeof progress === 'string'
-          ? normalizeProgressPercent({ progress_percent: progress })
-          : undefined,
-      current_pair:
-        typeof record.current_pair === 'string'
-          ? record.current_pair
-          : typeof record.current_market === 'string'
-            ? record.current_market
-            : typeof record.market === 'string'
-              ? record.market
-              : undefined,
-      estimated_completion_seconds:
-        typeof record.estimated_completion_seconds === 'number' ||
-        typeof record.estimated_completion_seconds === 'string'
-          ? Number(record.estimated_completion_seconds)
-          : typeof record.eta_seconds === 'number' || typeof record.eta_seconds === 'string'
-            ? Number(record.eta_seconds)
-            : typeof record.remaining_seconds === 'number' ||
-                typeof record.remaining_seconds === 'string'
-              ? Number(record.remaining_seconds)
-              : undefined,
-      message,
-      details:
-        record.details && typeof record.details === 'object' && !Array.isArray(record.details)
-          ? record.details
-          : undefined,
-      total_pnl:
-        typeof record.total_pnl === 'number' || typeof record.total_pnl === 'string'
-          ? Number(record.total_pnl)
-          : undefined,
-      total_trades:
-        typeof record.total_trades === 'number' || typeof record.total_trades === 'string'
-          ? Number(record.total_trades)
-          : undefined,
-      win_rate:
-        typeof record.win_rate === 'number' || typeof record.win_rate === 'string'
-          ? Number(record.win_rate)
-          : undefined,
-      sharpe_ratio:
-        typeof record.sharpe_ratio === 'number' || typeof record.sharpe_ratio === 'string'
-          ? Number(record.sharpe_ratio)
-          : undefined,
-      max_drawdown_pct:
-        typeof record.max_drawdown_pct === 'number' || typeof record.max_drawdown_pct === 'string'
-          ? Number(record.max_drawdown_pct)
-          : undefined,
-      profit_factor:
-        typeof record.profit_factor === 'number' || typeof record.profit_factor === 'string'
-          ? Number(record.profit_factor)
-          : undefined,
-      error: typeof record.error === 'string' ? record.error : undefined,
-      error_message:
-        typeof record.error_message === 'string' ? record.error_message : undefined,
-      progress_source: 'websocket',
-      updated_at: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString(),
-    };
-  }, [normalizeProgressPercent, runId]);
+      return {
+        run_id: typeof record.run_id === 'string' ? record.run_id : runId,
+        status: typeof record.status === 'string' ? normalizeStatus(record.status) : undefined,
+        progress_percent:
+          typeof progress === 'number' || typeof progress === 'string'
+            ? normalizeProgressPercent({ progress_percent: progress })
+            : undefined,
+        current_pair:
+          typeof record.current_pair === 'string'
+            ? record.current_pair
+            : typeof record.current_market === 'string'
+              ? record.current_market
+              : typeof record.market === 'string'
+                ? record.market
+                : undefined,
+        estimated_completion_seconds:
+          typeof record.estimated_completion_seconds === 'number' ||
+          typeof record.estimated_completion_seconds === 'string'
+            ? Number(record.estimated_completion_seconds)
+            : typeof record.eta_seconds === 'number' || typeof record.eta_seconds === 'string'
+              ? Number(record.eta_seconds)
+              : typeof record.remaining_seconds === 'number' ||
+                  typeof record.remaining_seconds === 'string'
+                ? Number(record.remaining_seconds)
+                : undefined,
+        message,
+        details:
+          record.details && typeof record.details === 'object' && !Array.isArray(record.details)
+            ? record.details
+            : undefined,
+        total_pnl:
+          typeof record.total_pnl === 'number' || typeof record.total_pnl === 'string'
+            ? Number(record.total_pnl)
+            : undefined,
+        total_trades:
+          typeof record.total_trades === 'number' || typeof record.total_trades === 'string'
+            ? Number(record.total_trades)
+            : undefined,
+        win_rate:
+          typeof record.win_rate === 'number' || typeof record.win_rate === 'string'
+            ? Number(record.win_rate)
+            : undefined,
+        sharpe_ratio:
+          typeof record.sharpe_ratio === 'number' || typeof record.sharpe_ratio === 'string'
+            ? Number(record.sharpe_ratio)
+            : undefined,
+        max_drawdown_pct:
+          typeof record.max_drawdown_pct === 'number' || typeof record.max_drawdown_pct === 'string'
+            ? Number(record.max_drawdown_pct)
+            : undefined,
+        profit_factor:
+          typeof record.profit_factor === 'number' || typeof record.profit_factor === 'string'
+            ? Number(record.profit_factor)
+            : undefined,
+        error: typeof record.error === 'string' ? record.error : undefined,
+        error_message: typeof record.error_message === 'string' ? record.error_message : undefined,
+        progress_source: 'websocket',
+        updated_at:
+          typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString(),
+      };
+    },
+    [normalizeProgressPercent, runId]
+  );
 
   useEffect(() => {
     if (!runId) {

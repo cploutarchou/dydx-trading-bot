@@ -5,9 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from sqlalchemy.orm import Session
-
 from internal.domain.models import BacktestRun
+from sqlalchemy.orm import Session, defer
 
 
 class BacktestRepository:
@@ -82,7 +81,8 @@ class BacktestRepository:
         return payload
 
     @classmethod
-    def _record_to_dict(cls, record: BacktestRun) -> Dict[str, Any]:
+    def _record_to_summary_dict(cls, record: BacktestRun) -> Dict[str, Any]:
+        """Lightweight projection used for list queries — omits large JSON blob columns."""
         return {
             "run_id": record.run_id,
             "name": record.name,
@@ -100,13 +100,19 @@ class BacktestRepository:
             "end_date": record.end_date or "",
             "error": record.error,
             "error_message": record.error_message,
+            "cancel_requested": bool(record.cancel_requested),
+            "created_at": cls._serialize_dt(record.created_at),
+            "updated_at": cls._serialize_dt(record.updated_at),
+        }
+
+    @classmethod
+    def _record_to_dict(cls, record: BacktestRun) -> Dict[str, Any]:
+        return {
+            **cls._record_to_summary_dict(record),
             "request": dict(record.request_json or {}),
             "trades": list(record.trades_json or []),
             "position_snapshots": list(record.position_snapshots_json or []),
             "daily_pnl": list(record.daily_pnl_json or []),
-            "cancel_requested": bool(record.cancel_requested),
-            "created_at": cls._serialize_dt(record.created_at),
-            "updated_at": cls._serialize_dt(record.updated_at),
         }
 
     def save_run(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -191,7 +197,15 @@ class BacktestRepository:
                 return [dict(row) for row in runs[offset:]]
             return [dict(row) for row in runs[offset : offset + limit]]
 
-        query = self.session.query(BacktestRun)
+        query = (
+            self.session.query(BacktestRun)
+            .options(
+                defer(BacktestRun.request_json),
+                defer(BacktestRun.trades_json),
+                defer(BacktestRun.position_snapshots_json),
+                defer(BacktestRun.daily_pnl_json),
+            )
+        )
         if status_filter:
             query = query.filter(BacktestRun.status == status_filter)
         if days_filter is not None:
@@ -203,7 +217,7 @@ class BacktestRepository:
             query = query.offset(offset)
         if limit is not None:
             query = query.limit(limit)
-        return [self._record_to_dict(record) for record in query.all()]
+        return [self._record_to_summary_dict(record) for record in query.all()]
 
     def delete_run(self, run_id: str) -> bool:
         normalized_run_id = str(run_id)

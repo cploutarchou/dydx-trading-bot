@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AreaSeries,
   ColorType,
-  HistogramSeries,
   createChart,
   createSeriesMarkers,
   type HistogramData,
+  HistogramSeries,
   type IChartApi,
   type ISeriesApi,
   type LineData,

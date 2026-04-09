@@ -177,7 +177,8 @@ const normalizeStatus = (value: unknown): string => String(value || '').toLowerC
 
 const firstFiniteNumber = (...values: unknown[]): number | null => {
   for (const value of values) {
-    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+    const parsed =
+      typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
     if (Number.isFinite(parsed)) {
       return parsed;
     }
@@ -284,6 +285,54 @@ const formatTimeAgo = (value: string | null | undefined): string => {
   if (diffHours < 24) return `${diffHours}h ago`;
   const diffDays = Math.round(diffHours / 24);
   return `${diffDays}d ago`;
+};
+
+const classifyFailureDiagnostic = (message?: string | null) => {
+  const summary = String(message || '').trim();
+  const normalized = summary.toLowerCase();
+
+  if (!summary) {
+    return {
+      category: 'unknown',
+      hint: 'No failure payload was returned. Check worker/API logs for this run ID.',
+    };
+  }
+
+  if (/timeout|timed out|deadline/.test(normalized)) {
+    return {
+      category: 'timeout',
+      hint: 'Try a shorter backtest window or fewer pairs and watch progress cadence.',
+    };
+  }
+  if (/network|connection|unreachable|socket|dns|refused/.test(normalized)) {
+    return {
+      category: 'network',
+      hint: 'Verify API/worker connectivity and infrastructure service availability.',
+    };
+  }
+  if (/config|invalid|missing|required|parameter|env/.test(normalized)) {
+    return {
+      category: 'config',
+      hint: 'Re-check runtime configuration and required parameters before rerunning.',
+    };
+  }
+  if (/insufficient|balance|margin|collateral/.test(normalized)) {
+    return {
+      category: 'account',
+      hint: 'Validate funding and account constraints for the tested setup.',
+    };
+  }
+  if (/panic|exception|traceback|internal/.test(normalized)) {
+    return {
+      category: 'runtime',
+      hint: 'Inspect backend traces for this run and retry after fixing the root cause.',
+    };
+  }
+
+  return {
+    category: 'unknown',
+    hint: 'Open logs for this run to inspect full execution context and stack traces.',
+  };
 };
 
 export const BacktestDetailsV2: React.FC = () => {
@@ -605,10 +654,7 @@ export const BacktestDetailsV2: React.FC = () => {
         return;
       }
       if (activeTab !== 'trades') return;
-      if (
-        tradesLoadedState?.runId === runId &&
-        tradesLoadedState.cursor === detailSyncCursor
-      ) {
+      if (tradesLoadedState?.runId === runId && tradesLoadedState.cursor === detailSyncCursor) {
         return;
       }
 
@@ -856,13 +902,21 @@ export const BacktestDetailsV2: React.FC = () => {
     win_rate: firstFiniteNumber(liveRecord?.win_rate, backtest.win_rate) ?? 0,
     sharpe_ratio: firstFiniteNumber(liveRecord?.sharpe_ratio, backtest.sharpe_ratio) ?? 0,
     max_drawdown_pct:
-      firstFiniteNumber(liveRecord?.max_drawdown_pct, backtest.max_drawdown_pct, backtest.max_drawdown) ?? 0,
+      firstFiniteNumber(
+        liveRecord?.max_drawdown_pct,
+        backtest.max_drawdown_pct,
+        backtest.max_drawdown
+      ) ?? 0,
     max_drawdown:
-      firstFiniteNumber(liveRecord?.max_drawdown_pct, backtest.max_drawdown, backtest.max_drawdown_pct) ?? 0,
+      firstFiniteNumber(
+        liveRecord?.max_drawdown_pct,
+        backtest.max_drawdown,
+        backtest.max_drawdown_pct
+      ) ?? 0,
     profit_factor:
-      firstFiniteNumber(liveRecord?.profit_factor, backtest.profit_factor) ?? backtest.profit_factor,
-    error:
-      firstMeaningfulString(liveRecord?.error, backtest.error) ?? backtest.error ?? undefined,
+      firstFiniteNumber(liveRecord?.profit_factor, backtest.profit_factor) ??
+      backtest.profit_factor,
+    error: firstMeaningfulString(liveRecord?.error, backtest.error) ?? backtest.error ?? undefined,
     error_message:
       firstMeaningfulString(liveRecord?.error_message, backtest.error_message) ??
       backtest.error_message ??
@@ -888,7 +942,9 @@ export const BacktestDetailsV2: React.FC = () => {
         : liveProgress;
   const progressPercent = isRunning ? Math.min(100, Math.max(0, baseProgress)) : 0;
   const currentPair = progressQuery.currentPair;
-  const explicitScanningLine = liveLogs.find((log) => /(^|\b)scanning\s*:/i.test(log.message))?.message;
+  const explicitScanningLine = liveLogs.find((log) =>
+    /(^|\b)scanning\s*:/i.test(log.message)
+  )?.message;
   const latestTaskFromLogs =
     explicitScanningLine ||
     liveLogs.find((log) => /(scan|processing|pair|market|running)/i.test(log.message))?.message;
@@ -901,14 +957,15 @@ export const BacktestDetailsV2: React.FC = () => {
     progressQuery.progressSource === 'websocket'
       ? 'websocket'
       : progressQuery.progressSource === 'list_fallback'
-      ? 'list fallback'
-      : progressQuery.progressSource === 'details'
-        ? 'details status'
-        : 'default';
+        ? 'list fallback'
+        : progressQuery.progressSource === 'details'
+          ? 'details status'
+          : 'default';
   const totalPnl = liveBacktest.total_pnl_usd ?? liveBacktest.total_pnl ?? 0;
   const maxDrawdown = liveBacktest.max_drawdown ?? liveBacktest.max_drawdown_pct ?? 0;
   const winRatePercent = normalizePercentValue(liveBacktest.win_rate);
   const failureReason = firstMeaningfulString(liveBacktest.error_message, liveBacktest.error);
+  const failureDiagnostic = classifyFailureDiagnostic(failureReason);
   const latestProgressTimestamp =
     (typeof progressQuery.data?.updated_at === 'string' ? progressQuery.data.updated_at : null) ||
     (typeof progressQuery.lastSocketEvent?.timestamp === 'string'
@@ -935,16 +992,13 @@ export const BacktestDetailsV2: React.FC = () => {
       ? Math.min(...filteredChartPoints.map((point) => point.value))
       : totalPnl;
   const bestSessionPnl =
-    filteredChartPoints.length > 0
-      ? Math.max(...filteredChartPoints.map((point) => point.pnl))
-      : 0;
+    filteredChartPoints.length > 0 ? Math.max(...filteredChartPoints.map((point) => point.pnl)) : 0;
   const worstSessionPnl =
-    filteredChartPoints.length > 0
-      ? Math.min(...filteredChartPoints.map((point) => point.pnl))
-      : 0;
+    filteredChartPoints.length > 0 ? Math.min(...filteredChartPoints.map((point) => point.pnl)) : 0;
   const averageTradesPerBar =
     filteredChartPoints.length > 0
-      ? filteredChartPoints.reduce((sum, point) => sum + point.trades, 0) / filteredChartPoints.length
+      ? filteredChartPoints.reduce((sum, point) => sum + point.trades, 0) /
+        filteredChartPoints.length
       : 0;
   const pairBreakdown = filteredChartMarkers.reduce<
     Array<{ pair: string; count: number; pnl: number }>
@@ -962,9 +1016,7 @@ export const BacktestDetailsV2: React.FC = () => {
     }
     return acc;
   }, []);
-  const topPairs = pairBreakdown
-    .sort((a, b) => b.count - a.count || b.pnl - a.pnl)
-    .slice(0, 5);
+  const topPairs = pairBreakdown.sort((a, b) => b.count - a.count || b.pnl - a.pnl).slice(0, 5);
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -972,7 +1024,7 @@ export const BacktestDetailsV2: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader className="w-6 h-6 animate-spin text-blue-400" />
           <p className="text-slate-400 text-center text-sm">
-            Backtest is still running. No {label} have been produced yet.
+            The backtest is in progress — {label} will appear here once pairs finish processing.
           </p>
         </div>
       );
@@ -982,12 +1034,10 @@ export const BacktestDetailsV2: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-16 gap-2">
           <p className="text-red-400 font-medium capitalize">Backtest {statusNorm}</p>
           <p className="text-slate-500 text-sm">
-            No {label} available — the backtest did not complete successfully.
+            The run ended before generating {label} data. Review the failure diagnostic panel above.
           </p>
           {failureReason && (
-            <p className="max-w-2xl text-center text-xs text-red-300">
-              Reason: {failureReason}
-            </p>
+            <p className="max-w-2xl text-center text-xs text-red-300">{failureReason}</p>
           )}
         </div>
       );
@@ -1055,8 +1105,8 @@ export const BacktestDetailsV2: React.FC = () => {
       <p className="text-slate-300 font-medium">{label} are loaded on demand</p>
       <p className="text-center text-sm text-slate-500 max-w-xl">
         {isRunning
-          ? 'This tab refreshes live while the backtest runs. New rows appear as pairs finish processing.'
-          : 'The final result is shown first. Open this tab after completion to load the detailed dataset.'}
+          ? 'Live — new rows appear as pairs finish processing.'
+          : 'Data loads on demand. Open this tab after the run completes to fetch the full dataset.'}
       </p>
     </div>
   );
@@ -1093,8 +1143,8 @@ export const BacktestDetailsV2: React.FC = () => {
                   Backtest Control Room
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400 sm:text-base">
-                  Monitor live execution, inspect the equity curve, and drill into pair-level outcome
-                  data without leaving the page or waiting on hard refreshes.
+                  Monitor live execution, inspect the equity curve, and drill into pair-level
+                  outcome data without leaving the page or waiting on hard refreshes.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-300">
@@ -1121,20 +1171,28 @@ export const BacktestDetailsV2: React.FC = () => {
                 <p className="mt-2 break-all font-mono text-sm text-slate-100">{backtest.run_id}</p>
               </div>
               <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Current Pair</p>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Current Pair
+                </p>
                 <p className="mt-2 text-sm font-medium text-slate-100">
                   {currentPair || selectedMarket || 'Awaiting signal'}
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Peak Equity</p>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Peak Equity
+                </p>
                 <p className="mt-2 text-lg font-semibold text-emerald-300">
                   {formatCurrency(peakEquity)}
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Best Session</p>
-                <p className={`mt-2 text-lg font-semibold ${bestSessionPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Best Session
+                </p>
+                <p
+                  className={`mt-2 text-lg font-semibold ${bestSessionPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                >
                   {formatSignedCurrency(bestSessionPnl)}
                 </p>
               </div>
@@ -1209,7 +1267,10 @@ export const BacktestDetailsV2: React.FC = () => {
                     </span>
                   )}
                   <span className="text-slate-400">
-                    Updated: <span className="font-medium text-slate-200">{formatTimeAgo(latestProgressTimestamp)}</span>
+                    Updated:{' '}
+                    <span className="font-medium text-slate-200">
+                      {formatTimeAgo(latestProgressTimestamp)}
+                    </span>
                   </span>
                 </div>
                 {liveLogs.length > 0 && (
@@ -1256,6 +1317,13 @@ export const BacktestDetailsV2: React.FC = () => {
                   Reason: <span className="break-words font-mono">{failureReason}</span>
                 </p>
               )}
+              <div className="mt-3 rounded-xl border border-red-700/60 bg-slate-950/45 p-3 text-xs text-slate-200">
+                <p className="uppercase tracking-[0.14em] text-red-300">Diagnostic category</p>
+                <p className="mt-1 font-semibold capitalize text-white">
+                  {failureDiagnostic.category}
+                </p>
+                <p className="mt-2 text-slate-300">Next step: {failureDiagnostic.hint}</p>
+              </div>
             </div>
           )}
           {isCompleted && (
@@ -1281,7 +1349,9 @@ export const BacktestDetailsV2: React.FC = () => {
                       <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                         {metric.label}
                       </p>
-                      <p className={`mt-2 text-2xl font-semibold tracking-tight ${metric.color || 'text-slate-100'}`}>
+                      <p
+                        className={`mt-2 text-2xl font-semibold tracking-tight ${metric.color || 'text-slate-100'}`}
+                      >
                         {metric.value}
                       </p>
                       <p className="mt-2 text-xs text-slate-400">{metric.detail}</p>
@@ -1301,24 +1371,26 @@ export const BacktestDetailsV2: React.FC = () => {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="overflow-x-auto">
             <div className="flex min-w-max gap-2">
-            {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
+              {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
                   className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-                  activeTab === tab
+                    activeTab === tab
                       ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.24)]'
                       : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
-                }`}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
-            ))}
+                  }`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-400">
-              {progressQuery.isConnected ? 'Realtime stream online' : 'Realtime stream reconnecting'}
+              {progressQuery.isConnected
+                ? 'Realtime stream online'
+                : 'Realtime stream reconnecting'}
             </span>
             <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-400">
               {activeTab === 'candles'
@@ -1341,7 +1413,9 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-wide text-slate-500">Created</dt>
-                <dd className="mt-1 text-sm text-slate-200">{formatDateValue(backtest.created_at)}</dd>
+                <dd className="mt-1 text-sm text-slate-200">
+                  {formatDateValue(backtest.created_at)}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-wide text-slate-500">Date Range</dt>
@@ -1374,24 +1448,39 @@ export const BacktestDetailsV2: React.FC = () => {
               <p>Open a detail tab to load the heavier datasets only when you need them.</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Chart workspace</p>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    Chart workspace
+                  </p>
                   <p className="mt-2 text-slate-200">
-                    Period filters, market switching, live equity curve, trade markers, and sync telemetry.
+                    Period filters, market switching, live equity curve, trade markers, and sync
+                    telemetry.
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Detail panels</p>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    Detail panels
+                  </p>
                   <p className="mt-2 text-slate-200">
-                    Positions, trades, and pair ranking update live without hard resets while the run executes.
+                    Positions, trades, and pair ranking update live without hard resets while the
+                    run executes.
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4 sm:col-span-2">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Runtime telemetry</p>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    Runtime telemetry
+                  </p>
                   <p className="mt-2 text-slate-200">
-                    Current task: <span className="font-mono text-slate-100">{currentTaskLine || 'Initializing runtime'}</span>
+                    Current task:{' '}
+                    <span className="font-mono text-slate-100">
+                      {currentTaskLine || 'Initializing runtime'}
+                    </span>
                   </p>
                   <p className="mt-1 text-sm text-slate-400">
-                    Sync status: {progressQuery.isConnected ? 'websocket streaming live' : 'silent fallback recovery'}.
+                    Sync status:{' '}
+                    {progressQuery.isConnected
+                      ? 'websocket streaming live'
+                      : 'silent fallback recovery'}
+                    .
                   </p>
                 </div>
               </div>
@@ -1414,9 +1503,11 @@ export const BacktestDetailsV2: React.FC = () => {
                 {analyticsError}
               </div>
             ) : candles.length === 0 ? (
-              analyticsLoadedState?.runId === runId
-                ? renderEmptyState('candle data')
-                : renderDeferredTabHint('Candle analytics')
+              analyticsLoadedState?.runId === runId ? (
+                renderEmptyState('candle data')
+              ) : (
+                renderDeferredTabHint('Candle analytics')
+              )
             ) : (
               <>
                 <div className="mb-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -1424,10 +1515,13 @@ export const BacktestDetailsV2: React.FC = () => {
                     <div>
                       <div className="flex items-center gap-2">
                         <CandlestickChart className="h-5 w-5 text-cyan-300" />
-                        <p className="text-sm font-semibold text-slate-100">Equity Curve Workspace</p>
+                        <p className="text-sm font-semibold text-slate-100">
+                          Equity Curve Workspace
+                        </p>
                       </div>
                       <p className="mt-1 text-sm text-slate-400">
-                        Browse market-level equity, filter the visible window, and inspect trade activity without resetting the chart.
+                        Browse market-level equity, filter the visible window, and inspect trade
+                        activity without resetting the chart.
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -1481,28 +1575,43 @@ export const BacktestDetailsV2: React.FC = () => {
           </div>
           <div className="space-y-5">
             <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Visible Range</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Visible Range
+              </p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Window PnL</p>
-                  <p className={`mt-2 text-xl font-semibold ${periodPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Window PnL
+                  </p>
+                  <p
+                    className={`mt-2 text-xl font-semibold ${periodPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                  >
                     {formatSignedCurrency(periodPnl)}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Window Return</p>
-                  <p className={`mt-2 text-xl font-semibold ${periodReturnPct >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                    {periodReturnPct >= 0 ? '+' : ''}{periodReturnPct.toFixed(2)}%
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Window Return
+                  </p>
+                  <p
+                    className={`mt-2 text-xl font-semibold ${periodReturnPct >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                  >
+                    {periodReturnPct >= 0 ? '+' : ''}
+                    {periodReturnPct.toFixed(2)}%
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Worst Session</p>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Worst Session
+                  </p>
                   <p className="mt-2 text-xl font-semibold text-rose-300">
                     {formatSignedCurrency(worstSessionPnl)}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Avg Trades / Bar</p>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Avg Trades / Bar
+                  </p>
                   <p className="mt-2 text-xl font-semibold text-slate-100">
                     {formatCompactValue(averageTradesPerBar)}
                   </p>
@@ -1511,10 +1620,14 @@ export const BacktestDetailsV2: React.FC = () => {
             </div>
 
             <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Live Telemetry</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Live Telemetry
+              </p>
               <div className="mt-4 space-y-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Active task</p>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Active task
+                  </p>
                   <p className="mt-2 break-words font-mono text-sm text-slate-100">
                     {currentTaskLine || 'No active task line yet'}
                   </p>
@@ -1522,24 +1635,34 @@ export const BacktestDetailsV2: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
                     <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Bars</p>
-                    <p className="mt-2 text-lg font-semibold text-slate-100">{filteredChartPoints.length}</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-100">
+                      {filteredChartPoints.length}
+                    </p>
                   </div>
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Trade markers</p>
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      Trade markers
+                    </p>
                     <p className="mt-2 text-lg font-semibold text-slate-100">
                       {filteredChartMarkers.length}
                     </p>
                   </div>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Stream health</p>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Stream health
+                  </p>
                   <div className="mt-2 flex items-center gap-2">
-                    <CircleDot className={`h-4 w-4 ${progressQuery.isConnected ? 'text-cyan-400' : 'text-amber-400'}`} />
+                    <CircleDot
+                      className={`h-4 w-4 ${progressQuery.isConnected ? 'text-cyan-400' : 'text-amber-400'}`}
+                    />
                     <span className="text-sm text-slate-200">
                       {progressQuery.isConnected ? 'Live socket healthy' : 'Socket reconnecting'}
                     </span>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">Updated {formatTimeAgo(latestProgressTimestamp)}</p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Updated {formatTimeAgo(latestProgressTimestamp)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1557,7 +1680,9 @@ export const BacktestDetailsV2: React.FC = () => {
                         <p className="text-sm font-medium text-slate-100">{pair.pair}</p>
                         <p className="mt-1 text-xs text-slate-500">{pair.count} trade markers</p>
                       </div>
-                      <p className={`text-sm font-semibold ${pair.pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      <p
+                        className={`text-sm font-semibold ${pair.pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                      >
                         {formatSignedCurrency(pair.pnl)}
                       </p>
                     </div>
@@ -1588,9 +1713,11 @@ export const BacktestDetailsV2: React.FC = () => {
               {positionsError}
             </div>
           ) : positions.length === 0 ? (
-            positionsLoadedState?.runId === runId
-              ? renderEmptyState('position data')
-              : renderDeferredTabHint('Position snapshots')
+            positionsLoadedState?.runId === runId ? (
+              renderEmptyState('position data')
+            ) : (
+              renderDeferredTabHint('Position snapshots')
+            )
           ) : (
             <BacktestPositionsPanel
               positions={positions}
@@ -1616,9 +1743,11 @@ export const BacktestDetailsV2: React.FC = () => {
               {tradesError}
             </div>
           ) : trades.length === 0 ? (
-            tradesLoadedState?.runId === runId
-              ? renderEmptyState('trade data')
-              : renderDeferredTabHint('Trade history')
+            tradesLoadedState?.runId === runId ? (
+              renderEmptyState('trade data')
+            ) : (
+              renderDeferredTabHint('Trade history')
+            )
           ) : (
             <BacktestTradesPanel
               trades={trades}
@@ -1629,16 +1758,16 @@ export const BacktestDetailsV2: React.FC = () => {
         </div>
       )}
 
-        {/* Results Tab */}
-        {activeTab === 'results' && (
-          <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
-            <h2 className="text-xl font-bold mb-4">Detailed Results</h2>
-            <BacktestResultsEnhanced
-              runId={runId || ''}
-              liveRefreshToken={activeTab === 'results' ? detailSyncCursor : null}
-            />
-          </div>
-        )}
+      {/* Results Tab */}
+      {activeTab === 'results' && (
+        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 sm:p-6">
+          <h2 className="text-xl font-bold mb-4">Detailed Results</h2>
+          <BacktestResultsEnhanced
+            runId={runId || ''}
+            liveRefreshToken={activeTab === 'results' ? detailSyncCursor : null}
+          />
+        </div>
+      )}
     </PageContainer>
   );
 };

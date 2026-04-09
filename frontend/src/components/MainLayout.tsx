@@ -8,7 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
-import { WorkspaceCommandPalette, getRecentPaths, persistRecentPath } from './WorkspaceCommandPalette';
+import { getRecentPaths, persistRecentPath, WorkspaceCommandPalette } from './WorkspaceCommandPalette';
 
 interface MainLayoutProps {
   children: React.ReactNode;

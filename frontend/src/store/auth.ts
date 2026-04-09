@@ -9,7 +9,11 @@ import api from '../api';
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -34,7 +38,10 @@ const requireAccessToken = (accessToken?: string): string => {
   throw new Error('Login did not return an access token');
 };
 
-const getVerifiedTwoFAMessage = (response: { success: boolean; message?: string }): string | null => {
+const getVerifiedTwoFAMessage = (response: {
+  success: boolean;
+  message?: string;
+}): string | null => {
   if (response.success) {
     return null;
   }
@@ -76,7 +83,12 @@ interface AuthStore {
   twoFAQRCode?: string;
   backupCodes?: string[];
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  register: (
+    username: string,
+    email: string,
+    password: string,
+    invitationCode?: string
+  ) => Promise<void>;
   setup2FA: () => Promise<void>;
   verify2FA: (token: string) => Promise<void>;
   logout: () => void;
@@ -123,10 +135,20 @@ export const useAuthStore = create<AuthStore>()(
         }
       },
 
-      register: async (username: string, email: string, password: string) => {
+      register: async (
+        username: string,
+        email: string,
+        password: string,
+        invitationCode?: string
+      ) => {
         set({ loading: true, error: null });
         try {
-          await api.register({ username, email, password });
+          await api.register({
+            username,
+            email,
+            password,
+            ...(invitationCode ? { invitation_code: invitationCode } : {}),
+          });
 
           // Registration successful, now try to auto-login
           await get().login(username, password);

@@ -547,6 +547,7 @@ export interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+  invitation_code?: string;
   full_name?: string;
 }
 

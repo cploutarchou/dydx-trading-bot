@@ -331,6 +331,23 @@ type BotSetting struct {
 	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }
 
+type InvitationToken struct {
+	ID               int        `db:"id" json:"id"`
+	TokenCode        string     `db:"token_code" json:"token_code"`
+	Label            string     `db:"label" json:"label"`
+	IBName           string     `db:"ib_name" json:"ib_name"`
+	CampaignName     string     `db:"campaign_name" json:"campaign_name"`
+	MaxUses          int        `db:"max_uses" json:"max_uses"`
+	UsedCount        int        `db:"used_count" json:"used_count"`
+	CreatedByUserID  *int       `db:"created_by_user_id" json:"created_by_user_id"`
+	LastUsedByUserID *int       `db:"last_used_by_user_id" json:"last_used_by_user_id"`
+	ExpiresAt        *time.Time `db:"expires_at" json:"expires_at"`
+	LastUsedAt       *time.Time `db:"last_used_at" json:"last_used_at"`
+	RevokedAt        *time.Time `db:"revoked_at" json:"revoked_at"`
+	CreatedAt        time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt        time.Time  `db:"updated_at" json:"updated_at"`
+}
+
 type RedisSetting struct {
 	ID        int       `db:"id" json:"id"`
 	Enabled   bool      `db:"enabled" json:"enabled"`

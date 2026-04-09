@@ -1,7 +1,7 @@
 import { Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api';
+import api, { classifyApiError } from '../api';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -85,6 +85,17 @@ const toRecord = (value: unknown): Record<string, unknown> =>
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
+
+const toUserFacingApiError = (error: unknown, fallback: string): string => {
+  const classification = classifyApiError(error);
+  if (classification.kind === 'transport') {
+    return 'Unable to reach backend services. Check API availability or dev proxy configuration.';
+  }
+  if (classification.statusCode === 401) {
+    return 'Session expired or unauthorized. Please sign in again.';
+  }
+  return getErrorMessage(error, fallback);
+};
 
 const formatUtcDateTime = (value?: string): string => {
   if (!value) return 'N/A';
@@ -200,7 +211,10 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     try {
       const runsPromise = fetchAllRuns();
       const timeoutPromise = new Promise<BacktestRun[]>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('Timed out while loading backtest runs')), 15000);
+        timeoutId = setTimeout(
+          () => reject(new Error('Timed out while loading backtest runs')),
+          25000
+        );
       });
 
       const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
@@ -214,7 +228,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         return;
       }
       console.error('❌ BacktestList: Error loading backtests:', err);
-      setError(getErrorMessage(err, 'Failed to load backtests'));
+      setError(toUserFacingApiError(err, 'Failed to load backtests'));
       if (!hasLoadedOnce) {
         setRuns([]);
       }
@@ -285,34 +299,36 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
         <div>
           <h3 className="text-base font-semibold text-white">Backtest Runs</h3>
-          <p className="text-xs text-slate-400 mt-0.5">{runs.length} total run{runs.length !== 1 ? 's' : ''}</p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {runs.length} total run{runs.length !== 1 ? 's' : ''}
+          </p>
         </div>
       </div>
 
       <div className="px-6 py-3 border-b border-slate-700/60">
         <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ['ALL', runs.length],
-            ['PENDING', statusCounts.PENDING],
-            ['RUNNING', statusCounts.RUNNING],
-            ['COMPLETED', statusCounts.COMPLETED],
-            ['FAILED', statusCounts.FAILED],
-            ['CANCELLED', statusCounts.CANCELLED],
-          ] as const
-        ).map(([status, count]) => (
-          <button
-            key={status}
-            onClick={() => setStatusFilter(status)}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
-              statusFilter === status
-                ? 'bg-blue-600 text-white border-blue-500'
-                : 'bg-slate-700 text-slate-200 border-slate-600 hover:bg-slate-600'
-            }`}
-          >
-            {status} ({count})
-          </button>
-        ))}
+          {(
+            [
+              ['ALL', runs.length],
+              ['PENDING', statusCounts.PENDING],
+              ['RUNNING', statusCounts.RUNNING],
+              ['COMPLETED', statusCounts.COMPLETED],
+              ['FAILED', statusCounts.FAILED],
+              ['CANCELLED', statusCounts.CANCELLED],
+            ] as const
+          ).map(([status, count]) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
+                statusFilter === status
+                  ? 'bg-blue-600 text-white border-blue-500'
+                  : 'bg-slate-700 text-slate-200 border-slate-600 hover:bg-slate-600'
+              }`}
+            >
+              {status} ({count})
+            </button>
+          ))}
         </div>
       </div>
 
@@ -325,23 +341,45 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       {filteredRuns.length === 0 ? (
         <div className="py-16 text-center px-6">
           <p className="text-slate-400 text-sm">No backtest runs found.</p>
-          <p className="text-slate-500 text-xs mt-1">Start a new analysis from the dashboard to see results here.</p>
+          <p className="text-slate-500 text-xs mt-1">
+            Start a new analysis from the dashboard to see results here.
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-gray-300">
             <thead className="border-b border-slate-700 bg-slate-900/30">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Run ID</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Started</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Period</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Trades</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">P&L</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Win Rate</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Sharpe</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Max DD</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">Action</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Run ID
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Started
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Period
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Trades
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  P&L
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Win Rate
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Sharpe
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Max DD
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Action
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -365,9 +403,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-sm">
-                        {formatUtcDateTime(run.created_at)}
-                      </td>
+                      <td className="px-4 py-2 text-sm">{formatUtcDateTime(run.created_at)}</td>
                       <td className="px-4 py-2">
                         {run.start_date && run.end_date ? (
                           <>

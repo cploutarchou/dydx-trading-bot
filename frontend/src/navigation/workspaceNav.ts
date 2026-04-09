@@ -1,15 +1,16 @@
 import {
-  BarChart3,
-  Bot,
-  Home,
-  Library,
-  Newspaper,
-  PlayCircle,
-  PlusCircle,
-  Settings,
-  Sparkles,
-  Target,
-  type LucideIcon,
+    BarChart3,
+    Bot,
+    Home,
+    KeyRound,
+    Library,
+    Newspaper,
+    PlayCircle,
+    PlusCircle,
+    Settings,
+    Sparkles,
+    Target,
+    type LucideIcon,
 } from 'lucide-react';
 
 export interface WorkspaceNavItem {
@@ -110,6 +111,16 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     icon: Settings,
     shortcut: 'G ,',
   },
+  {
+    label: 'IB Portal',
+    path: '/ib-portal',
+    description: 'Invitation tokens and Introducing Broker onboarding operations.',
+    section: 'System',
+    keywords: ['ib', 'invites', 'tokens', 'partners', 'onboarding'],
+    exact: true,
+    icon: KeyRound,
+    shortcut: 'G I',
+  },
 ];
 
 export const workspaceQuickActions: WorkspaceNavItem[] = [
@@ -144,6 +155,8 @@ export const getWorkspaceBreadcrumbs = (pathname: string) => {
 
   if (paths.includes('settings')) {
     breadcrumbs.push({ label: 'Settings', path: '/settings' });
+  } else if (paths.includes('ib-portal')) {
+    breadcrumbs.push({ label: 'IB Portal', path: '/ib-portal' });
   } else if (paths.includes('backtests') || paths.includes('backtest')) {
     const backtestIndex = paths.findIndex(
       (segment) => segment === 'backtests' || segment === 'backtest'

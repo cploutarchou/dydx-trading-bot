@@ -4,14 +4,29 @@
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import {
-  guardBacktestStatusContract,
-  guardListBacktestsContract,
-  guardRunBacktestContract,
-  guardSyncHealthContract,
+    guardBacktestStatusContract,
+    guardListBacktestsContract,
+    guardRunBacktestContract,
+    guardSyncHealthContract,
 } from './api/contractGuards';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888';
+const configuredApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const preferDevProxy =
+  import.meta.env.DEV &&
+  (!configuredApiBase ||
+    configuredApiBase === 'http://localhost:8888' ||
+    configuredApiBase === 'http://127.0.0.1:8888');
+const API_BASE_URL = preferDevProxy ? '' : configuredApiBase || 'http://localhost:8888';
+
+const isPublicUnauthenticatedRoute = (url: string): boolean =>
+  url.includes('/auth/login') ||
+  url.includes('/auth/register') ||
+  url.includes('/auth/refresh') ||
+  url.includes('/auth/token') ||
+  url.includes('/auth/registration-status') ||
+  url.includes('/health') ||
+  url.includes('/ready');
 
 // Type-safe error message extractor
 const getErrorMessage = (error: unknown): string => {
@@ -103,11 +118,14 @@ interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+  invitation_code?: string;
 }
 
 export interface RegistrationStatusResponse extends Record<string, unknown> {
   enabled: boolean;
   reason: string;
+  mode: 'open' | 'disabled' | 'invitation_only' | string;
+  invitation_required: boolean;
 }
 
 interface UserProfile extends Record<string, unknown> {
@@ -151,6 +169,36 @@ export interface UpdateAdminUserPayload extends Record<string, unknown> {
 export interface ChangePasswordPayload extends Record<string, unknown> {
   current_password: string;
   new_password: string;
+}
+
+export interface IBInvitationToken extends Record<string, unknown> {
+  id: number;
+  token_code: string;
+  label: string;
+  ib_name: string;
+  campaign_name: string;
+  max_uses: number;
+  used_count: number;
+  created_by_user_id?: number;
+  last_used_by_user_id?: number;
+  expires_at?: string;
+  last_used_at?: string;
+  revoked_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IBInvitationTokenListResponse extends Record<string, unknown> {
+  tokens: IBInvitationToken[];
+  total: number;
+}
+
+export interface CreateIBInvitationTokenPayload extends Record<string, unknown> {
+  label?: string;
+  ib_name?: string;
+  campaign_name?: string;
+  max_uses?: number;
+  expires_in_hours?: number;
 }
 
 export interface MailgunStatusResponse extends Record<string, unknown> {
@@ -715,13 +763,7 @@ class ApiClient {
         headers.Authorization = `Bearer ${token}`;
       } else {
         const url = config.url || '';
-        const isPublicAuthRoute =
-          url.includes('/auth/login') ||
-          url.includes('/auth/register') ||
-          url.includes('/auth/refresh') ||
-          url.includes('/auth/token');
-
-        if (!isPublicAuthRoute) {
+        if (!isPublicUnauthenticatedRoute(url)) {
           console.warn('⚠️ NO TOKEN - Request to', config.url, 'will fail if auth is required');
         }
       }
@@ -746,7 +788,8 @@ class ApiClient {
           status === 401 &&
           url &&
           !url.includes('/auth/login') &&
-          !url.includes('/auth/refresh')
+          !url.includes('/auth/refresh') &&
+          !url.includes('/auth/registration-status')
         ) {
           const originalRequest = error.config as
             | (typeof error.config & { _retry?: boolean })
@@ -974,7 +1017,9 @@ class ApiClient {
   }
 
   async getRegistrationStatus(): Promise<ApiResponse<RegistrationStatusResponse>> {
-    const response = await this.client.get<ApiResponse<RegistrationStatusResponse>>('/api/v1/auth/registration-status');
+    const response = await this.client.get<ApiResponse<RegistrationStatusResponse>>(
+      '/api/v1/auth/registration-status'
+    );
     return response.data;
   }
 
@@ -1104,9 +1149,8 @@ class ApiClient {
 
   async getBotServiceCapabilities(): Promise<ApiResponse<BotServiceCapabilitiesResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<BotServiceCapabilitiesResponse>>(
-      '/api/v1/capabilities'
-    );
+    const response =
+      await this.client.get<ApiResponse<BotServiceCapabilitiesResponse>>('/api/v1/capabilities');
     return response.data;
   }
 
@@ -1221,17 +1265,17 @@ class ApiClient {
   }
 
   async listAdminUsers(): Promise<ApiResponse<AdminUserListResponse>> {
-    const response = await this.client.get<ApiResponse<AdminUserListResponse>>('/api/v1/admin/users');
+    const response =
+      await this.client.get<ApiResponse<AdminUserListResponse>>('/api/v1/admin/users');
     return response.data;
   }
 
   async createAdminUser(
     data: CreateAdminUserPayload
   ): Promise<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>> {
-    const response = await this.client.post<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>>(
-      '/api/v1/admin/users',
-      data
-    );
+    const response = await this.client.post<
+      ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>
+    >('/api/v1/admin/users', data);
     return response.data;
   }
 
@@ -1248,6 +1292,34 @@ class ApiClient {
 
   async initializeSettings(): Promise<ApiResponse> {
     const response = await this.client.post<ApiResponse>('/api/v1/settings/initialize', {});
+    return response.data;
+  }
+
+  async listIBInvitationTokens(
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<ApiResponse<IBInvitationTokenListResponse>> {
+    const response = await this.client.get<ApiResponse<IBInvitationTokenListResponse>>(
+      `/api/v1/admin/ib/invitations?limit=${limit}&offset=${offset}`
+    );
+    return response.data;
+  }
+
+  async createIBInvitationToken(
+    payload: CreateIBInvitationTokenPayload
+  ): Promise<ApiResponse<{ token: IBInvitationToken }>> {
+    const response = await this.client.post<ApiResponse<{ token: IBInvitationToken }>>(
+      '/api/v1/admin/ib/invitations',
+      payload
+    );
+    return response.data;
+  }
+
+  async revokeIBInvitationToken(tokenCode: string): Promise<ApiResponse<Record<string, unknown>>> {
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/admin/ib/invitations/${encodeURIComponent(tokenCode)}/revoke`,
+      {}
+    );
     return response.data;
   }
 
@@ -1800,7 +1872,9 @@ class ApiClient {
   async getBotJobs(instanceId: string, days: number = 7): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
-      const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/jobs?days=${days}`);
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/jobs?days=${days}`
+      );
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
@@ -1865,25 +1939,22 @@ class ApiClient {
     // If token not supplied, try stored token
     const useToken = token || this.getTokenFromStorage() || '';
 
-    // Build WebSocket URL from API_BASE_URL so it points to the backend configured in env
-    try {
-      const apiUrl = new URL(API_BASE_URL);
-      const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      const backendHost = apiUrl.host; // e.g. localhost:8888
-      // Ensure path starts with '/'
-      const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-      const wsUrl = `${wsProtocol}//${backendHost}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
-      return new WebSocket(wsUrl);
-    } catch (e) {
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-      const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
-      console.warn(
-        '⚠️ api.ts: Failed to parse API_BASE_URL, falling back to window.location.host for WS',
-        e
-      );
-      return new WebSocket(wsUrl);
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+    if (API_BASE_URL.startsWith('http://') || API_BASE_URL.startsWith('https://')) {
+      try {
+        const apiUrl = new URL(API_BASE_URL);
+        const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${apiUrl.host}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
+        return new WebSocket(wsUrl);
+      } catch (e) {
+        console.warn('⚠️ api.ts: Failed to parse API_BASE_URL for websocket', e);
+      }
     }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
+    return new WebSocket(wsUrl);
   }
 
   // Backwards-compatible helper specifically for backtest progress
@@ -1934,7 +2005,8 @@ class ApiClient {
       return response.data;
     } catch (error: unknown) {
       if (error instanceof AxiosError && error.response?.status === 404) {
-        const fallback = await this.client.get<ApiResponse<RedisStatusResponse>>('/api/v1/redis/status');
+        const fallback =
+          await this.client.get<ApiResponse<RedisStatusResponse>>('/api/v1/redis/status');
         return fallback.data;
       }
       throw new Error(getErrorMessage(error));
@@ -1953,9 +2025,12 @@ class ApiClient {
   async toggleRedis(enabled: boolean): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     try {
-      const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/settings', {
-        'redis.enabled': enabled,
-      });
+      const response = await this.client.put<ApiResponse<Record<string, unknown>>>(
+        '/api/v1/settings',
+        {
+          'redis.enabled': enabled,
+        }
+      );
       return response.data;
     } catch (error: unknown) {
       if (error instanceof AxiosError && error.response?.status === 404) {
@@ -1992,41 +2067,64 @@ class ApiClient {
 
   async getCodexStatus(): Promise<ApiResponse<CodexStatusResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<CodexStatusResponse>>('/api/v1/codex/status');
+    const response =
+      await this.client.get<ApiResponse<CodexStatusResponse>>('/api/v1/codex/status');
     return response.data;
   }
 
   async saveCodexKey(data: CodexKeyPayload): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/codex/key', data);
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/codex/key',
+      data
+    );
     return response.data;
   }
 
   async deleteCodexKey(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/codex/key');
+    const response =
+      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/codex/key');
     return response.data;
   }
 
-  async getCodexMarketOverview(network = 1, limit = 6): Promise<ApiResponse<CodexMarketOverviewResponse>> {
+  async getCodexMarketOverview(
+    network = 1,
+    limit = 6
+  ): Promise<ApiResponse<CodexMarketOverviewResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<CodexMarketOverviewResponse>>('/api/v1/codex/market/overview', {
-      params: { network, limit },
-    });
+    const response = await this.client.get<ApiResponse<CodexMarketOverviewResponse>>(
+      '/api/v1/codex/market/overview',
+      {
+        params: { network, limit },
+      }
+    );
     return response.data;
   }
 
-  async searchCodexTokens(query: string, network?: number, limit = 8): Promise<ApiResponse<CodexTokenSearchResponse>> {
+  async searchCodexTokens(
+    query: string,
+    network?: number,
+    limit = 8
+  ): Promise<ApiResponse<CodexTokenSearchResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<CodexTokenSearchResponse>>('/api/v1/codex/tokens/search', {
-      params: { q: query, network, limit },
-    });
+    const response = await this.client.get<ApiResponse<CodexTokenSearchResponse>>(
+      '/api/v1/codex/tokens/search',
+      {
+        params: { q: query, network, limit },
+      }
+    );
     return response.data;
   }
 
-  async getCodexTokenDetail(network: number, address: string): Promise<ApiResponse<CodexTokenDetailResponse>> {
+  async getCodexTokenDetail(
+    network: number,
+    address: string
+  ): Promise<ApiResponse<CodexTokenDetailResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<CodexTokenDetailResponse>>(`/api/v1/codex/tokens/${network}/${address}`);
+    const response = await this.client.get<ApiResponse<CodexTokenDetailResponse>>(
+      `/api/v1/codex/tokens/${network}/${address}`
+    );
     return response.data;
   }
 
@@ -2037,77 +2135,109 @@ class ApiClient {
     points = 60
   ): Promise<ApiResponse<CodexTokenChartResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<CodexTokenChartResponse>>(`/api/v1/codex/tokens/${network}/${address}/chart`, {
-      params: { interval, points },
-    });
+    const response = await this.client.get<ApiResponse<CodexTokenChartResponse>>(
+      `/api/v1/codex/tokens/${network}/${address}/chart`,
+      {
+        params: { interval, points },
+      }
+    );
     return response.data;
   }
 
-  async resolveCodexAssetContext(data: CodexAssetContextRequest): Promise<ApiResponse<CodexAssetContextResponse>> {
+  async resolveCodexAssetContext(
+    data: CodexAssetContextRequest
+  ): Promise<ApiResponse<CodexAssetContextResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.post<ApiResponse<CodexAssetContextResponse>>('/api/v1/codex/assets/context', data);
+    const response = await this.client.post<ApiResponse<CodexAssetContextResponse>>(
+      '/api/v1/codex/assets/context',
+      data
+    );
     return response.data;
   }
 
   async getCoinDeskNews(limit = 8): Promise<ApiResponse<CoinDeskNewsResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<CoinDeskNewsResponse>>('/api/v1/news/coindesk', {
-      params: { limit },
-    });
+    const response = await this.client.get<ApiResponse<CoinDeskNewsResponse>>(
+      '/api/v1/news/coindesk',
+      {
+        params: { limit },
+      }
+    );
     return response.data;
   }
 
   async getCoinDeskNewsConfig(): Promise<ApiResponse<CoinDeskNewsConfigStatus>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<CoinDeskNewsConfigStatus>>('/api/v1/news/coindesk/config');
+    const response = await this.client.get<ApiResponse<CoinDeskNewsConfigStatus>>(
+      '/api/v1/news/coindesk/config'
+    );
     return response.data;
   }
 
-  async saveCoinDeskNewsConfig(data: CoinDeskNewsConfigPayload): Promise<ApiResponse<Record<string, unknown>>> {
+  async saveCoinDeskNewsConfig(
+    data: CoinDeskNewsConfigPayload
+  ): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response = await this.client.put<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config', data);
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/news/coindesk/config',
+      data
+    );
     return response.data;
   }
 
   async deleteCoinDeskNewsConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/news/coindesk/config');
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/news/coindesk/config'
+    );
     return response.data;
   }
 
   async getMailgunStatus(): Promise<ApiResponse<MailgunStatusResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
+    const response =
+      await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
     return response.data;
   }
 
   async getTelegramStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/status');
+    const response =
+      await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/status');
     return response.data;
   }
 
-  async saveTelegramConfig(data: TelegramConfigPayload): Promise<ApiResponse<TelegramStatusResponse>> {
+  async saveTelegramConfig(
+    data: TelegramConfigPayload
+  ): Promise<ApiResponse<TelegramStatusResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.put<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/config', data);
+    const response = await this.client.put<ApiResponse<TelegramStatusResponse>>(
+      '/api/v1/telegram/config',
+      data
+    );
     return response.data;
   }
 
   async deleteTelegramConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/config');
+    const response =
+      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/config');
     return response.data;
   }
 
   async saveMailgunConfig(data: MailgunConfigPayload): Promise<ApiResponse<MailgunStatusResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.put<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/config', data);
+    const response = await this.client.put<ApiResponse<MailgunStatusResponse>>(
+      '/api/v1/mailgun/config',
+      data
+    );
     return response.data;
   }
 
   async deleteMailgunConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
+    const response =
+      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
     return response.data;
   }
 }

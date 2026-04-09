@@ -132,6 +132,9 @@ func main() {
 
 	config.LoadConfig()
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
+	if err := validateDatabaseOwnership(config.ConfigInstance); err != nil {
+		log.Fatalf("Invalid database ownership configuration: %v", err)
+	}
 	if err := services.ValidateEncryptionKeyConfiguration(); err != nil {
 		log.Fatalf("Invalid encryption configuration: %v", err)
 	}
@@ -206,6 +209,7 @@ func main() {
 
 	// Health check endpoint (liveness with dependency visibility).
 	router.GET("/health", func(c *gin.Context) {
+		dbOwnership := buildDatabaseOwnershipDiagnostics(config.ConfigInstance)
 		dbHealthy := true
 		dbError := ""
 		if err := database.Health(); err != nil {
@@ -229,8 +233,9 @@ func main() {
 				"database_healthy": dbHealthy,
 				"bot_api_healthy":  botHealthy,
 			},
-			"bot_api":      botSnapshot,
-			"bot_recovery": botRecovery,
+			"database_ownership": dbOwnership,
+			"bot_api":            botSnapshot,
+			"bot_recovery":       botRecovery,
 			"database": gin.H{
 				"healthy":             dbHealthy,
 				"error":               dbError,
@@ -247,6 +252,17 @@ func main() {
 
 	// Readiness check endpoint (strict dependency validation for deploy gates).
 	router.GET("/ready", func(c *gin.Context) {
+		dbOwnership := buildDatabaseOwnershipDiagnostics(config.ConfigInstance)
+		if dbOwnership.BlockingViolation {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":             "not_ready",
+				"ready":              false,
+				"component":          "database_ownership",
+				"database_ownership": dbOwnership,
+			})
+			return
+		}
+
 		if err := database.Health(); err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status":    "not_ready",
@@ -276,11 +292,12 @@ func main() {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"status":         "ready",
-			"ready":          true,
-			"bot_api":        botSnapshot,
-			"bot_recovery":   botRecovery,
-			"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
+			"status":             "ready",
+			"ready":              true,
+			"database_ownership": dbOwnership,
+			"bot_api":            botSnapshot,
+			"bot_recovery":       botRecovery,
+			"checked_at_utc":     time.Now().UTC().Format(time.RFC3339),
 		})
 	})
 

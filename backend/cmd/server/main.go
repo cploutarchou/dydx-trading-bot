@@ -128,6 +128,7 @@ func loadStructuredConfigEnv() {
 
 //nolint:nolintlint,gocyclo
 func main() {
+	startTime := time.Now()
 	loadStructuredConfigEnv()
 
 	config.LoadConfig()
@@ -226,9 +227,12 @@ func main() {
 		botRecovery := extractBotRecoveryPayload(botPayload)
 		// Get database stats
 		stats := database.GetStats()
+
+		// P2.13: Add operational metrics
 		c.JSON(200, gin.H{
-			"status": "healthy",
-			"live":   true,
+			"status":    "healthy",
+			"live":      true,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 			"dependencies": gin.H{
 				"database_healthy": dbHealthy,
 				"bot_api_healthy":  botHealthy,
@@ -246,6 +250,10 @@ func main() {
 				"wait_duration":       stats.WaitDuration.String(),
 				"max_idle_closed":     stats.MaxIdleClosed,
 				"max_lifetime_closed": stats.MaxLifetimeClosed,
+			},
+			"service": gin.H{
+				"version":        "1.0.0",
+				"uptime_seconds": time.Since(startTime).Seconds(),
 			},
 		})
 	})
@@ -298,6 +306,36 @@ func main() {
 			"bot_api":            botSnapshot,
 			"bot_recovery":       botRecovery,
 			"checked_at_utc":     time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	// P2.13: Operational metrics endpoint for observability.
+	router.GET("/metrics", func(c *gin.Context) {
+		stats := database.GetStats()
+		botMetricsURL := botAPIURL + "/metrics"
+		botSnapshot, _ := buildDependencySnapshot(botMetricsURL)
+
+		c.JSON(200, gin.H{
+			"timestamp":      time.Now().UTC().Format(time.RFC3339),
+			"uptime_seconds": time.Since(startTime).Seconds(),
+			"database": gin.H{
+				"connections": gin.H{
+					"open":                stats.OpenConnections,
+					"in_use":              stats.InUse,
+					"idle":                stats.Idle,
+					"max_idle_closed":     stats.MaxIdleClosed,
+					"max_lifetime_closed": stats.MaxLifetimeClosed,
+				},
+				"wait_stats": gin.H{
+					"count":    stats.WaitCount,
+					"duration": stats.WaitDuration.String(),
+				},
+			},
+			"bot_api": botSnapshot,
+			"service": gin.H{
+				"version":     "1.0.0",
+				"environment": os.Getenv("ENVIRONMENT"),
+			},
 		})
 	})
 

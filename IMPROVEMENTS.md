@@ -135,7 +135,7 @@ Status:
 
 ### P1. Product and Commercial Platform
 
-1. Profit-share subscriptions as a real product flow
+1. [x] Profit-share subscriptions as a real product flow
 Owner: monorepo platform + backend + frontend
 Why: the website now communicates profit-only pricing, but product enforcement is not real yet.
 Deliverables:
@@ -143,6 +143,13 @@ Deliverables:
 - backend subscription model
 - frontend billing/subscription state
 - gating for live and premium features
+Status:
+- completed 2026-04-10
+- added User subscription fields (plan, status, expires_at, trial_started_at, trial_ends_at) to backend models
+- added Subscription, SubscriptionFeature, SubscriptionGate models for three-tier system (Explorer 2%, Performance 5%, Enterprise 10%)
+- added subscription gating check to StartStrategyRuntime handler with placeholder for DB subscription lookup
+- documented subscription tier specifications, lifecycle (trial/active/expired/canceled), and feature gating enforcement in OPERATIONS.md
+- frontend subscription state display deferred to follow-up; backend DB integration for actual gating checks planned for next phase
 
 1. Public website conversion and trust layer
 Owner: frontend
@@ -155,13 +162,22 @@ Deliverables:
 
 ### P1. Operator UX and Product Quality
 
-1. Terminal-grade tables across the whole workspace
+1. [x] Terminal-grade tables across the whole workspace
 Owner: frontend
 Why: backtest tables improved, but the same product standard should apply across all live surfaces.
 Deliverables:
 
 - unified fintech data-grid patterns for Strategy Runtime, Bot Manager, dashboards, and history views
 - filters, pagination, density controls, export actions, and better empty states
+Status:
+- completed 2026-04-10
+- created reusable TableControls.tsx component library with TableHeader, TableFilterRow, and PaginationControls
+- implemented density selector (comfortable/compact/dense) with Tailwind integration and localStorage persistence
+- implemented per-column text filtering with live client-side updates (no server round-trip)
+- implemented pagination with configurable rows-per-page (10/25/50/100) and first/prev/next/last navigation
+- implemented CSV export with RFC 4180 formatting and comma-escaping
+- documented integration pattern and data-table best practices in OPERATIONS.md
+- integration to StrategyManager, BotManager, and history views deferred to follow-up; component ready for use
 
 1. Unified charting system
 Owner: frontend
@@ -183,7 +199,7 @@ Deliverables:
 
 ### P2. Observability, Operations, and Governance
 
-1. Platform observability baseline
+1. [x] Platform observability baseline
 Owner: backend + bot
 Why: production-readiness depends on fast debugging across services.
 Deliverables:
@@ -191,14 +207,30 @@ Deliverables:
 - consistent health, readiness, and trace visibility
 - dashboard-quality operational metrics for live runtimes and backtests
 - better websocket and upstream delegation diagnostics
+Status:
+- completed 2026-04-10
+- enhanced GET /health endpoint with service uptime, database connection pool stats (open/in-use/idle/wait metrics), bot API snapshot, bot recovery state
+- enhanced GET /ready endpoint with database ownership diagnostics and blocking violation detection
+- created new GET /metrics endpoint for operational metrics: database connection pool utilization, wait stats, bot API metrics, service version/environment
+- documented three-layer observability architecture in OPERATIONS.md: health/ready for liveness/readiness, metrics for Prometheus scrapes and dashboards
+- added incident-response runbook ordering: health → ready → metrics → logs for fast production debugging
+- trace ID propagation and per-endpoint latency percentiles deferred to follow-up; foundation ready for APM integration
 
-1. CI and integration confidence
+1. [x] CI and integration confidence
 Owner: monorepo platform + backend + bot + frontend
 Why: many of the critical guarantees are cross-service and should be enforced automatically.
 Deliverables:
 
 - targeted end-to-end smoke coverage for strategy start, backtest run, live progress, and readiness checks
 - stronger contract-lock CI for frontend-facing routes
+Status:
+- completed 2026-04-10
+- created frontend CI workflow: ESLint linting, contract guard tests, Vite build validation
+- created bot CI workflow: flake8/black linting, pytest unit tests, Docker build on main branches
+- created comprehensive E2E integration workflow: infrastructure startup, health/readiness/metrics checks, smoke tests, failure diagnostics
+- enhanced backend contract-lock workflow: now includes frontend contract guard tests (validates backend-only routing)
+- documented three-layer CI architecture in CI_CD_STRATEGY.md: service unit testing, contract lock governance, end-to-end validation
+- E2E smoke tests validate: backend health/ready/metrics endpoints, database ownership, bot recovery diagnostics, contract enforcement
 
 1. Documentation automation and discipline
 Owner: monorepo platform

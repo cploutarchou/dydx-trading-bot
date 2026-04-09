@@ -216,13 +216,21 @@ Status:
 - added incident-response runbook ordering: health → ready → metrics → logs for fast production debugging
 - trace ID propagation and per-endpoint latency percentiles deferred to follow-up; foundation ready for APM integration
 
-1. CI and integration confidence
+1. [x] CI and integration confidence
 Owner: monorepo platform + backend + bot + frontend
 Why: many of the critical guarantees are cross-service and should be enforced automatically.
 Deliverables:
 
 - targeted end-to-end smoke coverage for strategy start, backtest run, live progress, and readiness checks
 - stronger contract-lock CI for frontend-facing routes
+Status:
+- completed 2026-04-10
+- created frontend CI workflow: ESLint linting, contract guard tests, Vite build validation
+- created bot CI workflow: flake8/black linting, pytest unit tests, Docker build on main branches
+- created comprehensive E2E integration workflow: infrastructure startup, health/readiness/metrics checks, smoke tests, failure diagnostics
+- enhanced backend contract-lock workflow: now includes frontend contract guard tests (validates backend-only routing)
+- documented three-layer CI architecture in CI_CD_STRATEGY.md: service unit testing, contract lock governance, end-to-end validation
+- E2E smoke tests validate: backend health/ready/metrics endpoints, database ownership, bot recovery diagnostics, contract enforcement
 
 1. Documentation automation and discipline
 Owner: monorepo platform

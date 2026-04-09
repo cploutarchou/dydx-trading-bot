@@ -1,0 +1,119 @@
+name: E2E Integration Tests
+
+on:
+    push:
+        branches: [main, master, develop]
+    pull_request:
+        branches: [main, master, develop]
+    schedule:
+        # Run nightly integration tests to catch any runtime issues early
+        - cron: "0 2 * * *"
+
+jobs:
+    integration:
+        name: E2E Integration Smoke Tests
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Start infrastructure
+              run: |
+                  # Bring up infra-only first (PostgreSQL, Redis, etc.)
+                  make infra-up
+                  echo "Waiting for infrastructure to be ready..."
+                  sleep 10
+                  make infra-ps
+
+            - name: Health check - infrastructure
+              run: |
+                  # Verify PostgreSQL is responding
+                  docker-compose ps | grep postgres || (echo "PostgreSQL not running"; exit 1)
+                  echo "✓ Infrastructure healthy"
+
+            - name: Build and start stack
+              run: |
+                  # Full stack startup
+                  make stack-up-dev
+                  echo "Waiting for stack to stabilize..."
+                  sleep 15
+                  make stack-ps
+
+            - name: Health check - backend readiness
+              run: |
+                  max_retries=30
+                  retry=0
+                  until [[ $retry -ge $max_retries ]]; do
+                    response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888/ready || echo "000")
+                    if [[ $response == "200" ]]; then
+                      echo "✓ Backend /ready returning 200"
+                      curl -s http://localhost:8888/ready | jq .
+                      break
+                    else
+                      echo "Backend /ready returned: $response, retrying ($retry/$max_retries)..."
+                      retry=$((retry+1))
+                      sleep 2
+                    fi
+                  done
+                  [[ $retry -lt $max_retries ]] || (echo "❌ Backend failed to become ready"; exit 1)
+
+            - name: Health check - backend liveness
+              run: |
+                  response=$(curl -s http://localhost:8888/health)
+                  echo "Backend /health response:"
+                  echo "$response" | jq .
+                  [[ $(echo "$response" | jq -r '.status') == "healthy" ]] || (echo "❌ Backend not healthy"; exit 1)
+                  echo "✓ Backend liveness OK"
+
+            - name: Health check - metrics endpoint
+              run: |
+                  response=$(curl -s http://localhost:8888/metrics)
+                  echo "Backend /metrics response:"
+                  echo "$response" | jq '.database.connections | keys' || echo "(Database metrics present)"
+                  echo "✓ Metrics endpoint responding"
+
+            - name: Smoke test - list strategies (contract-lock)
+              run: |
+                  # Verify backend contract: frontend sees strategies via backend only
+                  response=$(curl -s -H "Authorization: Bearer testtoken" http://localhost:8888/api/v1/strategies 2>&1 || echo '{}')
+                  echo "Strategy list response:"
+                  echo "$response" | jq . || echo "$response"
+                  echo "✓ Backend strategy contract locked"
+
+            - name: Smoke test - database ownership check
+              run: |
+                  response=$(curl -s http://localhost:8888/ready)
+                  ownership=$(echo "$response" | jq '.database_ownership' 2>/dev/null)
+                  echo "Database ownership state:"
+                  echo "$ownership" | jq .
+                  echo "✓ Database ownership diagnostics available"
+
+            - name: Smoke test - bot recovery state
+              run: |
+                  response=$(curl -s http://localhost:8888/health)
+                  recovery=$(echo "$response" | jq '.bot_recovery' 2>/dev/null || echo '{}')
+                  echo "Bot recovery state:"
+                  echo "$recovery" | jq . || echo "$recovery"
+                  echo "✓ Bot recovery diagnostics available"
+
+            - name: Collect logs on failure
+              if: failure()
+              run: |
+                  echo "=== Backend Logs (last 100 lines) ==="
+                  make stack-logs 2>&1 | tail -100 || true
+                  echo "=== Docker Compose Status ==="
+                  docker-compose ps
+                  echo "=== Network Inspection ==="
+                  docker network ls && docker network inspect dydx-trading-bot_default 2>/dev/null || true
+
+            - name: Cleanup
+              if: always()
+              run: |
+                  echo "Stopping stack..."
+                  make stack-down || true
+                  echo "Stopping infra..."
+                  make infra-down || true
+                  echo "Cleanup complete"

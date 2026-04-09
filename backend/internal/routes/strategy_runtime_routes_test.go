@@ -430,6 +430,61 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 	}
 }
 
+func TestStrategyRuntimeReadinessRoute(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode preflight payload: %v", err)
+		}
+		credentials, _ := payload["credentials"].(map[string]interface{})
+		if got := credentials["chain_id"]; got != "dydx-testnet-4" {
+			t.Fatalf("expected testnet chain_id, got %#v", got)
+		}
+		tradingParams, _ := payload["trading_params"].(map[string]interface{})
+		if got := int(tradingParams["subaccount_number"].(float64)); got != 0 {
+			t.Fatalf("expected subaccount 0, got %d", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"selected_runtime_network":"testnet","selected_subaccount":0,"wallet_ready":true,"account_exists":true,"available_collateral":250.0,"equity":250.0,"open_positions":0,"usd_per_trade":10.0,"usd_min_collateral":100.0,"capital_allocation_usd":1000.0,"trade_size_to_collateral_ratio":0.04,"sufficient_for_trade_size":true,"sufficient_for_min_collateral":true,"ready":true,"blockers":[],"warnings":[]}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/101/start-readiness?network=testnet", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("readiness request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected readiness status: %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode readiness response: %v", err)
+	}
+	data, _ := payload["data"].(map[string]interface{})
+	if ready, _ := data["ready"].(bool); !ready {
+		t.Fatalf("expected readiness ready=true, got %#v", data["ready"])
+	}
+	if got, _ := data["selected_runtime_network"].(string); got != "testnet" {
+		t.Fatalf("expected selected_runtime_network=testnet, got %q", got)
+	}
+}
+
 func TestStrategyRuntimeStatusHandlesUnavailableUpstream(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)

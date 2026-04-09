@@ -71,6 +71,8 @@ type BacktestStrategy struct {
 	IsPublic               bool       `db:"is_public" json:"is_public"`
 	IsDefault              bool       `db:"is_default" json:"is_default"`
 	RuntimeStrategy        string     `db:"runtime_strategy" json:"runtime_strategy"`
+	RuntimeNetwork         string     `db:"runtime_network" json:"runtime_network"`
+	RuntimeSubaccount      int        `db:"runtime_subaccount" json:"runtime_subaccount"`
 	PairSelectionMode      string     `db:"pair_selection_mode" json:"pair_selection_mode"`
 	ZscoreThreshold        float64    `db:"zscore_threshold" json:"zscore_threshold"`
 	StatsWindow            int        `db:"stats_window" json:"stats_window"`

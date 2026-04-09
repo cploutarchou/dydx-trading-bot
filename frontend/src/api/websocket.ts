@@ -2,6 +2,7 @@
 // Handles connections, reconnection, message queuing, and subscriptions
 
 import { enhancedApiClient } from './enhancedClient';
+import { resolveBackendWebSocketUrl } from './origin';
 
 // WebSocket connection states
 export enum WebSocketState {
@@ -90,9 +91,7 @@ export class WebSocketManager {
   }
 
   private buildWebSocketUrl(): string {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    return `${protocol}//${host}/ws`;
+    return resolveBackendWebSocketUrl('/ws');
   }
 
   private log(message: string, ...args: unknown[]): void {
@@ -119,10 +118,8 @@ export class WebSocketManager {
 
       try {
         // Add authentication token to connection
-        const token = localStorage.getItem('access_token');
-        const urlWithAuth = token
-          ? `${this.config.url}?token=${encodeURIComponent(token)}`
-          : this.config.url;
+        const token = localStorage.getItem('access_token') || undefined;
+        const urlWithAuth = resolveBackendWebSocketUrl(this.config.url, token);
 
         this.ws = new WebSocket(urlWithAuth, this.config.protocols);
 

@@ -1,10 +1,12 @@
-/**
- * CumulativePnlChart
- * Responsive cumulative-PnL chart with a reliable SVG renderer.
- */
-
-import React, { useId, useMemo } from 'react';
-import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+    AreaSeries,
+    type IChartApi,
+    type ISeriesApi,
+    type LineData,
+    type MouseEventParams,
+} from 'lightweight-charts';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createTradingChart } from './charts/lightweightTheme';
 
 export interface PnlPoint {
   time: string; // "YYYY-MM-DD"
@@ -18,36 +20,124 @@ interface CumulativePnlChartProps {
   negativeColor?: string;
 }
 
+const formatSignedCurrency = (value: number): string => {
+  const sign = value >= 0 ? '+' : '-';
+  return `${sign}$${Math.abs(value).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+};
+
+const formatDateLabel = (value: string): string => {
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
 export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   data,
   height = 300,
   positiveColor = '#22c55e',
   negativeColor = '#ef4444',
 }) => {
-  const gradientId = useId().replace(/:/g, '-');
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const areaSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const latestDataRef = useRef<PnlPoint[]>([]);
+  const [hoverPoint, setHoverPoint] = useState<PnlPoint | null>(null);
 
   const normalizedData = useMemo(
     () =>
       [...data]
         .filter((point) => Number.isFinite(point.value) && typeof point.time === 'string')
-        .sort((a, b) => a.time.localeCompare(b.time))
-        .map((point) => ({
-          ...point,
-          label: new Date(`${point.time}T00:00:00`).toLocaleDateString([], {
-            month: 'short',
-            day: 'numeric',
-          }),
-        })),
+        .sort((a, b) => a.time.localeCompare(b.time)),
     [data]
   );
 
   const lastValue = normalizedData[normalizedData.length - 1]?.value ?? 0;
   const strokeColor = lastValue >= 0 ? positiveColor : negativeColor;
-  const values = normalizedData.map((point) => point.value);
-  const minValue = values.length > 0 ? Math.min(...values, 0) : 0;
-  const maxValue = values.length > 0 ? Math.max(...values, 0) : 0;
-  const valuePadding = Math.max((maxValue - minValue) * 0.15, 100);
-  const yDomain: [number, number] = [minValue - valuePadding, maxValue + valuePadding];
+
+  useEffect(() => {
+    latestDataRef.current = normalizedData;
+    setHoverPoint(normalizedData[normalizedData.length - 1] ?? null);
+  }, [normalizedData]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const chart = createTradingChart(container, height, {
+      leftPriceScale: { visible: false },
+      rightPriceScale: { visible: true, borderColor: '#334155' },
+      timeScale: {
+        borderColor: '#334155',
+        timeVisible: false,
+        secondsVisible: false,
+      },
+    });
+
+    const areaSeries = chart.addSeries(AreaSeries, {
+      lineColor: strokeColor,
+      topColor: `${strokeColor}55`,
+      bottomColor: `${strokeColor}08`,
+      lineWidth: 3,
+      priceLineColor: strokeColor,
+      lastValueVisible: true,
+      priceLineVisible: true,
+    });
+
+    const handleCrosshairMove = (param: MouseEventParams<string>) => {
+      const areaSeriesApi = areaSeriesRef.current;
+      if (!areaSeriesApi || !param.time) {
+        setHoverPoint(latestDataRef.current[latestDataRef.current.length - 1] ?? null);
+        return;
+      }
+
+      const areaData = param.seriesData.get(areaSeriesApi) as LineData<string> | undefined;
+      const pointTime = areaData?.time ? String(areaData.time) : String(param.time);
+      const matched = latestDataRef.current.find((point) => point.time === pointTime);
+      setHoverPoint(matched ?? latestDataRef.current[latestDataRef.current.length - 1] ?? null);
+    };
+
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const nextWidth = entries[0]?.contentRect.width;
+      if (!nextWidth) {
+        return;
+      }
+      chart.applyOptions({ width: nextWidth, height });
+    });
+    resizeObserver.observe(container);
+
+    chartRef.current = chart;
+    areaSeriesRef.current = areaSeries;
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
+      areaSeriesRef.current = null;
+      chartRef.current = null;
+      chart.remove();
+    };
+  }, [height, strokeColor]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const areaSeries = areaSeriesRef.current;
+    if (!chart || !areaSeries) {
+      return;
+    }
+
+    const areaData: LineData<string>[] = normalizedData.map((point) => ({
+      time: point.time,
+      value: point.value,
+    }));
+
+    areaSeries.setData(areaData);
+    chart.timeScale().fitContent();
+  }, [normalizedData]);
 
   if (normalizedData.length === 0) {
     return (
@@ -60,67 +150,24 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
     );
   }
 
-  return (
-    <div style={{ width: '100%' }}>
-      <ResponsiveContainer width="100%" height={height} minWidth={280} minHeight={220}>
-        <AreaChart data={normalizedData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={strokeColor} stopOpacity={0.35} />
-              <stop offset="100%" stopColor={strokeColor} stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
+  const activePoint = hoverPoint ?? normalizedData[normalizedData.length - 1];
 
-          <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
-          <XAxis
-            dataKey="label"
-            stroke="#64748b"
-            tick={{ fill: '#94a3b8', fontSize: 12 }}
-            axisLine={false}
-            tickLine={false}
-            minTickGap={24}
-          />
-          <YAxis
-            stroke="#64748b"
-            tick={{ fill: '#94a3b8', fontSize: 12 }}
-            axisLine={false}
-            tickLine={false}
-            width={72}
-            domain={yDomain}
-            tickFormatter={(value: number) => `$${Math.round(value).toLocaleString('en-US')}`}
-          />
-          <ReferenceLine y={0} stroke="#334155" strokeDasharray="4 4" />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: '#0f172a',
-              border: '1px solid #334155',
-              borderRadius: '0.75rem',
-              color: '#e2e8f0',
-            }}
-            labelStyle={{ color: '#cbd5e1', marginBottom: '0.25rem' }}
-            formatter={(value: unknown) => {
-              const numericValue = Number(value ?? 0);
-              return [
-                `${numericValue >= 0 ? '+' : '-'}$${Math.abs(numericValue).toLocaleString('en-US', {
-                  maximumFractionDigits: 2,
-                })}`,
-                'Cumulative P&L',
-              ];
-            }}
-          />
-          <Area
-            type="monotone"
-            dataKey="value"
-            stroke={strokeColor}
-            strokeWidth={3}
-            fill={`url(#${gradientId})`}
-            isAnimationActive={false}
-            activeDot={{ r: 5, stroke: strokeColor, strokeWidth: 2, fill: '#0f172a' }}
-            dot={normalizedData.length <= 2 ? { r: 3, fill: strokeColor, strokeWidth: 0 } : false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+  return (
+    <div className="relative w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+      <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-lg border border-slate-800/90 bg-slate-950/85 px-3 py-2 backdrop-blur">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-300/80">
+          Cumulative P&amp;L
+        </p>
+        <div className="mt-1 flex items-end gap-3">
+          <span
+            className={`text-lg font-semibold ${activePoint.value >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+          >
+            {formatSignedCurrency(activePoint.value)}
+          </span>
+          <span className="text-xs text-slate-400">{formatDateLabel(activePoint.time)}</span>
+        </div>
+      </div>
+      <div ref={containerRef} style={{ height }} />
     </div>
   );
 };
-

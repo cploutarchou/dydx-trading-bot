@@ -47,9 +47,9 @@ export function TableHeader({
   showExport?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 bg-slate-900/50 border-b border-slate-800">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-3 bg-slate-900/50 border-b border-slate-800">
       <h3 className="text-sm font-semibold text-white">{title}</h3>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 overflow-x-auto">
         {onDensityChange && (
           <div className="flex gap-1 border border-slate-700 rounded p-1">
             {(['comfortable', 'compact', 'dense'] as TableDensity[]).map((d) => (
@@ -120,8 +120,8 @@ export function PaginationControls({
   pageSizeOptions = [10, 25, 50, 100],
 }: PaginationProps) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 bg-slate-900/30 border-t border-slate-800">
-      <div className="flex items-center gap-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-3 bg-slate-900/30 border-t border-slate-800">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         <label className="text-xs text-slate-400">
           Rows per page:
           <select
@@ -142,7 +142,7 @@ export function PaginationControls({
         </span>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 self-end sm:self-auto">
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}

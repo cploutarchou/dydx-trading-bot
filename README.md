@@ -6,11 +6,11 @@ This repository contains the active dYdX trading platform across three runtime s
 
 ## Services
 
-| Service | Purpose | Default port |
-| --- | --- | --- |
-| `frontend/` | public website, auth flows, operator workspace | `5173` |
-| `backend/` | public application API, auth, orchestration, bot proxy | `8888` |
-| `bot/` | Python bot API, trading runtime, backtests, live workers | `8889` |
+| Service     | Purpose                                                  | Default port |
+| ----------- | -------------------------------------------------------- | ------------ |
+| `frontend/` | public website, auth flows, operator workspace           | `5173`       |
+| `backend/`  | public application API, auth, orchestration, bot proxy   | `8888`       |
+| `bot/`      | Python bot API, trading runtime, backtests, live workers | `8889`       |
 
 Supporting local infrastructure:
 
@@ -55,6 +55,7 @@ make stack-down
 - [Platform Overview](/home/chris/workspace/dydx-trading-bot/docs/PLATFORM.md)
 - [Development Workflow](/home/chris/workspace/dydx-trading-bot/docs/DEVELOPMENT.md)
 - [Operations Guide](/home/chris/workspace/dydx-trading-bot/docs/OPERATIONS.md)
+- [Documentation Governance](/home/chris/workspace/dydx-trading-bot/docs/DOCUMENTATION_GOVERNANCE.md)
 - [Frontend Service Doc](/home/chris/workspace/dydx-trading-bot/frontend/README.md)
 - [Backend Service Doc](/home/chris/workspace/dydx-trading-bot/backend/README.md)
 - [Bot Service Doc](/home/chris/workspace/dydx-trading-bot/bot/README.md)
@@ -72,3 +73,4 @@ make stack-down
 - use the root `Makefile` for stack workflows
 - use each service `README.md` for service-specific commands and responsibilities
 - treat generated artifacts such as `bot/openapi.json` as canonical contracts when detailed schema accuracy matters
+- run `python3 scripts/validate_docs_governance.py` before merge for doc/contract changes

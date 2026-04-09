@@ -208,6 +208,20 @@ func (s *StrategyRuntimeService) startRuntime(
 		networkHint = strings.TrimSpace(runtimeState.Network)
 	}
 
+	readiness, readinessErr := s.GetRuntimeStartReadiness(strategy, networkHint)
+	if readinessErr != nil {
+		return nil, fmt.Errorf("failed to validate runtime readiness: %w", readinessErr)
+	}
+
+	ready, _ := readiness["ready"].(bool)
+	if !ready {
+		blockers := stringifyRuntimeBlockers(readiness["blockers"])
+		if len(blockers) == 0 {
+			blockers = append(blockers, "runtime readiness checks did not pass")
+		}
+		return nil, fmt.Errorf("runtime readiness failed: %s", strings.Join(blockers, "; "))
+	}
+
 	runtimeKey, err := s.resolveRuntimeKey(strategy.UserID, networkHint)
 	if err != nil {
 		return nil, err
@@ -872,4 +886,26 @@ func extractIntPointer(value interface{}) *int {
 func isBotStatusRunning(remote map[string]interface{}) bool {
 	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", remote["status"])))
 	return status == "running" || status == "starting"
+}
+
+func stringifyRuntimeBlockers(raw interface{}) []string {
+	switch typed := raw.(type) {
+	case []string:
+		return typed
+	case []interface{}:
+		results := make([]string, 0, len(typed))
+		for _, entry := range typed {
+			candidate := strings.TrimSpace(fmt.Sprintf("%v", entry))
+			if candidate != "" {
+				results = append(results, candidate)
+			}
+		}
+		return results
+	default:
+		candidate := strings.TrimSpace(fmt.Sprintf("%v", raw))
+		if candidate == "" || candidate == "<nil>" {
+			return []string{}
+		}
+		return []string{candidate}
+	}
 }

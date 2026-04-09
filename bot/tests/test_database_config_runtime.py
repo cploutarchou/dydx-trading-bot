@@ -1,5 +1,4 @@
 import pytest
-
 from src.infrastructure.database import DatabaseConfig
 
 
@@ -141,6 +140,39 @@ def test_database_config_diagnostics_payload_is_sanitized(monkeypatch):
     assert payload["db_type"] == "postgresql"
     assert payload["password_configured"] is True
     assert payload["host"] == "localhost"
+    assert payload["shared_target_detected"] is True
+    assert payload["shared_target_matches_runtime"] is True
     assert "password" not in payload
+
+
+def test_database_config_dedicated_blocks_shared_target_regression(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
+    monkeypatch.setenv(
+        "BOT_DATABASE_URL", "postgresql://bot_user:secret@shared-host:5432/shared_db"
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql://shared_user:secret@shared-host:5432/shared_db"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="cannot target the same database as the shared DB configuration",
+    ):
+        DatabaseConfig()
+
+
+def test_database_config_dedicated_with_fallback_reports_shared_target_match(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
+    monkeypatch.setenv("BOT_DATABASE_URL", "postgresql://bot_user:secret@bot-host:5433/bot_db")
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql://shared_user:secret@shared-host:5432/shared_db"
+    )
+
+    config = DatabaseConfig()
+    payload = config.to_diagnostics()
+
+    assert payload["shared_target_detected"] is True
+    assert payload["shared_target_matches_runtime"] is False
+    assert payload["ownership_guardrail"] == "advisory"
 
 

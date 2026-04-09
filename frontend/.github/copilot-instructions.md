@@ -205,7 +205,7 @@ BacktestRunner form submit
 ```
 BacktestDetailsPage mounts
   → useBacktestProgress hook initializes
-  → Opens WebSocket: ws://localhost/ws/backtest/{runId}?token=JWT
+  → Opens WebSocket through backend: ws://localhost:8888/api/v1/backtests/{runId}/live?access_token=JWT
   → On message: Update progress state (% complete, current pair)
   → On close: Log "🔌 Disconnected from backtest progress"
 ```

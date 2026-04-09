@@ -562,6 +562,8 @@ func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
 		errorMessage := fmt.Sprintf("Failed to start strategy runtime: %v", err)
 		if strings.Contains(normalizedErr, "active dydx key") || strings.Contains(normalizedErr, "no active dydx key") {
 			statusCode = http.StatusBadRequest
+		} else if strings.Contains(normalizedErr, "runtime readiness failed") || strings.Contains(normalizedErr, "failed to validate runtime readiness") {
+			statusCode = http.StatusBadRequest
 		} else if strings.Contains(normalizedErr, "confirm recreate") || strings.Contains(normalizedErr, "instance_id already exists") {
 			statusCode = http.StatusConflict
 			if !strings.Contains(normalizedErr, "confirm recreate") {

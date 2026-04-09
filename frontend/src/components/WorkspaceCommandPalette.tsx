@@ -3,10 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getUserWorkspaceRole } from '../auth/roles';
 import {
-  filterNavItemsForRole,
-  type WorkspaceNavItem,
-  workspaceNavItems,
-  workspaceQuickActions,
+    filterNavItemsForRole,
+    type WorkspaceNavItem,
+    workspaceNavItems,
+    workspaceQuickActions,
 } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 
@@ -121,10 +121,10 @@ export const WorkspaceCommandPalette: React.FC<WorkspaceCommandPaletteProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-90 flex items-start justify-center bg-slate-950/75 px-4 pt-[12vh] backdrop-blur-sm">
+    <div className="fixed inset-0 z-90 flex items-start justify-center bg-slate-950/75 px-2 pt-3 sm:px-4 sm:pt-[12vh] backdrop-blur-sm">
       <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} />
-      <div className="relative w-full max-w-2xl overflow-hidden rounded-[28px] border border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] shadow-[0_32px_120px_rgba(2,6,23,0.55)]">
-        <div className="border-b border-slate-800 p-4">
+      <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl sm:rounded-[28px] border border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] shadow-[0_24px_80px_rgba(2,6,23,0.55)]">
+        <div className="border-b border-slate-800 p-3 sm:p-4">
           <div className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/75 px-4 py-3">
             <Search className="h-4 w-4 text-slate-500" />
             <input
@@ -134,13 +134,13 @@ export const WorkspaceCommandPalette: React.FC<WorkspaceCommandPaletteProps> = (
               placeholder="Jump to any cockpit, runtime, or research surface..."
               className="w-full bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
             />
-            <span className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <span className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-500">
               <Command className="h-3 w-3" />K
             </span>
           </div>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto p-3">
+        <div className="max-h-[calc(100dvh-9rem)] sm:max-h-[60vh] overflow-y-auto p-2 sm:p-3">
           {results.length > 0 ? (
             <div className="space-y-2">
               {results.map((item, index) => {
@@ -171,7 +171,7 @@ export const WorkspaceCommandPalette: React.FC<WorkspaceCommandPaletteProps> = (
                       </div>
                       <p className="mt-1 text-sm text-slate-400">{item.description}</p>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
+                    <div className="hidden sm:flex flex-col items-end gap-2">
                       {item.shortcut && (
                         <span className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-500">
                           {item.shortcut}

@@ -19,6 +19,9 @@ This `docs/` directory is the wiki-style home for the active monorepo.
 - Treat each service `README.md` as the canonical service contract and operator guide.
 - Use specialized docs only when they add value beyond the service README.
 - When behavior changes, update the relevant service README and any affected page in this wiki in the same change.
+- Follow the [Documentation Governance Policy](DOCUMENTATION_GOVERNANCE.md) checklist for behavior-changing PRs.
+- Run `python3 scripts/validate_docs_governance.py` before push when docs or contracts change.
+- Archive temporary handoff/task docs under `docs/archive/` using date-prefixed names.
 
 ## Scope
 

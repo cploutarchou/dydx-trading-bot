@@ -13,7 +13,7 @@ from dydx_v4_client.node.market import Market
 from loguru import logger
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
-from src.constants import DYDX_ADDRESS
+from src.constants import DYDX_ADDRESS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
 from src.trading.market_data import get_markets
 
@@ -37,6 +37,11 @@ def _resolve_client_address(client) -> str:
     return str(getattr(client.wallet, "address", DYDX_ADDRESS) or DYDX_ADDRESS)
 
 
+def _resolve_subaccount_number() -> int:
+    """Resolve the configured dYdX subaccount number for this runtime."""
+    return int(SUBACCOUNT_NUMBER)
+
+
 async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
@@ -47,7 +52,10 @@ async def cancel_order(client, order_id):
     # Use the client's wallet address when available to derive client id
     address = _resolve_client_address(client)
     market_order_id = market.order_id(
-        address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
+        address,
+        _resolve_subaccount_number(),
+        random.randint(0, MAX_CLIENT_ID),
+        OrderFlags.SHORT_TERM,
     )
     market_order_id.client_id = int(order["clientId"])
     market_order_id.clob_pair_id = int(order["clobPairId"])
@@ -68,10 +76,14 @@ async def get_account(client):
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
     address = _resolve_client_address(client)
     try:
-        account = await client.indexer_account.account.get_subaccount(address, 0)
+        account = await client.indexer_account.account.get_subaccount(
+            address, _resolve_subaccount_number()
+        )
     except Exception:
         # Fallback to configured DYDX_ADDRESS
-        account = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+        account = await client.indexer_account.account.get_subaccount(
+            DYDX_ADDRESS, _resolve_subaccount_number()
+        )
     return account["subaccount"]
 
 
@@ -80,11 +92,15 @@ async def get_open_positions(client):
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
     address = _resolve_client_address(client)
     try:
-        response = await client.indexer_account.account.get_subaccount(address, 0)
+        response = await client.indexer_account.account.get_subaccount(
+            address, _resolve_subaccount_number()
+        )
     except Exception:
         # If primary address fails (likely 404 for fresh account), try configured address
         try:
-            response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+            response = await client.indexer_account.account.get_subaccount(
+                DYDX_ADDRESS, _resolve_subaccount_number()
+            )
         except Exception as e2:
             # Both addresses failed - likely fresh testnet account with no trading history
             import httpx
@@ -109,10 +125,14 @@ async def is_open_positions(client, market):
     # Get positions (try wallet address then configured address)
     address = _resolve_client_address(client)
     try:
-        response = await client.indexer_account.account.get_subaccount(address, 0)
+        response = await client.indexer_account.account.get_subaccount(
+            address, _resolve_subaccount_number()
+        )
     except Exception:
         try:
-            response = await client.indexer_account.account.get_subaccount(DYDX_ADDRESS, 0)
+            response = await client.indexer_account.account.get_subaccount(
+                DYDX_ADDRESS, _resolve_subaccount_number()
+            )
         except Exception as e:
             # Both addresses failed - likely fresh testnet account
             import httpx
@@ -168,7 +188,10 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     market = Market(market_payload)
     address = _resolve_client_address(client)
     market_order_id = market.order_id(
-        address, 0, random.randint(0, MAX_CLIENT_ID), OrderFlags.SHORT_TERM
+        address,
+        _resolve_subaccount_number(),
+        random.randint(0, MAX_CLIENT_ID),
+        OrderFlags.SHORT_TERM,
     )
     good_til_block = current_block + 1 + 10
 
@@ -194,9 +217,10 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # We do this as in the current V4 version at the time of developing this,
     # the order response does not return the order number
     await asyncio.sleep(1.5)
+    order_lookup_address = _resolve_client_address(client)
     orders = await client.indexer_account.account.get_subaccount_orders(
-        DYDX_ADDRESS,
-        0,
+        order_lookup_address,
+        _resolve_subaccount_number(),
         ticker,
         return_latest_orders="true",
     )
@@ -229,8 +253,9 @@ async def place_market_order(client, market, side, size, price, reduce_only):
 async def cancel_all_orders(client):
     """Cancel all open orders."""
     try:
+        order_lookup_address = _resolve_client_address(client)
         orders = await client.indexer_account.account.get_subaccount_orders(
-            DYDX_ADDRESS, 0, status="OPEN"
+            order_lookup_address, _resolve_subaccount_number(), status="OPEN"
         )
     except Exception as e:
         # If the account doesn't exist on the indexer (404) treat as no open orders

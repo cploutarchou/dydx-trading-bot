@@ -41,6 +41,8 @@ class IndexerEndpoint:
 class BotSettings:
     is_testnet: bool = False
     indexer_endpoint: str = testnet_url  # Will be set dynamically based on is_testnet
+    subaccountNumber: int = 0
+    capitalAllocationUsd: float = 0.0
     abortAllPositions: bool = False
     findCointegratedPairs: bool = False
     manageExits: bool = False
@@ -72,6 +74,10 @@ class BotSettings:
         return cls(
             is_testnet=is_testnet,
             indexer_endpoint=indexer_endpoint,
+            subaccountNumber=int(os.getenv("BOT_SUBACCOUNT_NUMBER", "0")),
+            capitalAllocationUsd=float(
+                os.getenv("BOT_CAPITAL_ALLOCATION_USD", "0.0")
+            ),
             abortAllPositions=os.getenv("BOT_ABORT_ALL_POSITIONS", "false").lower()
             == "true",
             findCointegratedPairs=os.getenv(

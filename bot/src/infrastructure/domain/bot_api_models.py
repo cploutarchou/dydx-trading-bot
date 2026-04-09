@@ -22,6 +22,8 @@ class TradingParameters(BaseModel):
     """Trading parameters used by bot instances."""
 
     is_testnet: bool = True
+    subaccount_number: int = 0
+    capital_allocation_usd: float = 0.0
     find_cointegrated_pairs: bool = True
     manage_exits: bool = True
     place_trades: bool = True

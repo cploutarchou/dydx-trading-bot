@@ -619,6 +619,8 @@ class BotInstanceManager:
                 ),
             },
             "botSettings": {
+                "subaccountNumber": config.trading_params.subaccount_number,
+                "capitalAllocationUsd": config.trading_params.capital_allocation_usd,
                 "abortAllPositions": config.trading_params.abort_all_positions,
                 "findCointegratedPairs": config.trading_params.find_cointegrated_pairs,
                 "manageExits": config.trading_params.manage_exits,

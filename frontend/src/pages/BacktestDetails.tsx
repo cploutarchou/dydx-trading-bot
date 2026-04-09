@@ -2,17 +2,17 @@ import { ArrowDown, ArrowUp, Loader } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Line,
+    LineChart,
+    ResponsiveContainer,
+    Scatter,
+    ScatterChart,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from 'recharts';
 import api from '../api';
 import BacktestProgress from '../components/BacktestProgress';
@@ -194,7 +194,10 @@ export const BacktestDetailsPage: React.FC = () => {
   const handleCreateStrategy = () => {
     if (!backtest || !backtest.strategy_snapshot) {
       console.warn('📊 BacktestDetails: missing strategy snapshot for create strategy action');
-      warningToast('No strategy configuration', 'This backtest does not include a strategy snapshot.');
+      warningToast(
+        'No strategy configuration',
+        'This backtest does not include a strategy snapshot.'
+      );
       return;
     }
 
@@ -277,11 +280,11 @@ export const BacktestDetailsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto p-8">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2 text-slate-900">Backtest Results</h1>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
             <span className="text-slate-600">
               {backtest.start_date} to {backtest.end_date}
             </span>
@@ -326,7 +329,7 @@ export const BacktestDetailsPage: React.FC = () => {
         {/* Charts Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Equity Curve */}
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-white p-4 sm:p-6 rounded-lg shadow">
             <h2 className="text-xl font-bold mb-4 text-slate-900">Equity Curve</h2>
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={equityData}>
@@ -346,7 +349,7 @@ export const BacktestDetailsPage: React.FC = () => {
           </div>
 
           {/* P&L by Pair */}
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-white p-4 sm:p-6 rounded-lg shadow">
             <h2 className="text-xl font-bold mb-4 text-slate-900">P&L by Pair</h2>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={pnlByPairData}>
@@ -373,8 +376,8 @@ export const BacktestDetailsPage: React.FC = () => {
 
         {/* Strategy Configuration Section */}
         {backtest.strategy_snapshot && (
-          <div className="bg-white p-6 rounded-lg shadow mb-8">
-            <div className="flex justify-between items-center mb-4">
+          <div className="bg-white p-4 sm:p-6 rounded-lg shadow mb-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
               <h2 className="text-xl font-bold text-slate-900">⚙️ Strategy Configuration</h2>
               <div className="group relative">
                 <button
@@ -390,7 +393,7 @@ export const BacktestDetailsPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {Object.entries(backtest.strategy_snapshot).map(([key, value]) => (
                 <div key={key} className="bg-slate-50 p-3 rounded border border-slate-200">
                   <p className="text-xs text-slate-600 font-medium mb-1">

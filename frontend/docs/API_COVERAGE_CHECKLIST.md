@@ -2,6 +2,12 @@
 
 This document verifies that the Go backend properly proxies all Python bot API endpoints.
 
+## Boundary Rule
+
+Frontend code must consume these routes through the Go backend only. Browser code must not call the bot service directly.
+
+See [Backend-Only Integration Checklist](/home/chris/workspace/dydx-trading-bot/frontend/docs/architecture/BACKEND_ONLY_INTEGRATION_CHECKLIST.md).
+
 ## ✅ Endpoint Coverage Matrix
 
 ### Authentication Endpoints (Handled by Backend, not Bot API)
@@ -385,7 +391,7 @@ const ws = apiClient.connectBacktestProgress('run-id', (progress) => {
 ### Issue: WebSocket connection fails
 
 **Cause**: Token not included in WebSocket URL  
-**Solution**: Pass `?token=<JWT>` in WebSocket URL
+**Solution**: Pass `?access_token=<JWT>` in the backend websocket URL
 
 ### Issue: Cached data is stale
 

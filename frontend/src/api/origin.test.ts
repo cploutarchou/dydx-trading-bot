@@ -18,6 +18,12 @@ describe('backend origin helpers', () => {
     ).toBe('ws://localhost:8888/api/v1/backtests/run-123/live?access_token=jwt-token');
   });
 
+  it('keeps runtime websocket traffic on the backend origin rather than the bot service origin', () => {
+    expect(resolveBackendWebSocketUrl('/ws/strategies', 'jwt-token', 'http://localhost:8888')).toBe(
+      'ws://localhost:8888/ws/strategies?access_token=jwt-token'
+    );
+  });
+
   it('falls back to the current browser origin when using the dev proxy', () => {
     expect(
       resolveBackendWebSocketUrl('/ws/strategies', 'jwt-token', '', {

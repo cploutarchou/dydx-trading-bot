@@ -1,0 +1,2 @@
+-- SQLite does not support dropping columns directly in this migration stack.
+-- The runtime_network and runtime_subaccount columns are left in place on rollback.

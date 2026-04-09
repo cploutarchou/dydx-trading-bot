@@ -14,6 +14,8 @@ export interface Strategy {
   is_public?: boolean;
   user_id?: number;
   runtime_strategy?: string;
+  runtime_network?: 'testnet' | 'mainnet';
+  runtime_subaccount?: number;
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -72,6 +74,8 @@ const buildStrategyPayload = (data: Partial<Strategy>) => ({
   is_public: data.is_public,
   user_id: data.user_id,
   runtime_strategy: data.runtime_strategy,
+  runtime_network: data.runtime_network,
+  runtime_subaccount: data.runtime_subaccount,
   resolution: data.resolution,
   candle_resolution: data.candle_resolution ?? data.resolution,
   zscore_threshold: data.zscore_threshold,

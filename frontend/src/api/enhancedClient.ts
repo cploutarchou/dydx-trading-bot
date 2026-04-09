@@ -2,6 +2,7 @@
 // Adds all missing bot and backtest management endpoints
 
 import apiClient from '../api';
+import { getBackendHttpBase, resolveBackendUrl } from './origin';
 import { attachTraceHeader } from './trace';
 import type { User } from './types';
 
@@ -9,22 +10,10 @@ type Entity = Record<string, unknown>;
 type QueryParams = object;
 type ListResponse = { count: number; data: Entity[] };
 
-const RAW_API_BASE_URL = String(import.meta.env.VITE_API_URL || 'http://localhost:8888');
-
 export const resolveEnhancedApiUrl = (
   input: string,
-  baseUrl: string = RAW_API_BASE_URL
-): string => {
-  if (/^https?:\/\//i.test(input)) {
-    return input;
-  }
-
-  if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
-    return input;
-  }
-
-  return new URL(input, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
-};
+  baseUrl: string = getBackendHttpBase()
+): string => resolveBackendUrl(input, baseUrl);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -803,7 +792,7 @@ class EnhancedAPIClient {
     }
   }
 
-  async getReadiness(): Promise<Entity> {
+  async getReadiness(): Promise<unknown> {
     try {
       const response = await fetch(resolveEnhancedApiUrl('/ready'));
       const result = await parseJsonResponse(response);

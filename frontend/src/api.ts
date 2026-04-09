@@ -9,15 +9,10 @@ import {
   guardRunBacktestContract,
   guardSyncHealthContract,
 } from './api/contractGuards';
+import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 
-const configuredApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
-const preferDevProxy =
-  import.meta.env.DEV &&
-  (!configuredApiBase ||
-    configuredApiBase === 'http://localhost:8888' ||
-    configuredApiBase === 'http://127.0.0.1:8888');
-const API_BASE_URL = preferDevProxy ? '' : configuredApiBase || 'http://localhost:8888';
+const API_BASE_URL = getBackendHttpBase();
 
 const isPublicUnauthenticatedRoute = (url: string): boolean =>
   url.includes('/auth/login') ||
@@ -439,6 +434,8 @@ interface StrategyRequest extends Record<string, unknown> {
   is_public?: boolean;
   user_id?: number;
   runtime_strategy?: string;
+  runtime_network?: 'testnet' | 'mainnet';
+  runtime_subaccount?: number;
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -740,6 +737,8 @@ interface StrategyResponse extends Record<string, unknown> {
   category?: string;
   description?: string;
   runtime_strategy?: string;
+  runtime_network?: 'testnet' | 'mainnet';
+  runtime_subaccount?: number;
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -782,6 +781,9 @@ interface StrategyRuntimeResponse extends Record<string, unknown> {
   strategy_name?: string;
   instance_id?: string;
   network?: string;
+  runtime_network?: string;
+  runtime_subaccount?: number;
+  capital_allocation_usd?: number;
   status: string;
   bot_status?: string;
   is_running: boolean;
@@ -793,6 +795,29 @@ interface StrategyRuntimeResponse extends Record<string, unknown> {
   next_run_at?: string;
   updated_at?: string;
   last_synced_at?: string;
+}
+
+interface StrategyStartReadinessResponse extends Record<string, unknown> {
+  strategy_id: number;
+  strategy_name?: string;
+  selected_runtime_network: 'testnet' | 'mainnet';
+  selected_subaccount: number;
+  key_exists: boolean;
+  key_chain_address?: string;
+  available_collateral: number;
+  equity: number;
+  open_positions: number;
+  usd_per_trade: number;
+  usd_min_collateral: number;
+  capital_allocation_usd: number;
+  trade_size_to_collateral_ratio?: number | null;
+  sufficient_for_trade_size: boolean;
+  sufficient_for_min_collateral: boolean;
+  wallet_ready: boolean;
+  account_exists: boolean;
+  ready: boolean;
+  blockers: string[];
+  warnings: string[];
 }
 
 const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
@@ -1841,6 +1866,25 @@ class ApiClient {
     }
   }
 
+  async getStrategyStartReadiness(
+    strategyId: number,
+    network?: 'testnet' | 'mainnet'
+  ): Promise<ApiResponse<StrategyStartReadinessResponse>> {
+    try {
+      const params = new URLSearchParams();
+      if (network) {
+        params.set('network', network);
+      }
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const response = await this.client.get<ApiResponse<StrategyStartReadinessResponse>>(
+        `/api/v1/strategies/${strategyId}/start-readiness${query}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
   async startStrategyRuntime(
     strategyId: number,
     network?: 'testnet' | 'mainnet',
@@ -2254,25 +2298,8 @@ class ApiClient {
 
   // WebSocket connection for real-time updates
   connectSocket(path: string, token?: string): WebSocket {
-    // If token not supplied, try stored token
     const useToken = token || this.getTokenFromStorage() || '';
-
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-
-    if (API_BASE_URL.startsWith('http://') || API_BASE_URL.startsWith('https://')) {
-      try {
-        const apiUrl = new URL(API_BASE_URL);
-        const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${apiUrl.host}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
-        return new WebSocket(wsUrl);
-      } catch (e) {
-        console.warn('⚠️ api.ts: Failed to parse API_BASE_URL for websocket', e);
-      }
-    }
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}${normalizedPath}${useToken ? `?access_token=${encodeURIComponent(useToken)}` : ''}`;
-    return new WebSocket(wsUrl);
+    return new WebSocket(resolveBackendWebSocketUrl(path, useToken, API_BASE_URL));
   }
 
   // Backwards-compatible helper specifically for backtest progress

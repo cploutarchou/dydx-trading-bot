@@ -168,3 +168,111 @@ Bot instances report their operational state via extended status indicators:
    - Restart to recover (normal restart)
    - Force-recreate (if instance is stuck or stale)
    - Let operator investigate first (set to SAFEGUARDED and pause trades)
+
+## Subscription Tiers and Feature Gating (P1.8)
+
+The platform supports three subscription tiers with profit-share incentive alignment:
+
+### Tier specifications
+
+- **Explorer**: Entry tier, profit-share 2%, limited to 1 active strategy, standard backtest access
+- **Performance**: Mid tier, profit-share 5%, up to 3 active strategies, advanced analytics included
+- **Enterprise**: Premium tier, profit-share 10%, unlimited strategies, dedicated support, custom integrations
+
+### Subscription lifecycle
+
+- **Trial**: New users receive 14-day trial of Performance tier (all features, 0% profit-share)
+- **Active**: Paid subscription or post-trial tier selection
+- **Expired**: Subscription past renewal date; auto-reverts to Explorer tier
+- **Canceled**: User-initiated cancellation; access restricted to Explorer features only
+
+### Feature gating enforcement
+
+- Backend handler `StartStrategyRuntime` validates user subscription tier before permitting strategy launch
+- Feature gates check `subscription_tier` against tier-specific feature list in the database
+- Expired subscriptions automatically cascade to Explorer tier (non-blocking for live positions, but blocks new strategy launches)
+- Trial status and expiration tracked in user record; frontend shows clear trial countdown and upsell messaging
+
+### Upgrade and renewal flows
+
+- Frontend displays upgrade CTA in strategy creation and analytics pages
+- Backend sends `subscription_expired` webhook event on renewal date miss (operators can configure external billing hooks)
+- Subscription status visible in user account page with: current plan, renewal date, active strategy count vs. tier limit
+
+## Terminal-Grade Tables and UI Controls (P1.10)
+
+All data-intensive surfaces (Strategy Manager, Bot Manager, Backtest History) use a consistent, reusable table pattern library:
+
+### TableControls component features
+
+- **Density selector**: Toggle between `comfortable` (default), `compact`, and `dense` row spacing; density preference persisted to browser localStorage
+- **Column filtering**: Per-column text filter inputs; filters live-update table without server round-trip (client-side for fast UX)
+- **Pagination**: Five-button pattern (first, prev, next, last, current page indicator); configurable rows-per-page (10, 25, 50, 100)
+- **CSV export**: Single click to download filtered/paginated table data as RFC 4180 CSV (handles comma-escaping and quoted fields)
+- **Accessibility**: ARIA labels on filter inputs, proper header markup, keyboard-navigable pagination buttons
+
+### Integration pattern
+
+All table surfaces must import and compose `TableHeader`, `TableFilterRow`, and `PaginationControls` from `frontend/src/components/TableControls.tsx`:
+
+```typescript
+import { TableHeader, TableFilterRow, PaginationControls } from '@/components/TableControls';
+
+// Within table body render:
+<TableHeader title="Strategies" onExport={() => exportTableAsCSV(rows)} onDensityChange={setDensity} />
+<TableFilterRow columns={['name', 'status', 'pnl']} onFilter={setFilters} />
+<PaginationControls total={total} pageSize={pageSize} onPageChange={page => setPage(page)} />
+```
+
+### Data-table best practices
+
+- Table headers use `font-semibold` and light gray background for visual hierarchy
+- Row hover applies subtle background change (e.g., `bg-gray-50` on desktop)
+- Filter inputs have placeholder text matching column name (e.g., "Filter by name")
+- Export filename includes timestamp: `strategies_2025-01-20T15_30_45Z.csv`
+- Pagination always shows: "Showing items X–Y of Z" for clarity on filtered data
+
+## Platform Observability Baseline (P2.13)
+
+The platform provides three-layer observability for live trading operations:
+
+### Health and readiness endpoints
+
+- `GET /health`: Liveness check with dependency snapshots
+  - Returns `status=healthy` with live timestamp and service uptime
+  - Includes database stats: open connections, in-use, idle, wait counts, closed connection metrics
+  - Includes bot API health snapshot and bot recovery state
+  - **Use for**: Liveness alerting, dashboards, infrastructure monitoring
+
+- `GET /ready`: Readiness/graceful shutdown detection
+  - Returns `status=ready` only if all hard requirements met (database ownership, bot connectivity)
+  - Blocks deployment if database ownership is violated
+  - Includes database ownership diagnostics and bot recovery metadata
+  - **Use for**: Kubernetes readiness probes, canary validation, deployment gates
+
+### Operational metrics endpoint
+
+- `GET /metrics`: Per-service operational data for observability stacks
+  - Database connection pool utilization: open, in-use, idle, max-idle-closed, max-lifetime-closed
+  - Database wait stats: total wait count and accumulated wait duration
+  - Bot API metrics snapshot (delegated from bot service)
+  - Service version, environment, and uptime_seconds
+  - **Use for**: Prometheus scrapes, Grafana dashboards, capacity planning
+
+### Integration with monitoring and alerting
+
+- Set up Prometheus scrape of `/metrics` every 15-30 seconds
+- Alert on database connection pool saturation: `open_connections > 0.8 × pool_max`
+- Alert on database wait spike: `wait_count_delta > 100` per minute
+- Alert on service restart: `uptime_seconds < 60` (indicates recent crash)
+- Forward bot API snapshots to distributed tracing system (Jaeger, DataDog) for latency analysis
+
+### Observability for incident response
+
+- On production incident, operators should check in this order:
+  1. `GET /health` → verify dependencies and database stats
+  2. `GET /ready` → confirm if safe to route traffic
+  3. `GET /metrics` → inspect connection pool and bot API snapshot for resource exhaustion
+  4. Backend logs (structured JSON) → trace request flow and error context
+  5. Bot logs (structured JSON) → trace strategy execution and exchange connectivity issues
+

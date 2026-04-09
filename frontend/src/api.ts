@@ -4,10 +4,10 @@
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import {
-    guardBacktestStatusContract,
-    guardListBacktestsContract,
-    guardRunBacktestContract,
-    guardSyncHealthContract,
+  guardBacktestStatusContract,
+  guardListBacktestsContract,
+  guardRunBacktestContract,
+  guardSyncHealthContract,
 } from './api/contractGuards';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 
@@ -1245,11 +1245,114 @@ class ApiClient {
     limit: number = 50
   ): Promise<ApiResponse<BacktestListResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.get<ApiResponse<BacktestListResponse>>(
-      `/api/v1/backtests?skip=${skip}&limit=${limit}`
-    );
-    guardListBacktestsContract(response.data);
-    return response.data;
+
+    const maxPageSize = 200;
+    const minPageSize = 50;
+    const safeSkip = Number.isFinite(skip) && skip >= 0 ? Math.floor(skip) : 0;
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
+
+    const isRetryableBacktestListError = (error: unknown): boolean => {
+      if (!(error instanceof AxiosError)) {
+        return false;
+      }
+
+      const status = error.response?.status;
+      if (status === 502 || status === 504 || status === 408) {
+        return true;
+      }
+
+      if (status === undefined) {
+        return true;
+      }
+
+      const message = (error.message || '').toLowerCase();
+      if (
+        message.includes('aborted') ||
+        message.includes('timeout') ||
+        message.includes('network') ||
+        message.includes('canceled')
+      ) {
+        return true;
+      }
+
+      return error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK';
+    };
+
+    const fetchBacktestsPage = async (
+      pageSkip: number,
+      pageLimit: number
+    ): Promise<ApiResponse<BacktestListResponse>> => {
+      try {
+        const response = await this.client.get<ApiResponse<BacktestListResponse>>(
+          `/api/v1/backtests?skip=${pageSkip}&limit=${pageLimit}`
+        );
+        guardListBacktestsContract(response.data);
+        return response.data;
+      } catch (error) {
+        if (!isRetryableBacktestListError(error) || pageLimit <= minPageSize) {
+          throw error;
+        }
+
+        const fallbackLimit = Math.max(minPageSize, Math.floor(pageLimit / 2));
+        const fallbackResponse = await this.client.get<ApiResponse<BacktestListResponse>>(
+          `/api/v1/backtests?skip=${pageSkip}&limit=${fallbackLimit}`
+        );
+        guardListBacktestsContract(fallbackResponse.data);
+        return fallbackResponse.data;
+      }
+    };
+
+    if (safeLimit <= maxPageSize) {
+      return fetchBacktestsPage(safeSkip, safeLimit);
+    }
+
+    const aggregatedBacktests: BacktestListItem[] = [];
+    let remaining = safeLimit;
+    let nextSkip = safeSkip;
+    let totalFromApi: number | null = null;
+    let traceId: string | undefined;
+    let message = 'Backtests fetched successfully';
+
+    while (remaining > 0) {
+      const pageLimit = Math.min(maxPageSize, remaining);
+      const pageResponse = await fetchBacktestsPage(nextSkip, pageLimit);
+      const pageData = pageResponse.data;
+      const pageBacktests = Array.isArray(pageData?.backtests) ? pageData.backtests : [];
+
+      if (totalFromApi === null && typeof pageData?.total === 'number') {
+        totalFromApi = pageData.total;
+      }
+      if (typeof pageResponse.trace_id === 'string' && pageResponse.trace_id.length > 0) {
+        traceId = pageResponse.trace_id;
+      }
+      if (typeof pageResponse.message === 'string' && pageResponse.message.length > 0) {
+        message = pageResponse.message;
+      }
+
+      aggregatedBacktests.push(...pageBacktests);
+
+      if (pageBacktests.length === 0) {
+        break;
+      }
+
+      nextSkip += pageBacktests.length;
+      remaining -= pageBacktests.length;
+
+      if (pageBacktests.length < pageLimit) {
+        break;
+      }
+    }
+
+    return {
+      success: true,
+      message,
+      data: {
+        backtests: aggregatedBacktests,
+        total: typeof totalFromApi === 'number' ? totalFromApi : aggregatedBacktests.length,
+      },
+      timestamp: new Date().toISOString(),
+      ...(traceId ? { trace_id: traceId } : {}),
+    };
   }
 
   async getBacktest(runId: string): Promise<ApiResponse<BacktestDetailsResponse>> {

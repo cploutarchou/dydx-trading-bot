@@ -1,20 +1,10 @@
-import {
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  Pause,
-  Play,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Zap,
-} from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, Pause, Play, Plus, RefreshCw, Trash2, Zap } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { classifyApiError } from '../api';
 import {
   useBotInstances,
-  useBotStats,
   useBotRuntimeStatsStream,
+  useBotStats,
   useCreateBotInstance,
   useDeleteBotInstance,
   useRestartBotInstance,

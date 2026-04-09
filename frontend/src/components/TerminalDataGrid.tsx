@@ -1,11 +1,4 @@
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  ChevronLeft,
-  ChevronRight,
-  Search,
-} from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import React, { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
 
 type SortDirection = 'asc' | 'desc';

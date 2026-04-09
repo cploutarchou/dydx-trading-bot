@@ -9,23 +9,23 @@
 
 import { useQuery } from '@tanstack/react-query';
 import {
-    Activity,
-    AlertCircle,
-    ArrowRight,
-    BarChart2,
-    ChevronDown,
-    ChevronUp,
-    Clock,
-    Layers3,
-    Newspaper,
-    Play,
-    Rocket,
-    ShieldCheck,
-    Sparkles,
-    Target,
-    TrendingDown,
-    TrendingUp,
-    Zap,
+  Activity,
+  AlertCircle,
+  ArrowRight,
+  BarChart2,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Layers3,
+  Newspaper,
+  Play,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -38,15 +38,15 @@ import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlCh
 import { PageContainer } from '../components/PageContainer';
 import { SyncHealthPanel } from '../components/SyncHealthPanel';
 import {
-    buildIntelligence,
-    formatCurrency as formatIntelligenceCurrency,
-    formatPercent as formatIntelligencePercent,
-    type BacktestRun,
+  type BacktestRun,
+  buildIntelligence,
+  formatCurrency as formatIntelligenceCurrency,
+  formatPercent as formatIntelligencePercent,
 } from '../features/backtests/intelligence';
 import {
-    buildCodexAssetContextRequest,
-    formatPct as formatCodexPct,
-    formatUsd as formatCodexUsd,
+  buildCodexAssetContextRequest,
+  formatPct as formatCodexPct,
+  formatUsd as formatCodexUsd,
 } from '../features/codex/marketIntel';
 import { useAuthStore } from '../store/auth';
 

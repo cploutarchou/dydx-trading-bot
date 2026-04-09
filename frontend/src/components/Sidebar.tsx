@@ -8,11 +8,11 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getUserWorkspaceRole } from '../auth/roles';
 import {
-    filterNavItemsForRole,
-    isNavItemActive,
-    workspaceNavItems,
-    workspaceQuickActions,
-    workspaceSections,
+  filterNavItemsForRole,
+  isNavItemActive,
+  workspaceNavItems,
+  workspaceQuickActions,
+  workspaceSections,
 } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 

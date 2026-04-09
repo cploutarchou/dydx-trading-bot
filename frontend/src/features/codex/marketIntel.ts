@@ -1,8 +1,4 @@
-import type {
-  CodexAssetContextRequest,
-  CodexAssetIntel,
-  CodexTokenSummary,
-} from '../../api';
+import type { CodexAssetContextRequest, CodexAssetIntel, CodexTokenSummary } from '../../api';
 import type { BacktestRun } from '../backtests/intelligence';
 
 export interface CodexNetworkOption {

@@ -18,6 +18,7 @@ import { BacktestList } from '../components/BacktestList';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
 import {
+  type BacktestRun,
   buildIntelligence,
   extractBacktestRuns,
   formatCurrency,
@@ -26,7 +27,6 @@ import {
   isActiveBacktestRun,
   normalizePercent,
   safeNumber,
-  type BacktestRun,
   type StrategyAggregate,
   type StrategyRef,
 } from '../features/backtests/intelligence';

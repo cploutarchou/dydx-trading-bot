@@ -13,12 +13,7 @@ import {
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import api, { type CodexTokenSummary } from '../api';
 import { PageContainer } from '../components/PageContainer';
-import {
-  CODEX_NETWORK_OPTIONS,
-  confidenceTone,
-  formatPct,
-  formatUsd,
-} from '../features/codex/marketIntel';
+import { CODEX_NETWORK_OPTIONS, confidenceTone, formatPct, formatUsd } from '../features/codex/marketIntel';
 
 const TokenCard: React.FC<{
   token: CodexTokenSummary;

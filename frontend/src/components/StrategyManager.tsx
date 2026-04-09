@@ -555,17 +555,21 @@ export default function StrategyManager() {
       return;
     }
     setStartDialogSubmitting(true);
+    let launched = false;
     try {
       await executeStrategyStart(
         startDialogStrategy,
         startDialogNetwork,
         strategyStatuses.get(startDialogStrategy.id)
       );
+      launched = true;
     } catch {
       // User-facing message already handled in executeStrategyStart.
     } finally {
       setStartDialogSubmitting(false);
-      closeStartDialog(true);
+      if (launched) {
+        closeStartDialog(true);
+      }
     }
   };
 
@@ -1184,6 +1188,270 @@ export default function StrategyManager() {
           })
         )}
       </div>
+
+      {startDialogStrategy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
+            <div className="flex items-center justify-between border-b border-slate-800 px-6 py-5">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Live Launch</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">
+                  Start {startDialogStrategy.name}
+                </h2>
+              </div>
+              <button
+                onClick={() => closeStartDialog()}
+                className="rounded-full border border-slate-700 px-3 py-1 text-slate-300 transition hover:border-slate-500 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-6 px-6 py-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-200">
+                    Environment
+                  </label>
+                  <select
+                    value={startDialogNetwork}
+                    onChange={(event) =>
+                      setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet')
+                    }
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
+                  >
+                    <option value="testnet">dYdX Testnet</option>
+                    <option value="mainnet">dYdX Production</option>
+                  </select>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                    Configured subaccount
+                  </p>
+                  <p className="mt-2 text-xl font-semibold text-white">
+                    #
+                    {startDialogReadiness?.selected_subaccount ??
+                      startDialogStrategy.runtime_subaccount ??
+                      0}
+                  </p>
+                </div>
+              </div>
+
+              {startDialogError && (
+                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  {startDialogError}
+                </div>
+              )}
+
+              {startDialogLoading && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-5 text-sm text-slate-300">
+                  Checking dYdX key, subaccount, and collateral readiness...
+                </div>
+              )}
+
+              {!startDialogLoading && startDialogReadiness && (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                        Key Present
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        {startDialogReadiness.key_exists ? 'Yes' : 'Missing'}
+                      </p>
+                      {startDialogReadiness.key_chain_address && (
+                        <p className="mt-2 text-xs text-slate-400">
+                          {startDialogReadiness.key_chain_address}
+                        </p>
+                      )}
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                        Free Collateral
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        ${startDialogReadiness.available_collateral.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                        Trade Size
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        ${startDialogReadiness.usd_per_trade.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                        Ready
+                      </p>
+                      <p
+                        className={`mt-2 text-lg font-semibold ${
+                          startDialogReadiness.ready ? 'text-emerald-400' : 'text-amber-300'
+                        }`}
+                      >
+                        {startDialogReadiness.ready ? 'Ready to launch' : 'Not ready'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                        Readiness checks
+                      </p>
+                      <div className="mt-4 space-y-3 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-300">Wallet derivation</span>
+                          <span
+                            className={
+                              startDialogReadiness.wallet_ready
+                                ? 'text-emerald-400'
+                                : 'text-amber-300'
+                            }
+                          >
+                            {startDialogReadiness.wallet_ready ? 'OK' : 'Blocked'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-300">Subaccount exists</span>
+                          <span
+                            className={
+                              startDialogReadiness.account_exists
+                                ? 'text-emerald-400'
+                                : 'text-amber-300'
+                            }
+                          >
+                            {startDialogReadiness.account_exists ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-300">Trade size vs collateral</span>
+                          <span
+                            className={
+                              startDialogReadiness.sufficient_for_trade_size
+                                ? 'text-emerald-400'
+                                : 'text-amber-300'
+                            }
+                          >
+                            {startDialogReadiness.sufficient_for_trade_size ? 'OK' : 'Too low'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-300">Minimum collateral guard</span>
+                          <span
+                            className={
+                              startDialogReadiness.sufficient_for_min_collateral
+                                ? 'text-emerald-400'
+                                : 'text-amber-300'
+                            }
+                          >
+                            {startDialogReadiness.sufficient_for_min_collateral
+                              ? 'OK'
+                              : 'Too low'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                        Deployment context
+                      </p>
+                      <div className="mt-4 space-y-3 text-sm text-slate-300">
+                        <div className="flex items-center justify-between">
+                          <span>Selected environment</span>
+                          <span className="font-medium capitalize text-white">
+                            {startDialogReadiness.selected_runtime_network}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Subaccount</span>
+                          <span className="font-medium text-white">
+                            #{startDialogReadiness.selected_subaccount}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Capital allocation target</span>
+                          <span className="font-medium text-white">
+                            ${startDialogReadiness.capital_allocation_usd.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Min collateral guard</span>
+                          <span className="font-medium text-white">
+                            ${startDialogReadiness.usd_min_collateral.toFixed(2)}
+                          </span>
+                        </div>
+                        {startDialogReadiness.trade_size_to_collateral_ratio !== null &&
+                          startDialogReadiness.trade_size_to_collateral_ratio !== undefined && (
+                            <div className="flex items-center justify-between">
+                              <span>Trade size / free collateral</span>
+                              <span className="font-medium text-white">
+                                {(startDialogReadiness.trade_size_to_collateral_ratio * 100).toFixed(
+                                  2
+                                )}
+                                %
+                              </span>
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {startDialogReadiness.blockers.length > 0 && (
+                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                      <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
+                      <ul className="mt-3 space-y-2 text-sm text-amber-100">
+                        {startDialogReadiness.blockers.map((blocker) => (
+                          <li key={blocker}>• {blocker}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {startDialogReadiness.warnings.length > 0 && (
+                    <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+                      <p className="text-sm font-semibold text-cyan-100">Warnings</p>
+                      <ul className="mt-3 space-y-2 text-sm text-cyan-50">
+                        {startDialogReadiness.warnings.map((warning) => (
+                          <li key={warning}>• {warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-slate-800 px-6 py-5">
+              <p className="text-sm text-slate-400">
+                Frontend launch is gated by backend readiness. The frontend never connects to dYdX
+                directly.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => closeStartDialog()}
+                  className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleConfirmStrategyStart()}
+                  disabled={
+                    startDialogSubmitting ||
+                    startDialogLoading ||
+                    !startDialogReadiness ||
+                    !startDialogReadiness.ready
+                  }
+                  className="rounded-2xl bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                >
+                  {startDialogSubmitting ? 'Launching...' : 'Launch Runtime'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Strategy Config Modal */}
       {showConfigModal && editingConfig && (

@@ -5,6 +5,13 @@
 - Service boundary: this UI does not call dYdX directly; backend orchestrates auth, backtests, bots, Redis, and strategy APIs.
 - Root app wiring is in `src/App.tsx`: `QueryProvider` + global `ErrorBoundary` + `ToastContainer` + route guards.
 
+## Start-of-task checklist
+
+1. Read `../.github/copilot-instructions.md`
+2. Read `.github/copilot-instructions.md`
+3. Read `.github/CUSTOMIZATION_INDEX.md`
+4. Prefer `.github/agents/senior-react-defi-product.agent.md` for frontend implementation work
+
 ## Actual architecture in this repo (important)
 - There are two API access styles in production code:
   - `src/api.ts`: Axios client with auth token persistence, refresh-on-401, and many typed endpoints.
@@ -41,4 +48,3 @@
 - `src/App.tsx`, `src/api.ts`, `src/api/enhancedClient.ts`, `src/api/hooks.ts`, `src/api/queryClient.ts`
 - `src/store/auth.ts`, `src/components/BacktestRunner.tsx`, `src/components/BacktestList.tsx`, `src/components/BotManager.tsx`, `src/components/BacktestProgress.tsx`
 - `.github/copilot-instructions.md` (project conventions and intended patterns)
-

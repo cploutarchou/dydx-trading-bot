@@ -22,8 +22,20 @@ For each new task, review:
 
 ## Agents
 
+- `.github/agents/senior-defi-monorepo-platform.agent.md`
+  Agent mode for cross-service platform work, architecture, end-to-end integration, docs, config, and production-readiness changes.
+
 - `.github/agents/senior-defi-dev.agent.md`  
   Agent mode for trading strategy, DeFi execution, quant/stat-arb, and full-stack bot changes.
+
+- `backend/.github/agents/senior-go-defi-backend.agent.md`
+  Service-specific backend expert for Go APIs, PostgreSQL, delegated bot integration, auth, and websocket proxying.
+
+- `bot/.github/agents/senior-python-defi-runtime.agent.md`
+  Service-specific bot expert for FastAPI, runtime safety, backtests, websocket streams, and dYdX execution flows.
+
+- `frontend/.github/agents/senior-react-defi-product.agent.md`
+  Service-specific frontend expert for React product UX, live dashboards, responsive design, and fintech-grade UI.
 
 ## Skills
 

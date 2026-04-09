@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
+import httpx
 import uvicorn
 from loguru import logger
 from fastapi import (
@@ -113,7 +114,7 @@ from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.shared.notifications import TelegramMessenger
 from src.shared.logging_setup import setup_logging
 from src.shared.time_utils import utc_now_iso
-from src.trading.dydx_client import connect_dydx
+from src.trading.dydx_client import connect_dydx, connect_dydx_runtime
 
 sys.stderr = _original_stderr
 
@@ -183,6 +184,14 @@ class StrategyRequest(BaseModel):
 
 class StrategyVersionRevertRequest(BaseModel):
     """Placeholder body for strategy version revert."""
+
+
+class RuntimePreflightRequest(BaseModel):
+    """Preflight payload for environment-specific runtime readiness checks."""
+
+    credentials: BotCredentials
+    trading_params: TradingParameters
+    instance_name: Optional[str] = None
 
 
 class BacktestRunRequestCompat(BaseModel):
@@ -680,6 +689,133 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
         content=jsonable_encoder(response_data),
         status_code=status_code,
     )
+    return response
+
+
+@app.post("/api/v1/runtime/preflight")
+async def runtime_preflight(
+    request: RuntimePreflightRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Evaluate whether a live runtime is ready to start on the selected environment."""
+    environment = (
+        "mainnet" if str(request.credentials.chain_id).lower().startswith("dydx-mainnet") else "testnet"
+    )
+    blockers: list[str] = []
+    warnings: list[str] = []
+    subaccount_number = int(request.trading_params.subaccount_number or 0)
+    available_collateral = 0.0
+    equity = 0.0
+    open_positions = 0
+    wallet_ready = False
+    account_exists = False
+
+    try:
+        client = await connect_dydx_runtime(
+            address=request.credentials.address,
+            mnemonic=request.credentials.mnemonic,
+            is_testnet=request.trading_params.is_testnet,
+        )
+        wallet_ready = client.wallet is not None
+        if not wallet_ready:
+            blockers.append("Unable to derive a dYdX wallet from the provided credentials.")
+
+        try:
+            response = await client.indexer_account.account.get_subaccount(
+                request.credentials.address,
+                subaccount_number,
+            )
+            subaccount = response.get("subaccount") or {}
+            available_collateral = float(subaccount.get("freeCollateral") or 0.0)
+            equity = float(subaccount.get("equity") or 0.0)
+            open_positions = len(subaccount.get("openPerpetualPositions") or {})
+            account_exists = True
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                blockers.append(
+                    f"Subaccount {subaccount_number} is not initialized or funded on {environment}."
+                )
+            else:
+                raise
+
+        usd_per_trade = float(request.trading_params.usd_per_trade or 0.0)
+        usd_min_collateral = float(request.trading_params.usd_min_collateral or 0.0)
+        capital_allocation_usd = float(
+            request.trading_params.capital_allocation_usd or 0.0
+        )
+
+        if account_exists and available_collateral < usd_per_trade:
+            blockers.append(
+                f"Free collateral ${available_collateral:.2f} is below per-trade size ${usd_per_trade:.2f}."
+            )
+        if account_exists and available_collateral < usd_min_collateral:
+            blockers.append(
+                f"Free collateral ${available_collateral:.2f} is below minimum collateral ${usd_min_collateral:.2f}."
+            )
+        if (
+            account_exists
+            and capital_allocation_usd > 0
+            and available_collateral < capital_allocation_usd
+        ):
+            warnings.append(
+                f"Configured capital allocation ${capital_allocation_usd:.2f} exceeds current free collateral ${available_collateral:.2f}."
+            )
+
+        data = {
+            "selected_runtime_network": environment,
+            "selected_subaccount": subaccount_number,
+            "wallet_ready": wallet_ready,
+            "account_exists": account_exists,
+            "available_collateral": available_collateral,
+            "equity": equity,
+            "open_positions": open_positions,
+            "usd_per_trade": usd_per_trade,
+            "usd_min_collateral": usd_min_collateral,
+            "capital_allocation_usd": capital_allocation_usd,
+            "trade_size_to_collateral_ratio": (
+                round(usd_per_trade / available_collateral, 4)
+                if available_collateral > 0
+                else None
+            ),
+            "sufficient_for_trade_size": available_collateral >= usd_per_trade,
+            "sufficient_for_min_collateral": available_collateral >= usd_min_collateral,
+            "ready": len(blockers) == 0,
+            "blockers": blockers,
+            "warnings": warnings,
+        }
+        return api_response(
+            success=True,
+            data=data,
+            message="Runtime readiness evaluated",
+        )
+    except Exception as exc:
+        logger.error("Runtime preflight failed: {}", exc)
+        return api_response(
+            success=True,
+            data={
+                "selected_runtime_network": environment,
+                "selected_subaccount": subaccount_number,
+                "wallet_ready": False,
+                "account_exists": False,
+                "available_collateral": 0.0,
+                "equity": 0.0,
+                "open_positions": 0,
+                "usd_per_trade": float(request.trading_params.usd_per_trade or 0.0),
+                "usd_min_collateral": float(
+                    request.trading_params.usd_min_collateral or 0.0
+                ),
+                "capital_allocation_usd": float(
+                    request.trading_params.capital_allocation_usd or 0.0
+                ),
+                "trade_size_to_collateral_ratio": None,
+                "sufficient_for_trade_size": False,
+                "sufficient_for_min_collateral": False,
+                "ready": False,
+                "blockers": [str(exc)],
+                "warnings": [],
+            },
+            message="Runtime readiness evaluated with blockers",
+        )
     if trace_id:
         response.headers["X-Trace-Id"] = trace_id
     return response

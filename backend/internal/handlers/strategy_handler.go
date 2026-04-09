@@ -27,6 +27,8 @@ type strategyPayload struct {
 	IsPublic               bool    `json:"is_public"`
 	IsDefault              bool    `json:"is_default"`
 	RuntimeStrategy        string  `json:"runtime_strategy"`
+	RuntimeNetwork         string  `json:"runtime_network"`
+	RuntimeSubaccount      *int    `json:"runtime_subaccount"`
 	PairSelectionMode      string  `json:"pair_selection_mode"`
 	Resolution             string  `json:"resolution"`
 	CandleResolution       string  `json:"candle_resolution"`
@@ -70,6 +72,12 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	strategy.IsDefault = req.IsDefault
 	if strings.TrimSpace(req.RuntimeStrategy) != "" {
 		strategy.RuntimeStrategy = strings.TrimSpace(req.RuntimeStrategy)
+	}
+	if strings.TrimSpace(req.RuntimeNetwork) != "" {
+		strategy.RuntimeNetwork = normalizeRuntimeNetwork(req.RuntimeNetwork)
+	}
+	if req.RuntimeSubaccount != nil && *req.RuntimeSubaccount >= 0 {
+		strategy.RuntimeSubaccount = *req.RuntimeSubaccount
 	}
 	if strings.TrimSpace(req.PairSelectionMode) != "" {
 		strategy.PairSelectionMode = normalizePairSelectionMode(req.PairSelectionMode)
@@ -162,8 +170,14 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if strategy.RuntimeStrategy == "" {
 		strategy.RuntimeStrategy = "cointegration"
 	}
+	if strategy.RuntimeNetwork == "" {
+		strategy.RuntimeNetwork = "testnet"
+	}
 	if strategy.PairSelectionMode == "" {
 		strategy.PairSelectionMode = "liquidity"
+	}
+	if strategy.RuntimeSubaccount < 0 {
+		strategy.RuntimeSubaccount = 0
 	}
 }
 
@@ -179,6 +193,15 @@ func normalizePairSelectionMode(value string) string {
 		return "input"
 	default:
 		return "liquidity"
+	}
+}
+
+func normalizeRuntimeNetwork(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "mainnet":
+		return "mainnet"
+	default:
+		return "testnet"
 	}
 }
 
@@ -489,6 +512,29 @@ func (h *StrategyHandler) GetStrategyRuntime(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      runtimeState,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *StrategyHandler) GetStrategyStartReadiness(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	readiness, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).GetRuntimeStartReadiness(strategy, c.Query("network"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to evaluate strategy runtime readiness: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      readiness,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

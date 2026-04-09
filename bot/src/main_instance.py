@@ -94,6 +94,8 @@ class BotInstance:
                             ),
                             botSettings=BotSettings(
                                 is_testnet=config_data.get("is_testnet", True),
+                                subaccountNumber=int(config_data.get("botSettings", {}).get("subaccountNumber", 0)),
+                                capitalAllocationUsd=float(config_data.get("botSettings", {}).get("capitalAllocationUsd", 0.0)),
                                 abortAllPositions=config_data.get("botSettings", {}).get("abortAllPositions", False),
                                 findCointegratedPairs=config_data.get("botSettings", {}).get("findCointegratedPairs", False),
                                 manageExits=config_data.get("botSettings", {}).get("manageExits", False),

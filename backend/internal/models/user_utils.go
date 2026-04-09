@@ -11,6 +11,9 @@ import (
 
 var validUserRoles = []string{
 	"admin",
+	"backoffice",
+	"ib",
+	"sub_ib",
 	"user",
 	"accounting",
 	"marketing",

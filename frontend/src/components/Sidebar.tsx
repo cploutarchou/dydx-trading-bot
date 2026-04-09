@@ -6,11 +6,13 @@
 import { Command, LogOut, X } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { getUserWorkspaceRole } from '../auth/roles';
 import {
-  isNavItemActive,
-  workspaceNavItems,
-  workspaceQuickActions,
-  workspaceSections,
+    filterNavItemsForRole,
+    isNavItemActive,
+    workspaceNavItems,
+    workspaceQuickActions,
+    workspaceSections,
 } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 
@@ -24,6 +26,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+  const role = getUserWorkspaceRole(user);
+  const visibleNavItems = filterNavItemsForRole(workspaceNavItems, role);
+  const visibleQuickActions = filterNavItemsForRole(workspaceQuickActions, role);
 
   const handleLogout = () => {
     logout();
@@ -61,7 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             Trading OS
           </div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-500 via-blue-500 to-emerald-400 shadow-lg shadow-cyan-500/20 flex items-center justify-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-linear-to-br from-cyan-500 via-blue-500 to-emerald-400 shadow-lg shadow-cyan-500/20">
               📊
             </div>
             dYdX Bot
@@ -78,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
               Quick Actions
             </p>
             <div className="mt-3 space-y-2">
-              {workspaceQuickActions.slice(0, 3).map((item) => {
+              {visibleQuickActions.slice(0, 3).map((item) => {
                 const Icon = item.icon;
                 return (
                   <button
@@ -116,7 +121,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             </div>
             <div className="min-w-0 flex-1">
               <p className="font-medium text-slate-100">Command Palette</p>
-              <p className="truncate text-xs text-slate-500">Jump anywhere with keyboard-first navigation</p>
+              <p className="truncate text-xs text-slate-500">
+                Jump anywhere with keyboard-first navigation
+              </p>
             </div>
             <span className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-500">
               Ctrl K
@@ -125,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
           <div className="space-y-4">
             {workspaceSections.map((section) => {
-              const items = workspaceNavItems.filter((item) => item.section === section);
+              const items = visibleNavItems.filter((item) => item.section === section);
               if (items.length === 0) return null;
               return (
                 <div key={section}>
@@ -146,20 +153,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                           }}
                           className={`group flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition-all ${
                             active
-                              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
+                              ? 'bg-linear-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
                               : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'
                           }`}
                         >
-                          <span className={active ? 'text-white' : 'text-slate-400 group-hover:text-white'}>
+                          <span
+                            className={
+                              active ? 'text-white' : 'text-slate-400 group-hover:text-white'
+                            }
+                          >
                             <Icon className="h-5 w-5" />
                           </span>
                           <div className="min-w-0 flex-1">
                             <p>{item.label}</p>
-                            <p className={`truncate text-xs ${active ? 'text-cyan-100/80' : 'text-slate-500'}`}>
+                            <p
+                              className={`truncate text-xs ${active ? 'text-cyan-100/80' : 'text-slate-500'}`}
+                            >
                               {item.description}
                             </p>
                           </div>
-                          {active && <div className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70" />}
+                          {active && (
+                            <div className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70" />
+                          )}
                         </button>
                       );
                     })}

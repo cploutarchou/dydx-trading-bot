@@ -2,8 +2,8 @@
 
 import os
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import Optional
+from urllib.parse import urlparse
 
 from alembic import command
 from alembic.config import Config
@@ -68,6 +68,9 @@ class DatabaseConfig:
         self.db_name, self.db_host, self.db_port, self.db_user, self.db_password = (
             self._resolve_db_fields()
         )
+        self._shared_target = self._resolve_shared_target_fields()
+        self.shared_target_matches_runtime = self._runtime_matches_shared_target()
+        self._validate_db_ownership_guardrail()
         self.echo_sql = self._env_bool("DB_ECHO_SQL", default=False)
         self.timeout_seconds = self._env_int("DB_TIMEOUT", 10)
         self.pool_size = self._env_int("DB_POOL_SIZE", 5)
@@ -174,6 +177,11 @@ class DatabaseConfig:
             )
 
         # dedicated_with_shared_fallback
+        if self.database_url and self.connection_source == "bot_database_url":
+            parsed_fields = self._fields_from_url(self.database_url)
+            if parsed_fields is not None:
+                self.field_source = "bot_database_url"
+                return parsed_fields
         if self._has_bot_db_fields():
             self.field_source = "bot_db_fields"
             return self._bot_db_fields()
@@ -211,7 +219,56 @@ class DatabaseConfig:
             "max_connections": self.pool_size + self.max_overflow,
             "ssl_enabled": self.ssl_mode,
             "echo_sql": self.echo_sql,
+            "shared_target_detected": self._shared_target is not None,
+            "shared_target_matches_runtime": self.shared_target_matches_runtime,
+            "ownership_guardrail": "enforced" if self.cutover_mode == "dedicated" else "advisory",
         }
+
+    @staticmethod
+    def _normalized_target_fields(
+        fields: tuple[str, str, str, str, str] | None,
+    ) -> tuple[str, str, str] | None:
+        if fields is None:
+            return None
+        db_name, host, port, _, _ = fields
+        return (
+            (host or "").strip().lower(),
+            str(port or "").strip(),
+            (db_name or "").strip().lower(),
+        )
+
+    def _resolve_shared_target_fields(self) -> tuple[str, str, str, str, str] | None:
+        shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
+        if shared_url:
+            parsed_fields = self._fields_from_url(shared_url)
+            if parsed_fields is not None:
+                return parsed_fields
+
+        shared_fields = (
+            self._env("DB_NAME", self._env("POSTGRES_DB", "")),
+            self._env("DB_HOST", self._env("POSTGRES_HOST", "")),
+            self._env("DB_PORT", self._env("POSTGRES_PORT", "")),
+            self._env("DB_USER", self._env("POSTGRES_USER", "")),
+            self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
+        )
+        if any(bool(str(value).strip()) for value in shared_fields):
+            return shared_fields
+        return None
+
+    def _runtime_matches_shared_target(self) -> bool:
+        runtime_target = self._normalized_target_fields(
+            (self.db_name, self.db_host, self.db_port, self.db_user, self.db_password)
+        )
+        shared_target = self._normalized_target_fields(self._shared_target)
+        return bool(runtime_target and shared_target and runtime_target == shared_target)
+
+    def _validate_db_ownership_guardrail(self) -> None:
+        if self.cutover_mode != "dedicated":
+            return
+        if self.shared_target_matches_runtime:
+            raise ValueError(
+                "BOT_DB_CUTOVER_MODE=dedicated cannot target the same database as the shared DB configuration"
+            )
 
     @staticmethod
     def _has_bot_db_fields() -> bool:

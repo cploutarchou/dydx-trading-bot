@@ -1,16 +1,18 @@
 """dYdX network client connection management."""
 
+import os
 from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
-from dydx_v4_client.network import TESTNET
+from dydx_v4_client.network import TESTNET, make_mainnet, make_testnet
 from dydx_v4_client.node.client import NodeClient
 from dydx_v4_client.wallet import Wallet
 
 from src.constants import (
     DYDX_ADDRESS,
     INDEXER_ACCOUNT_ENDPOINT,
+    INDEXER_ENDPOINT_TESTNET,
     INDEXER_ENDPOINT_MAINNET,
     MARKET_DATA_MODE,
     MNEMONIC,
@@ -49,6 +51,26 @@ class Client:
         self.wallet = wallet
 
 
+def _resolve_runtime_network(is_testnet: bool):
+    """Build the dYdX network configuration for the requested environment."""
+    if is_testnet:
+        return make_testnet(
+            rest_indexer=INDEXER_ENDPOINT_TESTNET,
+            websocket_indexer="wss://indexer.v4testnet.dydx.exchange/v4/ws",
+            node_url=os.getenv("DYDX_TESTNET_NODE_URL", "test-dydx-grpc.kingnodes.com"),
+        )
+
+    node_url = os.getenv("DYDX_MAINNET_NODE_URL", "").strip()
+    if not node_url:
+        raise RuntimeError("DYDX_MAINNET_NODE_URL is required for mainnet runtime checks")
+
+    return make_mainnet(
+        rest_indexer=INDEXER_ENDPOINT_MAINNET,
+        websocket_indexer="wss://indexer.dydx.trade/v4/ws",
+        node_url=node_url,
+    )
+
+
 async def connect_dydx():
     """
     Connect to dYdX network and initialize all necessary clients.
@@ -59,18 +81,32 @@ async def connect_dydx():
     Raises:
         Exception: If any connection fails
     """
-    logger.info("Initializing dYdX clients")
-    # Determine market data endpoint
-    market_data_endpoint = (
-        INDEXER_ENDPOINT_MAINNET if MARKET_DATA_MODE != "TESTNET" else INDEXER_ACCOUNT_ENDPOINT
-    )
-    logger.debug(
-        "Market data endpoint resolved to {} (mode={})",
-        market_data_endpoint,
-        MARKET_DATA_MODE,
+    return await connect_dydx_runtime(
+        address=DYDX_ADDRESS,
+        mnemonic=MNEMONIC,
+        is_testnet=(MARKET_DATA_MODE == "TESTNET"),
     )
 
-    # Indexer = connection we will use to get live mainnet data if using INDEXER_ENDPOINT_MAINNET, else we will use testnet
+
+async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) -> Client:
+    """
+    Connect to dYdX using explicit runtime credentials and environment selection.
+
+    This is used both for managed runtime instances and readiness checks.
+    """
+    logger.info(
+        "Initializing dYdX clients for runtime environment={}",
+        "testnet" if is_testnet else "mainnet",
+    )
+
+    market_data_endpoint = INDEXER_ENDPOINT_TESTNET if is_testnet else INDEXER_ENDPOINT_MAINNET
+    account_indexer_endpoint = market_data_endpoint
+    logger.debug(
+        "Market data endpoint resolved to {} (environment={})",
+        market_data_endpoint,
+        "TESTNET" if is_testnet else "MAINNET",
+    )
+
     try:
         indexer = IndexerClient(host=market_data_endpoint, api_timeout=5)
         logger.info("Initialized indexer client against {}", market_data_endpoint)
@@ -78,41 +114,44 @@ async def connect_dydx():
         logger.exception("Failed to initialize indexer client for {}", market_data_endpoint)
         raise
 
-    # Indexer Account = connection we will use to query our testnet trades
     try:
-        indexer_account = IndexerClient(host=INDEXER_ACCOUNT_ENDPOINT, api_timeout=5)
-        logger.info("Initialized account indexer client against {}", INDEXER_ACCOUNT_ENDPOINT)
+        indexer_account = IndexerClient(host=account_indexer_endpoint, api_timeout=5)
+        logger.info(
+            "Initialized account indexer client against {}", account_indexer_endpoint
+        )
     except Exception:
         logger.exception(
             "Failed to initialize account indexer client for {}",
-            INDEXER_ACCOUNT_ENDPOINT,
+            account_indexer_endpoint,
         )
         raise
 
-    # node = private connection we will use to send orders etc to the testnet or mainnet
-    # Always use TESTNET for the connection, regardless of the is_testnet setting
-    # The appropriate indexer endpoint will be used based on the is_testnet setting
+    network_config = _resolve_runtime_network(is_testnet)
     try:
-        node = await NodeClient.connect(TESTNET.node)
-        logger.info("Connected node client to testnet node config")
+        node = await NodeClient.connect(network_config.node)
+        logger.info(
+            "Connected node client to {} network config",
+            "testnet" if is_testnet else "mainnet",
+        )
     except Exception:
-        logger.exception("Failed to connect node client to testnet node config")
+        logger.exception(
+            "Failed to connect node client to {} network config",
+            "testnet" if is_testnet else "mainnet",
+        )
         raise
 
-    # For backtesting, we don't need a real wallet since we're simulating trades
     wallet = None
-    if not _is_placeholder_value(MNEMONIC) and not _is_placeholder_value(DYDX_ADDRESS):
+    if not _is_placeholder_value(mnemonic) and not _is_placeholder_value(address):
         try:
-            wallet = await Wallet.from_mnemonic(node, MNEMONIC, DYDX_ADDRESS)
-            logger.info("Loaded wallet for address {}", DYDX_ADDRESS)
+            wallet = await Wallet.from_mnemonic(node, mnemonic, address)
+            logger.info("Loaded wallet for address {}", address)
         except Exception:
             logger.warning(
-                "Failed to derive wallet for address {}. Continuing without wallet (backtesting mode).",
-                DYDX_ADDRESS,
+                "Failed to derive wallet for address {}. Continuing without wallet.",
+                address,
             )
-            # Don't raise - continue with None wallet for backtesting
     else:
-        logger.info("Wallet creation skipped (backtesting mode or missing config)")
+        logger.info("Wallet creation skipped (missing runtime credential material)")
 
     client = Client(indexer, indexer_account, node, wallet)
     await check_jurisdiction(client, "BTC-USD")

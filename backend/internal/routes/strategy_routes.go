@@ -51,6 +51,7 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 			strategies.GET("/:id/versions", strategyHandler.GetVersionHistory)
 			strategies.POST("/:id/versions/:version_id/revert", strategyHandler.RevertVersion)
 			strategies.GET("/:id/runtime", strategyHandler.GetStrategyRuntime)
+			strategies.GET("/:id/start-readiness", strategyHandler.GetStrategyStartReadiness)
 			strategies.POST("/:id/start", strategyHandler.StartStrategyRuntime)
 			strategies.POST("/:id/stop", strategyHandler.StopStrategyRuntime)
 		}

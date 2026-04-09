@@ -19,6 +19,8 @@ func (b *BacktestStrategy) ToDict() map[string]interface{} {
 		"is_public":                b.IsPublic,
 		"is_default":               b.IsDefault,
 		"runtime_strategy":         b.RuntimeStrategy,
+		"runtime_network":          b.RuntimeNetwork,
+		"runtime_subaccount":       b.RuntimeSubaccount,
 		"pair_selection_mode":      b.PairSelectionMode,
 		"zscore_threshold":         b.ZscoreThreshold,
 		"stats_window":             b.StatsWindow,
@@ -79,6 +81,12 @@ func (b *BacktestStrategy) FromDict(data map[string]interface{}) {
 	}
 	if runtimeStrategy, ok := data["runtime_strategy"].(string); ok {
 		b.RuntimeStrategy = runtimeStrategy
+	}
+	if runtimeNetwork, ok := data["runtime_network"].(string); ok {
+		b.RuntimeNetwork = runtimeNetwork
+	}
+	if runtimeSubaccount, ok := data["runtime_subaccount"].(float64); ok {
+		b.RuntimeSubaccount = int(runtimeSubaccount)
 	}
 	if pairSelectionMode, ok := data["pair_selection_mode"].(string); ok {
 		b.PairSelectionMode = pairSelectionMode

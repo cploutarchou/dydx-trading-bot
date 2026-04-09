@@ -394,6 +394,14 @@ func (s *BotInstanceService) GetRemoteBotInstance(instanceID string) (map[string
 	return s.apiClient.GetBotInstance(instanceID)
 }
 
+// GetRuntimePreflight evaluates runtime readiness using the upstream bot API.
+func (s *BotInstanceService) GetRuntimePreflight(payload map[string]interface{}) (map[string]interface{}, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("bot API client not configured")
+	}
+	return s.apiClient.GetRuntimePreflight(payload)
+}
+
 // GetBotInstanceTrades gets trades for a bot instance using upstream status filtering.
 func (s *BotInstanceService) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {
 	if s.apiClient == nil {

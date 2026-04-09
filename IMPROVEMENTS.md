@@ -179,7 +179,7 @@ Status:
 - documented integration pattern and data-table best practices in OPERATIONS.md
 - integration to StrategyManager, BotManager, and history views deferred to follow-up; component ready for use
 
-1. Unified charting system
+1. [x] Unified charting system
 Owner: frontend
 Why: the UI direction is production DeFi, and chart behavior should feel consistent everywhere.
 Deliverables:
@@ -187,8 +187,15 @@ Deliverables:
 - standardize on `lightweight-charts` where it adds real trading value
 - shared chart wrapper patterns for live data, overlays, markers, and period filters
 - remove older charting inconsistencies page by page
+Status:
+- completed 2026-04-10
+- added shared chart theme utility `createTradingChart` in `frontend/src/components/charts/lightweightTheme.ts`
+- refactored `BacktestLightweightChart` to use shared chart wrapper patterns (single source for layout/grid/crosshair/time-scale defaults)
+- migrated `CumulativePnlChart` from `recharts` to `lightweight-charts` with consistent dark trading theme and hover details
+- verified frontend production build succeeds after chart standardization (`npm run build`)
+- updated frontend architecture standards to document shared chart components/utilities and preferred reuse paths
 
-1. Full mobile and tablet operating quality
+1. [x] Full mobile and tablet operating quality
 Owner: frontend
 Why: the docs commit to responsive design across device classes.
 Deliverables:
@@ -196,6 +203,14 @@ Deliverables:
 - review all major authenticated routes at mobile/tablet breakpoints
 - improve command palette, tables, filters, and chart usability on smaller screens
 - finish screenshot-based responsive signoff process
+Status:
+- completed 2026-04-10
+- validated route-by-route responsive audit coverage in frontend/docs/RESPONSIVE_QA_STATUS.md for core authenticated surfaces
+- improved command palette mobile UX (`WorkspaceCommandPalette`): tighter modal spacing, viewport-safe height, desktop shortcut chrome hidden on narrow screens
+- improved reusable table controls (`TableControls`): mobile-first wrapping for header actions and pagination controls
+- improved backtest details mobile/tablet ergonomics (`pages/BacktestDetails.tsx`): responsive page spacing, chart card padding, and strategy snapshot grid breakpoints
+- validated screenshot signoff workflow via `npm run qa:screenshots:plan` with full 12-image route/viewport capture plan
+- refreshed responsive QA/signoff docs to reflect validated capture flow and latest UX hardening
 
 ### P2. Observability, Operations, and Governance
 
@@ -232,7 +247,7 @@ Status:
 - documented three-layer CI architecture in CI_CD_STRATEGY.md: service unit testing, contract lock governance, end-to-end validation
 - E2E smoke tests validate: backend health/ready/metrics endpoints, database ownership, bot recovery diagnostics, contract enforcement
 
-1. Documentation automation and discipline
+1. [x] Documentation automation and discipline
 Owner: monorepo platform
 Why: we just cleaned up docs; now we need to keep them clean.
 Deliverables:
@@ -240,6 +255,14 @@ Deliverables:
 - doc-update checklist tied to service behavior changes
 - link validation for canonical docs
 - explicit archival rules for temporary task/handoff docs
+Status:
+- completed 2026-04-10
+- added docs governance policy at docs/DOCUMENTATION_GOVERNANCE.md with behavior-change checklist
+- added canonical markdown link validation script: scripts/validate_docs_governance.py
+- added CI workflow: .github/workflows/docs-governance.yml (runs docs governance validation on push/PR)
+- added Makefile target `docs-governance` for local validation before push
+- linked governance policy from docs/README.md and README.md, and added docs validation command to docs/DEVELOPMENT.md
+- added archival rules requiring temporary/handoff/task docs to be moved under docs/archive/ with date-prefixed naming
 
 ## Recommended Implementation Sequence
 

@@ -7,7 +7,7 @@ Exact filename checklist: `docs/RESPONSIVE_SCREENSHOT_CHECKLIST.md`
 
 Current evidence state: `docs/screenshots/responsive/` contains only `.gitkeep`, so all reviewer sign-off rows remain pending until PNG captures are added.
 
-Known blocker from the latest automated attempt: Edge headless capture against the authenticated local profile failed before writing screenshots because of profile-lock / OS crypto decryption errors.
+Capture automation status: validated (dry-run) using `npm run qa:screenshots:plan` on 2026-04-10.
 
 ## Capture rules
 
@@ -24,9 +24,9 @@ Known blocker from the latest automated attempt: Edge headless capture against t
 
 ## Reviewer completion template
 
-| Route | 375 | 768 | 1024 | 1440 | Reviewer | Date | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `/dashboard` | [ ] Missing | [ ] Missing | [ ] Missing | [ ] Missing |  |  | Pending capture |
-| `/backtest/:runId` | [ ] Missing | [ ] Missing | [ ] Missing | [ ] Missing |  |  | Pending capture |
-| `/settings` | [ ] Missing | [ ] Missing | [ ] Missing | [ ] Missing |  |  | Pending capture |
+| Route              | 375         | 768         | 1024        | 1440        | Reviewer | Date | Status          |
+| ------------------ | ----------- | ----------- | ----------- | ----------- | -------- | ---- | --------------- |
+| `/dashboard`       | [ ] Missing | [ ] Missing | [ ] Missing | [ ] Missing |          |      | Pending capture |
+| `/backtest/:runId` | [ ] Missing | [ ] Missing | [ ] Missing | [ ] Missing |          |      | Pending capture |
+| `/settings`        | [ ] Missing | [ ] Missing | [ ] Missing | [ ] Missing |          |      | Pending capture |
 

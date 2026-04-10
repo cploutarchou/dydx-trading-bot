@@ -1,15 +1,15 @@
 import {
+  Activity,
   ArrowRight,
   Bot,
   BrainCircuit,
   CheckCircle2,
   ChevronDown,
-  Radio,
+  Command,
+  Radar,
   ShieldCheck,
   Sparkles,
-  Target,
   Waves,
-  Zap,
 } from 'lucide-react';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,106 +17,95 @@ import { DeFiHeroIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
 import PublicSiteShell from '../components/PublicSiteShell';
 
-const pillars = [
+const heroStats = [
+  ['Realtime', 'stream-first control surfaces', 'designed to update without losing operator context'],
+  ['12%', 'performance-aligned commercial model', 'clear economics that match delivered upside'],
+  ['24/7', 'runtime visibility posture', 'health, sync state, and execution awareness stay visible'],
+  ['Role-based', 'workspace governance', 'clear separation between operators, admins, and backoffice'],
+];
+
+const platformPillars = [
   {
     icon: BrainCircuit,
-    title: 'Quant Research',
+    title: 'Research cockpit',
     description:
-      'Rank opportunities, inspect robustness, and move from signal discovery to decision without leaving the product.',
-  },
-  {
-    icon: Bot,
-    title: 'Live Operations',
-    description:
-      'Control runtimes, recover state, and stay aware of execution conditions from one operator surface.',
+      'Run comparative backtests, inspect signal quality, and identify which strategies deserve confidence before going live.',
   },
   {
     icon: Waves,
-    title: 'Realtime Insight',
+    title: 'Live-state awareness',
     description:
-      'Stream progress, runtime health, and strategy state over websocket-first interfaces that feel alive.',
+      'Stream progress, health, and runtime status in place so the workspace feels stable under live updates.',
+  },
+  {
+    icon: Bot,
+    title: 'Execution controls',
+    description:
+      'Manage bots, strategy runtime, and backtests from one operator-first shell with faster route jumping and clearer hierarchy.',
   },
   {
     icon: ShieldCheck,
-    title: 'Operator Trust',
+    title: 'Trust semantics',
     description:
-      'Security posture, auth flow quality, and runtime visibility are treated as product features, not afterthoughts.',
+      'Security posture, access state, and workflow readiness are surfaced like product features instead of buried utilities.',
   },
 ];
 
-const operatingLoop = [
+const workflowStages = [
   {
-    step: '01',
-    title: 'Research the spread',
+    label: '01',
+    title: 'Model the opportunity',
     description:
-      'Profile candidate pairs, compare backtests, and identify where the edge is persistent enough to deserve capital.',
+      'Move from market thesis into backtests quickly, compare setups, and understand if the edge survives more than one lucky run.',
   },
   {
-    step: '02',
-    title: 'Validate under pressure',
+    label: '02',
+    title: 'Pressure-test the strategy',
     description:
-      'Inspect live progress, trade detail, PnL shape, and risk-adjusted outcomes before anything goes into production.',
+      'Review PnL shape, drawdown discipline, run health, and trade detail from dense but readable fintech-grade surfaces.',
   },
   {
-    step: '03',
-    title: 'Operate with conviction',
+    label: '03',
+    title: 'Operate live with confidence',
     description:
-      'Promote strategies into runtime, monitor health, and react from one command surface built around state clarity.',
+      'Promote into runtime, monitor execution state, and keep command surfaces close to navigation and context.',
   },
 ];
 
-const plans = [
+const standards = [
   {
-    name: 'Explorer',
-    price: '$0',
-    description: 'Evaluate the platform and validate a focused research workflow before turning on any economics.',
-    bullets: ['Evaluation workspace', 'Historical backtests', 'Foundational market intel'],
+    title: 'Stable live updates',
+    body: 'Data should refresh softly in place, not wipe out already-rendered context with heavy spinners.',
   },
   {
-    name: 'Performance',
-    price: '12% profit share',
-    description:
-      'For solo operators and lean teams who want the platform economics aligned to actual delivered upside.',
-    bullets: ['No flat platform fee', 'Live bot control', 'Premium research cockpit'],
-    featured: true,
+    title: 'Signal-rich tables',
+    body: 'Rows should expose a primary fact, a secondary context line, and consistent profit/loss semantics.',
   },
   {
-    name: 'Desk',
-    price: 'Custom success fee',
-    description:
-      'For teams that need negotiated onboarding, tailored workflows, and deeper operational support.',
-    bullets: ['Multi-operator workflow', 'White-glove onboarding', 'Negotiated success-fee support'],
+    title: 'Operator-first navigation',
+    body: 'Command palette access, grouped workflows, and visible environment context reduce movement cost.',
   },
 ];
 
 const faqs = [
   {
-    q: 'Is this just a dashboard?',
-    a: 'No. It is meant to behave like a trading operating system: product-grade onboarding outside, dense execution-grade control inside.',
+    q: 'Is the product only for live trading teams?',
+    a: 'No. The workflow is intentionally staged so teams can begin with research, validate quality, and then move into runtime with more confidence.',
   },
   {
-    q: 'Can users start with research before going live?',
-    a: 'Yes. The workflow is intentionally staged so teams can validate strategy quality first, then activate runtime operations with confidence.',
+    q: 'What makes the UX fintech-grade here?',
+    a: 'Clear status semantics, denser information hierarchy, stable live updates, stronger security cues, and less separation between research and execution.',
   },
   {
-    q: 'Why center the product around DeFi arbitrage?',
-    a: 'Because arbitrage workflows demand more than charts: latency awareness, runtime trust, and strong state visibility are product-critical.',
+    q: 'Why lead with a public site instead of sending users straight to auth?',
+    a: 'Fintech trust starts before login. Pricing, product narrative, and onboarding have to explain the operating model before the user commits.',
   },
 ];
 
-const telemetryTape = [
-  'Realtime runtime telemetry',
-  'Backtests with live progress',
-  'Profit-share aligned pricing',
-  'Operator-grade authentication',
-  'Research to runtime workflow',
-];
-
-const statTiles = [
-  ['14', 'live operator surfaces', 'research, runtime, and command flows'],
-  ['99.94%', 'execution health target', 'designed around production confidence'],
-  ['12%', 'performance package', 'aligned to net realized upside'],
-  ['24/7', 'state visibility', 'stream-first UX across critical workflows'],
+const tableRows = [
+  ['Basis spread monitor', 'Healthy stream', '+4.8%', '0.82'],
+  ['Funding divergence scan', 'Reconnecting', '+2.1%', '0.44'],
+  ['Cross-market mean reversion', 'Ready', '+6.3%', '0.91'],
 ];
 
 export const LandingPage: React.FC = () => {
@@ -126,103 +115,108 @@ export const LandingPage: React.FC = () => {
     <PublicSiteShell>
       <section className="public-shell-container relative pt-10 sm:pt-12 lg:pt-14">
         <div className="premium-orb -left-6 top-16 h-40 w-40 bg-cyan-400/16" />
-        <div className="premium-orb right-8 top-8 h-48 w-48 bg-blue-500/14" style={{ animationDelay: '1.3s' }} />
+        <div
+          className="premium-orb right-8 top-8 h-48 w-48 bg-blue-500/14"
+          style={{ animationDelay: '1.3s' }}
+        />
+
         <MotionReveal className="relative">
-          <div className="grid gap-12 xl:grid-cols-[0.92fr,1.08fr] xl:items-center">
-            <div className="relative z-10">
-              <div className="premium-kicker">
-                <Sparkles className="h-3.5 w-3.5" />
-                Production-Ready DeFi Arbitrage Platform
-              </div>
-              <h1 className="mt-6 max-w-4xl text-4xl font-bold leading-[0.98] text-white sm:text-5xl xl:text-[4.75rem]">
-                Research the edge. Validate the thesis. Run the strategy from one product.
-              </h1>
-              <p className="mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
-                dYdX Arbitrage OS gives serious operators a single environment for quant research,
-                backtesting, live bot orchestration, runtime telemetry, and high-signal decision support.
-              </p>
+          <div className="premium-hero px-6 py-8 sm:px-8 sm:py-10 xl:px-12 xl:py-12">
+            <div className="grid gap-10 xl:grid-cols-[0.95fr,1.05fr] xl:items-center">
+              <div className="relative z-10">
+                <div className="surface-label">
+                  <Radar className="h-3.5 w-3.5" />
+                  Fintech-grade DeFi operator experience
+                </div>
+                <h1 className="mt-6 max-w-4xl text-4xl font-bold leading-[0.98] text-white sm:text-5xl xl:text-[4.65rem]">
+                  One platform for research conviction, runtime clarity, and premium trading UX.
+                </h1>
+                <p className="mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
+                  dYdX Arbitrage OS is designed like a serious operator product: strong public-site
+                  trust, cleaner onboarding, signal-rich dashboards, and realtime execution context
+                  that stays stable while you work.
+                </p>
 
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <Link
-                  to="/register"
-                  className="premium-button premium-button-primary min-w-[13rem] justify-center rounded-[1.3rem] px-6 py-3.5 text-sm font-semibold text-white"
-                >
-                  Start evaluation
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-                <Link
-                  to="/pricing"
-                  className="premium-button premium-button-secondary min-w-[13rem] justify-center rounded-[1.3rem] px-6 py-3.5 text-sm font-medium"
-                >
-                  Explore subscriptions
-                </Link>
-              </div>
-
-              <div className="mt-8 flex flex-wrap gap-3 text-sm text-slate-400">
-                {[
-                  'Websocket-first live UX',
-                  'Interactive backtest intelligence',
-                  'Operator-grade runtime flows',
-                ].map((item) => (
-                  <span
-                    key={item}
-                    className="rounded-full border border-slate-800/80 bg-slate-950/55 px-3 py-1.5"
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <Link
+                    to="/register"
+                    className="premium-button premium-button-primary min-w-[13rem] justify-center rounded-[1.3rem] px-6 py-3.5 text-sm font-semibold text-white"
                   >
-                    {item}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="relative">
-              <div className="market-illustration-shell p-3 sm:p-4">
-                <DeFiHeroIllustration />
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="micro-panel p-5">
-                  <div className="flex items-center gap-3 text-cyan-300">
-                    <div className="rounded-xl bg-cyan-500/10 p-2.5">
-                      <Target className="h-4 w-4" />
-                    </div>
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Research to Runtime
-                    </span>
-                  </div>
-                  <p className="mt-4 text-lg font-semibold text-white">
-                    The workflow is continuous, not split across different tools.
-                  </p>
+                    Start evaluation
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    to="/pricing"
+                    className="premium-button premium-button-secondary min-w-[13rem] justify-center rounded-[1.3rem] px-6 py-3.5 text-sm font-medium"
+                  >
+                    Review pricing
+                  </Link>
                 </div>
-                <div className="micro-panel p-5">
-                  <div className="flex items-center gap-3 text-emerald-300">
-                    <div className="rounded-xl bg-emerald-500/10 p-2.5">
-                      <Zap className="h-4 w-4" />
+
+                <div className="mt-8 flex flex-wrap gap-3">
+                  {[
+                    'Command-palette navigation',
+                    'Security-aware onboarding',
+                    'Live-state visibility without reset behavior',
+                  ].map((item) => (
+                    <div key={item} className="data-chip">
+                      <span className="h-2 w-2 rounded-full bg-cyan-300" />
+                      {item}
                     </div>
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Live-State Aware
-                    </span>
-                  </div>
-                  <p className="mt-4 text-lg font-semibold text-white">
-                    Critical telemetry stays visible while the operator is making decisions.
-                  </p>
+                  ))}
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div className="editorial-band mt-10">
-            <div className="mb-3 inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              <Radio className="h-3.5 w-3.5 text-cyan-300" />
-              Live operator tape
-            </div>
-            <div className="telemetry-marquee">
-              <div className="telemetry-marquee-track">
-                {[...telemetryTape, ...telemetryTape].map((item, index) => (
-                  <div key={`${item}-${index}`} className="telemetry-chip">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    <span>{item}</span>
-                    <strong>active</strong>
+              <div className="relative">
+                <div className="market-illustration-shell p-3 sm:p-4">
+                  <DeFiHeroIllustration />
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr,0.9fr]">
+                  <div className="signal-card signal-card-strong px-5 py-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          Workspace pulse
+                        </p>
+                        <p className="mt-2 text-xl font-semibold text-white">
+                          Research and runtime should feel like one continuous system.
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-cyan-500/10 p-3 text-cyan-300">
+                        <Activity className="h-5 w-5" />
+                      </div>
+                    </div>
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      <div className="metric-tile px-4 py-4">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          Sync state
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-emerald-300">Healthy stream</p>
+                      </div>
+                      <div className="metric-tile px-4 py-4">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          Last update
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-cyan-300">Live, under 1s</p>
+                      </div>
+                    </div>
                   </div>
-                ))}
+
+                  <div className="signal-card px-5 py-5">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                      Design intent
+                    </p>
+                    <div className="mt-4 space-y-3">
+                      {standards.map((item) => (
+                        <div key={item.title} className="rounded-2xl border border-slate-800/80 bg-slate-950/55 px-4 py-3">
+                          <p className="text-sm font-semibold text-white">{item.title}</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-400">{item.body}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -231,12 +225,8 @@ export const LandingPage: React.FC = () => {
 
       <section className="public-shell-container py-8 sm:py-10">
         <div className="grid gap-4 lg:grid-cols-4">
-          {statTiles.map(([value, title, body], index) => (
-            <MotionReveal
-              key={title}
-              delayMs={index * 60}
-              className="rounded-[1.6rem] border border-slate-800/70 bg-slate-950/45 px-5 py-5"
-            >
+          {heroStats.map(([value, title, body], index) => (
+            <MotionReveal key={title} delayMs={index * 60} className="metric-tile px-5 py-5">
               <p className="text-3xl font-bold text-white">{value}</p>
               <p className="mt-2 text-sm font-semibold text-slate-200">{title}</p>
               <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{body}</p>
@@ -246,21 +236,24 @@ export const LandingPage: React.FC = () => {
       </section>
 
       <section id="platform" className="public-shell-container py-16">
-        <div className="grid gap-6 xl:grid-cols-[0.88fr,1.12fr]">
+        <div className="grid gap-6 xl:grid-cols-[0.86fr,1.14fr]">
           <MotionReveal className="editorial-band pr-4 lg:pr-10">
-            <div className="premium-kicker">Platform</div>
+            <div className="surface-label">
+              <Sparkles className="h-3.5 w-3.5" />
+              Platform pillars
+            </div>
             <h2 className="mt-5 text-3xl font-bold text-white sm:text-4xl">
-              A workflow built around how DeFi arbitrage desks actually operate.
+              The frontend should make operators faster, calmer, and more informed.
             </h2>
             <p className="mt-5 max-w-xl text-base leading-8 text-slate-300">
-              The public site should create trust, but the product itself has to carry the real weight:
-              signal discovery, validation, runtime control, and state clarity under pressure.
+              That means better hierarchy, stronger status semantics, fintech-grade copy, and
+              layouts that explain the product before the user ever enters the workspace.
             </p>
             <div className="mt-8 space-y-4">
               {[
-                'See the whole path from research to runtime, not disconnected product fragments.',
-                'Feel latency awareness and telemetry density in the UX before the user even logs in.',
-                'Reduce the confidence gap between marketing promise and operational reality.',
+                'Premium public pages that explain the operating model before auth.',
+                'Authentication screens that reinforce security and next-step clarity.',
+                'Operator chrome that keeps command surfaces, environment, and navigation visible.',
               ].map((line) => (
                 <div key={line} className="flex items-start gap-3 text-sm text-slate-300">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-300" />
@@ -271,14 +264,10 @@ export const LandingPage: React.FC = () => {
           </MotionReveal>
 
           <div className="grid gap-5 md:grid-cols-2">
-            {pillars.map((pillar, index) => {
+            {platformPillars.map((pillar, index) => {
               const Icon = pillar.icon;
               return (
-                <MotionReveal
-                  key={pillar.title}
-                  delayMs={index * 70}
-                  className="micro-panel p-6"
-                >
+                <MotionReveal key={pillar.title} delayMs={index * 70} className="signal-card px-6 py-6">
                   <div className="w-fit rounded-[1.1rem] border border-slate-800 bg-slate-950/80 p-3 text-cyan-200">
                     <Icon className="h-5 w-5" />
                   </div>
@@ -291,22 +280,21 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="public-shell-container py-16">
+      <section id="workflow" className="public-shell-container py-16">
         <MotionReveal className="mb-8">
-          <div className="premium-kicker">Operating Loop</div>
+          <div className="surface-label">
+            <Command className="h-3.5 w-3.5" />
+            Workflow
+          </div>
           <h2 className="mt-4 max-w-3xl text-3xl font-bold text-white sm:text-4xl">
-            A product flow that mirrors the operator decision cycle.
+            A product flow shaped around how a trading desk actually works.
           </h2>
         </MotionReveal>
         <div className="grid gap-5 lg:grid-cols-3">
-          {operatingLoop.map((item, index) => (
-            <MotionReveal
-              key={item.step}
-              delayMs={index * 80}
-              className="micro-panel p-6"
-            >
+          {workflowStages.map((item, index) => (
+            <MotionReveal key={item.label} delayMs={index * 80} className="signal-card px-6 py-6">
               <div className="inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
-                Step {item.step}
+                Step {item.label}
               </div>
               <h3 className="mt-5 text-2xl font-semibold text-white">{item.title}</h3>
               <p className="mt-4 text-sm leading-7 text-slate-400">{item.description}</p>
@@ -315,166 +303,181 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      <section id="why" className="public-shell-container py-16">
-        <div className="grid gap-6 xl:grid-cols-[1fr,0.92fr]">
-          <MotionReveal className="editorial-band pr-4 lg:pr-10">
-            <div className="premium-kicker">Why Teams Switch</div>
-            <h2 className="mt-5 text-3xl font-bold text-white sm:text-4xl">
-              Most products stop at charts. Operators need decisions.
-            </h2>
-            <div className="mt-8 space-y-4">
-              {[
-                'Know which strategies are actually robust instead of drowning in fragmented backtest output.',
-                'Understand runtime health and execution state without babysitting multiple disconnected surfaces.',
-                'Move from polished product experience into an operator workspace that still feels intentional and premium.',
-              ].map((line) => (
-                <div key={line} className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-300" />
-                  <p className="text-sm leading-7 text-slate-300">{line}</p>
-                </div>
-              ))}
-            </div>
-          </MotionReveal>
-
-          <MotionReveal delayMs={120} className="editorial-band">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">What Users Feel</p>
-            <div className="mt-6 space-y-4">
-              {[
-                ['Clarity', 'The platform explains why a strategy matters before asking the operator to trust a live runtime.'],
-                ['Control', 'Once inside, the product behaves like an execution environment, not an admin interface.'],
-                ['Confidence', 'Streaming telemetry, dense data surfaces, and structured workflows reduce hesitation.'],
-              ].map(([title, body]) => (
-                <div key={title} className="micro-panel p-5">
-                  <p className="text-lg font-semibold text-white">{title}</p>
-                  <p className="mt-2 text-sm leading-7 text-slate-400">{body}</p>
-                </div>
-              ))}
-            </div>
-          </MotionReveal>
-        </div>
-      </section>
-
       <section className="public-shell-container py-16">
-        <MotionReveal className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="premium-kicker">Subscriptions</div>
-            <h2 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
-              Fee models that align with trading outcomes.
-            </h2>
-          </div>
-          <Link to="/pricing" className="inline-flex items-center gap-2 text-sm font-medium text-cyan-300 hover:text-cyan-200">
-            See full pricing details
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </MotionReveal>
-        <div className="grid gap-5 lg:grid-cols-3">
-          {plans.map((plan, index) => (
-            <MotionReveal
-              key={plan.name}
-              delayMs={index * 90}
-              className={`p-7 ${
-                plan.featured
-                  ? 'micro-panel micro-panel-strong'
-                  : 'micro-panel'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{plan.name}</p>
-                  <p className="mt-4 text-4xl font-semibold text-white">{plan.price}</p>
+        <div className="grid gap-6 xl:grid-cols-[1fr,0.95fr]">
+          <MotionReveal className="signal-card signal-card-strong px-6 py-6 sm:px-8">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="surface-label">
+                  <Activity className="h-3.5 w-3.5" />
+                  Control-room preview
                 </div>
-                {plan.featured ? (
-                  <div className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-200">
-                    Recommended
-                  </div>
-                ) : null}
+                <h2 className="mt-4 max-w-2xl text-3xl font-bold text-white">
+                  More terminal-grade signal, less generic admin clutter.
+                </h2>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
+                  Tables, panels, and status chips should immediately explain what is healthy,
+                  what is changing, and what needs operator attention.
+                </p>
               </div>
-              <p className="mt-4 text-sm leading-7 text-slate-400">{plan.description}</p>
-              <div className="mt-6 space-y-3">
-                {plan.bullets.map((bullet) => (
-                  <div key={bullet} className="flex items-start gap-3 text-sm text-slate-300">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-300" />
-                    <span>{bullet}</span>
-                  </div>
-                ))}
+              <div className="hidden rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 lg:block">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Last updated</p>
+                <p className="mt-1 text-sm font-semibold text-cyan-300">Live stream active</p>
               </div>
-            </MotionReveal>
-          ))}
+            </div>
+
+            <div className="table-preview mt-6">
+              <div className="table-preview-row bg-slate-950/82 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                <span>Strategy</span>
+                <span>Status</span>
+                <span>Return</span>
+                <span>Sharpe</span>
+              </div>
+              {tableRows.map((row, index) => (
+                <div
+                  key={row[0]}
+                  className={`table-preview-row text-sm ${index % 2 === 0 ? 'bg-slate-950/34' : 'bg-slate-900/28'}`}
+                >
+                  <div>
+                    <p className="font-medium text-white">{row[0]}</p>
+                    <p className="mt-1 text-xs text-slate-500">Primary metric with supporting context</p>
+                  </div>
+                  <span
+                    className={`font-medium ${
+                      row[1] === 'Healthy stream'
+                        ? 'text-emerald-300'
+                        : row[1] === 'Reconnecting'
+                          ? 'text-amber-300'
+                          : 'text-cyan-300'
+                    }`}
+                  >
+                    {row[1]}
+                  </span>
+                  <span className="font-semibold text-emerald-300">{row[2]}</span>
+                  <span className="font-medium text-slate-200">{row[3]}</span>
+                </div>
+              ))}
+            </div>
+          </MotionReveal>
+
+          <div className="grid gap-5">
+            {[
+              {
+                title: 'Navigation built for operators',
+                body: 'Grouped workflows, a global command palette, and visible environment context make movement cheaper.',
+              },
+              {
+                title: 'Public copy that earns trust',
+                body: 'Messaging should describe how the product operates, not lean on generic crypto hype or vague SaaS language.',
+              },
+              {
+                title: 'Auth that feels premium',
+                body: 'Login and registration should explain access state, security posture, and what comes next.',
+              },
+            ].map((item, index) => (
+              <MotionReveal key={item.title} delayMs={index * 80} className="signal-card px-6 py-6">
+                <p className="text-lg font-semibold text-white">{item.title}</p>
+                <p className="mt-3 text-sm leading-7 text-slate-400">{item.body}</p>
+              </MotionReveal>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section id="faq" className="public-shell-container py-16">
-        <div className="grid gap-8 xl:grid-cols-[0.78fr,1.22fr]">
-          <MotionReveal>
-            <div className="premium-kicker">FAQ</div>
-            <h2 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
-              Questions users ask before they trust a trading platform.
+      <section id="security" className="public-shell-container py-16">
+        <div className="grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">
+          <MotionReveal className="editorial-band pr-4 lg:pr-10">
+            <div className="surface-label">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Security and trust
+            </div>
+            <h2 className="mt-5 text-3xl font-bold text-white sm:text-4xl">
+              Trust is a UX requirement in fintech, not a marketing subsection.
             </h2>
-            <p className="mt-4 max-w-xl text-base leading-8 text-slate-400">
-              The public website needs to answer credibility questions quickly and then get out of the operator’s way.
+            <p className="mt-5 max-w-xl text-base leading-8 text-slate-300">
+              Users should understand access state, onboarding posture, and readiness for live
+              operation without reading docs or guessing what happens next.
             </p>
+          </MotionReveal>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            {[
+              ['Security-aware onboarding', 'Login and registration explicitly explain invitation status, account readiness, and next steps.'],
+              ['Role-sensitive workspace', 'Navigation and controls are grouped by workflow and filtered by operator responsibility.'],
+              ['Live-state semantics', 'Healthy, reconnecting, degraded, and active states use predictable color and copy patterns.'],
+              ['Consistent CTA strategy', 'Public pages lead into evaluation, pricing, or sign-in without forcing users through unclear paths.'],
+            ].map(([title, body], index) => (
+              <MotionReveal key={title} delayMs={index * 70} className="signal-card px-6 py-6">
+                <p className="text-lg font-semibold text-white">{title}</p>
+                <p className="mt-3 text-sm leading-7 text-slate-400">{body}</p>
+              </MotionReveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" className="public-shell-container pb-24 pt-10">
+        <MotionReveal className="mb-8">
+          <div className="surface-label">
+            <ChevronDown className="h-3.5 w-3.5" />
+            FAQ
+          </div>
+          <h2 className="mt-4 max-w-3xl text-3xl font-bold text-white sm:text-4xl">
+            Clear answers before the user commits to the workspace.
+          </h2>
+        </MotionReveal>
+
+        <div className="grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
+          <MotionReveal className="signal-card signal-card-strong px-6 py-6">
+            <h3 className="text-2xl font-semibold text-white">Start with trust, then prove speed.</h3>
+            <p className="mt-3 text-sm leading-7 text-slate-300">
+              The strongest fintech products do both: they make the model understandable and the
+              operator workflow feel obviously competent.
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <Link
+                to="/register"
+                className="premium-button premium-button-primary justify-center rounded-[1.3rem] px-6 py-3.5 text-sm font-semibold text-white"
+              >
+                Enter evaluation
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/pricing"
+                className="premium-button premium-button-secondary justify-center rounded-[1.3rem] px-6 py-3.5 text-sm font-medium"
+              >
+                Explore subscriptions
+              </Link>
+            </div>
           </MotionReveal>
 
           <div className="space-y-4">
             {faqs.map((faq, index) => {
               const isOpen = openFaq === index;
               return (
-                <MotionReveal
-                  key={faq.q}
-                  delayMs={index * 70}
-                  className="faq-card micro-panel p-2"
-                >
+                <MotionReveal key={faq.q} delayMs={index * 60}>
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-4 rounded-[1.2rem] px-4 py-4 text-left"
-                    onClick={() => setOpenFaq(isOpen ? -1 : index)}
-                    aria-expanded={isOpen}
+                    onClick={() => setOpenFaq(index)}
+                    className="faq-card signal-card w-full px-6 py-5 text-left"
                   >
-                    <div>
-                      <p className="text-lg font-semibold text-white">{faq.q}</p>
-                      <p className="mt-1 text-sm text-slate-500">Trust, workflow quality, and execution readiness</p>
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-base font-semibold text-white">{faq.q}</p>
+                      <ChevronDown
+                        className={`h-5 w-5 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                      />
                     </div>
-                    <ChevronDown
-                      className={`h-5 w-5 shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-cyan-300' : ''}`}
-                    />
+                    <div className={`faq-answer mt-3 ${isOpen ? 'is-open' : ''}`}>
+                      <div>
+                        <p className="text-sm leading-7 text-slate-400">{faq.a}</p>
+                      </div>
+                    </div>
                   </button>
-                  <div className={`faq-answer px-4 pb-4 ${isOpen ? 'is-open' : ''}`}>
-                    <div>
-                      <p className="text-sm leading-7 text-slate-400">{faq.a}</p>
-                    </div>
-                  </div>
                 </MotionReveal>
               );
             })}
           </div>
         </div>
-      </section>
-
-      <section className="public-shell-container pb-24 pt-6">
-        <MotionReveal className="editorial-band overflow-hidden px-1 py-8 sm:px-2 lg:px-0">
-          <div className="grid gap-8 lg:grid-cols-[1.15fr,0.85fr] lg:items-end">
-            <div>
-              <div className="premium-kicker">Launch</div>
-              <h2 className="mt-4 max-w-3xl text-3xl font-bold text-white sm:text-4xl">
-                Start with research clarity. Scale into live arbitrage when the edge is proven.
-              </h2>
-              <p className="mt-4 max-w-2xl text-base leading-8 text-slate-300">
-                The website should feel like the first layer of the platform: confident, legible, and aligned with how the product actually behaves under load.
-              </p>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {[
-                ['Evaluation first', 'Explore the platform before any capital-linked fee is activated.'],
-                ['Live-ready UX', 'Promote strategies into an operator cockpit built for state-aware execution.'],
-              ].map(([title, body]) => (
-                <div key={title} className="micro-panel p-5">
-                  <p className="text-lg font-semibold text-white">{title}</p>
-                  <p className="mt-2 text-sm leading-7 text-slate-400">{body}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </MotionReveal>
       </section>
     </PublicSiteShell>
   );

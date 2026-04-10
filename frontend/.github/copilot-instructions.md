@@ -1,5 +1,7 @@
 # dYdX Trading Bot Frontend - AI Coding Agent Instructions
 
+Preferred service agent: `.github/agents/senior-react-defi-product.agent.md`
+
 ## Project Overview
 
 React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Frontend uses the Go backend on `localhost:8888`, which orchestrates/proxies Bot API operations.
@@ -203,7 +205,7 @@ BacktestRunner form submit
 ```
 BacktestDetailsPage mounts
   → useBacktestProgress hook initializes
-  → Opens WebSocket: ws://localhost/ws/backtest/{runId}?token=JWT
+  → Opens WebSocket through backend: ws://localhost:8888/api/v1/backtests/{runId}/live?access_token=JWT
   → On message: Update progress state (% complete, current pair)
   → On close: Log "🔌 Disconnected from backtest progress"
 ```

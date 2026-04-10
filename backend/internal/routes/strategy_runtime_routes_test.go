@@ -300,6 +300,10 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 	status := "stopped"
 
 	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"ready":true,"blockers":[],"warnings":[]}}`))
+	})
 	upstreamMux.HandleFunc("/api/v1/bots", func(w http.ResponseWriter, r *http.Request) {
 		upstreamAuthHeaderCh <- r.Header.Get("Authorization")
 		defer func() {
@@ -370,7 +374,7 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 		return payload
 	}
 
-	startPayload := request(http.MethodPost, "/api/v1/strategies/101/start")
+	startPayload := request(http.MethodPost, "/api/v1/strategies/101/start?network=testnet")
 	runtimePayload := request(http.MethodGet, "/api/v1/strategies/101/runtime")
 	stopPayload := request(http.MethodPost, "/api/v1/strategies/101/stop?force=true")
 
@@ -427,6 +431,73 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("timeout waiting for upstream auth header")
 		}
+	}
+}
+
+func TestStrategyRuntimeReadinessRoute(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode preflight payload: %v", err)
+		}
+		credentials, _ := payload["credentials"].(map[string]interface{})
+		if got := credentials["chain_id"]; got != "dydx-testnet-4" {
+			t.Fatalf("expected testnet chain_id, got %#v", got)
+		}
+		tradingParams, _ := payload["trading_params"].(map[string]interface{})
+		if got := int(tradingParams["subaccount_number"].(float64)); got != 0 {
+			t.Fatalf("expected subaccount 0, got %d", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"selected_runtime_network":"testnet","selected_subaccount":0,"wallet_ready":true,"account_exists":true,"available_collateral":250.0,"equity":250.0,"open_positions":0,"usd_per_trade":10.0,"usd_min_collateral":100.0,"capital_allocation_usd":1000.0,"trade_size_to_collateral_ratio":0.04,"sufficient_for_trade_size":true,"sufficient_for_min_collateral":true,"ready":true,"blockers":[],"warnings":[]}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/101/start-readiness?network=testnet", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("readiness request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected readiness status: %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode readiness response: %v", err)
+	}
+	data, _ := payload["data"].(map[string]interface{})
+	if ready, _ := data["ready"].(bool); !ready {
+		t.Fatalf("expected readiness ready=true, got %#v", data["ready"])
+	}
+	if got, _ := data["selected_runtime_network"].(string); got != "testnet" {
+		t.Fatalf("expected selected_runtime_network=testnet, got %q", got)
+	}
+	if _, ok := data["selected_subaccount"].(float64); !ok {
+		t.Fatalf("expected selected_subaccount number in readiness payload, got %#v", data["selected_subaccount"])
+	}
+	if _, ok := data["blockers"].([]interface{}); !ok {
+		t.Fatalf("expected blockers array in readiness payload, got %#v", data["blockers"])
+	}
+	if _, ok := data["warnings"].([]interface{}); !ok {
+		t.Fatalf("expected warnings array in readiness payload, got %#v", data["warnings"])
+	}
+	if _, ok := data["available_collateral"].(float64); !ok {
+		t.Fatalf("expected available_collateral number in readiness payload, got %#v", data["available_collateral"])
 	}
 }
 
@@ -542,7 +613,7 @@ func TestStrategyRuntimeStartRequiresActiveKey(t *testing.T) {
 	defer backendServer.Close()
 	token := loginStrategyRuntimeUser(t, backendServer.URL)
 
-	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -554,6 +625,77 @@ func TestStrategyRuntimeStartRequiresActiveKey(t *testing.T) {
 		var payload map[string]interface{}
 		_ = json.NewDecoder(resp.Body).Decode(&payload)
 		t.Fatalf("expected 400 when no key is configured, got %d payload=%v", resp.StatusCode, payload)
+	}
+}
+
+func TestStrategyRuntimeStartRequiresExplicitNetworkSelection(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request start runtime without network: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected 400 when runtime network query is missing, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode missing-network response: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(fmt.Sprintf("%v", payload["error"])), "network") {
+		t.Fatalf("expected network-specific validation error, got %v", payload["error"])
+	}
+}
+
+func TestStrategyRuntimeStartBlocksWhenReadinessFails(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"selected_runtime_network":"testnet","selected_subaccount":0,"wallet_ready":false,"account_exists":false,"available_collateral":0.0,"equity":0.0,"open_positions":0,"usd_per_trade":10.0,"usd_min_collateral":100.0,"capital_allocation_usd":1000.0,"trade_size_to_collateral_ratio":null,"sufficient_for_trade_size":false,"sufficient_for_min_collateral":false,"ready":false,"blockers":["No collateral available for the selected subaccount."],"warnings":[]}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request readiness-gated start runtime: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected 400 when readiness fails, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode readiness failure response: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(fmt.Sprintf("%v", payload["error"])), "readiness failed") {
+		t.Fatalf("expected readiness failure in response error, got %v", payload["error"])
 	}
 }
 
@@ -620,6 +762,10 @@ func TestStrategyRuntimeStartRequiresConfirmBeforeForceRecreate(t *testing.T) {
 	)
 
 	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"ready":true,"blockers":[],"warnings":[]}}`))
+	})
 	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -676,7 +822,7 @@ func TestStrategyRuntimeStartRequiresConfirmBeforeForceRecreate(t *testing.T) {
 	defer backendServer.Close()
 	token := loginStrategyRuntimeUser(t, backendServer.URL)
 
-	firstReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	firstReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
 	firstReq.Header.Set("Authorization", "Bearer "+token)
 	firstResp, err := http.DefaultClient.Do(firstReq)
 	if err != nil {
@@ -698,7 +844,7 @@ func TestStrategyRuntimeStartRequiresConfirmBeforeForceRecreate(t *testing.T) {
 		t.Fatalf("expected recreate confirmation hint, got %v", firstPayload["error"])
 	}
 
-	secondReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?force_recreate=true", nil)
+	secondReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet&force_recreate=true", nil)
 	secondReq.Header.Set("Authorization", "Bearer "+token)
 	secondResp, err := http.DefaultClient.Do(secondReq)
 	if err != nil {
@@ -722,6 +868,10 @@ func TestStrategyRuntimeStartRequiresConfirmBeforeForceRecreate(t *testing.T) {
 
 func TestStrategyRuntimeStartMapsDuplicateInstanceMessageToConflict(t *testing.T) {
 	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"ready":true,"blockers":[],"warnings":[]}}`))
+	})
 	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("unexpected method for runtime instance endpoint: %s", r.Method)
@@ -740,7 +890,7 @@ func TestStrategyRuntimeStartMapsDuplicateInstanceMessageToConflict(t *testing.T
 	defer backendServer.Close()
 	token := loginStrategyRuntimeUser(t, backendServer.URL)
 
-	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start", nil)
+	req, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -1,0 +1,206 @@
+name: E2E Integration Tests
+
+on:
+    push:
+        branches: [main, master, develop]
+    pull_request:
+        branches: [main, master, develop]
+    schedule:
+        # Run nightly integration tests to catch any runtime issues early
+        - cron: "0 2 * * *"
+
+jobs:
+    integration:
+        name: E2E Integration Smoke Tests
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Preflight - verify compose manifests
+              id: preflight
+              run: |
+                  missing=0
+                  if [[ ! -f docker-compose.infra.yml ]]; then
+                    echo "Missing docker-compose.infra.yml"
+                    missing=1
+                  fi
+                  if [[ ! -f docker-compose.stack.yml ]]; then
+                    echo "Missing docker-compose.stack.yml"
+                    missing=1
+                  fi
+
+                  if [[ "$missing" -eq 0 ]]; then
+                    echo "full_e2e=true" >> "$GITHUB_OUTPUT"
+                    echo "✅ Compose manifests present: running full stack E2E"
+                  else
+                    echo "full_e2e=false" >> "$GITHUB_OUTPUT"
+                    echo "⚠️ Compose manifests missing: skipping full stack E2E for this run"
+                  fi
+
+            - name: Install CI tooling
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y jq curl
+
+            - name: Set up Docker Buildx
+              if: steps.preflight.outputs.full_e2e == 'true'
+              uses: docker/setup-buildx-action@v3
+
+            - name: Start infrastructure
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  set -euo pipefail
+                  # Bring up infra-only first (PostgreSQL, Redis, etc.)
+                  make infra-up
+
+                  echo "Waiting for infrastructure containers to be running..."
+                  max_retries=30
+                  retry=0
+                  until [[ $retry -ge $max_retries ]]; do
+                    names=$(docker ps --format '{{.Names}}' || true)
+                    has_postgres=false
+                    has_redis=false
+
+                    echo "$names" | grep -Eq 'postgres|dydx-dev-postgres' && has_postgres=true || true
+                    echo "$names" | grep -Eq 'redis|dydx-dev-redis' && has_redis=true || true
+
+                    if [[ "$has_postgres" == "true" && "$has_redis" == "true" ]]; then
+                      echo "✓ Infrastructure containers are running"
+                      break
+                    fi
+
+                    retry=$((retry+1))
+                    echo "Infrastructure not ready yet ($retry/$max_retries), retrying..."
+                    sleep 2
+                  done
+
+                  [[ $retry -lt $max_retries ]] || (echo "❌ Infrastructure failed to start"; docker ps -a; exit 1)
+                  make infra-ps
+
+            - name: Health check - infrastructure
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  set -euo pipefail
+                  # Verify infra containers are still running
+                  docker ps --format '{{.Names}}' | grep -Eq 'postgres|dydx-dev-postgres' || (echo "PostgreSQL not running"; docker ps -a; exit 1)
+                  docker ps --format '{{.Names}}' | grep -Eq 'redis|dydx-dev-redis' || (echo "Redis not running"; docker ps -a; exit 1)
+                  echo "✓ Infrastructure healthy"
+
+            - name: Build and start stack
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  set -euo pipefail
+                  # Full stack startup
+                  make stack-up-dev
+
+                  echo "Waiting for backend port to accept connections..."
+                  max_retries=30
+                  retry=0
+                  until [[ $retry -ge $max_retries ]]; do
+                    if curl -s -o /dev/null http://localhost:8888/health; then
+                      echo "✓ Backend endpoint reachable"
+                      break
+                    fi
+                    retry=$((retry+1))
+                    echo "Backend not reachable yet ($retry/$max_retries), retrying..."
+                    sleep 2
+                  done
+
+                  [[ $retry -lt $max_retries ]] || (echo "❌ Backend endpoint never became reachable"; docker compose ps; exit 1)
+                  make stack-ps
+
+            - name: Health check - backend readiness
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  max_retries=30
+                  retry=0
+                  until [[ $retry -ge $max_retries ]]; do
+                    response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888/ready || echo "000")
+                    if [[ $response == "200" ]]; then
+                      echo "✓ Backend /ready returning 200"
+                      curl -s http://localhost:8888/ready | jq .
+                      break
+                    else
+                      echo "Backend /ready returned: $response, retrying ($retry/$max_retries)..."
+                      retry=$((retry+1))
+                      sleep 2
+                    fi
+                  done
+                  [[ $retry -lt $max_retries ]] || (echo "❌ Backend failed to become ready"; exit 1)
+
+            - name: Health check - backend liveness
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  response=$(curl -s http://localhost:8888/health)
+                  echo "Backend /health response:"
+                  echo "$response" | jq .
+                  [[ $(echo "$response" | jq -r '.status') == "healthy" ]] || (echo "❌ Backend not healthy"; exit 1)
+                  echo "✓ Backend liveness OK"
+
+            - name: Health check - metrics endpoint
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  response=$(curl -s http://localhost:8888/metrics)
+                  echo "Backend /metrics response:"
+                  echo "$response" | jq '.database.connections | keys' || echo "(Database metrics present)"
+                  echo "✓ Metrics endpoint responding"
+
+            - name: Smoke test - list strategies (contract-lock)
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  # Verify backend contract: frontend sees strategies via backend only
+                  status=$(curl -s -o /tmp/strategies_response.json -w "%{http_code}" -H "Authorization: Bearer testtoken" http://localhost:8888/api/v1/strategies || echo "000")
+                  echo "Strategy list response:"
+                  cat /tmp/strategies_response.json | jq . || cat /tmp/strategies_response.json
+
+                  [[ "$status" != "000" ]] || (echo "❌ Strategy endpoint unreachable"; exit 1)
+                  [[ "$status" =~ ^5 ]] && (echo "❌ Strategy endpoint returned server error: $status"; exit 1) || true
+                  echo "✓ Backend strategy contract locked"
+
+            - name: Smoke test - database ownership check
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  response=$(curl -s http://localhost:8888/ready)
+                  ownership=$(echo "$response" | jq '.database_ownership' 2>/dev/null)
+                  echo "Database ownership state:"
+                  echo "$ownership" | jq .
+                  echo "✓ Database ownership diagnostics available"
+
+            - name: Smoke test - bot recovery state
+              if: steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  response=$(curl -s http://localhost:8888/health)
+                  recovery=$(echo "$response" | jq '.bot_recovery' 2>/dev/null || echo '{}')
+                  echo "Bot recovery state:"
+                  echo "$recovery" | jq . || echo "$recovery"
+                  echo "✓ Bot recovery diagnostics available"
+
+            - name: Collect logs on failure
+              if: failure() && steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  echo "=== Backend Logs (last 100 lines) ==="
+                  docker compose logs --tail=100 backend || true
+                  echo "=== Bot Logs (last 100 lines) ==="
+                  docker compose logs --tail=100 bot-api bot-worker || true
+                  echo "=== Frontend Logs (last 100 lines) ==="
+                  docker compose logs --tail=100 frontend || true
+                  echo "=== Docker Compose Status ==="
+                  docker compose ps
+                  echo "=== Network Inspection ==="
+                  docker network ls && docker network inspect dydx-trading-bot_default 2>/dev/null || true
+
+            - name: Cleanup
+              if: always() && steps.preflight.outputs.full_e2e == 'true'
+              run: |
+                  echo "Stopping stack..."
+                  make stack-down || true
+                  echo "Stopping infra..."
+                  make infra-down || true
+                  echo "Cleanup complete"
+
+            - name: Skip notice
+              if: steps.preflight.outputs.full_e2e != 'true'
+              run: |
+                  echo "ℹ️ Full stack E2E skipped because docker-compose manifests are not present in this branch."

@@ -126,12 +126,15 @@ func loadStructuredConfigEnv() {
 	log.Printf("Warning: structured config not found; using existing process environment variables")
 }
 
-//nolint:nolintlint,gocyclo
 func main() {
+	startTime := time.Now()
 	loadStructuredConfigEnv()
 
 	config.LoadConfig()
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
+	if err := validateDatabaseOwnership(config.ConfigInstance); err != nil {
+		log.Fatalf("Invalid database ownership configuration: %v", err)
+	}
 	if err := services.ValidateEncryptionKeyConfiguration(); err != nil {
 		log.Fatalf("Invalid encryption configuration: %v", err)
 	}
@@ -206,6 +209,7 @@ func main() {
 
 	// Health check endpoint (liveness with dependency visibility).
 	router.GET("/health", func(c *gin.Context) {
+		dbOwnership := buildDatabaseOwnershipDiagnostics(config.ConfigInstance)
 		dbHealthy := true
 		dbError := ""
 		if err := database.Health(); err != nil {
@@ -222,15 +226,19 @@ func main() {
 		botRecovery := extractBotRecoveryPayload(botPayload)
 		// Get database stats
 		stats := database.GetStats()
+
+		// P2.13: Add operational metrics
 		c.JSON(200, gin.H{
-			"status": "healthy",
-			"live":   true,
+			"status":    "healthy",
+			"live":      true,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 			"dependencies": gin.H{
 				"database_healthy": dbHealthy,
 				"bot_api_healthy":  botHealthy,
 			},
-			"bot_api":      botSnapshot,
-			"bot_recovery": botRecovery,
+			"database_ownership": dbOwnership,
+			"bot_api":            botSnapshot,
+			"bot_recovery":       botRecovery,
 			"database": gin.H{
 				"healthy":             dbHealthy,
 				"error":               dbError,
@@ -242,11 +250,26 @@ func main() {
 				"max_idle_closed":     stats.MaxIdleClosed,
 				"max_lifetime_closed": stats.MaxLifetimeClosed,
 			},
+			"service": gin.H{
+				"version":        "1.0.0",
+				"uptime_seconds": time.Since(startTime).Seconds(),
+			},
 		})
 	})
 
 	// Readiness check endpoint (strict dependency validation for deploy gates).
 	router.GET("/ready", func(c *gin.Context) {
+		dbOwnership := buildDatabaseOwnershipDiagnostics(config.ConfigInstance)
+		if dbOwnership.BlockingViolation {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":             "not_ready",
+				"ready":              false,
+				"component":          "database_ownership",
+				"database_ownership": dbOwnership,
+			})
+			return
+		}
+
 		if err := database.Health(); err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status":    "not_ready",
@@ -276,11 +299,42 @@ func main() {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"status":         "ready",
-			"ready":          true,
-			"bot_api":        botSnapshot,
-			"bot_recovery":   botRecovery,
-			"checked_at_utc": time.Now().UTC().Format(time.RFC3339),
+			"status":             "ready",
+			"ready":              true,
+			"database_ownership": dbOwnership,
+			"bot_api":            botSnapshot,
+			"bot_recovery":       botRecovery,
+			"checked_at_utc":     time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	// P2.13: Operational metrics endpoint for observability.
+	router.GET("/metrics", func(c *gin.Context) {
+		stats := database.GetStats()
+		botMetricsURL := botAPIURL + "/metrics"
+		botSnapshot, _ := buildDependencySnapshot(botMetricsURL)
+
+		c.JSON(200, gin.H{
+			"timestamp":      time.Now().UTC().Format(time.RFC3339),
+			"uptime_seconds": time.Since(startTime).Seconds(),
+			"database": gin.H{
+				"connections": gin.H{
+					"open":                stats.OpenConnections,
+					"in_use":              stats.InUse,
+					"idle":                stats.Idle,
+					"max_idle_closed":     stats.MaxIdleClosed,
+					"max_lifetime_closed": stats.MaxLifetimeClosed,
+				},
+				"wait_stats": gin.H{
+					"count":    stats.WaitCount,
+					"duration": stats.WaitDuration.String(),
+				},
+			},
+			"bot_api": botSnapshot,
+			"service": gin.H{
+				"version":     "1.0.0",
+				"environment": os.Getenv("ENVIRONMENT"),
+			},
 		})
 	})
 

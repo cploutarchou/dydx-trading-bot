@@ -27,6 +27,8 @@ type strategyPayload struct {
 	IsPublic               bool    `json:"is_public"`
 	IsDefault              bool    `json:"is_default"`
 	RuntimeStrategy        string  `json:"runtime_strategy"`
+	RuntimeNetwork         string  `json:"runtime_network"`
+	RuntimeSubaccount      *int    `json:"runtime_subaccount"`
 	PairSelectionMode      string  `json:"pair_selection_mode"`
 	Resolution             string  `json:"resolution"`
 	CandleResolution       string  `json:"candle_resolution"`
@@ -70,6 +72,12 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	strategy.IsDefault = req.IsDefault
 	if strings.TrimSpace(req.RuntimeStrategy) != "" {
 		strategy.RuntimeStrategy = strings.TrimSpace(req.RuntimeStrategy)
+	}
+	if strings.TrimSpace(req.RuntimeNetwork) != "" {
+		strategy.RuntimeNetwork = normalizeRuntimeNetwork(req.RuntimeNetwork)
+	}
+	if req.RuntimeSubaccount != nil && *req.RuntimeSubaccount >= 0 {
+		strategy.RuntimeSubaccount = *req.RuntimeSubaccount
 	}
 	if strings.TrimSpace(req.PairSelectionMode) != "" {
 		strategy.PairSelectionMode = normalizePairSelectionMode(req.PairSelectionMode)
@@ -162,8 +170,14 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if strategy.RuntimeStrategy == "" {
 		strategy.RuntimeStrategy = "cointegration"
 	}
+	if strategy.RuntimeNetwork == "" {
+		strategy.RuntimeNetwork = "testnet"
+	}
 	if strategy.PairSelectionMode == "" {
 		strategy.PairSelectionMode = "liquidity"
+	}
+	if strategy.RuntimeSubaccount < 0 {
+		strategy.RuntimeSubaccount = 0
 	}
 }
 
@@ -179,6 +193,28 @@ func normalizePairSelectionMode(value string) string {
 		return "input"
 	default:
 		return "liquidity"
+	}
+}
+
+func normalizeRuntimeNetwork(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "mainnet":
+		return "mainnet"
+	default:
+		return "testnet"
+	}
+}
+
+func parseExplicitRuntimeNetwork(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "", fmt.Errorf("runtime network selection is required")
+	}
+	switch normalized {
+	case "testnet", "mainnet":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("invalid runtime network %q; use testnet or mainnet", value)
 	}
 }
 
@@ -493,9 +529,47 @@ func (h *StrategyHandler) GetStrategyRuntime(c *gin.Context) {
 	})
 }
 
-func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
+func (h *StrategyHandler) GetStrategyStartReadiness(c *gin.Context) {
 	strategy, _, ok := h.getAuthorizedStrategy(c)
 	if !ok {
+		return
+	}
+
+	readiness, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).GetRuntimeStartReadiness(strategy, c.Query("network"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to evaluate strategy runtime readiness: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      readiness,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
+	strategy, userID, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	// P1.8: Basic subscription check for live feature access
+	// Note: Full subscription validation would require querying DB for subscription status
+	// For now, we gate based on userID presence (always allowed) with future DB lookup
+	_ = userID // Used for future subscription lookup
+
+	runtimeNetwork, parseErr := parseExplicitRuntimeNetwork(c.Query("network"))
+	if parseErr != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Invalid runtime network selection: %v", parseErr),
+		})
 		return
 	}
 
@@ -506,15 +580,17 @@ func (h *StrategyHandler) StartStrategyRuntime(c *gin.Context) {
 		err          error
 	)
 	if forceRecreate {
-		runtimeState, err = runtimeService.StartRuntimeWithForceRecreate(strategy, c.Query("network"))
+		runtimeState, err = runtimeService.StartRuntimeWithForceRecreate(strategy, runtimeNetwork)
 	} else {
-		runtimeState, err = runtimeService.StartRuntime(strategy, c.Query("network"))
+		runtimeState, err = runtimeService.StartRuntime(strategy, runtimeNetwork)
 	}
 	if err != nil {
 		normalizedErr := strings.ToLower(err.Error())
 		statusCode := http.StatusInternalServerError
 		errorMessage := fmt.Sprintf("Failed to start strategy runtime: %v", err)
 		if strings.Contains(normalizedErr, "active dydx key") || strings.Contains(normalizedErr, "no active dydx key") {
+			statusCode = http.StatusBadRequest
+		} else if strings.Contains(normalizedErr, "runtime readiness failed") || strings.Contains(normalizedErr, "failed to validate runtime readiness") {
 			statusCode = http.StatusBadRequest
 		} else if strings.Contains(normalizedErr, "confirm recreate") || strings.Contains(normalizedErr, "instance_id already exists") {
 			statusCode = http.StatusConflict

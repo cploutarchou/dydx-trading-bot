@@ -21,6 +21,12 @@ type User struct {
 	LastLogin              *time.Time `db:"last_login" json:"last_login"`
 	CreatedAt              time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt              time.Time  `db:"updated_at" json:"updated_at"`
+	// P1.8: Subscription fields
+	SubscriptionPlan      string     `db:"subscription_plan" json:"subscription_plan"`
+	SubscriptionStatus    string     `db:"subscription_status" json:"subscription_status"`
+	SubscriptionExpiresAt *time.Time `db:"subscription_expires_at" json:"subscription_expires_at"`
+	TrialStartedAt        *time.Time `db:"trial_started_at" json:"trial_started_at"`
+	TrialEndsAt           *time.Time `db:"trial_ends_at" json:"trial_ends_at"`
 }
 
 // ==================== DYDX KEY MODELS ====================
@@ -60,6 +66,42 @@ type ExternalAPICredential struct {
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
 }
 
+// ==================== SUBSCRIPTION MODELS (P1.8) ====================
+
+type Subscription struct {
+	ID                    int        `db:"id" json:"id"`
+	UserID                int        `db:"user_id" json:"user_id"`
+	Plan                  string     `db:"plan" json:"plan"`     // explorer, performance, enterprise
+	Status                string     `db:"status" json:"status"` // trial, active, expired, canceled
+	ProfitSharePercentage float64    `db:"profit_share_percentage" json:"profit_share_percentage"`
+	StartedAt             time.Time  `db:"started_at" json:"started_at"`
+	ExpiresAt             *time.Time `db:"expires_at" json:"expires_at"`
+	CanceledAt            *time.Time `db:"canceled_at" json:"canceled_at"`
+	TrialStartedAt        *time.Time `db:"trial_started_at" json:"trial_started_at"`
+	TrialEndsAt           *time.Time `db:"trial_ends_at" json:"trial_ends_at"`
+	CreatedAt             time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt             time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+// SubscriptionFeature represents gated product features by subscription tier
+type SubscriptionFeature struct {
+	ID              int       `db:"id" json:"id"`
+	FeatureName     string    `db:"feature_name" json:"feature_name"`
+	Description     string    `db:"description" json:"description"`
+	ExplorerTier    bool      `db:"explorer_tier" json:"explorer_tier"`
+	PerformanceTier bool      `db:"performance_tier" json:"performance_tier"`
+	EnterpriseTier  bool      `db:"enterprise_tier" json:"enterprise_tier"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+}
+
+type SubscriptionGate struct {
+	ID        int    `db:"id" json:"id"`
+	UserID    int    `db:"user_id" json:"user_id"`
+	FeatureID int    `db:"feature_id" json:"feature_id"`
+	Blocked   bool   `db:"blocked" json:"blocked"`
+	Reason    string `db:"reason" json:"reason"`
+}
+
 // ==================== STRATEGY MODELS ====================
 
 type BacktestStrategy struct {
@@ -71,6 +113,8 @@ type BacktestStrategy struct {
 	IsPublic               bool       `db:"is_public" json:"is_public"`
 	IsDefault              bool       `db:"is_default" json:"is_default"`
 	RuntimeStrategy        string     `db:"runtime_strategy" json:"runtime_strategy"`
+	RuntimeNetwork         string     `db:"runtime_network" json:"runtime_network"`
+	RuntimeSubaccount      int        `db:"runtime_subaccount" json:"runtime_subaccount"`
 	PairSelectionMode      string     `db:"pair_selection_mode" json:"pair_selection_mode"`
 	ZscoreThreshold        float64    `db:"zscore_threshold" json:"zscore_threshold"`
 	StatsWindow            int        `db:"stats_window" json:"stats_window"`

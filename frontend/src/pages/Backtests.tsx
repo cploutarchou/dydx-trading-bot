@@ -17,6 +17,7 @@ import api from '../api';
 import { BacktestList } from '../components/BacktestList';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
+import { TerminalDataGrid, type TerminalColumn } from '../components/TerminalDataGrid';
 import {
   type BacktestRun,
   buildIntelligence,
@@ -38,7 +39,7 @@ const StatCard: React.FC<{
   hint: string;
   icon: React.ReactNode;
 }> = ({ label, value, hint, icon }) => (
-  <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5 backdrop-blur-sm">
+  <div className="operator-stat-card p-5">
     <div className="mb-3 flex items-start justify-between">
       <div className="rounded-xl bg-blue-500/10 p-2 text-blue-400">{icon}</div>
       <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
@@ -55,7 +56,7 @@ const InsightCard: React.FC<{
   accent: string;
   secondary: string;
 }> = ({ title, icon, aggregate, accent, secondary }) => (
-  <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5 backdrop-blur-sm">
+  <div className="operator-section-card p-5">
     <div className="mb-4 flex items-center gap-3">
       <div className={`rounded-xl p-2 ${accent}`}>{icon}</div>
       <div>
@@ -132,6 +133,87 @@ export const BacktestsPage: React.FC = () => {
     () => buildBacktestIntelRequest(intelligence.topRuns, 1),
     [intelligence.topRuns]
   );
+  const strategyColumns = useMemo<TerminalColumn<StrategyAggregate>[]>(
+    () => [
+      {
+        key: 'strategy',
+        label: 'Strategy / Setup',
+        sortable: true,
+        sortValue: (row) => row.label,
+        render: (row) => (
+          <div>
+            <p className="font-medium text-white">{row.label}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {row.completedRuns} completed
+              {row.activeRuns > 0 ? ` · ${row.activeRuns} active` : ''}
+              {row.lastRunAt ? ` · last run ${formatDateTime(row.lastRunAt)}` : ''}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: 'runs',
+        label: 'Runs',
+        align: 'right',
+        sortable: true,
+        sortValue: (row) => row.totalRuns,
+        render: (row) => (
+          <div>
+            <p className="font-semibold text-slate-100">{row.totalRuns}</p>
+            <p className="mt-1 text-xs text-slate-500">total observed</p>
+          </div>
+        ),
+      },
+      {
+        key: 'pnl',
+        label: 'Total P&L',
+        align: 'right',
+        sortable: true,
+        sortValue: (row) => row.totalPnl,
+        render: (row) => (
+          <div>
+            <p className={`font-semibold ${row.totalPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+              {formatCurrency(row.totalPnl)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              avg {formatCurrency(row.avgPnlPerRun)}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: 'sharpe',
+        label: 'Sharpe',
+        align: 'right',
+        sortable: true,
+        sortValue: (row) => row.avgSharpe,
+        render: (row) => (
+          <div>
+            <p className="font-semibold text-slate-100">{row.avgSharpe.toFixed(2)}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              drawdown {formatPercent(row.avgDrawdownPct)}
+            </p>
+          </div>
+        ),
+      },
+      {
+        key: 'winrate',
+        label: 'Win Rate',
+        align: 'right',
+        sortable: true,
+        sortValue: (row) => row.avgWinRatePct,
+        render: (row) => (
+          <div>
+            <p className="font-semibold text-slate-100">{formatPercent(row.avgWinRatePct)}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              profitable {formatPercent(row.profitabilityRatePct)}
+            </p>
+          </div>
+        ),
+      },
+    ],
+    []
+  );
 
   if (backtestsQuery.isLoading) {
     return (
@@ -168,51 +250,62 @@ export const BacktestsPage: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      <section
-        className="relative overflow-hidden rounded-3xl border border-slate-700/60 px-6 py-6 sm:px-8"
-        style={{
-          background:
-            'linear-gradient(135deg, rgba(15,23,42,.96) 0%, rgba(17,24,39,.94) 45%, rgba(12,74,110,.28) 100%)',
-        }}
-      >
-        <div className="absolute -right-20 top-0 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
-        <div className="absolute -bottom-12 left-0 h-40 w-40 rounded-full bg-emerald-500/10 blur-3xl" />
-
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+      <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
+        <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
+          <div>
+            <div className="surface-label">
               <Sparkles className="h-3.5 w-3.5" />
-              Backtest Intelligence
+              Backtest intelligence
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              See every backtest, and understand which strategies actually deserve trust.
+            <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              See every run, then decide which strategy actually deserves trust.
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Rankings below are built from completed runs and weighted toward profitability, risk-adjusted
-              return, consistency, and drawdown discipline so you can spot the strongest setups quickly.
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
+              This page is tuned like a research control room: live activity near the top, weighted
+              quality metrics, terminal-grade strategy ranking, and clearer notes about what should
+              and should not influence promotion decisions.
             </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <div className="operator-status-pill" data-tone="accent">
+                <Activity className="h-3.5 w-3.5" />
+                {intelligence.activeRuns > 0
+                  ? `${intelligence.activeRuns} active run${intelligence.activeRuns === 1 ? '' : 's'}`
+                  : 'No active runs'}
+              </div>
+              <div className="operator-status-pill" data-tone="positive">
+                <Award className="h-3.5 w-3.5" />
+                {formatPercent(intelligence.profitableRatePct)} profitable completed runs
+              </div>
+              <div className="operator-status-pill" data-tone="warning">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Drawdown discipline stays weighted in rankings
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
+          <div className="operator-mini-grid">
+            <div className="operator-hero-panel px-4 py-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Runs</p>
-              <p className="mt-1 text-xl font-semibold text-white">{intelligence.totalRuns}</p>
+              <p className="mt-2 text-xl font-semibold text-white">{intelligence.totalRuns}</p>
+              <p className="mt-1 text-xs text-slate-500">All loaded backtests</p>
             </div>
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
+            <div className="operator-hero-panel px-4 py-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Completed</p>
-              <p className="mt-1 text-xl font-semibold text-white">{intelligence.completedRuns}</p>
+              <p className="mt-2 text-xl font-semibold text-white">{intelligence.completedRuns}</p>
+              <p className="mt-1 text-xs text-slate-500">Eligible for ranking</p>
             </div>
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Active</p>
-              <p className="mt-1 text-xl font-semibold text-cyan-300">{intelligence.activeRuns}</p>
+            <div className="operator-hero-panel px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Tracked setups</p>
+              <p className="mt-2 text-xl font-semibold text-white">{intelligence.strategies.length}</p>
+              <p className="mt-1 text-xs text-slate-500">Named strategy groups</p>
             </div>
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Tracked Setups</p>
-              <p className="mt-1 text-xl font-semibold text-white">{intelligence.strategies.length}</p>
+            <div className="operator-hero-panel px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Average Sharpe</p>
+              <p className="mt-2 text-xl font-semibold text-white">{intelligence.avgSharpe.toFixed(2)}</p>
+              <p className="mt-1 text-xs text-slate-500">Completed runs only</p>
             </div>
           </div>
         </div>
-
       </section>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -272,76 +365,60 @@ export const BacktestsPage: React.FC = () => {
       />
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
-        <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-800/60 backdrop-blur-sm">
-          <div className="border-b border-slate-700/60 px-6 py-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Strategy Leaderboard</h2>
-                <p className="mt-1 text-sm text-slate-400">
-                  Weighted for profitability, Sharpe, consistency, and drawdown discipline.
-                </p>
-              </div>
-              <span className="rounded-full border border-slate-600 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
-                {intelligence.strategies.length} ranked
-              </span>
+        <TerminalDataGrid
+          title="Strategy leaderboard"
+          subtitle="Sortable ranking weighted for profitability, Sharpe, consistency, and drawdown discipline."
+          rows={intelligence.strategies}
+          columns={strategyColumns}
+          rowKey={(row) => row.key}
+          searchPlaceholder="Search strategy names or setups"
+          getSearchText={(row) =>
+            [row.label, String(row.strategyId ?? ''), String(row.totalRuns)].join(' ')
+          }
+          metrics={[
+            {
+              label: 'Ranked',
+              value: intelligence.strategies.length,
+              detail: 'strategy groups',
+            },
+            {
+              label: 'Best P&L',
+              value: intelligence.bestStrategy
+                ? formatCurrency(intelligence.bestStrategy.totalPnl)
+                : '—',
+              detail: intelligence.bestStrategy?.label || 'awaiting completed runs',
+              tone: intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0 ? 'positive' : 'default',
+            },
+            {
+              label: 'Safest Drawdown',
+              value: intelligence.safestStrategy
+                ? formatPercent(intelligence.safestStrategy.avgDrawdownPct)
+                : '—',
+              detail: intelligence.safestStrategy?.label || 'awaiting drawdown data',
+              tone: 'accent',
+            },
+            {
+              label: 'Avg Sharpe',
+              value: intelligence.avgSharpe.toFixed(2),
+              detail: 'completed runs only',
+            },
+          ]}
+          liveBadge={
+            <span className="operator-status-pill" data-tone={intelligence.activeRuns > 0 ? 'accent' : 'positive'}>
+              {intelligence.activeRuns > 0 ? `${intelligence.activeRuns} live` : 'Stable'}
+            </span>
+          }
+          defaultSortKey="pnl"
+          emptyState={
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-6 text-sm text-slate-400">
+              No completed backtests yet. Launch your first run from the dashboard and the
+              leaderboard will populate here.
             </div>
-          </div>
-
-          {intelligence.strategies.length === 0 ? (
-            <div className="px-6 py-10 text-sm text-slate-400">
-              No completed backtests yet. Launch your first backtest from the dashboard and rankings will appear here.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-900/45 text-xs uppercase tracking-[0.16em] text-slate-500">
-                  <tr>
-                    <th className="px-6 py-3 text-left">Rank</th>
-                    <th className="px-6 py-3 text-left">Strategy / Setup</th>
-                    <th className="px-6 py-3 text-right">Runs</th>
-                    <th className="px-6 py-3 text-right">Total P&amp;L</th>
-                    <th className="px-6 py-3 text-right">Win Rate</th>
-                    <th className="px-6 py-3 text-right">Sharpe</th>
-                    <th className="px-6 py-3 text-right">Drawdown</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {intelligence.strategies.slice(0, 8).map((strategy, index) => (
-                    <tr key={strategy.key} className="border-t border-slate-700/50 text-slate-300">
-                      <td className="px-6 py-4">
-                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-600 bg-slate-900/70 text-xs font-semibold text-white">
-                          {index + 1}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-white">{strategy.label}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {strategy.completedRuns} completed
-                          {strategy.activeRuns > 0 ? ` · ${strategy.activeRuns} active` : ''}
-                          {strategy.lastRunAt ? ` · last run ${formatDateTime(strategy.lastRunAt)}` : ''}
-                        </p>
-                      </td>
-                      <td className="px-6 py-4 text-right">{strategy.totalRuns}</td>
-                      <td
-                        className={`px-6 py-4 text-right font-semibold ${
-                          strategy.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        {formatCurrency(strategy.totalPnl)}
-                      </td>
-                      <td className="px-6 py-4 text-right">{formatPercent(strategy.avgWinRatePct)}</td>
-                      <td className="px-6 py-4 text-right">{strategy.avgSharpe.toFixed(2)}</td>
-                      <td className="px-6 py-4 text-right">{formatPercent(strategy.avgDrawdownPct)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+          }
+        />
 
         <div className="space-y-6">
-          <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5 backdrop-blur-sm">
+          <div className="operator-section-card p-5">
             <div className="mb-4 flex items-center gap-3">
               <div className="rounded-xl bg-blue-500/10 p-2 text-blue-400">
                 <TrendingUp className="h-5 w-5" />
@@ -398,7 +475,7 @@ export const BacktestsPage: React.FC = () => {
             )}
           </div>
 
-          <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5 backdrop-blur-sm">
+          <div className="operator-section-card p-5">
             <div className="mb-4 flex items-center gap-3">
               <div className="rounded-xl bg-cyan-500/10 p-2 text-cyan-400">
                 <Activity className="h-5 w-5" />
@@ -418,15 +495,17 @@ export const BacktestsPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="space-y-4">
+      <section className="operator-section-card p-5 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold text-white">All Backtests</h2>
-            <p className="text-sm text-slate-400">Every run, with live updates for active jobs.</p>
+            <p className="text-sm text-slate-400">
+              Every run, with soft refresh behavior for active jobs and detail views one click away.
+            </p>
           </div>
           <Link
             to="/dashboard"
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
+            className="premium-button premium-button-secondary rounded-[1rem] px-4 py-2 text-sm"
           >
             Launch a new backtest
             <ArrowRight className="h-4 w-4" />

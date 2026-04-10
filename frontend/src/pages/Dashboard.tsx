@@ -149,17 +149,16 @@ const KpiCard: React.FC<KpiCardProps> = ({
   const c = colorMap[color];
   return (
     <div
-      className={`relative bg-slate-800/60 backdrop-blur-sm border ${c.border} rounded-xl p-5
-        transition-all duration-300 hover:bg-slate-800 hover:shadow-xl cursor-default animate-fade-slide-up`}
+      className={`operator-stat-card border ${c.border} cursor-default p-5 transition-all duration-300 hover:border-cyan-500/20 hover:bg-slate-900/80 animate-fade-slide-up`}
       style={{ animationDelay: `${animDelay}ms` }}
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className={`p-2.5 rounded-lg ${c.bg}`}>
+      <div className="mb-3 flex items-start justify-between">
+        <div className={`rounded-xl p-2.5 ${c.bg}`}>
           <div className={c.icon}>{icon}</div>
         </div>
         {trend && trend !== 'neutral' && (
           <span
-            className={`text-xs font-medium flex items-center gap-0.5 ${trend === 'up' ? 'text-green-400' : 'text-red-400'}`}
+            className={`flex items-center gap-0.5 text-xs font-medium ${trend === 'up' ? 'text-green-400' : 'text-red-400'}`}
           >
             {trend === 'up' ? (
               <TrendingUp className="w-3.5 h-3.5" />
@@ -169,9 +168,9 @@ const KpiCard: React.FC<KpiCardProps> = ({
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-white tracking-tight">{value}</p>
-      <p className="text-xs text-slate-400 mt-1">{label}</p>
-      {subtitle && <p className="text-[11px] text-slate-500 mt-0.5">{subtitle}</p>}
+      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-bold tracking-tight text-white">{value}</p>
+      {subtitle && <p className="mt-1 text-[11px] text-slate-500">{subtitle}</p>}
     </div>
   );
 };
@@ -182,7 +181,7 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
   const pct = Math.min(100, Math.max(0, run.progress_pct ?? 0));
   const isRunning = run.status.toUpperCase() === 'RUNNING';
   return (
-    <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 space-y-2">
+    <div className="operator-action-card p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className="relative flex h-2 w-2 shrink-0">
@@ -197,13 +196,13 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
             {(run.name || run.run_id).substring(0, 22)}
           </span>
         </div>
-        <span className="text-xs text-slate-400 tabular-nums shrink-0 ml-2">
+        <span className="ml-2 shrink-0 text-xs tabular-nums text-slate-400">
           {pct > 0 ? `${pct.toFixed(1)}%` : '…'}
         </span>
       </div>
-      <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
         <div
-          className="h-1.5 rounded-full bg-blue-500 transition-all duration-700"
+          className="h-1.5 rounded-full bg-cyan-500 transition-all duration-700"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -237,10 +236,10 @@ const StrategySpotlightCard: React.FC<{
   secondaryMetric,
   emptyMessage,
 }) => (
-  <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5 backdrop-blur-sm">
+  <div className="operator-section-card p-5">
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="flex items-center gap-3">
-        <div className={`rounded-xl p-2 ${accentClass}`}>{icon}</div>
+        <div className={`rounded-xl p-2.5 ${accentClass}`}>{icon}</div>
         <div>
           <p className="text-sm font-semibold text-white">{title}</p>
           <p className="text-xs text-slate-500">{subtitle}</p>
@@ -545,69 +544,185 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      {/* ── Hero ────────────────────────────────────────────────────── */}
-      <div
-        className="relative rounded-2xl overflow-hidden border border-slate-700/60 animate-fade-in"
-        style={{
-          background:
-            'linear-gradient(135deg,rgba(30,41,59,.9) 0%,rgba(15,23,42,.95) 60%,rgba(20,30,50,.9) 100%)',
-        }}
-      >
-        <div className="absolute -top-20 -right-20 w-72 h-72 bg-blue-600/8 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-purple-600/8 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <section className="operator-hero animate-fade-in px-6 py-6 sm:px-8 sm:py-8">
+        <div className="relative grid gap-6 xl:grid-cols-[1.18fr,0.82fr]">
           <div>
-            <p className="text-slate-400 text-sm">{greeting},</p>
-            <h1 className="text-2xl font-bold text-white mt-0.5">
-              {user?.username ?? 'Trader'} <span className="gradient-text">👋</span>
+            <div className="surface-label">
+              <Sparkles className="h-3.5 w-3.5" />
+              Operator command center
+            </div>
+            <h1 className="mt-5 max-w-3xl text-3xl font-bold text-white sm:text-4xl">
+              {greeting}, {user?.username ?? 'Trader'}.
             </h1>
-            <p className="text-slate-500 text-sm mt-1">
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
+              This workspace is now tuned more like a trading control room: live status close to the
+              top, quick actions near decision surfaces, and performance context that stays stable
+              while runs are active.
             </p>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <div className="operator-status-pill" data-tone="accent">
+                <Clock className="h-3.5 w-3.5" />
+                <LiveClock />
+              </div>
+              <div
+                className="operator-status-pill"
+                data-tone={stats.running > 0 ? 'accent' : 'positive'}
+              >
+                <span className={`h-2 w-2 rounded-full ${stats.running > 0 ? 'bg-cyan-300 animate-pulse' : 'bg-emerald-300'}`} />
+                {stats.running > 0
+                  ? `${stats.running} active ${stats.running === 1 ? 'run' : 'runs'}`
+                  : 'No active runs'}
+              </div>
+              <div
+                className="operator-status-pill"
+                data-tone={stats.totalPnl >= 0 ? 'positive' : 'danger'}
+              >
+                {stats.totalPnl >= 0 ? (
+                  <TrendingUp className="h-3.5 w-3.5" />
+                ) : (
+                  <TrendingDown className="h-3.5 w-3.5" />
+                )}
+                {fmtPnl(stats.totalPnl)} lifetime P&amp;L
+              </div>
+            </div>
+
+            <div className="operator-mini-grid mt-6">
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Date</p>
+                <p className="mt-2 text-sm font-semibold text-white">
+                  {new Date().toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">Operator context stays visible</p>
+              </div>
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Completed</p>
+                <p className="mt-2 text-xl font-semibold text-white">{stats.completed}</p>
+                <p className="mt-1 text-xs text-slate-500">Runs available for quality scoring</p>
+              </div>
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Trades simulated</p>
+                <p className="mt-2 text-xl font-semibold text-white">{fmtN(countTrades)}</p>
+                <p className="mt-1 text-xs text-slate-500">Across every loaded run</p>
+              </div>
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Best Sharpe</p>
+                <p className="mt-2 text-xl font-semibold text-white">{stats.bestSharpe.toFixed(2)}</p>
+                <p className="mt-1 text-xs text-slate-500">Current top risk-adjusted score</p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <div className="flex items-center gap-2 text-slate-300">
-              <Clock className="w-4 h-4 text-blue-400" />
-              <LiveClock />
-            </div>
-            {stats.running > 0 && (
-              <div className="flex items-center gap-2 text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-1.5 text-xs font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                {stats.running} active {stats.running === 1 ? 'run' : 'runs'}
+          <div className="grid gap-4">
+            <div className="operator-hero-panel px-5 py-5">
+              <div className="flex items-start gap-3">
+                <div className="premium-icon-wrap text-cyan-300">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Live readiness</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">
+                    The dashboard keeps active run visibility, sync health, and launch controls near
+                    the top so operators do not have to hunt across the app during execution.
+                  </p>
+                </div>
               </div>
-            )}
-            <div
-              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium border ${
-                stats.totalPnl >= 0
-                  ? 'text-green-300 bg-green-500/10 border-green-500/20'
-                  : 'text-red-300 bg-red-500/10 border-red-500/20'
-              }`}
-            >
-              {stats.totalPnl >= 0 ? (
-                <TrendingUp className="w-3.5 h-3.5" />
-              ) : (
-                <TrendingDown className="w-3.5 h-3.5" />
-              )}
-              {fmtPnl(stats.totalPnl)} lifetime P&L
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="metric-tile px-4 py-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Quality signal</p>
+                  <p className="mt-2 text-sm font-semibold text-emerald-300">
+                    {stats.bestWinRate > 0 ? fmtPct(stats.bestWinRate) : 'Awaiting completed runs'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Best observed win rate</p>
+                </div>
+                <div className="metric-tile px-4 py-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Average run</p>
+                  <p
+                    className={`mt-2 text-sm font-semibold ${
+                      stats.avgPnlPerRun >= 0 ? 'text-emerald-300' : 'text-rose-300'
+                    }`}
+                  >
+                    {fmtPnl(stats.avgPnlPerRun)}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Mean P&amp;L across completed runs</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setLauncherOpen((open) => !open)}
+                className="operator-action-card p-4 text-left"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl bg-cyan-500/10 p-2.5 text-cyan-300">
+                    <Rocket className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Quick launch</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      {launcherOpen ? 'Collapse the launch form' : 'Open the backtest launcher'}
+                    </p>
+                  </div>
+                </div>
+              </button>
+              <Link to="/backtests" className="operator-action-card p-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl bg-emerald-500/10 p-2.5 text-emerald-300">
+                    <Target className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Backtest intelligence</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Open rankings, strategy trust signals, and the full run archive.
+                    </p>
+                  </div>
+                </div>
+              </Link>
+              <Link to="/bots" className="operator-action-card p-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-300">
+                    <Play className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Bot runtime</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Monitor health, degraded state, and instance actions from the runtime desk.
+                    </p>
+                  </div>
+                </div>
+              </Link>
+              <Link to="/codex" className="operator-action-card p-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl bg-blue-500/10 p-2.5 text-blue-300">
+                    <Newspaper className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Market context</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Keep macro and asset context close to research and runtime decisions.
+                    </p>
+                  </div>
+                </div>
+              </Link>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {statsError && (
-        <div className="rounded-xl border border-red-700/60 bg-red-900/25 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-2xl border border-red-700/60 bg-red-950/30 px-4 py-3 text-sm text-red-200">
           {statsError}
         </div>
       )}
 
-      {/* ── KPI row 1 ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard
           label="Total Runs"
@@ -684,44 +799,6 @@ export const DashboardPage: React.FC = () => {
           animDelay={420}
         />
       </div>
-
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-        <CoinDeskNewsPanel compact />
-        <div className="premium-panel">
-          <div className="flex items-start gap-3">
-            <div className="premium-icon-wrap text-cyan-300">
-              <Newspaper className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">Market context, not just metrics</h2>
-              <p className="mt-1 text-sm leading-6 text-slate-400">
-                Use the newsroom and market-intel workspace together so client-facing decisions feel
-                informed, current, and grounded in real market regime changes.
-              </p>
-            </div>
-          </div>
-          <div className="mt-5 grid grid-cols-1 gap-3">
-            <Link
-              to="/news"
-              className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-950/70"
-            >
-              <p className="text-sm font-semibold text-white">Open Market News</p>
-              <p className="mt-1 text-xs text-slate-400">
-                See the full CoinDesk-powered newsroom view.
-              </p>
-            </Link>
-            <Link
-              to="/codex"
-              className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-950/70"
-            >
-              <p className="text-sm font-semibold text-white">Open Market Intel</p>
-              <p className="mt-1 text-xs text-slate-400">
-                Inspect movers, safer tokens, and asset context in one place.
-              </p>
-            </Link>
-          </div>
-        </div>
-      </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
         <StrategySpotlightCard
@@ -834,151 +911,180 @@ export const DashboardPage: React.FC = () => {
 
       <CodexAssetIntelStrip title="Strategy Asset Context" request={spotlightIntelRequest} />
 
-      {/* ── Equity curve ────────────────────────────────────────────── */}
-      <div
-        className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 animate-fade-slide-up"
-        style={{ animationDelay: '200ms' }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-base font-semibold text-white flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" style={{ color: pnlColor }} />
-              Cumulative P&L Curve
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Completed backtest returns over time · Powered by TradingView
-            </p>
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.22fr,0.78fr]">
+        <div className="operator-section-card p-5 animate-fade-slide-up" style={{ animationDelay: '200ms' }}>
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-base font-semibold text-white">
+                <TrendingUp className="h-4 w-4" style={{ color: pnlColor }} />
+                Cumulative P&amp;L curve
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Completed backtest returns over time, kept visible as the command-center anchor chart.
+              </p>
+            </div>
+            {pnlTimeSeries.length > 0 && (
+              <div className={`text-lg font-bold ${stats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {fmtPnl(stats.totalPnl)}
+              </div>
+            )}
           </div>
-          {pnlTimeSeries.length > 0 && (
-            <div
-              className={`text-lg font-bold ${stats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+          <CumulativePnlChart
+            data={pnlTimeSeries}
+            height={320}
+            positiveColor="#22c55e"
+            negativeColor="#ef4444"
+          />
+        </div>
+
+        <div className="grid gap-6">
+          <div className="operator-section-card overflow-hidden animate-fade-slide-up" style={{ animationDelay: '280ms' }}>
+            <button
+              type="button"
+              onClick={() => setLauncherOpen((open) => !open)}
+              className="flex w-full items-center justify-between px-5 py-4 transition-colors hover:bg-slate-900/35"
             >
-              {fmtPnl(stats.totalPnl)}
-            </div>
-          )}
-        </div>
-        <CumulativePnlChart
-          data={pnlTimeSeries}
-          height={300}
-          positiveColor="#22c55e"
-          negativeColor="#ef4444"
-        />
-      </div>
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-cyan-500/10 p-2.5 text-cyan-300">
+                  <Rocket className="h-4 w-4" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-white">Quick launch backtest</p>
+                  <p className="text-xs text-slate-400">
+                    Open the runner without leaving the dashboard workflow.
+                  </p>
+                </div>
+              </div>
+              <div className="text-slate-400">
+                {launcherOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+              </div>
+            </button>
 
-      {/* ── Quick Launch + Active Runs ──────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Quick Launch accordion */}
-        <div
-          className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl overflow-hidden animate-fade-slide-up"
-          style={{ animationDelay: '300ms' }}
-        >
-          <button
-            type="button"
-            onClick={() => setLauncherOpen((o) => !o)}
-            className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-700/30 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/15 rounded-lg">
-                <Rocket className="w-4 h-4 text-blue-400" />
+            {launcherOpen && (
+              <div className="border-t border-slate-800/80">
+                <BacktestRunner
+                  onBacktestComplete={() => {
+                    setRefreshTrigger((t) => t + 1);
+                    setLauncherOpen(false);
+                  }}
+                />
               </div>
-              <div className="text-left">
-                <p className="text-sm font-semibold text-white">Quick Launch Backtest</p>
-                <p className="text-xs text-slate-400">Configure and start a new run</p>
-              </div>
-            </div>
-            <div className="text-slate-400">
-              {launcherOpen ? (
-                <ChevronUp className="w-5 h-5" />
-              ) : (
-                <ChevronDown className="w-5 h-5" />
-              )}
-            </div>
-          </button>
-
-          {launcherOpen && (
-            <div className="border-t border-slate-700/60">
-              <BacktestRunner
-                onBacktestComplete={() => {
-                  setRefreshTrigger((t) => t + 1);
-                  setLauncherOpen(false);
-                }}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Active Runs panel */}
-        <div
-          className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-5 flex flex-col animate-fade-slide-up"
-          style={{ animationDelay: '360ms' }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-cyan-500/15 rounded-lg">
-                <Activity className="w-4 h-4 text-cyan-400" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-white">Active Runs</p>
-                <p className="text-xs text-slate-400">Live progress monitor</p>
-              </div>
-            </div>
-            {stats.running > 0 && (
-              <span className="text-xs bg-blue-500/20 border border-blue-500/30 text-blue-300 px-2 py-0.5 rounded-full">
-                {stats.running} running
-              </span>
             )}
           </div>
 
-          {stats.activeRuns.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-10 text-center gap-3">
-              <div className="w-12 h-12 bg-slate-700/50 rounded-full flex items-center justify-center">
-                <Activity className="w-6 h-6 text-slate-500" />
+          <div className="operator-section-card p-5 animate-fade-slide-up" style={{ animationDelay: '340ms' }}>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-cyan-500/10 p-2.5 text-cyan-300">
+                  <Activity className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Active runs</p>
+                  <p className="text-xs text-slate-400">Progress stays visible without leaving the page.</p>
+                </div>
               </div>
-              <p className="text-slate-400 text-sm">No active runs right now</p>
-              <p className="text-slate-500 text-xs">Launch one from Quick Launch ↙</p>
+              <span className="operator-status-pill" data-tone={stats.running > 0 ? 'accent' : 'positive'}>
+                {stats.running > 0 ? `${stats.running} running` : 'Idle'}
+              </span>
             </div>
-          ) : (
-            <div className="space-y-2 overflow-y-auto max-h-72">
-              {stats.activeRuns.map((run) => (
-                <ActiveRunCard key={run.run_id} run={run} />
-              ))}
-            </div>
-          )}
 
-          {stats.completed > 0 && (
-            <div className="mt-4 pt-4 border-t border-slate-700/50 grid grid-cols-3 gap-3 text-center">
+            {stats.activeRuns.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800">
+                  <Activity className="h-6 w-6 text-slate-500" />
+                </div>
+                <p className="text-sm text-slate-400">No active runs right now</p>
+                <p className="text-xs text-slate-500">Use quick launch to start a new research cycle.</p>
+              </div>
+            ) : (
+              <div className="max-h-80 space-y-3 overflow-y-auto">
+                {stats.activeRuns.map((run) => (
+                  <ActiveRunCard key={run.run_id} run={run} />
+                ))}
+              </div>
+            )}
+
+            <div className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-800/70 pt-4 text-center">
               <div>
-                <p className="text-[11px] text-slate-500">Best Win Rate</p>
-                <p className="text-sm font-semibold text-white">{fmtPct(stats.bestWinRate)}</p>
+                <p className="text-[11px] text-slate-500">Best win rate</p>
+                <p className="text-sm font-semibold text-white">{stats.bestWinRate > 0 ? fmtPct(stats.bestWinRate) : '—'}</p>
               </div>
               <div>
                 <p className="text-[11px] text-slate-500">Best Sharpe</p>
-                <p className="text-sm font-semibold text-white">
-                  {stats.bestSharpe > 0 ? stats.bestSharpe.toFixed(2) : '—'}
-                </p>
+                <p className="text-sm font-semibold text-white">{stats.bestSharpe > 0 ? stats.bestSharpe.toFixed(2) : '—'}</p>
               </div>
               <div>
-                <p className="text-[11px] text-slate-500">Avg P&L / Run</p>
-                <p
-                  className={`text-sm font-semibold ${stats.avgPnlPerRun >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                >
-                  {fmtPnl(stats.avgPnlPerRun)}
+                <p className="text-[11px] text-slate-500">Avg P&amp;L / run</p>
+                <p className={`text-sm font-semibold ${stats.avgPnlPerRun >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {stats.completed > 0 ? fmtPnl(stats.avgPnlPerRun) : '—'}
                 </p>
               </div>
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* ── Sync Health ──────────────────────────────────────────────── */}
-      <div className="animate-fade-slide-up" style={{ animationDelay: '390ms' }}>
-        <SyncHealthPanel />
-      </div>
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+        <CoinDeskNewsPanel compact />
+        <div className="grid gap-6">
+          <div className="animate-fade-slide-up" style={{ animationDelay: '390ms' }}>
+            <SyncHealthPanel />
+          </div>
 
-      {/* ── Full Backtest List ──────────────────────────────────────── */}
-      <div className="animate-fade-slide-up" style={{ animationDelay: '420ms' }}>
+          <div className="operator-section-card p-5">
+            <div className="flex items-start gap-3">
+              <div className="premium-icon-wrap text-cyan-300">
+                <Newspaper className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-white">Market context, not just metrics</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-400">
+                  Use the newsroom and market-intel workspace together so operator decisions stay
+                  tied to the broader market regime.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-1 gap-3">
+              <Link
+                to="/news"
+                className="operator-action-card p-4"
+              >
+                <p className="text-sm font-semibold text-white">Open Market News</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  See the full CoinDesk-powered newsroom view.
+                </p>
+              </Link>
+              <Link
+                to="/codex"
+                className="operator-action-card p-4"
+              >
+                <p className="text-sm font-semibold text-white">Open Market Intel</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Inspect movers, safer tokens, and asset context in one place.
+                </p>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="operator-section-card p-5 animate-fade-slide-up" style={{ animationDelay: '420ms' }}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Backtest activity tape</h2>
+            <p className="text-sm text-slate-400">Every run remains visible here with soft refresh behavior for active jobs.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLauncherOpen(true)}
+            className="premium-button premium-button-secondary rounded-[1rem] px-4 py-2 text-sm"
+          >
+            Launch a backtest
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
         <BacktestList refreshTrigger={refreshTrigger} />
-      </div>
+      </section>
     </PageContainer>
   );
 };

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Loader } from 'lucide-react';
+import { ArrowRight, Loader, ShieldCheck, Sparkles } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
@@ -32,21 +32,28 @@ export const LoginPage: React.FC = () => {
     }
   }, [error]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     try {
       await login(username, password);
       navigate('/dashboard');
     } catch (err) {
-      console.error('❌ LoginPage: Error during login:', err);
+      console.error('Login failed:', err);
     }
   };
+
+  const registrationMode =
+    registrationStatusQuery.data?.mode === 'invitation_only'
+      ? 'Invitation only'
+      : registrationStatusQuery.data?.enabled === false
+        ? 'Registration paused'
+        : 'Open evaluation';
 
   return (
     <AuthExperienceShell
       kicker="Welcome back"
-      title="Sign in to your arbitrage workspace"
-      description="Access your subscriptions, live execution surfaces, backtest intelligence, and operator telemetry from one premium DeFi cockpit."
+      title="Sign in to the operator workspace"
+      description="Return to your research, runtime, and command surfaces with clearer access cues and stronger fintech-grade trust messaging."
     >
       {error && (
         <div
@@ -54,15 +61,32 @@ export const LoginPage: React.FC = () => {
           tabIndex={-1}
           role="alert"
           aria-live="assertive"
-          className="mb-4 rounded-2xl border border-red-700 bg-red-950/55 p-4 text-red-200"
+          className="mb-5 rounded-2xl border border-red-700 bg-red-950/55 p-4 text-red-200"
         >
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Access state</p>
+          <p className="mt-2 text-sm font-semibold text-white">{registrationMode}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            Sign-in remains available for existing operators.
+          </p>
+        </div>
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Security posture</p>
+          <p className="mt-2 text-sm font-semibold text-white">Account-first entry</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            Authentication and follow-up security setup happen before live workflow access.
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
-          <label htmlFor="login-username" className="block text-sm font-medium text-slate-300 mb-2">
+          <label htmlFor="login-username" className="mb-2 block text-sm font-medium text-slate-300">
             Username
           </label>
           <input
@@ -71,14 +95,15 @@ export const LoginPage: React.FC = () => {
             autoComplete="username"
             ref={usernameInputRef}
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(event) => setUsername(event.target.value)}
             className="premium-input"
+            placeholder="Enter your operator username"
             required
           />
         </div>
 
         <div>
-          <label htmlFor="login-password" className="block text-sm font-medium text-slate-300 mb-2">
+          <label htmlFor="login-password" className="mb-2 block text-sm font-medium text-slate-300">
             Password
           </label>
           <input
@@ -86,10 +111,14 @@ export const LoginPage: React.FC = () => {
             type="password"
             autoComplete="current-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(event) => setPassword(event.target.value)}
             className="premium-input"
+            placeholder="Enter your password"
             required
           />
+          <p className="mt-2 text-xs text-slate-500">
+            Operators move through account checks before reaching the workspace.
+          </p>
         </div>
 
         <button
@@ -97,33 +126,39 @@ export const LoginPage: React.FC = () => {
           disabled={loading}
           className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {loading && <Loader className="w-4 h-4 animate-spin" />}
-          {loading ? 'Logging in...' : 'Enter Workspace'}
+          {loading && <Loader className="h-4 w-4 animate-spin" />}
+          {loading ? 'Signing in...' : 'Enter workspace'}
         </button>
       </form>
 
-      <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Need access?</p>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-sm text-sm text-slate-400">
-            Choose a subscription path first, then enter the platform through a premium onboarding
-            flow.
-          </p>
+      <div className="signal-card mt-6 px-4 py-4">
+        <div className="grid gap-4 sm:grid-cols-[1fr,auto] sm:items-center">
+          <div>
+            <div className="flex items-center gap-2 text-cyan-300">
+              <ShieldCheck className="h-4 w-4" />
+              <p className="text-sm font-semibold text-white">Need a new operator account?</p>
+            </div>
+            <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
+              Review subscriptions first, then continue through the premium onboarding flow with the
+              right access model for your desk.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => navigate('/pricing')}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-700 hover:text-white"
+            className="premium-button premium-button-secondary justify-center rounded-[1.1rem] px-4 py-3 text-sm"
           >
-            View subscriptions
+            Explore plans
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      <p className="mt-5 text-center text-sm text-slate-400">
+      <div className="mt-6 flex items-center justify-center gap-2 text-center text-sm text-slate-400">
+        <Sparkles className="h-4 w-4 text-cyan-300" />
         {registrationStatusQuery.data?.mode === 'invitation_only' ? (
           <>
-            Registration is invitation-only right now.{' '}
+            Registration is invitation-only right now.
             <button
               type="button"
               onClick={() => navigate('/register')}
@@ -138,17 +173,17 @@ export const LoginPage: React.FC = () => {
           </span>
         ) : (
           <>
-            Don&apos;t have an account?{' '}
+            Don&apos;t have an account?
             <button
               type="button"
               onClick={() => navigate('/register')}
               className="font-medium text-cyan-300 hover:text-cyan-200"
             >
-              Start your evaluation
+              Start evaluation
             </button>
           </>
         )}
-      </p>
+      </div>
     </AuthExperienceShell>
   );
 };

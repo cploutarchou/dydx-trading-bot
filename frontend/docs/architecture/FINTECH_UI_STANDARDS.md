@@ -71,6 +71,8 @@ Use this document as the frontend quality bar for production-grade DeFi surfaces
 ## Shared components to prefer
 
 - `BacktestLightweightChart` for live financial charting
+- `CumulativePnlChart` for dashboard-level equity and cumulative-PnL trend views
+- `createTradingChart` from `src/components/charts/lightweightTheme.ts` for consistent chart styling across surfaces
 - `TerminalDataGrid` for dense searchable fintech tables
 - websocket-managed hooks in `src/api/hooks.ts` for live state
 

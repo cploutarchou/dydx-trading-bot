@@ -1,5 +1,18 @@
-import { AlertCircle, ChevronDown, ChevronUp, Pause, Play, Plus, RefreshCw, Trash2, Zap } from 'lucide-react';
+import {
+  Activity,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Zap,
+} from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { classifyApiError } from '../api';
 import {
   useBotInstances,
@@ -11,6 +24,7 @@ import {
   useStartBotInstance,
   useStopBotInstance,
 } from '../api/hooks';
+import { PageContainer } from './PageContainer';
 
 interface BotInstance {
   instance_id: string;
@@ -151,6 +165,28 @@ const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
   return error instanceof Error ? error.message : fallback;
 };
 
+const formatUsd = (value: number): string =>
+  `${value >= 0 ? '+' : '-'}$${Math.abs(value).toLocaleString('en-US', {
+    maximumFractionDigits: 2,
+  })}`;
+
+const formatDateTime = (value?: string): string => {
+  if (!value) return 'N/A';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return parsed.toLocaleString();
+};
+
+const getStatusTone = (
+  status: BotInstance['status'],
+  degraded?: boolean
+): 'positive' | 'accent' | 'warning' | 'danger' => {
+  if (degraded || status === 'FAILED' || status === 'ERROR') return 'danger';
+  if (status === 'RUNNING') return 'positive';
+  if (status === 'STARTING' || status === 'STOPPING') return 'accent';
+  return 'warning';
+};
+
 interface BotCardProps {
   bot: BotInstance;
   isExpanded: boolean;
@@ -183,33 +219,23 @@ const BotCard: React.FC<BotCardProps> = ({
         ? statsQuery.data
         : null;
   const stats = rawStats ? mapBotStats(rawStats) : { ...EMPTY_BOT_STATS };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'RUNNING':
-        return 'bg-green-100 text-green-800';
-      case 'STOPPED':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'STARTING':
-      case 'STOPPING':
-        return 'bg-blue-100 text-blue-800';
-      case 'FAILED':
-      case 'ERROR':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const statusTone = getStatusTone(bot.status, stats.degraded);
+  const streamLabel = shouldStreamRuntime
+    ? liveStatsQuery.isConnected
+      ? 'Live runtime stream connected'
+      : 'Runtime stream reconnecting'
+    : 'Polling runtime state';
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+    <div className="operator-section-card overflow-hidden">
       <div
-        className="p-4 flex items-center justify-between hover:bg-slate-750 transition cursor-pointer"
+        className="flex cursor-pointer flex-col gap-4 p-5 transition hover:bg-slate-900/20 xl:flex-row xl:items-start xl:justify-between"
         onClick={() => onToggleExpand(bot.instance_id)}
       >
-        <div className="flex items-center gap-4 flex-1">
+        <div className="flex flex-1 items-start gap-4">
           <button
-            className="text-slate-400 hover:text-white"
+            type="button"
+            className="rounded-xl border border-slate-800 bg-slate-950/70 p-2 text-slate-400 hover:text-white"
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(bot.instance_id);
@@ -218,116 +244,160 @@ const BotCard: React.FC<BotCardProps> = ({
             {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </button>
 
-          <div>
-            <h3 className="font-semibold text-white">{bot.instance_name || bot.instance_id}</h3>
-            <p className="text-xs text-slate-500">ID: {bot.instance_id}</p>
-            {isManagedStrategyRuntime(bot) && (
-              <p className="text-xs text-cyan-400">Managed strategy runtime</p>
-            )}
-            <p className="text-sm text-slate-400">
-              Started: {bot.started_at ? new Date(bot.started_at).toLocaleString() : 'Never'}
-            </p>
-            {bot.error_message && <p className="text-xs text-amber-300">{bot.error_message}</p>}
-            {shouldStreamRuntime && (
-              <p className={`text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : 'text-slate-500'}`}>
-                {liveStatsQuery.isConnected ? 'Live runtime stream connected' : 'Runtime stream reconnecting'}
-              </p>
-            )}
-          </div>
-
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(bot.status)}`}>
-            {bot.status}
-          </span>
-
-          <div className="ml-auto text-right">
-            <p className="text-sm font-semibold text-white">
-              P&amp;L:{' '}
-              <span className={stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                ${stats.total_pnl.toFixed(2)}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold text-white">{bot.instance_name || bot.instance_id}</h3>
+              <span className="operator-status-pill" data-tone={statusTone}>
+                {bot.status}
               </span>
-            </p>
-            <p className="text-xs text-slate-400">
-              Positions: {stats.open_positions} open, {stats.closed_positions} closed
-            </p>
-            {stats.degraded && (
-              <p className="text-xs text-amber-300">
-                {stats.warning || 'Runtime stats temporarily unavailable'}
-              </p>
+              {isManagedStrategyRuntime(bot) && (
+                <span className="operator-status-pill" data-tone="accent">
+                  Managed runtime
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">ID: {bot.instance_id}</p>
+            {isManagedStrategyRuntime(bot) && (
+              <p className="mt-1 text-xs text-cyan-400">Managed by strategy runtime workflow</p>
             )}
-            {!stats.degraded && liveStatsQuery.error && (
-              <p className="text-xs text-amber-300">Live runtime stats unavailable</p>
-            )}
+            <p className="mt-2 text-sm text-slate-400">
+              Started: {bot.started_at ? formatDateTime(bot.started_at) : 'Never'}
+            </p>
+            <p className={`mt-1 text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : 'text-slate-500'}`}>
+              {streamLabel}
+            </p>
+            {bot.error_message && <p className="mt-1 text-xs text-amber-300">{bot.error_message}</p>}
           </div>
         </div>
 
-        <div className="flex gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
-          {bot.status === 'RUNNING' ? (
-            <>
-              <button
-                onClick={() => onStop(bot.instance_id)}
-                disabled={actionLoading === `stop:${bot.instance_id}`}
-                className="p-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded transition disabled:opacity-60"
-                title="Stop bot"
-              >
-                <Pause size={18} />
-              </button>
-              <button
-                onClick={() => onRestart(bot.instance_id)}
-                disabled={actionLoading === `restart:${bot.instance_id}`}
-                className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition disabled:opacity-60"
-                title="Restart bot"
-              >
-                <RefreshCw size={18} />
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => onStart(bot.instance_id)}
-              disabled={actionLoading === `start:${bot.instance_id}`}
-              className="p-2 bg-green-600 hover:bg-green-700 text-white rounded transition disabled:opacity-60"
-              title="Start bot"
-            >
-              <Play size={18} />
-            </button>
+        <div className="grid min-w-full gap-3 xl:min-w-[360px]" onClick={(e) => e.stopPropagation()}>
+          <div className="operator-mini-grid">
+            <div className="metric-tile px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Total P&amp;L</p>
+              <p className={`mt-2 text-sm font-semibold ${stats.total_pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                {formatUsd(stats.total_pnl)}
+              </p>
+            </div>
+            <div className="metric-tile px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Open positions</p>
+              <p className="mt-2 text-sm font-semibold text-white">{stats.open_positions}</p>
+            </div>
+            <div className="metric-tile px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Win rate</p>
+              <p className="mt-2 text-sm font-semibold text-white">
+                {(stats.win_rate * 100).toFixed(1)}%
+              </p>
+            </div>
+          </div>
+
+          {(stats.degraded || liveStatsQuery.error) && (
+            <div className="rounded-2xl border border-amber-700/60 bg-amber-950/25 px-4 py-3 text-xs text-amber-200">
+              {stats.warning || 'Runtime stats temporarily unavailable or reconnecting.'}
+            </div>
           )}
-          <button
-            onClick={() => onDelete(bot.instance_id)}
-            disabled={actionLoading === `delete:${bot.instance_id}`}
-            className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition disabled:opacity-60"
-            title="Delete bot"
-          >
-            <Trash2 size={18} />
-          </button>
+
+          <div className="flex flex-wrap gap-2">
+            {bot.status === 'RUNNING' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onStop(bot.instance_id)}
+                  disabled={actionLoading === `stop:${bot.instance_id}`}
+                  className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
+                  title="Stop bot"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Pause size={16} />
+                    Stop
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRestart(bot.instance_id)}
+                  disabled={actionLoading === `restart:${bot.instance_id}`}
+                  className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-60"
+                  title="Restart bot"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <RefreshCw size={16} />
+                    Restart
+                  </span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onStart(bot.instance_id)}
+                disabled={actionLoading === `start:${bot.instance_id}`}
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                title="Start bot"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Play size={16} />
+                  Start
+                </span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onDelete(bot.instance_id)}
+              disabled={actionLoading === `delete:${bot.instance_id}`}
+              className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
+              title="Delete bot"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Trash2 size={16} />
+                Delete
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="bg-slate-750 border-t border-slate-700 p-4 space-y-3">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-slate-800 p-3 rounded">
+        <div className="border-t border-slate-800/80 bg-slate-950/28 p-5 space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="metric-tile p-3">
               <p className="text-xs text-slate-400">Total P&amp;L</p>
               <p
                 className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
               >
-                ${stats.total_pnl.toFixed(2)}
+                {formatUsd(stats.total_pnl)}
               </p>
             </div>
-            <div className="bg-slate-800 p-3 rounded">
+            <div className="metric-tile p-3">
               <p className="text-xs text-slate-400">Win Rate</p>
               <p className="text-lg font-semibold text-white">
                 {(stats.win_rate * 100).toFixed(1)}%
               </p>
             </div>
-            <div className="bg-slate-800 p-3 rounded">
+            <div className="metric-tile p-3">
               <p className="text-xs text-slate-400">Total Trades</p>
               <p className="text-lg font-semibold text-white">{stats.total_trades}</p>
             </div>
           </div>
 
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="metric-tile p-3">
+              <p className="text-xs text-slate-400">Created</p>
+              <p className="text-sm font-semibold text-white">{formatDateTime(bot.created_at)}</p>
+            </div>
+            <div className="metric-tile p-3">
+              <p className="text-xs text-slate-400">Last runtime update</p>
+              <p className="text-sm font-semibold text-white">{formatDateTime(stats.last_update)}</p>
+            </div>
+            <div className="metric-tile p-3">
+              <p className="text-xs text-slate-400">Exposure state</p>
+              <p className="text-sm font-semibold text-white">
+                {stats.open_positions} open / {stats.closed_positions} closed
+              </p>
+            </div>
+          </div>
+
           {bot.configuration && (
-            <div className="bg-slate-800 p-3 rounded">
-              <p className="text-xs text-slate-400 mb-2">Configuration</p>
-              <pre className="text-xs text-slate-300 overflow-auto max-h-32">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-4">
+              <p className="mb-2 text-xs text-slate-400">Configuration</p>
+              <pre className="max-h-32 overflow-auto text-xs text-slate-300">
                 {JSON.stringify(bot.configuration, null, 2)}
               </pre>
             </div>
@@ -494,45 +564,179 @@ const BotManager: React.FC = () => {
   const isCreating = createBotMutation.isPending;
   const isRefreshing = botsQuery.isFetching && bots.length > 0;
   const isInitialLoading = botsQuery.isLoading && bots.length === 0;
+  const runningBots = bots.filter((bot) => bot.status === 'RUNNING').length;
+  const erroredBots = bots.filter((bot) => bot.status === 'FAILED' || bot.status === 'ERROR').length;
+  const transitioningBots = bots.filter(
+    (bot) => bot.status === 'STARTING' || bot.status === 'STOPPING'
+  ).length;
+  const managedBots = bots.filter((bot) => isManagedStrategyRuntime(bot)).length;
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white">Bot Manager</h1>
-          <p className="text-slate-400 mt-1">Create, run, and monitor trading bot instances</p>
+    <PageContainer size="wide" className="space-y-6">
+      <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
+        <div className="relative grid gap-6 xl:grid-cols-[1.12fr,0.88fr]">
+          <div>
+            <div className="surface-label">
+              <Zap className="h-3.5 w-3.5" />
+              Runtime desk
+            </div>
+            <h1 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bot manager</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
+              Manage live instances like an operator surface, not a settings form: health and
+              degraded-state signals first, actions close to each runtime, and clearer create-flow
+              context before credentials are submitted.
+            </p>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <div className="operator-status-pill" data-tone={runningBots > 0 ? 'positive' : 'warning'}>
+                <Activity className="h-3.5 w-3.5" />
+                {runningBots > 0 ? `${runningBots} running` : 'No active bots'}
+              </div>
+              <div className="operator-status-pill" data-tone={erroredBots > 0 ? 'danger' : 'accent'}>
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {erroredBots > 0 ? `${erroredBots} need attention` : 'No runtime failures'}
+              </div>
+              <div className="operator-status-pill" data-tone="accent">
+                {managedBots} managed strategy runtime{managedBots === 1 ? '' : 's'}
+              </div>
+            </div>
+          </div>
+
+          <div className="operator-mini-grid">
+            <div className="operator-hero-panel px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Instances</p>
+              <p className="mt-2 text-xl font-semibold text-white">{bots.length}</p>
+              <p className="mt-1 text-xs text-slate-500">Known bot runtimes</p>
+            </div>
+            <div className="operator-hero-panel px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Transitioning</p>
+              <p className="mt-2 text-xl font-semibold text-white">{transitioningBots}</p>
+              <p className="mt-1 text-xs text-slate-500">Starting or stopping</p>
+            </div>
+            <div className="operator-hero-panel px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Refresh cadence</p>
+              <p className="mt-2 text-xl font-semibold text-white">30s</p>
+              <p className="mt-1 text-xs text-slate-500">Automatic desk refresh</p>
+            </div>
+            <div className="operator-hero-panel px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Boundary</p>
+              <p className="mt-2 text-xl font-semibold text-white">Backend-only</p>
+              <p className="mt-1 text-xs text-slate-500">No direct bot API access from the browser</p>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void refreshBots()}
-            disabled={botsQuery.isFetching}
-            className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition disabled:opacity-60"
-          >
-            <RefreshCw size={18} className={botsQuery.isFetching ? 'animate-spin' : ''} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-          >
-            <Plus size={20} />
-            New Bot
-          </button>
+      </section>
+
+      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <div className="operator-stat-card p-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Running</p>
+          <p className="mt-2 text-2xl font-semibold text-emerald-300">{runningBots}</p>
+          <p className="mt-1 text-xs text-slate-500">Instances currently live</p>
         </div>
-      </div>
+        <div className="operator-stat-card p-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Managed runtimes</p>
+          <p className="mt-2 text-2xl font-semibold text-cyan-300">{managedBots}</p>
+          <p className="mt-1 text-xs text-slate-500">Strategy-linked operators</p>
+        </div>
+        <div className="operator-stat-card p-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Transitioning</p>
+          <p className="mt-2 text-2xl font-semibold text-blue-300">{transitioningBots}</p>
+          <p className="mt-1 text-xs text-slate-500">Starting or stopping now</p>
+        </div>
+        <div className="operator-stat-card p-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Attention needed</p>
+          <p className={`mt-2 text-2xl font-semibold ${erroredBots > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+            {erroredBots}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Failed or error state runtimes</p>
+        </div>
+      </section>
 
       {error && (
-        <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded-lg flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-2xl border border-red-700 bg-red-950/40 px-4 py-3 text-red-100">
           <AlertCircle size={20} />
           {error}
         </div>
       )}
 
-      {showCreateForm && (
-        <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-white">Create New Bot Instance</h2>
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr,1.05fr]">
+        <div className="operator-section-card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Runtime actions</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Refresh runtime state, create a new instance, or move into strategy runtime.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void refreshBots()}
+                disabled={botsQuery.isFetching}
+                className="premium-button premium-button-secondary rounded-[1rem] px-4 py-2 text-sm disabled:opacity-60"
+              >
+                <RefreshCw size={18} className={botsQuery.isFetching ? 'animate-spin' : ''} />
+                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateForm(!showCreateForm)}
+                className="premium-button premium-button-primary rounded-[1rem] px-4 py-2 text-sm text-white"
+              >
+                <Plus size={18} />
+                {showCreateForm ? 'Hide form' : 'New bot'}
+              </button>
+            </div>
+          </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="mt-5 grid gap-3">
+            <Link to="/strategies/manage" className="operator-action-card p-4">
+              <p className="text-sm font-semibold text-white">Open strategy runtime</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Monitor managed strategy processes beside direct bot instances.
+              </p>
+            </Link>
+            <Link to="/settings" className="operator-action-card p-4">
+              <p className="text-sm font-semibold text-white">Review credentials and settings</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Keep operator configuration and credentials aligned before activating new bots.
+              </p>
+            </Link>
+          </div>
+        </div>
+
+        <div className="operator-section-card p-5">
+          <h2 className="text-lg font-semibold text-white">Operator notes</h2>
+          <div className="mt-4 space-y-3">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
+              <p className="text-sm font-semibold text-white">Degraded state should be explicit</p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Live runtime stats can reconnect independently of the instance lifecycle. Treat a
+                reconnecting stream as an operator signal, not a silent failure.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
+              <p className="text-sm font-semibold text-white">Instance creation is operational</p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                The create flow now sits inside the runtime desk so credential, network, and
+                trading-parameter choices feel part of one controlled setup workflow.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {showCreateForm && (
+        <div className="operator-section-card p-6 space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Create new bot instance</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Configure the runtime, credentials, and basic trading parameters before the instance
+              enters the desk.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">Instance ID *</label>
               <input
@@ -540,7 +744,7 @@ const BotManager: React.FC = () => {
                 placeholder="e.g., btc-eth-bot-01"
                 value={createForm.instance_id}
                 onChange={(e) => setCreateForm({ ...createForm, instance_id: e.target.value })}
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white placeholder-slate-400"
+                className="premium-input"
               />
             </div>
 
@@ -549,7 +753,7 @@ const BotManager: React.FC = () => {
               <select
                 value={createForm.chain_id}
                 onChange={(e) => setCreateForm({ ...createForm, chain_id: e.target.value })}
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+                className="premium-input"
               >
                 <option value="dydx-mainnet-1">dYdX Mainnet</option>
                 <option value="dydx-testnet-4">dYdX Testnet</option>
@@ -563,7 +767,7 @@ const BotManager: React.FC = () => {
                 placeholder="dydx1..."
                 value={createForm.address}
                 onChange={(e) => setCreateForm({ ...createForm, address: e.target.value })}
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white placeholder-slate-400"
+                className="premium-input"
               />
             </div>
 
@@ -574,7 +778,7 @@ const BotManager: React.FC = () => {
                 placeholder="Your seed phrase..."
                 value={createForm.mnemonic}
                 onChange={(e) => setCreateForm({ ...createForm, mnemonic: e.target.value })}
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white placeholder-slate-400"
+                className="premium-input"
               />
             </div>
 
@@ -589,7 +793,7 @@ const BotManager: React.FC = () => {
                 onChange={(e) =>
                   setCreateForm({ ...createForm, zscore_threshold: parseFloat(e.target.value) })
                 }
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+                className="premium-input"
               />
             </div>
 
@@ -603,7 +807,7 @@ const BotManager: React.FC = () => {
                 onChange={(e) =>
                   setCreateForm({ ...createForm, max_half_life: parseInt(e.target.value, 10) })
                 }
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+                className="premium-input"
               />
             </div>
 
@@ -616,12 +820,12 @@ const BotManager: React.FC = () => {
                 onChange={(e) =>
                   setCreateForm({ ...createForm, usd_per_trade: parseFloat(e.target.value) })
                 }
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+                className="premium-input"
               />
             </div>
 
             <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mt-6">
+              <label className="mt-6 flex items-center gap-2 text-sm font-medium text-slate-300">
                 <input
                   type="checkbox"
                   checked={createForm.is_testnet}
@@ -635,15 +839,17 @@ const BotManager: React.FC = () => {
 
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={() => void handleCreateBot()}
               disabled={isCreating}
-              className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
+              className="premium-button premium-button-primary flex-1 justify-center rounded-[1rem] px-4 py-3 text-white disabled:opacity-60"
             >
               {isCreating ? 'Creating...' : 'Create Bot'}
             </button>
             <button
+              type="button"
               onClick={() => setShowCreateForm(false)}
-              className="flex-1 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition"
+              className="premium-button premium-button-secondary flex-1 justify-center rounded-[1rem] px-4 py-3"
             >
               Cancel
             </button>
@@ -651,11 +857,23 @@ const BotManager: React.FC = () => {
         </div>
       )}
 
-      <div className="space-y-4">
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Runtime instances</h2>
+            <p className="text-sm text-slate-400">
+              Review each instance with live stream state, action controls, and expanded runtime detail.
+            </p>
+          </div>
+          <span className="operator-status-pill" data-tone={bots.length > 0 ? 'accent' : 'warning'}>
+            {bots.length} instance{bots.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
         {isInitialLoading ? (
-          <div className="text-center text-slate-400 py-8">Loading bots...</div>
+          <div className="operator-section-card py-10 text-center text-slate-400">Loading bots...</div>
         ) : bots.length === 0 ? (
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-8 text-center">
+          <div className="operator-section-card p-8 text-center">
             <Zap size={32} className="mx-auto mb-2 text-slate-500" />
             <p className="text-slate-400">No bot instances yet. Create one to get started!</p>
           </div>
@@ -679,8 +897,8 @@ const BotManager: React.FC = () => {
             );
           })
         )}
-      </div>
-    </div>
+      </section>
+    </PageContainer>
   );
 };
 

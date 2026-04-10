@@ -59,6 +59,18 @@ The current UI direction is production DeFi:
 - responsive layouts across mobile, tablet, and desktop
 - smaller, intentional surfaces instead of oversized marketing boxes
 
+## Shared Product Patterns
+
+- public pages should explain workflow, trust posture, and pricing before auth
+- auth screens should expose access state, security expectations, and next-step clarity
+- workspace chrome should keep grouped navigation, command access, environment context, and operator identity visible
+- operator pages should use control-room headers, compact status pills, and reusable terminal-style cards/grids
+- live-state semantics should stay consistent:
+  - healthy/positive: emerald
+  - live/realtime: cyan
+  - warning/recovering: amber
+  - negative/failure: rose/red
+
 ## Supporting Docs
 
 - [Frontend Architecture Notes](/home/chris/workspace/dydx-trading-bot/frontend/docs/architecture/README.md)

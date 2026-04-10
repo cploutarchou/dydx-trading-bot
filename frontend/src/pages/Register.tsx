@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import { AlertCircle, CheckCircle, Loader, ShieldCheck, Sparkles } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
@@ -62,15 +62,12 @@ export const RegisterPage: React.FC = () => {
   const validateForm = (): ValidationErrors => {
     const errors: ValidationErrors = {};
 
-    // Username validation
     if (formData.username.length < 3) {
       errors.username = 'Username must be at least 3 characters';
-    }
-    if (!/^[a-zA-Z0-9_-]+$/.test(formData.username)) {
+    } else if (!/^[a-zA-Z0-9_-]+$/.test(formData.username)) {
       errors.username = 'Username can only contain letters, numbers, hyphens, and underscores';
     }
 
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
       errors.email = 'Please enter a valid email address';
@@ -83,18 +80,14 @@ export const RegisterPage: React.FC = () => {
       errors.invitationCode = 'Invitation code is required';
     }
 
-    // Password validation
     if (formData.password.length < 8) {
       errors.password = 'Password must be at least 8 characters';
-    }
-    if (!/[A-Z]/.test(formData.password)) {
+    } else if (!/[A-Z]/.test(formData.password)) {
       errors.password = 'Password must contain at least one uppercase letter';
-    }
-    if (!/[0-9]/.test(formData.password)) {
+    } else if (!/[0-9]/.test(formData.password)) {
       errors.password = 'Password must contain at least one number';
     }
 
-    // Confirm password validation
     if (formData.password !== formData.confirmPassword) {
       errors.confirmPassword = 'Passwords do not match';
     }
@@ -109,14 +102,14 @@ export const RegisterPage: React.FC = () => {
     return 'strong';
   };
 
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const password = e.target.value;
+  const handlePasswordChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const password = event.target.value;
     setFormData({ ...formData, password });
     setPasswordStrength(calculatePasswordStrength(password));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setFormError(null);
 
     if (registrationStatusQuery.data?.enabled === false) {
@@ -159,31 +152,47 @@ export const RegisterPage: React.FC = () => {
       );
       navigate('/2fa-setup');
     } catch (err) {
-      console.error('❌ RegisterPage: Registration failed:', err);
-      const errorMsg =
-        err instanceof Error ? err.message : 'Registration failed. Please try again.';
-      console.error('❌ RegisterPage: Error message:', errorMsg);
+      console.error('Registration failed:', err);
     }
   };
 
   return (
     <AuthExperienceShell
-      kicker="Create your operator account"
-      title="Start your premium DeFi arbitrage workspace"
-      description="Register once, then move through security setup into a product built for live execution, research, and operator-grade decision making."
+      kicker="Create operator access"
+      title="Start a premium evaluation account"
+      description="The registration flow now reads more like fintech onboarding: clearer access state, cleaner password guidance, and stronger security framing before the workspace opens."
     >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Registration mode</p>
+          <p className="mt-2 text-sm font-semibold text-white">
+            {registrationStatusQuery.data?.invitation_required ? 'Invitation required' : 'Open evaluation'}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            Account creation flows into security setup before live product use.
+          </p>
+        </div>
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Onboarding standard</p>
+          <p className="mt-2 text-sm font-semibold text-white">Security-aware entry</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            Password quality, invitation state, and next steps are all visible during signup.
+          </p>
+        </div>
+      </div>
+
       {registrationStatusQuery.data?.enabled === false && (
         <div
           role="alert"
           aria-live="polite"
-          className="mb-6 rounded-2xl border border-amber-600/50 bg-amber-950/30 p-4 text-sm text-amber-200"
+          className="mt-5 rounded-2xl border border-amber-600/50 bg-amber-950/30 p-4 text-sm text-amber-200"
         >
           {registrationStatusQuery.data.reason}
         </div>
       )}
 
       {registrationStatusQuery.data?.invitation_required && (
-        <div className="mb-6 rounded-2xl border border-cyan-500/30 bg-cyan-950/30 p-4 text-sm text-cyan-200">
+        <div className="mt-5 rounded-2xl border border-cyan-500/30 bg-cyan-950/30 p-4 text-sm text-cyan-200">
           This workspace is currently invite-only. Enter your invitation code to continue.
         </div>
       )}
@@ -194,10 +203,10 @@ export const RegisterPage: React.FC = () => {
           tabIndex={-1}
           role="alert"
           aria-live="assertive"
-          className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+          className="mt-5 flex items-start gap-3 rounded-2xl border border-red-700 bg-red-950/55 p-4"
         >
-          <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
-          <div className="text-red-200 text-sm">{error}</div>
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
+          <div className="text-sm text-red-200">{error}</div>
         </div>
       )}
 
@@ -207,17 +216,16 @@ export const RegisterPage: React.FC = () => {
           tabIndex={-1}
           role="alert"
           aria-live="assertive"
-          className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg flex items-start gap-3"
+          className="mt-5 flex items-start gap-3 rounded-2xl border border-red-700 bg-red-950/55 p-4"
         >
-          <AlertCircle className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
-          <div className="text-red-200 text-sm">{formError}</div>
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
+          <div className="text-sm text-red-200">{formError}</div>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Username */}
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
-          <label htmlFor="username" className="block text-sm font-medium text-slate-300 mb-2">
+          <label htmlFor="username" className="mb-2 block text-sm font-medium text-slate-300">
             Username
           </label>
           <input
@@ -229,22 +237,21 @@ export const RegisterPage: React.FC = () => {
             aria-invalid={!!validationErrors.username}
             aria-describedby={validationErrors.username ? 'username-error' : undefined}
             value={formData.username}
-            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+            onChange={(event) => setFormData({ ...formData, username: event.target.value })}
             className={`premium-input ${validationErrors.username ? 'border-red-500' : ''}`}
-            placeholder="john_doe"
+            placeholder="desk_operator"
             disabled={loading}
           />
           {validationErrors.username && (
-            <p id="username-error" className="text-xs text-red-300 mt-1">
+            <p id="username-error" className="mt-1 text-xs text-red-300">
               {validationErrors.username}
             </p>
           )}
         </div>
 
-        {/* Email */}
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
-            Email Address
+          <label htmlFor="email" className="mb-2 block text-sm font-medium text-slate-300">
+            Email address
           </label>
           <input
             id="email"
@@ -255,26 +262,22 @@ export const RegisterPage: React.FC = () => {
             aria-invalid={!!validationErrors.email}
             aria-describedby={validationErrors.email ? 'email-error' : undefined}
             value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            onChange={(event) => setFormData({ ...formData, email: event.target.value })}
             className={`premium-input ${validationErrors.email ? 'border-red-500' : ''}`}
-            placeholder="john@example.com"
+            placeholder="operator@example.com"
             disabled={loading}
           />
           {validationErrors.email && (
-            <p id="email-error" className="text-xs text-red-300 mt-1">
+            <p id="email-error" className="mt-1 text-xs text-red-300">
               {validationErrors.email}
             </p>
           )}
         </div>
 
-        {/* Password */}
         {registrationStatusQuery.data?.invitation_required && (
           <div>
-            <label
-              htmlFor="invitationCode"
-              className="block text-sm font-medium text-slate-300 mb-2"
-            >
-              Invitation Code
+            <label htmlFor="invitationCode" className="mb-2 block text-sm font-medium text-slate-300">
+              Invitation code
             </label>
             <input
               id="invitationCode"
@@ -286,22 +289,23 @@ export const RegisterPage: React.FC = () => {
                 validationErrors.invitationCode ? 'invitation-code-error' : undefined
               }
               value={formData.invitationCode}
-              onChange={(e) => setFormData({ ...formData, invitationCode: e.target.value })}
+              onChange={(event) =>
+                setFormData({ ...formData, invitationCode: event.target.value })
+              }
               className={`premium-input ${validationErrors.invitationCode ? 'border-red-500' : ''}`}
               placeholder="Enter invitation code"
               disabled={loading}
             />
             {validationErrors.invitationCode && (
-              <p id="invitation-code-error" className="text-xs text-red-300 mt-1">
+              <p id="invitation-code-error" className="mt-1 text-xs text-red-300">
                 {validationErrors.invitationCode}
               </p>
             )}
           </div>
         )}
 
-        {/* Password */}
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
+          <label htmlFor="password" className="mb-2 block text-sm font-medium text-slate-300">
             Password
           </label>
           <input
@@ -315,42 +319,40 @@ export const RegisterPage: React.FC = () => {
             value={formData.password}
             onChange={handlePasswordChange}
             className={`premium-input ${validationErrors.password ? 'border-red-500' : ''}`}
-            placeholder="••••••••"
+            placeholder="Create a strong password"
             disabled={loading}
           />
           {formData.password && (
-            <div className="mt-2 flex items-center gap-2">
-              <div
-                className={`h-1 flex-1 rounded ${
-                  passwordStrength === 'weak'
-                    ? 'bg-red-500'
-                    : passwordStrength === 'medium'
-                      ? 'bg-yellow-500'
-                      : 'bg-green-500'
-                }`}
-              />
+            <div className="mt-3 flex items-center gap-3">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    passwordStrength === 'weak'
+                      ? 'w-1/3 bg-red-500'
+                      : passwordStrength === 'medium'
+                        ? 'w-2/3 bg-amber-400'
+                        : 'w-full bg-emerald-400'
+                  }`}
+                />
+              </div>
               <span className="text-xs font-medium text-slate-400">
                 {passwordStrength.charAt(0).toUpperCase() + passwordStrength.slice(1)}
               </span>
             </div>
           )}
           {validationErrors.password && (
-            <p id="password-error" className="text-xs text-red-300 mt-1">
+            <p id="password-error" className="mt-1 text-xs text-red-300">
               {validationErrors.password}
             </p>
           )}
-          <p id="password-help" className="text-xs text-slate-400 mt-2">
-            At least 8 characters, one uppercase letter, and one number
+          <p id="password-help" className="mt-2 text-xs text-slate-500">
+            Use at least 8 characters, one uppercase letter, and one number.
           </p>
         </div>
 
-        {/* Confirm Password */}
         <div>
-          <label
-            htmlFor="confirmPassword"
-            className="block text-sm font-medium text-slate-300 mb-2"
-          >
-            Confirm Password
+          <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-slate-300">
+            Confirm password
           </label>
           <input
             id="confirmPassword"
@@ -363,37 +365,40 @@ export const RegisterPage: React.FC = () => {
               validationErrors.confirmPassword ? 'confirm-password-error' : undefined
             }
             value={formData.confirmPassword}
-            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+            onChange={(event) =>
+              setFormData({ ...formData, confirmPassword: event.target.value })
+            }
             className={`premium-input ${validationErrors.confirmPassword ? 'border-red-500' : ''}`}
-            placeholder="••••••••"
+            placeholder="Repeat your password"
             disabled={loading}
           />
           {formData.confirmPassword && formData.password === formData.confirmPassword && (
-            <div className="flex items-center gap-2 mt-1">
-              <CheckCircle className="w-4 h-4 text-green-400" />
-              <span className="text-xs text-green-400">Passwords match</span>
+            <div className="mt-2 flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs text-emerald-400">Passwords match</span>
             </div>
           )}
           {validationErrors.confirmPassword && (
-            <p id="confirm-password-error" className="text-xs text-red-300 mt-1">
+            <p id="confirm-password-error" className="mt-1 text-xs text-red-300">
               {validationErrors.confirmPassword}
             </p>
           )}
         </div>
 
-        {/* Terms Agreement */}
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4">
+        <div className="signal-card px-4 py-4">
           <div className="flex items-start gap-3">
             <input
               type="checkbox"
               id="terms"
               ref={termsCheckboxRef}
               checked={formData.agreedToTerms}
-              onChange={(e) => setFormData({ ...formData, agreedToTerms: e.target.checked })}
+              onChange={(event) =>
+                setFormData({ ...formData, agreedToTerms: event.target.checked })
+              }
               className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500"
               disabled={loading}
             />
-            <label htmlFor="terms" className="text-xs text-slate-400">
+            <label htmlFor="terms" className="text-xs leading-6 text-slate-400">
               I agree to the{' '}
               <a href="#" className="text-cyan-300 hover:text-cyan-200 hover:underline">
                 Terms of Service
@@ -402,31 +407,43 @@ export const RegisterPage: React.FC = () => {
               <a href="#" className="text-cyan-300 hover:text-cyan-200 hover:underline">
                 Privacy Policy
               </a>
+              . I understand the account will continue into security setup before I reach the live
+              workspace.
             </label>
           </div>
         </div>
 
-        {/* Submit Button */}
         <button
           type="submit"
           disabled={loading || registrationStatusQuery.data?.enabled === false}
-          className="premium-button premium-button-primary mt-6 w-full disabled:cursor-not-allowed disabled:opacity-60"
+          className="premium-button premium-button-primary mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {loading && <Loader className="w-4 h-4 animate-spin" />}
-          {loading ? 'Creating Account...' : 'Create Account'}
+          {loading && <Loader className="h-4 w-4 animate-spin" />}
+          {loading ? 'Creating account...' : 'Create evaluation account'}
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-400">
-        Already have an account?{' '}
+      <div className="signal-card mt-6 px-4 py-4">
+        <div className="flex items-start gap-3 text-sm text-slate-300">
+          <ShieldCheck className="mt-0.5 h-4 w-4 text-cyan-300" />
+          <p>
+            The next step after registration is security setup. The flow is designed to make access
+            readiness explicit before the operator reaches live controls.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-center justify-center gap-2 text-center text-sm text-slate-400">
+        <Sparkles className="h-4 w-4 text-cyan-300" />
+        Already have an account?
         <button
           type="button"
           onClick={() => navigate('/login')}
           className="font-medium text-cyan-300 hover:text-cyan-200 hover:underline"
         >
-          Login
+          Sign in
         </button>
-      </p>
+      </div>
     </AuthExperienceShell>
   );
 };

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { type CRMUserRow } from '../../api';
 import { PageContainer } from '../../components/PageContainer';
+import { crmPath } from './paths';
 
 const ROLE_OPTIONS = ['all', 'client', 'ib', 'sub_ib', 'backoffice', 'admin'] as const;
 type RoleFilter = (typeof ROLE_OPTIONS)[number];
@@ -242,7 +243,7 @@ export const CRMClients = () => {
                   <UserRow
                     key={user.id}
                     user={user}
-                    onClick={() => navigate(`/crm/clients/${user.id}`)}
+                    onClick={() => navigate(`${crmPath('clients')}/${user.id}`)}
                   />
                 ))}
               </tbody>

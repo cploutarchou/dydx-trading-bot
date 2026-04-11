@@ -358,6 +358,48 @@ export interface UpsertPartnerCommissionMetricPayload extends Record<string, unk
   net_commission_usd: number;
 }
 
+// ==================== IB TIER COMMISSION RATE TYPES ====================
+
+export interface IBTierCommissionRate extends Record<string, unknown> {
+  id: number;
+  tier_level: number;
+  commission_rate_pct: number;
+  rebate_rate_pct: number;
+  description: string;
+  is_active: boolean;
+  created_by_user_id?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IBTierCommissionRateListResponse extends Record<string, unknown> {
+  rates: IBTierCommissionRate[];
+  total: number;
+}
+
+export interface UpsertIBTierCommissionRatePayload extends Record<string, unknown> {
+  commission_rate_pct: number;
+  rebate_rate_pct: number;
+  description?: string;
+  is_active?: boolean;
+}
+
+// Pyramid tree — unlimited depth hierarchy
+export interface IBPyramidNode extends Record<string, unknown> {
+  user_id: number;
+  sponsor_user_id?: number;
+  relationship_type: string;
+  tier_level: number;
+  is_active: boolean;
+  children: IBPyramidNode[];
+}
+
+export interface IBHierarchyTreeResponse extends Record<string, unknown> {
+  roots: IBPyramidNode[];
+  total_nodes: number;
+  max_depth: number;
+}
+
 export interface MailgunStatusResponse extends Record<string, unknown> {
   provider: string;
   configured: boolean;
@@ -1729,6 +1771,40 @@ class ApiClient {
     const response = await this.client.put<ApiResponse<{ metric: PartnerCommissionMetric }>>(
       `/api/v1/admin/crm/commission-metrics/${userId}`,
       payload
+    );
+    return response.data;
+  }
+
+  // ==================== IB TIER COMMISSION RATE METHODS ====================
+
+  async listIBTierRates(): Promise<ApiResponse<IBTierCommissionRateListResponse>> {
+    const response = await this.client.get<ApiResponse<IBTierCommissionRateListResponse>>(
+      '/api/v1/admin/ib/tier-rates'
+    );
+    return response.data;
+  }
+
+  async upsertIBTierRate(
+    tier: number,
+    payload: UpsertIBTierCommissionRatePayload
+  ): Promise<ApiResponse<{ rate: IBTierCommissionRate }>> {
+    const response = await this.client.put<ApiResponse<{ rate: IBTierCommissionRate }>>(
+      `/api/v1/admin/ib/tier-rates/${tier}`,
+      payload
+    );
+    return response.data;
+  }
+
+  async deleteIBTierRate(tier: number): Promise<ApiResponse<Record<string, unknown>>> {
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/admin/ib/tier-rates/${tier}`
+    );
+    return response.data;
+  }
+
+  async getPortalHierarchyTree(): Promise<ApiResponse<IBHierarchyTreeResponse>> {
+    const response = await this.client.get<ApiResponse<IBHierarchyTreeResponse>>(
+      '/api/v1/portal/hierarchy/tree'
     );
     return response.data;
   }

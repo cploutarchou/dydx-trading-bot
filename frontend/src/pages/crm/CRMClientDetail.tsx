@@ -1,21 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-    ArrowLeft,
-    CheckCircle2,
-    Loader2,
-    RotateCcw,
-    Save,
-    Shield,
-    ShieldOff,
-    UserCheck,
-    UserX,
-    XCircle,
+  ArrowLeft,
+  CheckCircle2,
+  Loader2,
+  RotateCcw,
+  Save,
+  Shield,
+  ShieldOff,
+  UserCheck,
+  UserX,
+  XCircle,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../api';
 import { useToastStore } from '../../components/ErrorBoundary';
 import { PageContainer } from '../../components/PageContainer';
+import { crmPath } from './paths';
 
 const roleBadge: Record<string, string> = {
   admin: 'border-red-500/30 bg-red-500/10 text-red-200',
@@ -124,7 +125,7 @@ export const CRMClientDetail = () => {
     <PageContainer size="wide" className="space-y-6">
       {/* Back */}
       <Link
-        to="/crm/clients"
+        to={crmPath('clients')}
         className="inline-flex items-center gap-1.5 text-sm text-slate-400 transition hover:text-slate-200"
       >
         <ArrowLeft className="h-4 w-4" /> Back to client directory

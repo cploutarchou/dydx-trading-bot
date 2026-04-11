@@ -27,6 +27,7 @@ import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
 import { NewsPage } from './pages/News';
 import { PricingPage } from './pages/Pricing';
+import { PublicServicePage } from './pages/PublicServicePage';
 import { RegisterPage } from './pages/Register';
 import SettingsPage from './pages/Settings';
 import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
@@ -178,6 +179,7 @@ export const App: React.FC = () => {
           <ToastContainer />
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/services/:slug" element={<PublicServicePage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />

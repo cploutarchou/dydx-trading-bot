@@ -179,7 +179,11 @@ export function getDensityClass(density: TableDensity) {
 /**
  * P1.10: Export table data as CSV
  */
-export function exportTableAsCSV(data: any[], columns: string[], filename: string = 'export.csv') {
+export function exportTableAsCSV(
+  data: Array<Record<string, unknown>>,
+  columns: string[],
+  filename: string = 'export.csv'
+) {
   const headers = columns.join(',');
   const rows = data.map((row) =>
     columns
@@ -188,7 +192,13 @@ export function exportTableAsCSV(data: any[], columns: string[], filename: strin
         if (typeof val === 'string' && val.includes(',')) {
           return `"${val}"`;
         }
-        return val ?? '';
+        if (typeof val === 'number' || typeof val === 'boolean') {
+          return String(val);
+        }
+        if (val == null) {
+          return '';
+        }
+        return JSON.stringify(val);
       })
       .join(',')
   );

@@ -1,7 +1,15 @@
-import { GitBranch, LayoutDashboard, Shield, Users, WalletCards, Workflow } from 'lucide-react';
+import {
+  ExternalLink,
+  GitBranch,
+  LayoutDashboard,
+  Shield,
+  Users,
+  WalletCards,
+  Workflow,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { crmPath } from './paths';
+import { crmHref, crmPath, isCRMHost } from './paths';
 
 const tabs = [
   { path: crmPath('dashboard'), label: 'Dashboard', icon: LayoutDashboard },
@@ -19,6 +27,8 @@ interface CRMLayoutProps {
 export const CRMLayout = ({ children }: CRMLayoutProps) => {
   const { pathname } = useLocation();
   const clientsPath = crmPath('clients');
+  const showSubdomainAction = !isCRMHost();
+  const subdomainHref = crmHref('dashboard');
 
   const activeTab = tabs.find((tab) =>
     tab.path === clientsPath ? pathname.startsWith(clientsPath) : pathname.startsWith(tab.path)
@@ -51,7 +61,15 @@ export const CRMLayout = ({ children }: CRMLayoutProps) => {
             );
           })}
           {activeTab && (
-            <div className="ml-auto flex items-center">
+            <div className="ml-auto flex items-center gap-2">
+              {showSubdomainAction && subdomainHref.startsWith('http') && (
+                <a
+                  href={subdomainHref}
+                  className="inline-flex items-center gap-1 rounded-lg border border-cyan-600/30 bg-cyan-900/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-200 transition hover:bg-cyan-900/35"
+                >
+                  <ExternalLink className="h-3 w-3" /> Open in subdomain
+                </a>
+              )}
               <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-400">
                 CRM backoffice
               </span>

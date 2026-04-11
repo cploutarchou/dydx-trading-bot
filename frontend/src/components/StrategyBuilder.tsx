@@ -139,6 +139,12 @@ export default function StrategyBuilder() {
   });
 
   const formValues = watch();
+  const fieldLabelClass = 'mb-2 block text-sm font-semibold text-slate-200';
+  const helperTextClass = 'mt-2 text-xs leading-5 text-slate-500';
+  const inlineValueClass = 'font-semibold text-cyan-300';
+  const compactInputClass = 'premium-input px-4 py-2.5 text-sm';
+  const sectionTitleClass = 'mb-4 text-lg font-semibold text-white';
+  const dividerClass = 'my-2 border-t border-slate-800/80';
 
   // Load existing strategy if in edit mode
   useEffect(() => {
@@ -275,799 +281,780 @@ export default function StrategyBuilder() {
 
   return (
     <PageContainer size="narrow">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            {isEditMode ? 'Edit Strategy' : 'Create New Strategy'}
-          </h1>
-          <p className="text-gray-400">
-            {isEditMode
-              ? 'Update your trading strategy parameters'
-              : 'Configure parameters for your trading strategy'}
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="mb-2 text-3xl font-bold text-white">
+          {isEditMode ? 'Edit Strategy' : 'Create New Strategy'}
+        </h1>
+        <p className="max-w-2xl text-sm leading-6 text-slate-500">
+          {isEditMode
+            ? 'Update your trading strategy parameters'
+            : 'Configure parameters for your trading strategy'}
+        </p>
+      </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="mb-6 rounded-xl border border-red-500 bg-red-500/10 px-4 py-3">
+          <p className="text-red-400">{error}</p>
+        </div>
+      )}
+
+      {/* Success Alert */}
+      {successMessage && (
+        <div className="mb-6 rounded-xl border border-green-500 bg-green-500/10 px-4 py-3">
+          <p className="text-green-400">{successMessage}</p>
+        </div>
+      )}
+
+      {/* Form */}
+      <form onSubmit={handleSubmit(onSubmit)} className="premium-panel space-y-6 sm:space-y-7">
+        {/* Strategy Name */}
+        <div>
+          <label className={fieldLabelClass}>
+            Strategy Name <span className="text-red-400">*</span>
+          </label>
+          <Controller
+            name="name"
+            control={control}
+            rules={{
+              required: 'Strategy name is required',
+              minLength: { value: 3, message: 'Name must be at least 3 characters' },
+              maxLength: { value: 100, message: 'Name must not exceed 100 characters' },
+            }}
+            render={({ field }) => (
+              <input
+                {...field}
+                type="text"
+                placeholder="e.g., Aggressive BTC/ETH Pair"
+                className={compactInputClass}
+              />
+            )}
+          />
+          {errors.name && <p className="mt-1 text-red-400 text-sm">{errors.name.message}</p>}
+        </div>
+
+        {/* Category */}
+        <div>
+          <label className={fieldLabelClass}>
+            Category <span className="text-red-400">*</span>
+          </label>
+          <Controller
+            name="category"
+            control={control}
+            render={({ field }) => (
+              <select {...field} className={`${compactInputClass} pr-10`}>
+                <option value="pairs_trading">Pairs Trading (Cointegration)</option>
+                <option value="momentum">Momentum</option>
+                <option value="mean_reversion">Mean Reversion</option>
+              </select>
+            )}
+          />
+        </div>
+
+        {/* Candle Resolution */}
+        <div>
+          <label className={fieldLabelClass}>
+            Candle Resolution <span className="text-red-400">*</span>
+          </label>
+          <Controller
+            name="resolution"
+            control={control}
+            rules={{
+              required: 'Candle resolution is required',
+            }}
+            render={({ field }) => (
+              <select {...field} className={`${compactInputClass} pr-10`}>
+                <option value="1MIN">1 Minute 🐢 (Very Slow - ~900K candles/90d)</option>
+                <option value="5MINS">5 Minutes 🐌 (Slow - ~180K candles/90d)</option>
+                <option value="15MINS">15 Minutes 🚶 (Moderate - ~60K candles/90d)</option>
+                <option value="1HOUR">1 Hour ✅ (Recommended - ~2,160 candles/90d)</option>
+                <option value="4HOURS">4 Hours ⚡ (Fast - ~540 candles/90d)</option>
+                <option value="1DAY">1 Day ⚡⚡ (Very Fast - ~90 candles/90d)</option>
+              </select>
+            )}
+          />
+          <p className={helperTextClass}>
+            Timeframe for candle data (1HOUR recommended for stable backtests)
           </p>
+          {formValues.resolution === '1MIN' || formValues.resolution === '5MINS' ? (
+            <p className="mt-3 rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-3 py-2 text-xs leading-5 text-yellow-400">
+              ⚠️ High-frequency resolutions significantly increase backtest time. Consider using
+              1HOUR or higher for faster results.
+            </p>
+          ) : null}
         </div>
 
-        {/* Error Alert */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500 rounded-lg">
-            <p className="text-red-400">{error}</p>
-          </div>
-        )}
+        {/* Description */}
+        <div>
+          <label className={fieldLabelClass}>Description</label>
+          <Controller
+            name="description"
+            control={control}
+            render={({ field }) => (
+              <textarea
+                {...field}
+                placeholder="Describe your strategy..."
+                rows={3}
+                className="premium-input min-h-32 px-4 py-3 text-sm"
+              />
+            )}
+          />
+        </div>
 
-        {/* Success Alert */}
-        {successMessage && (
-          <div className="mb-6 p-4 bg-green-500/10 border border-green-500 rounded-lg">
-            <p className="text-green-400">{successMessage}</p>
-          </div>
-        )}
+        {/* Initial Investment Amount */}
+        <div>
+          <label className={fieldLabelClass}>
+            Initial Investment Amount (USD) <span className="text-red-400">*</span>
+          </label>
+          <Controller
+            name="initial_amount"
+            control={control}
+            rules={{
+              required: 'Initial investment amount is required',
+              max: { value: 1000000, message: 'Maximum investment is $1,000,000' },
+            }}
+            render={({ field }) => (
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-slate-400">$</span>
+                <input
+                  {...field}
+                  type="number"
+                  max="1000000"
+                  step="1"
+                  placeholder="300"
+                  className={`flex-1 ${compactInputClass}`}
+                />
+              </div>
+            )}
+          />
+          <p className={helperTextClass}>
+            Total capital allocated to this strategy for live trading
+          </p>
+          {errors.initial_amount && (
+            <p className="mt-1 text-red-400 text-sm">{errors.initial_amount.message}</p>
+          )}
+        </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* Strategy Name */}
+        <div className="grid gap-6 md:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Strategy Name <span className="text-red-400">*</span>
-            </label>
+            <label className={fieldLabelClass}>Runtime Network</label>
             <Controller
-              name="name"
+              name="runtime_network"
+              control={control}
+              render={({ field }) => (
+                <select {...field} className={`${compactInputClass} pr-10`}>
+                  <option value="testnet">dYdX Testnet</option>
+                  <option value="mainnet">dYdX Mainnet</option>
+                </select>
+              )}
+            />
+            <p className={helperTextClass}>
+              Strategy runtime startup will use the stored key for this network via the backend.
+            </p>
+          </div>
+          <div>
+            <label className={fieldLabelClass}>Runtime Subaccount</label>
+            <Controller
+              name="runtime_subaccount"
               control={control}
               rules={{
-                required: 'Strategy name is required',
-                minLength: { value: 3, message: 'Name must be at least 3 characters' },
-                maxLength: { value: 100, message: 'Name must not exceed 100 characters' },
+                min: { value: 0, message: 'Subaccount must be 0 or higher' },
               }}
               render={({ field }) => (
                 <input
                   {...field}
-                  type="text"
-                  placeholder="e.g., Aggressive BTC/ETH Pair"
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={field.value ?? 0}
+                  onChange={(event) => field.onChange(Number(event.target.value))}
+                  className={compactInputClass}
                 />
               )}
             />
-            {errors.name && <p className="mt-1 text-red-400 text-sm">{errors.name.message}</p>}
+            <p className={helperTextClass}>
+              Use a dedicated dYdX subaccount to isolate live collateral for this strategy.
+            </p>
+            {errors.runtime_subaccount && (
+              <p className="mt-1 text-red-400 text-sm">{errors.runtime_subaccount.message}</p>
+            )}
           </div>
+        </div>
 
-          {/* Category */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Category <span className="text-red-400">*</span>
-            </label>
-            <Controller
-              name="category"
-              control={control}
-              render={({ field }) => (
-                <select
-                  {...field}
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="pairs_trading">Pairs Trading (Cointegration)</option>
-                  <option value="momentum">Momentum</option>
-                  <option value="mean_reversion">Mean Reversion</option>
-                </select>
-              )}
-            />
-          </div>
+        {/* Divider */}
+        <div className={dividerClass}></div>
 
-          {/* Candle Resolution */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Candle Resolution <span className="text-red-400">*</span>
-            </label>
+        {/* Parameters Section */}
+        <div>
+          <h2 className={sectionTitleClass}>Trading Parameters</h2>
+
+          {/* Z-Score Threshold */}
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-sm font-semibold text-slate-200">
+                Z-Score Threshold <span className="text-red-400">*</span>
+              </label>
+              <span className={inlineValueClass}>{formValues.zscore_threshold}</span>
+            </div>
             <Controller
-              name="resolution"
+              name="zscore_threshold"
               control={control}
               rules={{
-                required: 'Candle resolution is required',
+                required: 'Z-score threshold is required',
+                min: { value: 0.5, message: 'Must be at least 0.5' },
+                max: { value: 5.0, message: 'Must not exceed 5.0' },
               }}
               render={({ field }) => (
-                <select
+                <input
                   {...field}
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="1MIN">1 Minute 🐢 (Very Slow - ~900K candles/90d)</option>
-                  <option value="5MINS">5 Minutes 🐌 (Slow - ~180K candles/90d)</option>
-                  <option value="15MINS">15 Minutes 🚶 (Moderate - ~60K candles/90d)</option>
-                  <option value="1HOUR">1 Hour ✅ (Recommended - ~2,160 candles/90d)</option>
-                  <option value="4HOURS">4 Hours ⚡ (Fast - ~540 candles/90d)</option>
-                  <option value="1DAY">1 Day ⚡⚡ (Very Fast - ~90 candles/90d)</option>
-                </select>
-              )}
-            />
-            <p className="mt-2 text-xs text-gray-500">
-              Timeframe for candle data (1HOUR recommended for stable backtests)
-            </p>
-            {formValues.resolution === '1MIN' || formValues.resolution === '5MINS' ? (
-              <p className="mt-2 text-xs text-yellow-400 bg-yellow-400/10 p-2 rounded border border-yellow-400/30">
-                ⚠️ High-frequency resolutions significantly increase backtest time. Consider using
-                1HOUR or higher for faster results.
-              </p>
-            ) : null}
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Description</label>
-            <Controller
-              name="description"
-              control={control}
-              render={({ field }) => (
-                <textarea
-                  {...field}
-                  placeholder="Describe your strategy..."
-                  rows={3}
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  type="range"
+                  min="0.5"
+                  max="5.0"
+                  step="0.1"
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               )}
             />
-          </div>
-
-          {/* Initial Investment Amount */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Initial Investment Amount (USD) <span className="text-red-400">*</span>
-            </label>
-            <Controller
-              name="initial_amount"
-              control={control}
-              rules={{
-                required: 'Initial investment amount is required',
-                max: { value: 1000000, message: 'Maximum investment is $1,000,000' },
-              }}
-              render={({ field }) => (
-                <div className="flex items-center">
-                  <span className="text-gray-400 mr-3">$</span>
-                  <input
-                    {...field}
-                    type="number"
-                    max="1000000"
-                    step="1"
-                    placeholder="300"
-                    className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              )}
-            />
-            <p className="mt-2 text-xs text-gray-500">
-              Total capital allocated to this strategy for live trading
-            </p>
-            {errors.initial_amount && (
-              <p className="mt-1 text-red-400 text-sm">{errors.initial_amount.message}</p>
+            <p className={helperTextClass}>Range: 0.5 - 5.0 (lower = more frequent trades)</p>
+            {errors.zscore_threshold && (
+              <p className="mt-1 text-red-400 text-sm">{errors.zscore_threshold.message}</p>
             )}
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Runtime Network
+          {/* Stats Window */}
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-sm font-semibold text-slate-200">
+                Stats Window (hours) <span className="text-red-400">*</span>
               </label>
-              <Controller
-                name="runtime_network"
-                control={control}
-                render={({ field }) => (
-                  <select
-                    {...field}
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="testnet">dYdX Testnet</option>
-                    <option value="mainnet">dYdX Mainnet</option>
-                  </select>
-                )}
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Strategy runtime startup will use the stored key for this network via the backend.
-              </p>
+              <span className={inlineValueClass}>{formValues.stats_window}</span>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Runtime Subaccount
+            <Controller
+              name="stats_window"
+              control={control}
+              rules={{
+                required: 'Stats window is required',
+                min: { value: 8, message: 'Must be at least 8' },
+                max: { value: 120, message: 'Must not exceed 120' },
+              }}
+              render={({ field }) => (
+                <input
+                  {...field}
+                  type="range"
+                  min="8"
+                  max="120"
+                  step="1"
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              )}
+            />
+            <p className={helperTextClass}>
+              Range: 8 - 120 hours (rolling window for cointegration)
+            </p>
+            {errors.stats_window && (
+              <p className="mt-1 text-red-400 text-sm">{errors.stats_window.message}</p>
+            )}
+          </div>
+
+          {/* Max Half-Life */}
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-sm font-semibold text-slate-200">
+                Max Half-Life (hours) <span className="text-red-400">*</span>
               </label>
-              <Controller
-                name="runtime_subaccount"
-                control={control}
-                rules={{
-                  min: { value: 0, message: 'Subaccount must be 0 or higher' },
-                }}
-                render={({ field }) => (
-                  <input
-                    {...field}
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={field.value ?? 0}
-                    onChange={(event) => field.onChange(Number(event.target.value))}
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                  />
-                )}
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Use a dedicated dYdX subaccount to isolate live collateral for this strategy.
-              </p>
-              {errors.runtime_subaccount && (
-                <p className="mt-1 text-red-400 text-sm">{errors.runtime_subaccount.message}</p>
-              )}
+              <span className={inlineValueClass}>{formValues.max_half_life}</span>
             </div>
+            <Controller
+              name="max_half_life"
+              control={control}
+              rules={{
+                required: 'Max half-life is required',
+                min: { value: 1, message: 'Must be at least 1' },
+                max: { value: 72, message: 'Must not exceed 72' },
+              }}
+              render={({ field }) => (
+                <input
+                  {...field}
+                  type="range"
+                  min="1"
+                  max="72"
+                  step="0.5"
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              )}
+            />
+            <p className={helperTextClass}>Range: 1 - 72 hours (maximum mean reversion time)</p>
+            {errors.max_half_life && (
+              <p className="mt-1 text-red-400 text-sm">{errors.max_half_life.message}</p>
+            )}
           </div>
+        </div>
 
-          {/* Divider */}
-          <div className="border-t border-slate-700 my-6"></div>
+        {/* Divider */}
+        <div className={dividerClass}></div>
 
-          {/* Parameters Section */}
-          <div>
-            <h2 className="text-lg font-semibold text-white mb-4">Trading Parameters</h2>
-
-            {/* Z-Score Threshold */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Z-Score Threshold <span className="text-red-400">*</span>
-                </label>
-                <span className="text-blue-400 font-semibold">{formValues.zscore_threshold}</span>
-              </div>
-              <Controller
-                name="zscore_threshold"
-                control={control}
-                rules={{
-                  required: 'Z-score threshold is required',
-                  min: { value: 0.5, message: 'Must be at least 0.5' },
-                  max: { value: 5.0, message: 'Must not exceed 5.0' },
-                }}
-                render={({ field }) => (
-                  <input
-                    {...field}
-                    type="range"
-                    min="0.5"
-                    max="5.0"
-                    step="0.1"
-                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  />
-                )}
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Range: 0.5 - 5.0 (lower = more frequent trades)
-              </p>
-              {errors.zscore_threshold && (
-                <p className="mt-1 text-red-400 text-sm">{errors.zscore_threshold.message}</p>
-              )}
-            </div>
-
-            {/* Stats Window */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Stats Window (hours) <span className="text-red-400">*</span>
-                </label>
-                <span className="text-blue-400 font-semibold">{formValues.stats_window}</span>
-              </div>
-              <Controller
-                name="stats_window"
-                control={control}
-                rules={{
-                  required: 'Stats window is required',
-                  min: { value: 8, message: 'Must be at least 8' },
-                  max: { value: 120, message: 'Must not exceed 120' },
-                }}
-                render={({ field }) => (
-                  <input
-                    {...field}
-                    type="range"
-                    min="8"
-                    max="120"
-                    step="1"
-                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  />
-                )}
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Range: 8 - 120 hours (rolling window for cointegration)
-              </p>
-              {errors.stats_window && (
-                <p className="mt-1 text-red-400 text-sm">{errors.stats_window.message}</p>
-              )}
-            </div>
-
-            {/* Max Half-Life */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Max Half-Life (hours) <span className="text-red-400">*</span>
-                </label>
-                <span className="text-blue-400 font-semibold">{formValues.max_half_life}</span>
-              </div>
-              <Controller
-                name="max_half_life"
-                control={control}
-                rules={{
-                  required: 'Max half-life is required',
-                  min: { value: 1, message: 'Must be at least 1' },
-                  max: { value: 72, message: 'Must not exceed 72' },
-                }}
-                render={({ field }) => (
-                  <input
-                    {...field}
-                    type="range"
-                    min="1"
-                    max="72"
-                    step="0.5"
-                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  />
-                )}
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Range: 1 - 72 hours (maximum mean reversion time)
-              </p>
-              {errors.max_half_life && (
-                <p className="mt-1 text-red-400 text-sm">{errors.max_half_life.message}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-slate-700 my-6"></div>
-
-          {/* Preset Buttons */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-3">Quick Presets</label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <button
-                type="button"
-                onClick={() => applyPreset('conservative')}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition"
-              >
-                🛡️ Conservative
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset('balanced')}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition"
-              >
-                ⚖️ Balanced
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset('aggressive')}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition"
-              >
-                ⚡ Aggressive
-              </button>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-slate-700 my-6"></div>
-
-          {/* Advanced Settings Section */}
-          <div>
+        {/* Preset Buttons */}
+        <div>
+          <label className="mb-3 block text-sm font-semibold text-slate-200">Quick Presets</label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <button
               type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center justify-between w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-white font-medium transition"
+              onClick={() => applyPreset('conservative')}
+              className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-4 py-2.5 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900"
             >
-              <span>⚙️ Advanced Settings</span>
-              <span className="text-lg">{showAdvanced ? '▼' : '▶'}</span>
+              🛡️ Conservative
             </button>
+            <button
+              type="button"
+              onClick={() => applyPreset('balanced')}
+              className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-4 py-2.5 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900"
+            >
+              ⚖️ Balanced
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset('aggressive')}
+              className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-4 py-2.5 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900"
+            >
+              ⚡ Aggressive
+            </button>
+          </div>
+        </div>
 
-            {showAdvanced && (
-              <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg space-y-4">
-                {/* Risk Management Parameters */}
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-300 mb-3">Risk Management</h3>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    {/* Max Positions */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Max Positions</label>
-                        <span className="text-blue-400 text-sm">{formValues.max_positions}</span>
-                      </div>
-                      <Controller
-                        name="max_positions"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="range"
-                            min="1"
-                            max="20"
-                            step="1"
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                        )}
-                      />
-                    </div>
+        {/* Divider */}
+        <div className={dividerClass}></div>
 
-                    {/* Max Drawdown % */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Max Drawdown %</label>
-                        <span className="text-blue-400 text-sm">
-                          {formValues.max_drawdown_pct}%
-                        </span>
-                      </div>
-                      <Controller
-                        name="max_drawdown_pct"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="range"
-                            min="5"
-                            max="50"
-                            step="0.5"
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                        )}
-                      />
-                    </div>
+        {/* Advanced Settings Section */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex w-full items-center justify-between rounded-lg border border-slate-700/80 bg-slate-900/70 px-4 py-3 text-white font-medium transition hover:border-cyan-500/35 hover:bg-slate-900"
+          >
+            <span>⚙️ Advanced Settings</span>
+            <span className="text-lg">{showAdvanced ? '▼' : '▶'}</span>
+          </button>
 
-                    {/* Stop Loss % */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Stop Loss %</label>
-                        <span className="text-blue-400 text-sm">{formValues.stop_loss_pct}%</span>
-                      </div>
-                      <Controller
-                        name="stop_loss_pct"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="range"
-                            min="0.5"
-                            max="10"
-                            step="0.1"
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                        )}
-                      />
+          {showAdvanced && (
+            <div className="workspace-card mt-4 space-y-4 px-4 py-4">
+              {/* Risk Management Parameters */}
+              <div>
+                <h3 className="mb-3 text-sm font-semibold text-slate-200">Risk Management</h3>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {/* Max Positions */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">Max Positions</label>
+                      <span className="text-sm text-cyan-300">{formValues.max_positions}</span>
                     </div>
-
-                    {/* Take Profit % */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Take Profit %</label>
-                        <span className="text-blue-400 text-sm">{formValues.take_profit_pct}%</span>
-                      </div>
-                      <Controller
-                        name="take_profit_pct"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="range"
-                            min="1"
-                            max="20"
-                            step="0.1"
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                        )}
-                      />
-                    </div>
-
-                    {/* Trailing Stop % */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Trailing Stop %</label>
-                        <span className="text-blue-400 text-sm">
-                          {formValues.trailing_stop_pct}%
-                        </span>
-                      </div>
-                      <Controller
-                        name="trailing_stop_pct"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="range"
-                            min="0.1"
-                            max="5"
-                            step="0.1"
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                        )}
-                      />
-                    </div>
+                    <Controller
+                      name="max_positions"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="range"
+                          min="1"
+                          max="20"
+                          step="1"
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      )}
+                    />
                   </div>
-                </div>
 
-                {/* Trading Parameters */}
-                <div className="border-t border-slate-700 pt-4">
-                  <h3 className="text-sm font-semibold text-gray-300 mb-3">Trading Parameters</h3>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    {/* Amount Per Trade */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">
-                          Amount Per Trade ($)
-                        </label>
-                        <span className="text-blue-400 text-sm">${formValues.usd_per_trade}</span>
-                      </div>
-                      <Controller
-                        name="usd_per_trade"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="number"
-                            min="1"
-                            max="1000"
-                            step="1"
-                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
-                          />
-                        )}
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Capital per individual trade position
-                      </p>
+                  {/* Max Drawdown % */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">Max Drawdown %</label>
+                      <span className="text-sm text-cyan-300">{formValues.max_drawdown_pct}%</span>
                     </div>
-
-                    {/* Rebalance Interval */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">
-                          Rebalance (hours)
-                        </label>
-                        <span className="text-blue-400 text-sm">
-                          {formValues.rebalance_interval_hours}h
-                        </span>
-                      </div>
-                      <Controller
-                        name="rebalance_interval_hours"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="range"
-                            min="1"
-                            max="168"
-                            step="1"
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                        )}
-                      />
-                    </div>
-
-                    {/* Position Timeout */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">
-                          Position Timeout (hours)
-                        </label>
-                        <span className="text-blue-400 text-sm">
-                          {formValues.position_timeout_hours}h
-                        </span>
-                      </div>
-                      <Controller
-                        name="position_timeout_hours"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="range"
-                            min="6"
-                            max="720"
-                            step="6"
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                        )}
-                      />
-                    </div>
-
-                    {/* Transaction Fee */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Transaction Fee</label>
-                        <span className="text-blue-400 text-sm">
-                          {(formValues.transaction_fee || 0.0005).toFixed(4)}
-                        </span>
-                      </div>
-                      <Controller
-                        name="transaction_fee"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="number"
-                            min="0.0001"
-                            max="0.01"
-                            step="0.0001"
-                            placeholder="0.0005"
-                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
-                          />
-                        )}
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        dYdX maker fee (typically 0.0005 = 0.05%)
-                      </p>
-                    </div>
-
-                    {/* Slippage */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-gray-300">Slippage</label>
-                        <span className="text-blue-400 text-sm">
-                          {(formValues.slippage || 0.001).toFixed(4)}
-                        </span>
-                      </div>
-                      <Controller
-                        name="slippage"
-                        control={control}
-                        render={({ field }) => (
-                          <input
-                            {...field}
-                            type="number"
-                            min="0.0001"
-                            max="0.1"
-                            step="0.0001"
-                            placeholder="0.001"
-                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
-                          />
-                        )}
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Estimated price slippage (typically 0.001 = 0.1%)
-                      </p>
-                    </div>
+                    <Controller
+                      name="max_drawdown_pct"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="range"
+                          min="5"
+                          max="50"
+                          step="0.5"
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      )}
+                    />
                   </div>
-                </div>
 
-                {/* Behavior Toggles */}
-                <div className="border-t border-slate-700 pt-4">
-                  <h3 className="text-sm font-semibold text-gray-300 mb-3">Behavior Settings</h3>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <Controller
-                        name="find_cointegrated_pairs"
-                        control={control}
-                        render={({ field: { value, onChange } }) => (
-                          <input
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            onChange={(e) => onChange(e.target.checked)}
-                            className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
-                          />
-                        )}
-                      />
-                      <label className="text-sm text-gray-300">Find Cointegrated Pairs</label>
+                  {/* Stop Loss % */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">Stop Loss %</label>
+                      <span className="text-sm text-cyan-300">{formValues.stop_loss_pct}%</span>
                     </div>
+                    <Controller
+                      name="stop_loss_pct"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="range"
+                          min="0.5"
+                          max="10"
+                          step="0.1"
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      )}
+                    />
+                  </div>
 
-                    <div className="flex items-center space-x-2">
-                      <Controller
-                        name="manage_exits"
-                        control={control}
-                        render={({ field: { value, onChange } }) => (
-                          <input
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            onChange={(e) => onChange(e.target.checked)}
-                            className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
-                          />
-                        )}
-                      />
-                      <label className="text-sm text-gray-300">Manage Exits</label>
+                  {/* Take Profit % */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">Take Profit %</label>
+                      <span className="text-sm text-cyan-300">{formValues.take_profit_pct}%</span>
                     </div>
+                    <Controller
+                      name="take_profit_pct"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="range"
+                          min="1"
+                          max="20"
+                          step="0.1"
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      )}
+                    />
+                  </div>
 
-                    <div className="flex items-center space-x-2">
-                      <Controller
-                        name="place_trades"
-                        control={control}
-                        render={({ field: { value, onChange } }) => (
-                          <input
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            onChange={(e) => onChange(e.target.checked)}
-                            className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
-                          />
-                        )}
-                      />
-                      <label className="text-sm text-gray-300">Place Trades</label>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <Controller
-                        name="close_at_zscore_cross"
-                        control={control}
-                        render={({ field: { value, onChange } }) => (
-                          <input
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            onChange={(e) => onChange(e.target.checked)}
-                            className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
-                          />
-                        )}
-                      />
-                      <label className="text-sm text-gray-300">Close at Z-Score Cross</label>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <Controller
-                        name="abort_all_positions"
-                        control={control}
-                        render={({ field: { value, onChange } }) => (
-                          <input
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            onChange={(e) => onChange(e.target.checked)}
-                            className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
-                          />
-                        )}
-                      />
-                      <label className="text-sm text-gray-300">
-                        Abort All Positions on Startup
+                  {/* Trailing Stop % */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">
+                        Trailing Stop %
                       </label>
+                      <span className="text-sm text-cyan-300">{formValues.trailing_stop_pct}%</span>
                     </div>
+                    <Controller
+                      name="trailing_stop_pct"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="range"
+                          min="0.1"
+                          max="5"
+                          step="0.1"
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      )}
+                    />
                   </div>
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Divider */}
-          <div className="border-t border-slate-700 my-6"></div>
+              {/* Trading Parameters */}
+              <div className="border-t border-slate-800/80 pt-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-200">Trading Parameters</h3>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {/* Amount Per Trade */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">
+                        Amount Per Trade ($)
+                      </label>
+                      <span className="text-sm text-cyan-300">${formValues.usd_per_trade}</span>
+                    </div>
+                    <Controller
+                      name="usd_per_trade"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="number"
+                          min="1"
+                          max="1000"
+                          step="1"
+                          className="premium-input px-3 py-2 text-sm"
+                        />
+                      )}
+                    />
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Capital per individual trade position
+                    </p>
+                  </div>
 
-          {/* Is Public Toggle */}
-          <div className="flex items-center space-x-3">
-            <Controller
-              name="is_public"
-              control={control}
-              render={({ field: { value, onChange } }) => (
-                <input
-                  type="checkbox"
-                  checked={Boolean(value)}
-                  onChange={(e) => onChange(e.target.checked)}
-                  className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-2 focus:ring-blue-500"
-                />
-              )}
-            />
-            <label className="text-sm font-medium text-gray-300">
-              Make this strategy public (other users can view it)
-            </label>
-          </div>
+                  {/* Rebalance Interval */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">
+                        Rebalance (hours)
+                      </label>
+                      <span className="text-sm text-cyan-300">
+                        {formValues.rebalance_interval_hours}h
+                      </span>
+                    </div>
+                    <Controller
+                      name="rebalance_interval_hours"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="range"
+                          min="1"
+                          max="168"
+                          step="1"
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      )}
+                    />
+                  </div>
 
-          {/* Form Actions */}
-          <div className="flex flex-col gap-4 pt-6 sm:flex-row">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white font-medium rounded-lg transition flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  {isEditMode ? 'Updating...' : 'Creating...'}
-                </>
-              ) : (
-                <>{isEditMode ? '✏️ Update Strategy' : '✨ Create Strategy'}</>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/strategies')}
-              disabled={loading}
-              className="flex-1 px-6 py-3 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/50 text-white font-medium rounded-lg transition"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
+                  {/* Position Timeout */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">
+                        Position Timeout (hours)
+                      </label>
+                      <span className="text-sm text-cyan-300">
+                        {formValues.position_timeout_hours}h
+                      </span>
+                    </div>
+                    <Controller
+                      name="position_timeout_hours"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="range"
+                          min="6"
+                          max="720"
+                          step="6"
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      )}
+                    />
+                  </div>
 
-        {/* Help Text */}
-        <div className="mt-8 p-4 bg-slate-800 border border-slate-700 rounded-lg">
-          <h3 className="text-sm font-semibold text-gray-300 mb-2">📚 Parameter Guide</h3>
-          <ul className="text-xs text-gray-400 space-y-1">
-            <li>
-              <strong>Z-Score Threshold:</strong> Entry trigger. Lower = more trades, higher = more
-              selective
-            </li>
-            <li>
-              <strong>Stats Window:</strong> Historical period for cointegration analysis (rolling
-              21 hours = ~24 candles at 1h)
-            </li>
-            <li>
-              <strong>Max Half-Life:</strong> Maximum time for pair to mean-revert. Filters out
-              slow-moving pairs
-            </li>
-          </ul>
+                  {/* Transaction Fee */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">
+                        Transaction Fee
+                      </label>
+                      <span className="text-sm text-cyan-300">
+                        {(formValues.transaction_fee || 0.0005).toFixed(4)}
+                      </span>
+                    </div>
+                    <Controller
+                      name="transaction_fee"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="number"
+                          min="0.0001"
+                          max="0.01"
+                          step="0.0001"
+                          placeholder="0.0005"
+                          className="premium-input px-3 py-2 text-sm"
+                        />
+                      )}
+                    />
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      dYdX maker fee (typically 0.0005 = 0.05%)
+                    </p>
+                  </div>
+
+                  {/* Slippage */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">Slippage</label>
+                      <span className="text-sm text-cyan-300">
+                        {(formValues.slippage || 0.001).toFixed(4)}
+                      </span>
+                    </div>
+                    <Controller
+                      name="slippage"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="number"
+                          min="0.0001"
+                          max="0.1"
+                          step="0.0001"
+                          placeholder="0.001"
+                          className="premium-input px-3 py-2 text-sm"
+                        />
+                      )}
+                    />
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Estimated price slippage (typically 0.001 = 0.1%)
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Behavior Toggles */}
+              <div className="border-t border-slate-800/80 pt-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-200">Behavior Settings</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <Controller
+                      name="find_cointegrated_pairs"
+                      control={control}
+                      render={({ field: { value, onChange } }) => (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value)}
+                          onChange={(e) => onChange(e.target.checked)}
+                          className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
+                        />
+                      )}
+                    />
+                    <label className="text-sm text-slate-300">Find Cointegrated Pairs</label>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Controller
+                      name="manage_exits"
+                      control={control}
+                      render={({ field: { value, onChange } }) => (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value)}
+                          onChange={(e) => onChange(e.target.checked)}
+                          className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
+                        />
+                      )}
+                    />
+                    <label className="text-sm text-slate-300">Manage Exits</label>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Controller
+                      name="place_trades"
+                      control={control}
+                      render={({ field: { value, onChange } }) => (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value)}
+                          onChange={(e) => onChange(e.target.checked)}
+                          className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
+                        />
+                      )}
+                    />
+                    <label className="text-sm text-slate-300">Place Trades</label>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Controller
+                      name="close_at_zscore_cross"
+                      control={control}
+                      render={({ field: { value, onChange } }) => (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value)}
+                          onChange={(e) => onChange(e.target.checked)}
+                          className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
+                        />
+                      )}
+                    />
+                    <label className="text-sm text-slate-300">Close at Z-Score Cross</label>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Controller
+                      name="abort_all_positions"
+                      control={control}
+                      render={({ field: { value, onChange } }) => (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value)}
+                          onChange={(e) => onChange(e.target.checked)}
+                          className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500"
+                        />
+                      )}
+                    />
+                    <label className="text-sm text-slate-300">Abort All Positions on Startup</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Divider */}
+        <div className={dividerClass}></div>
+
+        {/* Is Public Toggle */}
+        <div className="flex items-center space-x-3">
+          <Controller
+            name="is_public"
+            control={control}
+            render={({ field: { value, onChange } }) => (
+              <input
+                type="checkbox"
+                checked={Boolean(value)}
+                onChange={(e) => onChange(e.target.checked)}
+                className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-2 focus:ring-blue-500"
+              />
+            )}
+          />
+          <label className="text-sm font-semibold text-slate-200">
+            Make this strategy public (other users can view it)
+          </label>
+        </div>
+
+        {/* Form Actions */}
+        <div className="flex flex-col gap-4 pt-6 sm:flex-row">
+          <button
+            type="submit"
+            disabled={loading}
+            className="premium-button flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-white transition hover:bg-blue-700 disabled:bg-blue-600/50"
+          >
+            {loading ? (
+              <>
+                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                {isEditMode ? 'Updating...' : 'Creating...'}
+              </>
+            ) : (
+              <>{isEditMode ? '✏️ Update Strategy' : '✨ Create Strategy'}</>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/strategies')}
+            disabled={loading}
+            className="flex-1 rounded-lg border border-slate-700/80 bg-slate-900/70 px-6 py-3 font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+
+      {/* Help Text */}
+      <div className="workspace-card mt-8 px-4 py-4">
+        <h3 className="mb-2 text-sm font-semibold text-slate-200">📚 Parameter Guide</h3>
+        <ul className="space-y-1 text-xs leading-6 text-slate-400">
+          <li>
+            <strong>Z-Score Threshold:</strong> Entry trigger. Lower = more trades, higher = more
+            selective
+          </li>
+          <li>
+            <strong>Stats Window:</strong> Historical period for cointegration analysis (rolling 21
+            hours = ~24 candles at 1h)
+          </li>
+          <li>
+            <strong>Max Half-Life:</strong> Maximum time for pair to mean-revert. Filters out
+            slow-moving pairs
+          </li>
+        </ul>
+      </div>
     </PageContainer>
   );
 }

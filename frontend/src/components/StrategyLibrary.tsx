@@ -90,6 +90,9 @@ export default function StrategyLibrary() {
   const [backtestStartDate, setBacktestStartDate] = useState('');
   const [backtestEndDate, setBacktestEndDate] = useState('');
   const [runError, setRunError] = useState<string | null>(null);
+  const secondaryActionButtonClass =
+    'flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900';
+  const statsTileClass = 'workspace-card px-4 py-4';
 
   const strategiesQuery = useQuery({
     queryKey: strategyLibraryQueryKey(currentPage),
@@ -106,8 +109,12 @@ export default function StrategyLibrary() {
 
   const duplicateMutation = useMutation({
     mutationFn: async (strategy: Strategy) => {
-      const { id: _id, created_at: _created_at, updated_at: _updated_at, ...newStrategy } =
-        strategy;
+      const {
+        id: _id,
+        created_at: _created_at,
+        updated_at: _updated_at,
+        ...newStrategy
+      } = strategy;
       return api.createStrategy({
         ...newStrategy,
         name: `${strategy.name} (Copy)`,
@@ -227,9 +234,12 @@ export default function StrategyLibrary() {
   if (strategiesQuery.isLoading && strategies.length === 0) {
     return (
       <PageContainer size="wide" className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-white">Loading strategies...</p>
+        <div className="premium-panel w-full max-w-md py-10 text-center">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-500"></div>
+          <p className="text-base font-medium text-white">Loading strategies...</p>
+          <p className="mt-2 text-sm text-slate-500">
+            Preparing your workspace library and filters.
+          </p>
         </div>
       </PageContainer>
     );
@@ -243,36 +253,39 @@ export default function StrategyLibrary() {
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="premium-kicker">Strategy Library</div>
-            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">Build, compare, and launch strategies that look ready for real capital.</h1>
+            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+              Build, compare, and launch strategies that look ready for real capital.
+            </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Your strategy workspace now feels like an operating system, not a form. Search faster, inspect risk posture at a glance, and move directly into live runtime or backtesting.
+              Your strategy workspace now feels like an operating system, not a form. Search faster,
+              inspect risk posture at a glance, and move directly into live runtime or backtesting.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 justify-end">
-          <button
-            onClick={() => navigate('/strategies/manage')}
-            className="premium-button premium-button-secondary"
-          >
-            ⚙️ Runtime Manager
-          </button>
-          <button
-            onClick={() => navigate('/bots')}
-            className="premium-button premium-button-secondary"
-          >
-            🤖 Bot Manager
-          </button>
-          <button
-            onClick={() => navigate('/strategies/new')}
-            className="premium-button premium-button-primary"
-          >
-            ✨ New Strategy
-          </button>
-        </div>
+            <button
+              onClick={() => navigate('/strategies/manage')}
+              className="premium-button premium-button-secondary"
+            >
+              ⚙️ Runtime Manager
+            </button>
+            <button
+              onClick={() => navigate('/bots')}
+              className="premium-button premium-button-secondary"
+            >
+              🤖 Bot Manager
+            </button>
+            <button
+              onClick={() => navigate('/strategies/new')}
+              className="premium-button premium-button-primary"
+            >
+              ✨ New Strategy
+            </button>
+          </div>
         </div>
       </section>
 
       {(error || strategiesQuery.isError) && (
-        <div className="mb-6 p-4 bg-red-500/10 border border-red-500 rounded-lg">
+        <div className="mb-6 rounded-xl border border-red-500 bg-red-500/10 px-4 py-3">
           <p className="text-red-400">
             {error || getErrorMessage(strategiesQuery.error, 'Failed to load strategies')}
           </p>
@@ -288,17 +301,20 @@ export default function StrategyLibrary() {
             <div>
               <h2 className="text-lg font-semibold text-white">Search and compare faster</h2>
               <p className="mt-1 text-sm text-slate-400">
-                Filter by narrative, inspect risk posture at a glance, and move straight into action.
+                Filter by narrative, inspect risk posture at a glance, and move straight into
+                action.
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:min-w-[340px]">
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
+          <div className="grid grid-cols-2 gap-3 sm:min-w-85">
+            <div className={statsTileClass}>
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Visible</p>
               <p className="mt-1 text-lg font-semibold text-white">{filteredStrategies.length}</p>
             </div>
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Library total</p>
+            <div className={statsTileClass}>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Library total
+              </p>
               <p className="mt-1 text-lg font-semibold text-white">{totalStrategies}</p>
             </div>
           </div>
@@ -317,13 +333,16 @@ export default function StrategyLibrary() {
 
       {filteredStrategies.length === 0 ? (
         <div className="premium-panel py-12 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-slate-700/70 bg-slate-950/50 text-cyan-300">
+          <div className="workspace-card mx-auto flex h-16 w-16 items-center justify-center rounded-3xl text-cyan-300">
             <Sparkles className="h-7 w-7" />
           </div>
-          <p className="mb-4 mt-5 text-slate-300">
+          <p className="mb-2 mt-5 text-base font-medium text-slate-300">
             {strategies.length === 0
               ? 'No strategies yet. Create one to get started!'
               : 'No strategies match your search.'}
+          </p>
+          <p className="mb-4 text-sm text-slate-500">
+            Adjust the search phrase or start a new strategy from a clean template.
           </p>
           {strategies.length === 0 && (
             <button
@@ -362,18 +381,22 @@ export default function StrategyLibrary() {
               </div>
 
               <div className="grid grid-cols-1 gap-4 my-4 border-t border-slate-700/70 py-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Z-Score Threshold</p>
-                  <p className="text-lg font-semibold text-cyan-300">
-                    {strategy.zscore_threshold}
+                <div className="workspace-card p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    Z-Score Threshold
                   </p>
+                  <p className="text-lg font-semibold text-cyan-300">{strategy.zscore_threshold}</p>
                 </div>
-                <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Stats Window (h)</p>
+                <div className="workspace-card p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    Stats Window (h)
+                  </p>
                   <p className="text-lg font-semibold text-cyan-300">{strategy.stats_window}</p>
                 </div>
-                <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Max Half-Life (h)</p>
+                <div className="workspace-card p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    Max Half-Life (h)
+                  </p>
                   <p className="text-lg font-semibold text-cyan-300">{strategy.max_half_life}</p>
                 </div>
               </div>
@@ -386,20 +409,20 @@ export default function StrategyLibrary() {
               <div className="flex gap-2">
                 <button
                   onClick={() => handleRunStrategy(strategy)}
-                  className="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-white text-sm font-medium transition hover:bg-emerald-500"
+                  className="flex-1 rounded-xl border border-emerald-900/15 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-950/10 transition hover:bg-emerald-600"
                 >
                   ▶️ Run Backtest
                 </button>
                 <button
                   onClick={() => navigate(`/strategies/${strategy.id}/edit`)}
-                  className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-cyan-500/35"
+                  className={secondaryActionButtonClass}
                 >
                   ✏️ Edit
                 </button>
                 <button
                   onClick={() => void handleDuplicate(strategy)}
                   disabled={duplicateMutation.isPending}
-                  className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-cyan-500/35 disabled:opacity-60"
+                  className={`${secondaryActionButtonClass} disabled:opacity-60`}
                 >
                   📋 Duplicate
                 </button>
@@ -414,7 +437,7 @@ export default function StrategyLibrary() {
                     </button>
                     <button
                       onClick={() => setDeleteConfirmId(null)}
-                      className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-cyan-500/35"
+                      className={secondaryActionButtonClass}
                     >
                       Cancel
                     </button>
@@ -422,7 +445,7 @@ export default function StrategyLibrary() {
                 ) : (
                   <button
                     onClick={() => setDeleteConfirmId(strategy.id)}
-                    className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-white text-sm font-medium transition hover:border-red-500/35"
+                    className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-sm font-medium text-white transition hover:border-red-500/35 hover:bg-slate-900"
                   >
                     🗑️ Delete
                   </button>
@@ -438,7 +461,7 @@ export default function StrategyLibrary() {
           <button
             onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
             disabled={currentPage === 0}
-            className="rounded-2xl border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-white transition hover:border-cyan-500/35 disabled:opacity-50"
+            className="rounded-2xl border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-50"
           >
             ← Previous
           </button>
@@ -450,7 +473,7 @@ export default function StrategyLibrary() {
                 className={`px-3 py-2 rounded transition ${
                   currentPage === i
                     ? 'bg-cyan-600 text-white'
-                    : 'bg-slate-900/60 hover:border-cyan-500/35 text-gray-300 border border-slate-700/70'
+                    : 'border border-slate-700/70 bg-slate-900/60 text-gray-300 hover:border-cyan-500/35 hover:bg-slate-900'
                 }`}
               >
                 {i + 1}
@@ -460,7 +483,7 @@ export default function StrategyLibrary() {
           <button
             onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
             disabled={currentPage === totalPages - 1}
-            className="rounded-2xl border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-white transition hover:border-cyan-500/35 disabled:opacity-50"
+            className="rounded-2xl border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-50"
           >
             Next →
           </button>
@@ -474,7 +497,7 @@ export default function StrategyLibrary() {
               Run Backtest: {selectedStrategy.name}
             </h2>
 
-            <div className="mb-4 rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4">
+            <div className="workspace-card mb-4 p-4">
               <p className="mb-2 text-sm text-slate-400">Strategy Parameters:</p>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="text-slate-300">
@@ -505,7 +528,7 @@ export default function StrategyLibrary() {
             </div>
 
             {runError && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500 rounded text-sm text-red-400">
+              <div className="mb-4 rounded-lg border border-red-500 bg-red-500/10 p-3 text-sm text-red-400">
                 {runError}
               </div>
             )}
@@ -531,7 +554,7 @@ export default function StrategyLibrary() {
               </div>
             </div>
 
-            <div className="mb-4 rounded-2xl border border-slate-700/60 bg-slate-950/45 p-3">
+            <div className="workspace-card mb-4 p-3">
               <p className="text-xs text-slate-300 mb-2">Request payload preview</p>
               <pre className="text-[11px] text-slate-400 whitespace-pre-wrap break-all">
                 {JSON.stringify(buildRunPayload(), null, 2)}
@@ -542,7 +565,7 @@ export default function StrategyLibrary() {
               <button
                 onClick={() => void handleExecuteBacktest()}
                 disabled={runBacktestMutation.isPending}
-                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 text-white font-medium rounded transition"
+                className="flex-1 rounded border border-emerald-900/15 bg-emerald-700 px-4 py-2 font-medium text-white shadow-sm shadow-emerald-950/10 transition hover:bg-emerald-600 disabled:bg-emerald-700/50"
               >
                 {runBacktestMutation.isPending ? 'Running...' : '▶️ Run Backtest'}
               </button>
@@ -553,7 +576,7 @@ export default function StrategyLibrary() {
                   setRunError(null);
                 }}
                 disabled={runBacktestMutation.isPending}
-                className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-700/50 text-white font-medium rounded transition"
+                className="flex-1 rounded border border-slate-700/70 bg-slate-900/70 px-4 py-2 font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-60"
               >
                 Cancel
               </button>

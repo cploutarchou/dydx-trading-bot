@@ -454,11 +454,11 @@ func main() {
 			"success": true,
 			"message": "Migration and seed status loaded",
 			"data": gin.H{
-				"migration_version":          version,
-				"dirty":                      dirty,
-				"seed_users_by_prefix":       usersByPrefix,
+				"migration_version":           version,
+				"dirty":                       dirty,
+				"seed_users_by_prefix":        usersByPrefix,
 				"seed_applications_by_prefix": applicationsByPrefix,
-				"seed_reviewing_by_prefix":   reviewingByPrefix,
+				"seed_reviewing_by_prefix":    reviewingByPrefix,
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})

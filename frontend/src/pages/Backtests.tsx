@@ -82,12 +82,16 @@ const InsightCard: React.FC<{
           </div>
           <div>
             <p className="text-slate-500">Avg Drawdown</p>
-            <p className="font-semibold text-slate-200">{formatPercent(aggregate.avgDrawdownPct)}</p>
+            <p className="font-semibold text-slate-200">
+              {formatPercent(aggregate.avgDrawdownPct)}
+            </p>
           </div>
         </div>
       </>
     ) : (
-      <p className="text-sm text-slate-400">No completed backtests yet. Run a backtest to unlock this ranking.</p>
+      <p className="text-sm text-slate-400">
+        No completed backtests yet. Run a backtest to unlock this ranking.
+      </p>
     )}
   </div>
 );
@@ -112,7 +116,9 @@ export const BacktestsPage: React.FC = () => {
     },
     staleTime: 10_000,
     refetchInterval: (query) =>
-      (query.state.data ?? []).some((run) => isActiveBacktestRun(run as BacktestRun)) ? 4_000 : false,
+      (query.state.data ?? []).some((run) => isActiveBacktestRun(run as BacktestRun))
+        ? 4_000
+        : false,
   });
 
   const strategiesById = useMemo(
@@ -172,12 +178,12 @@ export const BacktestsPage: React.FC = () => {
         sortValue: (row) => row.totalPnl,
         render: (row) => (
           <div>
-            <p className={`font-semibold ${row.totalPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+            <p
+              className={`font-semibold ${row.totalPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+            >
               {formatCurrency(row.totalPnl)}
             </p>
-            <p className="mt-1 text-xs text-slate-500">
-              avg {formatCurrency(row.avgPnlPerRun)}
-            </p>
+            <p className="mt-1 text-xs text-slate-500">avg {formatCurrency(row.avgPnl)}</p>
           </div>
         ),
       },
@@ -295,13 +301,21 @@ export const BacktestsPage: React.FC = () => {
               <p className="mt-1 text-xs text-slate-500">Eligible for ranking</p>
             </div>
             <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Tracked setups</p>
-              <p className="mt-2 text-xl font-semibold text-white">{intelligence.strategies.length}</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Tracked setups
+              </p>
+              <p className="mt-2 text-xl font-semibold text-white">
+                {intelligence.strategies.length}
+              </p>
               <p className="mt-1 text-xs text-slate-500">Named strategy groups</p>
             </div>
             <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Average Sharpe</p>
-              <p className="mt-2 text-xl font-semibold text-white">{intelligence.avgSharpe.toFixed(2)}</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Average Sharpe
+              </p>
+              <p className="mt-2 text-xl font-semibold text-white">
+                {intelligence.avgSharpe.toFixed(2)}
+              </p>
               <p className="mt-1 text-xs text-slate-500">Completed runs only</p>
             </div>
           </div>
@@ -341,28 +355,37 @@ export const BacktestsPage: React.FC = () => {
           icon={<Award className="h-5 w-5 text-amber-300" />}
           aggregate={intelligence.bestStrategy}
           accent="bg-amber-500/10"
-          secondary={intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}
+          secondary={
+            intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
+              ? 'text-green-400'
+              : 'text-red-400'
+          }
         />
         <InsightCard
           title="Safest Strategy"
           icon={<ShieldCheck className="h-5 w-5 text-emerald-300" />}
           aggregate={intelligence.safestStrategy}
           accent="bg-emerald-500/10"
-          secondary={intelligence.safestStrategy && intelligence.safestStrategy.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}
+          secondary={
+            intelligence.safestStrategy && intelligence.safestStrategy.totalPnl >= 0
+              ? 'text-green-400'
+              : 'text-red-400'
+          }
         />
         <InsightCard
           title="Most Consistent Strategy"
           icon={<Layers3 className="h-5 w-5 text-cyan-300" />}
           aggregate={intelligence.mostConsistentStrategy}
           accent="bg-cyan-500/10"
-          secondary={intelligence.mostConsistentStrategy && intelligence.mostConsistentStrategy.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}
+          secondary={
+            intelligence.mostConsistentStrategy && intelligence.mostConsistentStrategy.totalPnl >= 0
+              ? 'text-green-400'
+              : 'text-red-400'
+          }
         />
       </section>
 
-      <CodexAssetIntelStrip
-        title="Assets Behind Your Top Runs"
-        request={backtestIntelRequest}
-      />
+      <CodexAssetIntelStrip title="Assets Behind Your Top Runs" request={backtestIntelRequest} />
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
         <TerminalDataGrid
@@ -387,7 +410,10 @@ export const BacktestsPage: React.FC = () => {
                 ? formatCurrency(intelligence.bestStrategy.totalPnl)
                 : '—',
               detail: intelligence.bestStrategy?.label || 'awaiting completed runs',
-              tone: intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0 ? 'positive' : 'default',
+              tone:
+                intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
+                  ? 'positive'
+                  : 'default',
             },
             {
               label: 'Safest Drawdown',
@@ -404,7 +430,10 @@ export const BacktestsPage: React.FC = () => {
             },
           ]}
           liveBadge={
-            <span className="operator-status-pill" data-tone={intelligence.activeRuns > 0 ? 'accent' : 'positive'}>
+            <span
+              className="operator-status-pill"
+              data-tone={intelligence.activeRuns > 0 ? 'accent' : 'positive'}
+            >
               {intelligence.activeRuns > 0 ? `${intelligence.activeRuns} live` : 'Stable'}
             </span>
           }
@@ -430,7 +459,9 @@ export const BacktestsPage: React.FC = () => {
             </div>
 
             {intelligence.topRuns.length === 0 ? (
-              <p className="text-sm text-slate-400">Top runs will appear after your first completed backtest.</p>
+              <p className="text-sm text-slate-400">
+                Top runs will appear after your first completed backtest.
+              </p>
             ) : (
               <div className="space-y-3">
                 {intelligence.topRuns.map((run, index) => (
@@ -449,24 +480,32 @@ export const BacktestsPage: React.FC = () => {
                             {run.name || run.run_id}
                           </span>
                         </div>
-                        <p className="mt-1 text-xs text-slate-500">{formatDateTime(run.created_at)}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {formatDateTime(run.created_at)}
+                        </p>
                       </div>
                       <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
                       <div>
                         <p className="text-slate-500">P&amp;L</p>
-                        <p className={`font-semibold ${safeNumber(run.total_pnl) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        <p
+                          className={`font-semibold ${safeNumber(run.total_pnl) >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                        >
                           {formatCurrency(safeNumber(run.total_pnl))}
                         </p>
                       </div>
                       <div>
                         <p className="text-slate-500">Sharpe</p>
-                        <p className="font-semibold text-slate-200">{safeNumber(run.sharpe_ratio).toFixed(2)}</p>
+                        <p className="font-semibold text-slate-200">
+                          {safeNumber(run.sharpe_ratio).toFixed(2)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-slate-500">Win Rate</p>
-                        <p className="font-semibold text-slate-200">{formatPercent(normalizePercent(run.win_rate))}</p>
+                        <p className="font-semibold text-slate-200">
+                          {formatPercent(normalizePercent(run.win_rate))}
+                        </p>
                       </div>
                     </div>
                   </Link>
@@ -487,9 +526,18 @@ export const BacktestsPage: React.FC = () => {
             </div>
             <ul className="space-y-2 text-sm text-slate-300">
               <li>Only completed runs contribute to quality rankings.</li>
-              <li>Drawdown is treated as a risk penalty, so high-return but unstable setups won’t dominate unfairly.</li>
-              <li>Strategies with more completed runs receive a confidence boost over single lucky outliers.</li>
-              <li>Click any run below to inspect the full detailed report before promoting a setup to live runtime.</li>
+              <li>
+                Drawdown is treated as a risk penalty, so high-return but unstable setups won’t
+                dominate unfairly.
+              </li>
+              <li>
+                Strategies with more completed runs receive a confidence boost over single lucky
+                outliers.
+              </li>
+              <li>
+                Click any run below to inspect the full detailed report before promoting a setup to
+                live runtime.
+              </li>
             </ul>
           </div>
         </div>

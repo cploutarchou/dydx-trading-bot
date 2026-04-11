@@ -575,7 +575,7 @@ export interface StartBotRequest {
   override_params?: Partial<TradingParams>;
 }
 
-export interface QuickDeployBotRequest {
+export interface QuickDeployBotRequest extends Record<string, unknown> {
   instance_id: string;
   name: string;
   credentials: {

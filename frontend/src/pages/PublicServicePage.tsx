@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import React from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
+import { ServicePulseIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
 import PublicSiteShell from '../components/PublicSiteShell';
 import { servicePages } from '../content/publicSite';
@@ -82,6 +83,24 @@ export const PublicServicePage: React.FC = () => {
     page?.slug === 'runtime' ? 'From state to action' : 'From context to conviction';
   const outcomesModelStatus = page?.slug === 'runtime' ? 'Live-ready' : 'Signal-rich';
 
+  const serviceVariant =
+    page?.slug === 'runtime'
+      ? 'runtime'
+      : page?.slug === 'intelligence'
+        ? 'intelligence'
+        : page?.slug === 'security'
+          ? 'security'
+          : 'research';
+
+  const serviceVisualTags =
+    page?.slug === 'runtime'
+      ? ['Stream health', 'Action priority', 'Runtime continuity']
+      : page?.slug === 'intelligence'
+        ? ['Narrative context', 'Timing clarity', 'Conviction support']
+        : page?.slug === 'security'
+          ? ['Access trust', '2FA readiness', 'Onboarding clarity']
+          : ['Backtest ranking', 'Risk framing', 'Promotion standard'];
+
   if (!page) {
     return <Navigate to="/" replace />;
   }
@@ -128,6 +147,18 @@ export const PublicServicePage: React.FC = () => {
                   {body}
                 </p>
               </div>
+            ))}
+          </div>
+        </MotionReveal>
+
+        <MotionReveal delayMs={130} className="service-visual-panel mt-7">
+          <ServicePulseIllustration variant={serviceVariant} />
+          <div className="service-visual-tags mt-4">
+            {serviceVisualTags.map((tag) => (
+              <span key={tag} className="data-chip">
+                <span className="h-2 w-2 rounded-full bg-cyan-300" />
+                {tag}
+              </span>
             ))}
           </div>
         </MotionReveal>

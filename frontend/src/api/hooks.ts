@@ -138,7 +138,11 @@ const useManagedWebSocket = ({
         reconnectAttemptRef.current = 0;
         setIsConnected(true);
         setSocketError(null);
-        openCleanup = onOpen?.(socket) ?? null;
+        const activeSocket = socket;
+        if (!activeSocket) {
+          return;
+        }
+        openCleanup = onOpen?.(activeSocket) ?? null;
         scheduleStaleCheck();
       };
 
@@ -381,7 +385,7 @@ export function useQuickDeployBot() {
       instanceName: string;
       autoStart: boolean;
       config: QuickDeployBotRequest;
-    }) => apiClient.quickDeployBot(instanceName, autoStart, config),
+    }) => apiClient.quickDeployBot(instanceName, autoStart, config as Record<string, unknown>),
     onSuccess: () => {
       cacheUtils.invalidateBotQueries();
     },

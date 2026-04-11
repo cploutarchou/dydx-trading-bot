@@ -785,7 +785,7 @@ class EnhancedAPIClient {
     try {
       const response = await fetch(resolveEnhancedApiUrl('/health'));
       const result = await parseJsonResponse(response);
-      return result;
+      return withDataFallback<Entity>(result, { status: 'unknown' });
     } catch (error) {
       console.error('getHealth error:', error);
       return { status: 'unknown' };

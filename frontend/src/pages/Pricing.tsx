@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, ShieldCheck, TimerReset, Waves } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ProfitShareIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
 import PublicSiteShell from '../components/PublicSiteShell';
 
@@ -207,7 +208,7 @@ export const PricingPage: React.FC = () => {
                 to="/register"
                 className="premium-button premium-button-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
               >
-                Create free account
+                Start free evaluation
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
@@ -217,16 +218,22 @@ export const PricingPage: React.FC = () => {
                 Review onboarding
               </Link>
             </div>
+
+            <div className="mt-7">
+              <ProfitShareIllustration />
+            </div>
           </div>
         </MotionReveal>
 
         <MotionReveal delayMs={100} className="mt-12">
-          <PricingModelPanel />
+          <div className="interactive-surface rounded-lg">
+            <PricingModelPanel />
+          </div>
           <div className="pricing-principles-grid mt-6">
             {principles.map((item, index) => {
               const Icon = item.icon;
               return (
-                <div key={item.title} className="pricing-principle-item">
+                <div key={item.title} className="pricing-principle-item interactive-surface">
                   <Icon className="h-5 w-5 text-cyan-300" />
                   <p className="mt-3 text-sm font-semibold text-white">{item.title}</p>
                   <p className="mt-2 max-w-xs text-xs leading-5 text-slate-400">{item.body}</p>
@@ -327,7 +334,7 @@ export const PricingPage: React.FC = () => {
                     plan.featured ? 'premium-button-primary text-white' : 'premium-button-secondary'
                   }`}
                 >
-                  {plan.name === 'Desk' ? 'Discuss rollout' : 'Start evaluation'}
+                  {plan.name === 'Desk' ? 'Discuss rollout' : 'Start free evaluation'}
                 </Link>
               </div>
             </MotionReveal>

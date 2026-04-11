@@ -11,7 +11,14 @@ import (
 
 var validUserRoles = []string{
 	"admin",
+	"super_admin",
 	"backoffice",
+	"operations_admin",
+	"compliance_admin",
+	"support_agent",
+	"finance_admin",
+	"read_only_auditor",
+	"security_analyst",
 	"ib",
 	"sub_ib",
 	"user",
@@ -68,6 +75,7 @@ func (u *User) ToDict() map[string]interface{} {
 		"avatar":                   u.Avatar,
 		"is_active":                u.IsActive,
 		"is_admin":                 u.IsAdmin,
+		"mfa_enabled":              u.MFAEnabled,
 		"password_change_required": u.PasswordChangeRequired,
 		"created_at":               createdAtStr,
 		"updated_at":               updatedAtStr,
@@ -110,6 +118,9 @@ func (u *User) FromDict(data map[string]interface{}) {
 	if isAdmin, ok := data["is_admin"].(bool); ok {
 		u.IsAdmin = isAdmin
 	}
+	if mfaEnabled, ok := data["mfa_enabled"].(bool); ok {
+		u.MFAEnabled = mfaEnabled
+	}
 	if passwordChangeRequired, ok := data["password_change_required"].(bool); ok {
 		u.PasswordChangeRequired = passwordChangeRequired
 	}
@@ -135,6 +146,27 @@ func (u *User) FromDict(data map[string]interface{}) {
 
 func NormalizeUserRole(role string, isAdmin bool) string {
 	role = strings.TrimSpace(strings.ToLower(role))
+	if role == "super-admin" {
+		role = "super_admin"
+	}
+	if role == "operations-admin" {
+		role = "operations_admin"
+	}
+	if role == "compliance-admin" {
+		role = "compliance_admin"
+	}
+	if role == "support-agent" {
+		role = "support_agent"
+	}
+	if role == "finance-admin" {
+		role = "finance_admin"
+	}
+	if role == "read-only-auditor" {
+		role = "read_only_auditor"
+	}
+	if role == "security-analyst" {
+		role = "security_analyst"
+	}
 	validRoles := map[string]struct{}{}
 	for _, validRole := range validUserRoles {
 		validRoles[validRole] = struct{}{}
@@ -158,6 +190,15 @@ func AvailableUserRoles() []string {
 	roles := make([]string, len(validUserRoles))
 	copy(roles, validUserRoles)
 	return roles
+}
+
+func IsMFAMandatoryRole(role string) bool {
+	switch NormalizeUserRole(role, role == "admin" || role == "super_admin") {
+	case "admin", "super_admin", "backoffice", "operations_admin", "compliance_admin", "support_agent", "finance_admin", "read_only_auditor", "security_analyst":
+		return true
+	default:
+		return false
+	}
 }
 
 // ToJSON converts User to JSON bytes

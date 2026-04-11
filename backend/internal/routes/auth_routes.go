@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,8 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		authRoutes.GET("/registration-status", registrationStatusHandler(database))
 		authRoutes.POST("/login", loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
+		authRoutes.POST("/2fa/setup", middleware.RequireAuth(), setup2FAHandler(database))
+		authRoutes.POST("/2fa/verify", middleware.RequireAuth(), verify2FAHandler(database))
 		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
 	}
 
@@ -72,6 +75,8 @@ type UserResponse struct {
 	Avatar                 string `json:"avatar"`
 	IsActive               bool   `json:"is_active"`
 	IsAdmin                bool   `json:"is_admin"`
+	MFAEnabled             bool   `json:"mfa_enabled"`
+	PrivilegedMFARequired  bool   `json:"privileged_mfa_required"`
 	PasswordChangeRequired bool   `json:"password_change_required"`
 	CreatedAt              string `json:"created_at"`
 	UpdatedAt              string `json:"updated_at"`
@@ -90,7 +95,10 @@ const (
 	registrationModeOpen           registrationMode = "open"
 	registrationModeDisabled       registrationMode = "disabled"
 	registrationModeInvitationOnly registrationMode = "invitation_only"
+	maxFailedLoginAttempts                          = 5
 )
+
+var loginLockoutDuration = 15 * time.Minute
 
 type registrationPolicy struct {
 	Mode               registrationMode
@@ -100,7 +108,7 @@ type registrationPolicy struct {
 	InvitationRequired bool
 }
 
-func toUserResponse(user *models.User) UserResponse {
+func toUserResponse(user *models.User, privilegedMFARequired bool) UserResponse {
 	return UserResponse{
 		ID:                     user.ID,
 		Username:               user.Username,
@@ -110,10 +118,91 @@ func toUserResponse(user *models.User) UserResponse {
 		Avatar:                 user.Avatar,
 		IsActive:               user.IsActive,
 		IsAdmin:                user.IsAdmin,
+		MFAEnabled:             user.MFAEnabled,
+		PrivilegedMFARequired:  privilegedMFARequired,
 		PasswordChangeRequired: user.PasswordChangeRequired,
 		CreatedAt:              user.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:              user.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+func setup2FAHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetInt("user_id")
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(userID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "User not found"})
+			return
+		}
+
+		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
+		setup, err := mfaService.Setup(user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		writeAuditLog(database, c, "auth.mfa.setup", "user", stringPointer(strconv.Itoa(userID)), gin.H{
+			"role":                   user.Role,
+			"mfa_mandatory_for_role": models.IsMFAMandatoryRole(user.Role),
+		}, "success")
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "2FA setup initialized",
+			"data": gin.H{
+				"secret":       setup.Secret,
+				"qr_code":      setup.QRCode,
+				"backup_codes": setup.BackupCodes,
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+func verify2FAHandler(database *sql.DB) gin.HandlerFunc {
+	type verify2FARequest struct {
+		Token string `json:"token" binding:"required,len=6"`
+	}
+
+	return func(c *gin.Context) {
+		userID := c.GetInt("user_id")
+		var req verify2FARequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request payload", "error": err.Error()})
+			return
+		}
+
+		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
+		if err := mfaService.Verify(userID, req.Token); err != nil {
+			writeAuditLog(database, c, "auth.mfa.verify", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "failed"}, "failure")
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		if err := userRepo.SetMFAEnabled(userID, true); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		writeAuditLog(database, c, "auth.mfa.verify", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "verified"}, "success")
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":   true,
+			"message":   "2FA verified successfully",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+func stringPointer(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 // registerHandler handles user registration
@@ -382,6 +471,78 @@ func isPublicRegistrationEnabled(database *sql.DB) (bool, error) {
 	}
 }
 
+func isSchemaEvolutionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "no such table") ||
+		strings.Contains(lower, "does not exist") ||
+		strings.Contains(lower, "no such column")
+}
+
+func readUserLockState(database *sql.DB, userID int) (failedAttempts int, lockedUntil *time.Time, err error) {
+	err = database.QueryRow(
+		`SELECT COALESCE(failed_login_attempts, 0), locked_until FROM users WHERE id = $1`,
+		userID,
+	).Scan(&failedAttempts, &lockedUntil)
+	if isSchemaEvolutionError(err) {
+		return 0, nil, nil
+	}
+	if err != nil {
+		return 0, nil, err
+	}
+	return failedAttempts, lockedUntil, nil
+}
+
+func incrementFailedLogin(database *sql.DB, userID int) {
+	_, err := database.Exec(
+		`UPDATE users
+		 SET failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1,
+		     locked_until = CASE
+		         WHEN COALESCE(failed_login_attempts, 0) + 1 >= $2 THEN $3
+		         ELSE locked_until
+		     END
+		 WHERE id = $1`,
+		userID,
+		maxFailedLoginAttempts,
+		time.Now().UTC().Add(loginLockoutDuration),
+	)
+	if err != nil && !isSchemaEvolutionError(err) {
+		log.Printf("failed to increment failed login attempts for user_id=%d: %v", userID, err)
+	}
+}
+
+func resetFailedLogin(database *sql.DB, userID int) {
+	_, err := database.Exec(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`, userID)
+	if err != nil && !isSchemaEvolutionError(err) {
+		log.Printf("failed to reset failed login attempts for user_id=%d: %v", userID, err)
+	}
+}
+
+func logSecurityLoginEvent(database *sql.DB, userID *int, username, eventType, outcome, reason, ipAddress, userAgent string) {
+	trimmedUsername := strings.TrimSpace(username)
+	if trimmedUsername == "" {
+		trimmedUsername = "unknown"
+	}
+
+	_, err := database.Exec(
+		`INSERT INTO security_login_events (user_id, username, event_type, outcome, reason, ip_address, user_agent, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		userID,
+		trimmedUsername,
+		eventType,
+		outcome,
+		reason,
+		ipAddress,
+		userAgent,
+		time.Now().UTC(),
+	)
+	if err != nil && !isSchemaEvolutionError(err) {
+		log.Printf("failed to write security_login_event for username=%s: %v", trimmedUsername, err)
+	}
+}
+
 // loginHandler handles user login
 func loginHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -410,8 +571,11 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		// Get user from database
 		userRepo := repository.NewUserRepository(database)
 		user, err := userRepo.GetByUsername(req.Username)
+		requestIP := c.ClientIP()
+		userAgent := c.GetHeader("User-Agent")
 		if err != nil {
 			log.Printf("User not found: %s, error: %v", req.Username, err)
+			logSecurityLoginEvent(database, nil, req.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"error":   "Invalid credentials",
@@ -421,6 +585,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		if user == nil {
 			log.Printf("User not found: %s", req.Username)
+			logSecurityLoginEvent(database, nil, req.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"error":   "Invalid credentials",
@@ -429,9 +594,26 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if !user.IsActive {
+			logSecurityLoginEvent(database, &user.ID, user.Username, "login", "failure", "account_inactive", requestIP, userAgent)
 			c.JSON(http.StatusForbidden, gin.H{
 				"success": false,
 				"error":   "Account is inactive",
+			})
+			return
+		}
+
+		failedAttempts, lockedUntil, lockErr := readUserLockState(database, user.ID)
+		if lockErr != nil {
+			log.Printf("Failed to read lock state for user=%s: %v", user.Username, lockErr)
+		}
+		if lockedUntil != nil && lockedUntil.After(time.Now().UTC()) {
+			logSecurityLoginEvent(database, &user.ID, user.Username, "login", "failure", "account_locked", requestIP, userAgent)
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"success": false,
+				"error":   "Account temporarily locked due to failed login attempts",
+				"data": gin.H{
+					"locked_until": lockedUntil.UTC().Format(time.RFC3339),
+				},
 			})
 			return
 		}
@@ -441,6 +623,15 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
 			log.Printf("Password mismatch for user: %s", req.Username)
+			incrementFailedLogin(database, user.ID)
+			logSecurityLoginEvent(database, &user.ID, user.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
+			if failedAttempts+1 >= maxFailedLoginAttempts {
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"success": false,
+					"error":   "Too many failed login attempts. Account temporarily locked.",
+				})
+				return
+			}
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"error":   "Invalid credentials",
@@ -472,6 +663,8 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		// Update last_login
 		_ = userRepo.UpdateLastLogin(user.ID)
+		resetFailedLogin(database, user.ID)
+		logSecurityLoginEvent(database, &user.ID, user.Username, "login", "success", "authenticated", requestIP, userAgent)
 
 		// Set access token as HttpOnly cookie (for browser clients)
 		// Cookie expiry matches access token lifetime (30 minutes)
@@ -587,7 +780,7 @@ func changePasswordHandler(database *sql.DB) gin.HandlerFunc {
 			"success": true,
 			"message": "Password updated successfully",
 			"data": gin.H{
-				"user": toUserResponse(user),
+				"user": toUserResponse(user, middleware.IsPrivilegedMFARequired(database)),
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
@@ -714,7 +907,7 @@ func getCurrentUserHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, toUserResponse(user))
+		c.JSON(http.StatusOK, toUserResponse(user, middleware.IsPrivilegedMFARequired(database)))
 	}
 }
 
@@ -797,7 +990,7 @@ func updateProfileHandler(database *sql.DB) gin.HandlerFunc {
 			"success": true,
 			"message": "Profile updated successfully",
 			"data": gin.H{
-				"user": toUserResponse(user),
+				"user": toUserResponse(user, middleware.IsPrivilegedMFARequired(database)),
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})

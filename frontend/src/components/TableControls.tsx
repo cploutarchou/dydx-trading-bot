@@ -55,7 +55,9 @@ export function TableHeader({
             {(['comfortable', 'compact', 'dense'] as TableDensity[]).map((d) => (
               <button
                 key={d}
+                type="button"
                 onClick={() => onDensityChange(d)}
+                aria-label={`Set table density to ${d}`}
                 className={`px-2 py-1 text-xs rounded transition ${
                   density === d
                     ? 'bg-blue-600 text-white'
@@ -69,9 +71,11 @@ export function TableHeader({
         )}
         {showExport && onExport && (
           <button
+            type="button"
             onClick={onExport}
             className="p-2 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
             title="Export data"
+            aria-label="Export table data"
           >
             <Download className="w-4 h-4" />
           </button>
@@ -144,9 +148,11 @@ export function PaginationControls({
 
       <div className="flex items-center gap-2 self-end sm:self-auto">
         <button
+          type="button"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
           className="p-2 rounded hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-slate-400 hover:text-slate-200 transition"
+          aria-label="Go to previous page"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -154,9 +160,11 @@ export function PaginationControls({
           Page {currentPage} of {totalPages}
         </span>
         <button
+          type="button"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
           className="p-2 rounded hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-slate-400 hover:text-slate-200 transition"
+          aria-label="Go to next page"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
@@ -179,7 +187,11 @@ export function getDensityClass(density: TableDensity) {
 /**
  * P1.10: Export table data as CSV
  */
-export function exportTableAsCSV(data: any[], columns: string[], filename: string = 'export.csv') {
+export function exportTableAsCSV(
+  data: Array<Record<string, unknown>>,
+  columns: string[],
+  filename: string = 'export.csv'
+) {
   const headers = columns.join(',');
   const rows = data.map((row) =>
     columns
@@ -188,7 +200,13 @@ export function exportTableAsCSV(data: any[], columns: string[], filename: strin
         if (typeof val === 'string' && val.includes(',')) {
           return `"${val}"`;
         }
-        return val ?? '';
+        if (typeof val === 'number' || typeof val === 'boolean') {
+          return String(val);
+        }
+        if (val == null) {
+          return '';
+        }
+        return JSON.stringify(val);
       })
       .join(',')
   );

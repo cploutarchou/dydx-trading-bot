@@ -211,5 +211,5 @@ export const publicNavItems: PublicNavItem[] = [
 
 export const getPrimaryCta = (pathname: string) =>
   pathname === '/pricing'
-    ? { href: '/register', label: 'Start evaluation' }
+    ? { href: '/register', label: 'Start free evaluation' }
     : { href: '/pricing', label: 'View pricing' };

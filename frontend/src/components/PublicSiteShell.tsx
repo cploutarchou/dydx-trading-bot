@@ -219,7 +219,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
                   to="/register"
                   className="rounded-lg border border-teal-400/25 bg-teal-500/10 px-3.5 py-2 text-sm font-semibold text-teal-100 transition hover:border-teal-300/50"
                 >
-                  Start evaluation
+                  Start free evaluation
                 </Link>
               </div>
             </div>

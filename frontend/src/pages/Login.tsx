@@ -179,7 +179,7 @@ export const LoginPage: React.FC = () => {
               onClick={() => navigate('/register')}
               className="font-medium text-cyan-300 hover:text-cyan-200"
             >
-              Start evaluation
+              Start free evaluation
             </button>
           </>
         )}

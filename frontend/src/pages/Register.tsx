@@ -400,13 +400,13 @@ export const RegisterPage: React.FC = () => {
             />
             <label htmlFor="terms" className="text-xs leading-6 text-slate-400">
               I agree to the{' '}
-              <a href="#" className="text-cyan-300 hover:text-cyan-200 hover:underline">
+              <span className="font-medium text-cyan-300">
                 Terms of Service
-              </a>{' '}
+              </span>{' '}
               and{' '}
-              <a href="#" className="text-cyan-300 hover:text-cyan-200 hover:underline">
+              <span className="font-medium text-cyan-300">
                 Privacy Policy
-              </a>
+              </span>
               . I understand the account will continue into security setup before I reach the live
               workspace.
             </label>

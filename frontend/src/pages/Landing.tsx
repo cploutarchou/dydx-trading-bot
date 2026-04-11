@@ -52,7 +52,7 @@ export const LandingPage: React.FC = () => {
                 to="/register"
                 className="premium-button premium-button-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
               >
-                Start evaluation
+                Start free evaluation
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
@@ -133,7 +133,7 @@ export const LandingPage: React.FC = () => {
                 to="/register"
                 className="premium-button premium-button-primary justify-center px-6 py-3 text-sm font-semibold text-white"
               >
-                Create free evaluation account
+                Start free evaluation
               </Link>
               <Link
                 to="/services/security"

@@ -191,6 +191,7 @@ Inserts:
 - **8 users** — 2 IBs (`ib_atlas`, `ib_nova`), 2 sub-IBs, 4 clients
 - **6 partner relationships** — IB → sub-IB and IB/sub-IB → client edges
 - **4 commission metric rows** — one 30-day period per IB/sub-IB account
+- **4 partner applications** — mix of `pending`, `reviewing`, `approved`, and `rejected`
 
 Suitable for: login smoke tests, IB hierarchy rendering, basic CRM list checks.
 
@@ -205,7 +206,7 @@ Inserts:
 - **72 users** — 3 IBs (`ib_atlas`, `ib_nova`, `ib_orion`), 9 sub-IBs (3 per IB), 60 clients (`client_001`–`client_060`) via `generate_series`
 - **69 partner relationships** — IB → sub-IB edges, then 60 clients round-robin distributed across 12 sponsor slots (9 sub-IBs + 3 direct-IB slots)
 - **12 commission metric rows** — monthly period for every IB and sub-IB
-- **5 partner applications** — mix of `pending`, `approved`, and `rejected` states across IBs/sub-IBs/clients
+- **6 partner applications** — mix of `pending`, `reviewing`, `approved`, and `rejected` states across IBs/sub-IBs/clients
 - **6 invitation tokens** — per-IB tokens covering active, expired, and revoked scenarios
 - **3 extra IB tier commission rate rows** — tiers 4, 5, 6 for UI stress and tier-table pagination
 

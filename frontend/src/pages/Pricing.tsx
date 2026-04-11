@@ -141,7 +141,7 @@ const PricingModelPanel: React.FC = () => (
   <div className="pricing-model-panel">
     <div className="pricing-model-header">
       <div>
-        <p className="text-[11px] font-semibold uppercase text-slate-500">Commercial model</p>
+        <p className="text-[11px] font-semibold uppercase text-slate-400">Commercial model</p>
         <p className="mt-2 text-2xl font-semibold text-white">Evaluation before commitment</p>
       </div>
       <p className="pricing-model-open">
@@ -156,8 +156,8 @@ const PricingModelPanel: React.FC = () => (
           <p className="pricing-model-step">Step {index + 1}</p>
           <p className="mt-2 text-base font-semibold text-white">{row.stage}</p>
           <p className="mt-1 text-2xl font-semibold text-emerald-300">{row.value}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-300">{row.detail}</p>
-          <p className="mt-3 text-xs text-slate-500">{row.note}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-200">{row.detail}</p>
+          <p className="mt-3 text-xs text-slate-400">{row.note}</p>
         </div>
       ))}
     </div>
@@ -166,8 +166,8 @@ const PricingModelPanel: React.FC = () => (
       {modelScenarios.map((scenario) => (
         <div key={scenario.title} className="pricing-scenario-card">
           <p className="text-sm font-semibold text-white">{scenario.title}</p>
-          <p className="mt-2 text-xs text-emerald-300">{scenario.share}</p>
-          <p className="mt-1 text-xs text-slate-400">{scenario.keep}</p>
+          <p className="mt-2 text-xs text-emerald-200">{scenario.share}</p>
+          <p className="mt-1 text-xs text-slate-300">{scenario.keep}</p>
         </div>
       ))}
     </div>
@@ -260,7 +260,8 @@ export const PricingPage: React.FC = () => {
 
           <div className="pricing-persona-recommendation">
             <p className="text-sm text-slate-300">
-              <span className="font-semibold text-white">Recommended:</span> {selectedGuide.recommendedPlan}
+              <span className="font-semibold text-white">Recommended:</span>{' '}
+              {selectedGuide.recommendedPlan}
             </p>
             <p className="mt-1 text-xs leading-6 text-slate-400">{selectedGuide.reason}</p>
           </div>
@@ -294,10 +295,12 @@ export const PricingPage: React.FC = () => {
                   <p className="mt-2 text-sm text-slate-400">{plan.audience}</p>
                   <div className="mt-4 grid gap-2">
                     <p className="text-xs text-slate-300">
-                      <span className="font-semibold text-slate-100">Activation:</span> {plan.activation}
+                      <span className="font-semibold text-slate-100">Activation:</span>{' '}
+                      {plan.activation}
                     </p>
                     <p className="text-xs text-slate-300">
-                      <span className="font-semibold text-slate-100">Commitment:</span> {plan.commitment}
+                      <span className="font-semibold text-slate-100">Commitment:</span>{' '}
+                      {plan.commitment}
                     </p>
                   </div>
                 </div>

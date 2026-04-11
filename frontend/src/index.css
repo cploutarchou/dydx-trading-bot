@@ -200,6 +200,20 @@ h6 {
   }
 }
 
+@keyframes pricingConnectorFlow {
+  0% {
+    background-position: 100% 0;
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    background-position: 0 0;
+    opacity: 0.65;
+  }
+}
+
 .animate-fade-slide-up {
   animation: fadeSlideUp 0.5s ease-out both;
 }
@@ -965,7 +979,7 @@ h6 {
 .service-outcome-list {
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 0.5rem;
-  background: rgba(2, 6, 23, 0.34);
+  background: rgba(2, 6, 23, 0.42);
   padding: clamp(1rem, 2.2vw, 1.5rem);
 }
 
@@ -1010,10 +1024,10 @@ h6 {
 
 .pricing-model-card {
   position: relative;
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 0.5rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%), rgba(2, 6, 23, 0.48);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%), rgba(2, 6, 23, 0.56);
   padding: 0.82rem 0.9rem;
 }
 
@@ -1025,7 +1039,14 @@ h6 {
     right: -0.92rem;
     width: 0.84rem;
     height: 1px;
-    background: linear-gradient(90deg, rgba(45, 212, 191, 0.55), rgba(45, 212, 191, 0.12));
+    background: linear-gradient(
+      90deg,
+      rgba(45, 212, 191, 0.18) 0%,
+      rgba(45, 212, 191, 0.78) 50%,
+      rgba(45, 212, 191, 0.18) 100%
+    );
+    background-size: 200% 100%;
+    animation: pricingConnectorFlow 2.2s ease-in-out infinite;
   }
 
   .pricing-model-card:not(:last-child)::before {
@@ -1045,7 +1066,15 @@ h6 {
     animation-delay: 0ms;
   }
 
+  .pricing-model-card:first-child::after {
+    animation-delay: 0ms;
+  }
+
   .pricing-model-card:nth-child(2)::before {
+    animation-delay: 420ms;
+  }
+
+  .pricing-model-card:nth-child(2)::after {
     animation-delay: 420ms;
   }
 }
@@ -1079,10 +1108,10 @@ h6 {
 }
 
 .pricing-scenario-card {
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 0.5rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%), rgba(2, 6, 23, 0.45);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%), rgba(2, 6, 23, 0.54);
   padding: 0.82rem 0.9rem;
 }
 
@@ -1837,6 +1866,7 @@ h6 {
   .premium-button-primary::after,
   .public-site-shell::after,
   .public-page-block::after,
+  .pricing-model-card:not(:last-child)::after,
   .pricing-model-card:not(:last-child)::before,
   .reveal-block,
   .market-route path,

@@ -103,29 +103,29 @@ export const PublicServicePage: React.FC = () => {
 
   return (
     <PublicSiteShell>
-      <section className="public-shell-container space-y-5 py-6 md:py-8">
+      <section className="public-shell-container space-y-4 py-4 md:space-y-5 md:py-8">
         <MotionReveal
-          className="public-hero-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
+          className="public-hero-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5 sm:p-6"
           distancePx={18}
         >
           <div className="surface-label">
             <Sparkles className="h-3.5 w-3.5" />
             {page.kicker}
           </div>
-          <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">{page.title}</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">{page.heroIntro}</p>
+          <h1 className="mt-3 text-2xl font-semibold text-white sm:text-4xl">{page.title}</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400 sm:leading-7">{page.heroIntro}</p>
 
           <div className="public-actions-row mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               to="/register"
-              className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
+              className="premium-button premium-button-primary public-cta-primary w-full justify-center px-6 py-3 text-sm font-semibold text-white sm:w-auto"
             >
               Start free evaluation
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               to="/pricing"
-              className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium"
+              className="premium-button premium-button-secondary w-full justify-center px-6 py-3 text-sm font-medium sm:w-auto"
             >
               View pricing
             </Link>
@@ -276,13 +276,13 @@ export const PublicServicePage: React.FC = () => {
             <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
               <Link
                 to="/pricing"
-                className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium"
+                className="premium-button premium-button-secondary w-full justify-center px-6 py-3 text-sm font-medium sm:w-auto"
               >
                 View pricing
               </Link>
               <Link
                 to="/register"
-                className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
+                className="premium-button premium-button-primary public-cta-primary w-full justify-center px-6 py-3 text-sm font-semibold text-white sm:w-auto"
               >
                 Start free evaluation
                 <ArrowRight className="h-4 w-4" />

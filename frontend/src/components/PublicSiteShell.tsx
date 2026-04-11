@@ -62,14 +62,14 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
   return (
     <div className="public-site-shell min-h-screen overflow-x-hidden text-white">
       <header className="sticky top-0 z-50 border-b border-stone-800/90 bg-[#070807]/92 backdrop-blur-xl">
-        <div className="public-shell-container flex min-h-16 items-center justify-between gap-3 py-2.5">
-          <Link to="/" className="group flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/12 text-sm font-semibold text-teal-100 transition duration-300 group-hover:border-teal-200/50">
+        <div className="public-shell-container flex min-h-14 items-center justify-between gap-2.5 py-2 sm:min-h-16 sm:gap-3 sm:py-2.5">
+          <Link to="/" className="group flex items-center gap-2.5 sm:gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/12 text-sm font-semibold text-teal-100 transition duration-300 group-hover:border-teal-200/50 sm:h-10 sm:w-10">
               dY
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
-              <p className="text-[11px] uppercase text-slate-500">DeFi operator platform</p>
+              <p className="text-[13px] font-semibold text-white sm:text-sm">dYdX Arbitrage OS</p>
+              <p className="text-[10px] uppercase text-slate-500 sm:text-[11px]">DeFi operator platform</p>
             </div>
           </Link>
 
@@ -126,7 +126,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
           <button
             type="button"
             onClick={() => setMobileOpen((current) => !current)}
-            className="inline-flex rounded-lg border border-stone-800 bg-stone-950/80 p-2.5 text-slate-300 lg:hidden"
+            className="inline-flex rounded-lg border border-stone-800 bg-stone-950/80 p-2 text-slate-300 lg:hidden"
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

@@ -48,6 +48,7 @@ var fallbackPermissionsByRole = map[string]map[string]struct{}{
 	},
 	"backoffice": {
 		"crm.read":             {},
+		"crm.admin.manage":     {},
 		"users.read":           {},
 		"users.update":         {},
 		"kyc.read":             {},

@@ -388,6 +388,7 @@ SELECT
 FROM (
   VALUES
     ('seed_portal_bulk_20260411_sub_ib_atlas_1', 'seed_portal_bulk_20260411_ib_atlas', 'ib', 'pending',  'seed_portal_bulk_20260411 business atlas pending',  'seed_portal_bulk_20260411 pending review', '', NULL::TEXT, INTERVAL '4 days', INTERVAL '4 days'),
+    ('seed_portal_bulk_20260411_sub_ib_atlas_2', 'seed_portal_bulk_20260411_ib_atlas', 'ib', 'reviewing', 'seed_portal_bulk_20260411 business atlas reviewing', 'seed_portal_bulk_20260411 active manual review', 'reviewing with compliance checks', 'seed_portal_bulk_20260411_ib_atlas', INTERVAL '6 days', INTERVAL '3 days'),
     ('seed_portal_bulk_20260411_sub_ib_nova_2',  'seed_portal_bulk_20260411_ib_nova',  'ib', 'approved', 'seed_portal_bulk_20260411 business nova approved', 'seed_portal_bulk_20260411 approved case', 'approved in bulk seed', 'seed_portal_bulk_20260411_ib_nova', INTERVAL '12 days', INTERVAL '10 days'),
     ('seed_portal_bulk_20260411_sub_ib_orion_3', 'seed_portal_bulk_20260411_ib_orion', 'ib', 'rejected', 'seed_portal_bulk_20260411 business orion rejected', 'seed_portal_bulk_20260411 rejected case', 'insufficient documentation', 'seed_portal_bulk_20260411_ib_orion', INTERVAL '20 days', INTERVAL '18 days'),
     ('seed_portal_bulk_20260411_client_001',     'seed_portal_bulk_20260411_ib_atlas', 'ib', 'pending',  'seed_portal_bulk_20260411 client001 application', 'seed_portal_bulk_20260411 first-time request', '', NULL::TEXT, INTERVAL '2 days', INTERVAL '2 days'),

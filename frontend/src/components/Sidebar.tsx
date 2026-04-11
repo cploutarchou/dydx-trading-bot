@@ -2,6 +2,7 @@ import { Activity, Command, LogOut, Sparkles, X } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getUserWorkspaceRole } from '../auth/roles';
+import { useI18n } from '../i18n/useI18n';
 import {
   filterNavItemsForRole,
   isNavItemActive,
@@ -21,6 +22,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+  const { t, tr } = useI18n();
   const role = getUserWorkspaceRole(user);
   const visibleNavItems = filterNavItemsForRole(workspaceNavItems, role);
   const visibleQuickActions = filterNavItemsForRole(workspaceQuickActions, role);
@@ -40,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
       {isOpen && <div className="fixed inset-0 z-40 bg-black/55 lg:hidden" onClick={onClose} />}
 
       <aside
-        className={`premium-sidebar fixed z-50 flex h-screen w-[19rem] shrink-0 flex-col border-r border-slate-800/80 transition-transform duration-300 lg:sticky lg:top-0 lg:self-start ${
+        className={`premium-sidebar fixed z-50 flex h-screen w-76 shrink-0 flex-col border-r border-slate-800/80 transition-transform duration-300 lg:sticky lg:top-0 lg:self-start ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
@@ -58,7 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
         <div className="border-b border-slate-800/90 px-6 pb-6 pt-4 lg:pt-8">
           <div className="workspace-chip border-cyan-500/20 text-cyan-200">
             <Sparkles className="h-3.5 w-3.5" />
-            Trading desk
+            {t('Trading desk', 'Πίνακας συναλλαγών')}
           </div>
 
           <div className="mt-4 flex items-center gap-3">
@@ -67,7 +69,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             </div>
             <div>
               <h1 className="text-lg font-semibold text-white">dYdX Arbitrage OS</h1>
-              <p className="text-xs text-slate-500">Research, backtests, bots, and controls</p>
+              <p className="text-xs text-slate-500">
+                {t(
+                  'Research, backtests, bots, and controls',
+                  'Έρευνα, backtests, bots και έλεγχοι'
+                )}
+              </p>
             </div>
           </div>
 
@@ -75,10 +82,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             <div className="workspace-card px-4 py-4">
               <div className="flex items-center gap-2 text-emerald-300">
                 <Activity className="h-4 w-4" />
-                <p className="text-sm font-semibold text-white">Workspace ready</p>
+                <p className="text-sm font-semibold text-white">
+                  {t('Workspace ready', 'Ο χώρος εργασίας είναι έτοιμος')}
+                </p>
               </div>
               <p className="mt-2 text-xs leading-5 text-slate-400">
-                Active routes, quick actions, and command access stay within one scan.
+                {t(
+                  'Active routes, quick actions, and command access stay within one scan.',
+                  'Ενεργές διαδρομές, γρήγορες ενέργειες και πρόσβαση εντολών σε μία ματιά.'
+                )}
               </p>
             </div>
 
@@ -94,9 +106,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                 <Command className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-100">Command palette</p>
+                <p className="text-sm font-medium text-slate-100">
+                  {t('Command palette', 'Παλέτα εντολών')}
+                </p>
                 <p className="truncate text-xs text-slate-500">
-                  Jump anywhere with keyboard-first navigation
+                  {t(
+                    'Jump anywhere with keyboard-first navigation',
+                    'Μετακίνηση παντού με πληκτρολόγιο'
+                  )}
                 </p>
               </div>
               <span className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] uppercase text-slate-500">
@@ -127,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                     </div>
                     <div className="min-w-0">
                       <p className="font-medium text-slate-100">{item.label}</p>
-                      <p className="truncate text-xs text-slate-500">{item.description}</p>
+                      <p className="truncate text-xs text-slate-500">{tr(item.description)}</p>
                     </div>
                   </button>
                 );
@@ -142,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
               return (
                 <div key={section}>
-                  <p className="px-3 text-[10px] uppercase text-slate-500">{section}</p>
+                  <p className="px-3 text-[10px] uppercase text-slate-500">{tr(section)}</p>
                   <div className="mt-2 space-y-1">
                     {items.map((item) => {
                       const active = isNavItemActive(location.pathname, item);
@@ -170,11 +187,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                             <Icon className="h-5 w-5" />
                           </span>
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium">{item.label}</p>
+                            <p className="text-sm font-medium">{tr(item.label)}</p>
                             <p
                               className={`truncate text-xs ${active ? 'text-teal-100/80' : 'text-slate-500'}`}
                             >
-                              {item.description}
+                              {tr(item.description)}
                             </p>
                           </div>
                           {item.shortcut && !active && (
@@ -197,7 +214,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
         <div className="border-t border-slate-800/90 px-4 py-4">
           <div className="workspace-card px-4 py-4">
-            <p className="text-[10px] uppercase text-slate-500">Signed in as</p>
+            <p className="text-[10px] uppercase text-slate-500">
+              {t('Signed in as', 'Συνδεδεμένος ως')}
+            </p>
             <p className="mt-2 truncate text-sm font-semibold text-white">
               {user?.full_name || user?.username}
             </p>
@@ -215,7 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-red-600/90 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-red-600"
           >
             <LogOut className="h-4 w-4" />
-            Logout
+            {t('Logout', 'Αποσύνδεση')}
           </button>
         </div>
       </aside>

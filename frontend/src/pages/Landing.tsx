@@ -43,19 +43,19 @@ const valueItems = [
 export const LandingPage: React.FC = () => {
   return (
     <PublicSiteShell>
-      <section className="public-shell-container grid gap-5 py-5 md:py-7 xl:grid-cols-[minmax(0,1.2fr),minmax(20rem,0.8fr)] xl:items-stretch">
+      <section className="public-shell-container grid gap-4 py-4 md:gap-5 md:py-7 xl:grid-cols-[minmax(0,1.2fr),minmax(20rem,0.8fr)] xl:items-stretch">
         <MotionReveal
-          className="public-hero-panel h-full rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
+          className="public-hero-panel h-full rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5 sm:p-6"
           distancePx={18}
         >
           <div className="surface-label">
             <Radar className="h-3.5 w-3.5" />
             DeFi operator platform
           </div>
-          <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">
+          <h1 className="mt-3 text-2xl font-semibold text-white sm:text-4xl">
             A calmer front door for evaluating, preparing, and running dYdX strategies.
           </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400 sm:leading-7">
             dYdX Arbitrage OS guides teams from research conviction to secure onboarding and live
             runtime control—without the noise of a long marketing funnel.
           </p>
@@ -63,14 +63,14 @@ export const LandingPage: React.FC = () => {
           <div className="public-actions-row mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               to="/register"
-              className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
+              className="premium-button premium-button-primary public-cta-primary w-full justify-center px-6 py-3.5 text-sm font-semibold text-white sm:w-auto"
             >
               Start free evaluation
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               to="/pricing"
-              className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
+              className="premium-button premium-button-secondary w-full justify-center px-6 py-3.5 text-sm font-medium sm:w-auto"
             >
               View pricing
             </Link>

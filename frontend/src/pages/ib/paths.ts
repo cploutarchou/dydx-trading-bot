@@ -1,3 +1,5 @@
+import { getPortalSubdomainConfig } from '../../utils/portalSubdomainSettings';
+
 const IB_PORTAL_SUBDOMAIN_PREFIX = 'ib-portal.';
 
 const toIBPortalHost = (hostname: string): string => {
@@ -21,8 +23,9 @@ export const isIBPortalHost = (hostname?: string): boolean => {
     return false;
   }
 
+  const config = getPortalSubdomainConfig('ib');
   const host = String(hostname ?? window.location.hostname).toLowerCase();
-  return host.startsWith(IB_PORTAL_SUBDOMAIN_PREFIX);
+  return host === config.host.toLowerCase() || host.startsWith(IB_PORTAL_SUBDOMAIN_PREFIX);
 };
 
 export const ibPortalPath = (section: string): string => {
@@ -49,12 +52,17 @@ export const ibPortalHref = (section: string): string => {
     return path;
   }
 
+  const config = getPortalSubdomainConfig('ib');
+  if (!config.enabled) {
+    return path;
+  }
+
   if (isIBPortalHost()) {
     return path;
   }
 
-  const { protocol, port, hostname } = window.location;
-  const nextHost = toIBPortalHost(hostname);
+  const { protocol, port } = window.location;
+  const nextHost = config.host || toIBPortalHost(window.location.hostname);
   const portPart = port ? `:${port}` : '';
   return `${protocol}//${nextHost}${portPart}${path}`;
 };

@@ -8,8 +8,6 @@ import {
   workspaceNavItems,
   workspaceQuickActions,
 } from '../navigation/workspaceNav';
-import { crmHref, crmPath } from '../pages/crm/paths';
-import { ibPortalHref, ibPortalPath } from '../pages/ib/paths';
 import { useAuthStore } from '../store/auth';
 
 const RECENT_ROUTES_STORAGE_KEY = 'workspace_recent_routes';
@@ -118,27 +116,6 @@ export const WorkspaceCommandPalette: React.FC<WorkspaceCommandPaletteProps> = (
 
   const handleSelect = (item: WorkspaceNavItem) => {
     persistRecentPath(item.path);
-    if (item.path === crmPath('dashboard')) {
-      const target = crmHref('dashboard');
-      if (target.startsWith('http')) {
-        window.location.assign(target);
-      } else {
-        navigate(target);
-      }
-      onClose();
-      return;
-    }
-    if (item.path === ibPortalPath('dashboard')) {
-      const target = ibPortalHref('dashboard');
-      if (target.startsWith('http')) {
-        window.location.assign(target);
-      } else {
-        navigate(target);
-      }
-      onClose();
-      return;
-    }
-
     navigate(item.path);
     onClose();
   };

@@ -1,3 +1,5 @@
+import { getPortalSubdomainConfig } from '../../utils/portalSubdomainSettings';
+
 const CRM_SUBDOMAIN_PREFIX = 'crm.';
 
 const toCRMHost = (hostname: string): string => {
@@ -21,8 +23,9 @@ export const isCRMHost = (hostname?: string): boolean => {
     return false;
   }
 
+  const config = getPortalSubdomainConfig('crm');
   const host = String(hostname ?? window.location.hostname).toLowerCase();
-  return host.startsWith(CRM_SUBDOMAIN_PREFIX);
+  return host === config.host.toLowerCase() || host.startsWith(CRM_SUBDOMAIN_PREFIX);
 };
 
 export const crmPath = (section: string): string => {
@@ -49,12 +52,17 @@ export const crmHref = (section: string): string => {
     return path;
   }
 
+  const config = getPortalSubdomainConfig('crm');
+  if (!config.enabled) {
+    return path;
+  }
+
   if (isCRMHost()) {
     return path;
   }
 
-  const { protocol, port, hostname } = window.location;
-  const nextHost = toCRMHost(hostname);
+  const { protocol, port } = window.location;
+  const nextHost = config.host || toCRMHost(window.location.hostname);
   const portPart = port ? `:${port}` : '';
   return `${protocol}//${nextHost}${portPart}${path}`;
 };

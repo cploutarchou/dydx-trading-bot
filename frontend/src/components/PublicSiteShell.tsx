@@ -1,14 +1,8 @@
-import {
-  Activity,
-  ArrowRight,
-  Menu,
-  ShieldCheck,
-  Waypoints,
-  X,
-} from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import { Activity, ArrowRight, Menu, Moon, ShieldCheck, Sun, Waypoints, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getPrimaryCta, publicNavItems } from '../content/publicSite';
+import { useUIPreferencesStore } from '../store/uiPreferences';
 
 interface PublicSiteShellProps {
   children: React.ReactNode;
@@ -27,14 +21,40 @@ const conversionTrustRows = [
   ['Operator clarity', 'Research, pricing, and runtime path explained in one flow'],
 ] as const;
 
-export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hideFooter = false }) => {
+const PUBLIC_THEME_KEY = 'ui.publicTheme';
+
+export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
+  children,
+  hideFooter = false,
+}) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const theme = useUIPreferencesStore((state) => state.theme);
+  const setTheme = useUIPreferencesStore((state) => state.setTheme);
+  const toggleTheme = useUIPreferencesStore((state) => state.toggleTheme);
 
-  const primaryCta = useMemo(
-    () => getPrimaryCta(location.pathname),
-    [location.pathname]
-  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedPublicTheme = window.localStorage.getItem(PUBLIC_THEME_KEY);
+    if (storedPublicTheme !== 'dark' && storedPublicTheme !== 'light') {
+      setTheme('dark');
+      window.localStorage.setItem(PUBLIC_THEME_KEY, 'dark');
+      return;
+    }
+    if (storedPublicTheme !== theme) {
+      setTheme(storedPublicTheme);
+    }
+  }, [setTheme, theme]);
+
+  const handleToggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(PUBLIC_THEME_KEY, nextTheme);
+    }
+    toggleTheme();
+  };
+
+  const primaryCta = useMemo(() => getPrimaryCta(location.pathname), [location.pathname]);
 
   const closeMobile = () => setMobileOpen(false);
   const footerItems = publicNavItems.filter((item) => item.path !== '/pricing');
@@ -49,9 +69,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
             </div>
             <div>
               <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
-              <p className="text-[11px] uppercase text-slate-500">
-                DeFi operator platform
-              </p>
+              <p className="text-[11px] uppercase text-slate-500">DeFi operator platform</p>
             </div>
           </Link>
 
@@ -75,16 +93,22 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
           </nav>
 
           <div className="hidden items-center gap-3 lg:flex">
+            <button
+              type="button"
+              onClick={handleToggleTheme}
+              className="premium-button premium-button-secondary px-3 py-2 text-sm"
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            >
+              {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              {theme === 'dark' ? 'Dark' : 'Light'}
+            </button>
             <div className="workspace-chip border-emerald-400/20 text-emerald-200">
               <span className="pulse-ring relative flex h-2.5 w-2.5 items-center justify-center">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
               </span>
               Evaluation open
             </div>
-            <Link
-              to="/login"
-              className="premium-button premium-button-secondary px-4 py-2 text-sm"
-            >
+            <Link to="/login" className="premium-button premium-button-secondary px-4 py-2 text-sm">
               Sign in
             </Link>
             <Link
@@ -136,6 +160,13 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
               </div>
 
               <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleToggleTheme}
+                  className="rounded-lg border border-stone-800 bg-stone-950 px-4 py-3 text-center text-sm text-slate-200"
+                >
+                  {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+                </button>
                 <Link
                   to="/login"
                   onClick={closeMobile}
@@ -146,7 +177,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
                 <Link
                   to={primaryCta.href}
                   onClick={closeMobile}
-                  className="premium-button premium-button-primary px-4 py-3 text-center text-sm font-semibold text-white"
+                  className="premium-button premium-button-primary col-span-2 px-4 py-3 text-center text-sm font-semibold text-white"
                 >
                   {primaryCta.label}
                 </Link>
@@ -162,8 +193,12 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
         <section className="public-shell-container py-8">
           <div className="public-trust-strip">
             <div>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">Why teams convert</p>
-              <p className="mt-2 text-xl font-semibold text-white">Trust first. Live access later.</p>
+              <p className="text-[11px] font-semibold uppercase text-slate-500">
+                Why teams convert
+              </p>
+              <p className="mt-2 text-xl font-semibold text-white">
+                Trust first. Live access later.
+              </p>
             </div>
 
             <div className="public-trust-grid">
@@ -196,7 +231,9 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
-                  <p className="text-xs text-slate-500">Research, runtime, market intel, and onboarding.</p>
+                  <p className="text-xs text-slate-500">
+                    Research, runtime, market intel, and onboarding.
+                  </p>
                 </div>
               </div>
 
@@ -209,10 +246,16 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hide
               </nav>
 
               <div className="flex flex-wrap items-center gap-3">
-                <Link to="/pricing" className="text-sm font-medium text-slate-300 transition hover:text-white">
+                <Link
+                  to="/pricing"
+                  className="text-sm font-medium text-slate-300 transition hover:text-white"
+                >
                   Pricing
                 </Link>
-                <Link to="/login" className="text-sm font-medium text-slate-300 transition hover:text-white">
+                <Link
+                  to="/login"
+                  className="text-sm font-medium text-slate-300 transition hover:text-white"
+                >
                   Sign in
                 </Link>
                 <Link

@@ -21,17 +21,18 @@ func RegisterAuditLogRoutes(router *gin.Engine, database *db.Database) {
 		{
 			// Require authentication for all audit log routes
 			auditLogs.Use(middleware.RequireAuth())
+			auditLogs.Use(middleware.RequireMFA(database.DB))
 
 			// CRUD operations
-			auditLogs.POST("", auditLogHandler.CreateAuditLog)
-			auditLogs.GET("/:id", auditLogHandler.GetAuditLog)
+			auditLogs.POST("", middleware.RequirePermission(database.DB, "audit.read"), auditLogHandler.CreateAuditLog)
+			auditLogs.GET("/:id", middleware.RequirePermission(database.DB, "audit.read"), auditLogHandler.GetAuditLog)
 
 			// Query operations
-			auditLogs.GET("/user/:user_id", auditLogHandler.ListAuditLogsByUser)
-			auditLogs.GET("/list/all", auditLogHandler.ListAllAuditLogs)
+			auditLogs.GET("/user/:user_id", middleware.RequirePermission(database.DB, "audit.read"), auditLogHandler.ListAuditLogsByUser)
+			auditLogs.GET("/list/all", middleware.RequirePermission(database.DB, "audit.read"), auditLogHandler.ListAllAuditLogs)
 
 			// Action-based queries
-			auditLogs.GET("/list/by-action", auditLogHandler.ListAuditLogsByAction)
+			auditLogs.GET("/list/by-action", middleware.RequirePermission(database.DB, "audit.read"), auditLogHandler.ListAuditLogsByAction)
 		}
 	}
 }

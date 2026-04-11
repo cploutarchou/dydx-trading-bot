@@ -16,6 +16,7 @@ type User struct {
 	Avatar                 string     `db:"avatar" json:"avatar"`
 	IsActive               bool       `db:"is_active" json:"is_active"`
 	IsAdmin                bool       `db:"is_admin" json:"is_admin"`
+	MFAEnabled             bool       `db:"mfa_enabled" json:"mfa_enabled"`
 	PasswordChangeRequired bool       `db:"password_change_required" json:"password_change_required"`
 	Password               string     `db:"password" json:"-"`
 	LastLogin              *time.Time `db:"last_login" json:"last_login"`
@@ -27,6 +28,18 @@ type User struct {
 	SubscriptionExpiresAt *time.Time `db:"subscription_expires_at" json:"subscription_expires_at"`
 	TrialStartedAt        *time.Time `db:"trial_started_at" json:"trial_started_at"`
 	TrialEndsAt           *time.Time `db:"trial_ends_at" json:"trial_ends_at"`
+}
+
+type UserMFA struct {
+	ID                   int        `db:"id" json:"id"`
+	UserID               int        `db:"user_id" json:"user_id"`
+	EncryptedSecret      string     `db:"encrypted_secret" json:"-"`
+	EncryptedBackupCodes string     `db:"encrypted_backup_codes" json:"-"`
+	Enabled              bool       `db:"enabled" json:"enabled"`
+	VerifiedAt           *time.Time `db:"verified_at" json:"verified_at"`
+	LastUsedAt           *time.Time `db:"last_used_at" json:"last_used_at"`
+	CreatedAt            time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt            time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 // ==================== DYDX KEY MODELS ====================

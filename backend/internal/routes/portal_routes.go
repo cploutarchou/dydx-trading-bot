@@ -57,12 +57,14 @@ func RegisterPortalRoutes(router *gin.Engine, database *sql.DB) {
 
 	crm := router.Group("/api/v1/admin/crm")
 	crm.Use(middleware.RequireAuth())
+	crm.Use(middleware.RequireMFA(database))
 	{
-		crm.GET("/summary", crmSummaryHandler(database))
-		crm.GET("/users", crmUsersTableHandler(database))
-		crm.GET("/hierarchy", crmHierarchyTableHandler(database))
-		crm.POST("/applications/:id/review", reviewPartnerApplicationHandler(database))
-		crm.PUT("/commission-metrics/:user_id", upsertCommissionMetricsHandler(database))
+		crm.GET("/summary", middleware.RequirePermission(database, "crm.read"), crmSummaryHandler(database))
+		crm.GET("/users", middleware.RequirePermission(database, "users.read"), crmUsersTableHandler(database))
+		crm.GET("/hierarchy", middleware.RequirePermission(database, "crm.read"), crmHierarchyTableHandler(database))
+		crm.GET("/security-events", middleware.RequirePermission(database, "security.events.read"), crmSecurityEventsHandler(database))
+		crm.POST("/applications/:id/review", middleware.RequirePermission(database, "kyc.review"), reviewPartnerApplicationHandler(database))
+		crm.PUT("/commission-metrics/:user_id", middleware.RequirePermission(database, "finance.manage"), upsertCommissionMetricsHandler(database))
 	}
 }
 
@@ -216,12 +218,6 @@ func createPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 
 func crmSummaryHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
-		if !canManageCRM(role) {
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "CRM access required"})
-			return
-		}
-
 		userRepo := repository.NewUserRepository(database)
 		appRepo := repository.NewPartnerApplicationRepository(database)
 		relationshipRepo := repository.NewPartnerRelationshipRepository(database)
@@ -281,12 +277,6 @@ func crmSummaryHandler(database *sql.DB) gin.HandlerFunc {
 
 func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
-		if !canManageCRM(role) {
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "CRM access required"})
-			return
-		}
-
 		applicationID, err := strconv.Atoi(c.Param("id"))
 		if err != nil || applicationID <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid application id"})
@@ -318,6 +308,7 @@ func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		reviewerID := c.GetInt("user_id")
+		previousStatus := application.Status
 		reviewedAt := time.Now().UTC()
 		application.Status = status
 		application.ReviewNotes = strings.TrimSpace(req.ReviewNotes)
@@ -357,6 +348,13 @@ func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to review application: %v", err)})
 			return
 		}
+
+		writeAuditLog(database, c, "crm.application.review", "partner_application", stringPointer(strconv.Itoa(application.ID)), gin.H{
+			"previous_status": previousStatus,
+			"new_status":      application.Status,
+			"requested_role":  application.RequestedRole,
+			"review_notes":    application.ReviewNotes,
+		}, "success")
 
 		c.JSON(http.StatusOK, gin.H{
 			"success":   true,
@@ -473,12 +471,6 @@ func portalCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 
 func crmUsersTableHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
-		if !canManageCRM(role) {
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "CRM access required"})
-			return
-		}
-
 		userRepo := repository.NewUserRepository(database)
 		relationshipRepo := repository.NewPartnerRelationshipRepository(database)
 		users, err := userRepo.List(2000, 0)
@@ -532,12 +524,6 @@ func crmUsersTableHandler(database *sql.DB) gin.HandlerFunc {
 
 func crmHierarchyTableHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
-		if !canManageCRM(role) {
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "CRM access required"})
-			return
-		}
-
 		relationshipRepo := repository.NewPartnerRelationshipRepository(database)
 		relationships, err := relationshipRepo.List(5000, 0)
 		if err != nil {
@@ -556,14 +542,94 @@ func crmHierarchyTableHandler(database *sql.DB) gin.HandlerFunc {
 	}
 }
 
-func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
+func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
-		if !canManageCRM(role) {
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "CRM access required"})
-			return
+		limit := 100
+		offset := 0
+		if parsedLimit, err := strconv.Atoi(c.DefaultQuery("limit", "100")); err == nil && parsedLimit > 0 && parsedLimit <= 1000 {
+			limit = parsedLimit
+		}
+		if parsedOffset, err := strconv.Atoi(c.DefaultQuery("offset", "0")); err == nil && parsedOffset >= 0 {
+			offset = parsedOffset
 		}
 
+		rows, err := database.Query(
+			`SELECT id, user_id, username, event_type, outcome, reason, ip_address, user_agent, created_at
+			 FROM security_login_events
+			 ORDER BY created_at DESC
+			 LIMIT $1 OFFSET $2`,
+			limit,
+			offset,
+		)
+		if err != nil {
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "no such table") || strings.Contains(errLower, "does not exist") {
+				c.JSON(http.StatusOK, gin.H{
+					"success":   true,
+					"message":   "Security events not available yet",
+					"data":      gin.H{"events": []gin.H{}},
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load security events: %v", err)})
+			return
+		}
+		defer func() { _ = rows.Close() }()
+
+		events := make([]gin.H, 0)
+		for rows.Next() {
+			var (
+				id        int
+				userID    sql.NullInt64
+				username  string
+				eventType string
+				outcome   string
+				reason    string
+				ipAddress sql.NullString
+				userAgent sql.NullString
+				createdAt time.Time
+			)
+
+			if scanErr := rows.Scan(&id, &userID, &username, &eventType, &outcome, &reason, &ipAddress, &userAgent, &createdAt); scanErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to parse security event: %v", scanErr)})
+				return
+			}
+
+			event := gin.H{
+				"id":         id,
+				"username":   username,
+				"event_type": eventType,
+				"outcome":    outcome,
+				"reason":     reason,
+				"created_at": createdAt.UTC().Format(time.RFC3339),
+			}
+			if userID.Valid {
+				event["user_id"] = userID.Int64
+			}
+			if ipAddress.Valid {
+				event["ip_address"] = ipAddress.String
+			}
+			if userAgent.Valid {
+				event["user_agent"] = userAgent.String
+			}
+
+			events = append(events, event)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Security events loaded",
+			"data": gin.H{
+				"events": events,
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		userID, err := strconv.Atoi(c.Param("user_id"))
 		if err != nil || userID <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid user id"})
@@ -607,6 +673,17 @@ func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		writeAuditLog(database, c, "crm.commission.upsert", "partner_commission_metric", stringPointer(strconv.Itoa(userID)), gin.H{
+			"period_start":         periodStart.UTC().Format(time.RFC3339),
+			"period_end":           periodEnd.UTC().Format(time.RFC3339),
+			"direct_clients":       req.DirectClients,
+			"sub_ib_count":         req.SubIBCount,
+			"notional_volume_usd":  req.NotionalVolumeUSD,
+			"gross_commission_usd": req.GrossCommissionUSD,
+			"rebate_usd":           req.RebateUSD,
+			"net_commission_usd":   req.NetCommissionUSD,
+		}, "success")
+
 		c.JSON(http.StatusOK, gin.H{
 			"success":   true,
 			"message":   "Commission metric saved",
@@ -617,7 +694,15 @@ func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 }
 
 func canManageCRM(role string) bool {
-	return role == "admin" || role == "backoffice"
+	return role == "admin" ||
+		role == "super_admin" ||
+		role == "backoffice" ||
+		role == "operations_admin" ||
+		role == "compliance_admin" ||
+		role == "support_agent" ||
+		role == "finance_admin" ||
+		role == "read_only_auditor" ||
+		role == "security_analyst"
 }
 
 func portalModulesForRole(role string) []portalOverviewModule {
@@ -647,9 +732,9 @@ func portalModulesForRole(role string) []portalOverviewModule {
 	}
 
 	switch role {
-	case "admin":
+	case "admin", "super_admin":
 		return []portalOverviewModule{adminHub, crm, ibPortal, baseClient}
-	case "backoffice":
+	case "backoffice", "operations_admin", "compliance_admin", "support_agent", "finance_admin", "read_only_auditor", "security_analyst":
 		return []portalOverviewModule{crm, baseClient}
 	case "ib", "sub_ib":
 		return []portalOverviewModule{ibPortal, baseClient}

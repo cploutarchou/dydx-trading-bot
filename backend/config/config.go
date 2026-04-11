@@ -137,16 +137,11 @@ func LoadConfig() {
 	}
 
 	dbType := strings.ToLower(getEnv("DB_TYPE", "postgresql"))
-	appEnv := strings.ToLower(strings.TrimSpace(getEnvAny([]string{"APP_ENV", "ENVIRONMENT"}, "")))
-	allowTestSQLite := appEnv == "test" && (dbType == "sqlite" || dbType == "sqlite3")
-	if !allowTestSQLite && dbType != "postgres" && dbType != "postgresql" {
+	if dbType != "postgres" && dbType != "postgresql" {
 		panic(fmt.Sprintf("unsupported DB_TYPE %q: only PostgreSQL is supported", dbType))
 	}
 
 	normalizedDBType := "postgres"
-	if allowTestSQLite {
-		normalizedDBType = "sqlite3"
-	}
 
 	database := DatabaseSettings{
 		Host:           getEnvAny([]string{"DB_HOST"}, "localhost"),

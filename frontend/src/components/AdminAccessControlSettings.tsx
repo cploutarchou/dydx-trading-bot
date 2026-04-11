@@ -19,6 +19,7 @@ import api, {
 } from '../api';
 import { ibPortalHref } from '../pages/ib/paths';
 import { useAuthStore } from '../store/auth';
+import { setPortalSubdomainConfig } from '../utils/portalSubdomainSettings';
 import { useToastStore } from './ErrorBoundary';
 
 interface UserDraft {
@@ -94,6 +95,22 @@ const readBooleanPlatformSetting = (
   return fallback;
 };
 
+const readStringPlatformSetting = (
+  payload: SettingsPayload | undefined,
+  key: string,
+  fallback: string
+): string => {
+  const platformSection = payload?.sections?.find((section) => section.section === 'platform');
+  const setting = platformSection?.settings?.find((candidate) => candidate.key === key);
+  const rawValue = setting?.value ?? setting?.default_value;
+
+  if (typeof rawValue === 'string' && rawValue.trim().length > 0) {
+    return rawValue.trim();
+  }
+
+  return fallback;
+};
+
 export function AdminAccessControlSettings() {
   const currentUser = useAuthStore((state) => state.user);
   const refreshCurrentUser = useAuthStore((state) => state.getCurrentUser);
@@ -105,6 +122,10 @@ export function AdminAccessControlSettings() {
   const [registrationModeDraft, setRegistrationModeDraft] = useState<RegistrationMode>('open');
   const [invitationCodeDraft, setInvitationCodeDraft] = useState('');
   const [privilegedMfaRequiredDraft, setPrivilegedMfaRequiredDraft] = useState(false);
+  const [crmSubdomainEnabledDraft, setCrmSubdomainEnabledDraft] = useState(true);
+  const [crmSubdomainHostDraft, setCrmSubdomainHostDraft] = useState('crm.localhost');
+  const [ibSubdomainEnabledDraft, setIbSubdomainEnabledDraft] = useState(true);
+  const [ibSubdomainHostDraft, setIbSubdomainHostDraft] = useState('ib-portal.localhost');
   const [createForm, setCreateForm] = useState<CreateAdminUserPayload>({
     username: '',
     email: '',
@@ -180,6 +201,23 @@ export function AdminAccessControlSettings() {
   useEffect(() => {
     setPrivilegedMfaRequiredDraft(
       readBooleanPlatformSetting(platformSettingsQuery.data, 'require_privileged_mfa', false)
+    );
+
+    setCrmSubdomainEnabledDraft(
+      readBooleanPlatformSetting(platformSettingsQuery.data, 'crm_subdomain_enabled', true)
+    );
+    setCrmSubdomainHostDraft(
+      readStringPlatformSetting(platformSettingsQuery.data, 'crm_subdomain_host', 'crm.localhost')
+    );
+    setIbSubdomainEnabledDraft(
+      readBooleanPlatformSetting(platformSettingsQuery.data, 'ib_subdomain_enabled', true)
+    );
+    setIbSubdomainHostDraft(
+      readStringPlatformSetting(
+        platformSettingsQuery.data,
+        'ib_subdomain_host',
+        'ib-portal.localhost'
+      )
     );
   }, [platformSettingsQuery.data]);
 
@@ -299,6 +337,37 @@ export function AdminAccessControlSettings() {
     },
   });
 
+  const updatePortalSubdomainMutation = useMutation({
+    mutationFn: async () =>
+      api.updateSettings({
+        'platform.crm_subdomain_enabled': crmSubdomainEnabledDraft,
+        'platform.crm_subdomain_host': crmSubdomainHostDraft.trim(),
+        'platform.ib_subdomain_enabled': ibSubdomainEnabledDraft,
+        'platform.ib_subdomain_host': ibSubdomainHostDraft.trim(),
+      }),
+    onSuccess: async () => {
+      setPortalSubdomainConfig('crm', {
+        enabled: crmSubdomainEnabledDraft,
+        host: crmSubdomainHostDraft,
+      });
+      setPortalSubdomainConfig('ib', {
+        enabled: ibSubdomainEnabledDraft,
+        host: ibSubdomainHostDraft,
+      });
+
+      successToast(
+        'Subdomain routing settings saved',
+        'CRM and IB portal subdomain preferences were updated.'
+      );
+      await refreshCurrentUser();
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'platform'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to update subdomain settings', getErrorMessage(error));
+    },
+  });
+
   const updateUserMutation = useMutation({
     mutationFn: async ({ userId, payload }: { userId: number; payload: UpdateAdminUserPayload }) =>
       api.updateAdminUser(userId, payload),
@@ -396,6 +465,29 @@ export function AdminAccessControlSettings() {
   };
 
   const registrationEnabled = registrationStatusQuery.data?.enabled ?? true;
+
+  const buildPortalPreviewUrl = (host: string, path: string): string => {
+    if (typeof window === 'undefined') {
+      return `https://${host}${path}`;
+    }
+    const { protocol, port } = window.location;
+    const normalizedHost = host
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/$/, '');
+    const portPart = port ? `:${port}` : '';
+    return `${protocol}//${normalizedHost}${portPart}${path}`;
+  };
+
+  const crmPreviewUrl = buildPortalPreviewUrl(
+    crmSubdomainHostDraft || 'crm.localhost',
+    '/dashboard'
+  );
+  const ibPreviewUrl = buildPortalPreviewUrl(
+    ibSubdomainHostDraft || 'ib-portal.localhost',
+    '/dashboard'
+  );
 
   return (
     <div className="space-y-6">
@@ -596,6 +688,108 @@ export function AdminAccessControlSettings() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   'Save policy'
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-700/60 bg-slate-950/50 p-4">
+            <div>
+              <p className="text-sm font-semibold text-white">Portal subdomain routing</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Enable/disable subdomain shortcuts and override hostnames for CRM and IB portal.
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-white">CRM subdomain</p>
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={crmSubdomainEnabledDraft}
+                      onChange={(event) => setCrmSubdomainEnabledDraft(event.target.checked)}
+                      disabled={updatePortalSubdomainMutation.isPending}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500"
+                    />
+                    Enabled
+                  </label>
+                </div>
+                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500">
+                  Host
+                </label>
+                <input
+                  value={crmSubdomainHostDraft}
+                  onChange={(event) => setCrmSubdomainHostDraft(event.target.value)}
+                  placeholder="crm.localhost"
+                  disabled={updatePortalSubdomainMutation.isPending}
+                  className="premium-input mt-2"
+                />
+              </div>
+
+              <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-white">IB subdomain</p>
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={ibSubdomainEnabledDraft}
+                      onChange={(event) => setIbSubdomainEnabledDraft(event.target.checked)}
+                      disabled={updatePortalSubdomainMutation.isPending}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500"
+                    />
+                    Enabled
+                  </label>
+                </div>
+                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500">
+                  Host
+                </label>
+                <input
+                  value={ibSubdomainHostDraft}
+                  onChange={(event) => setIbSubdomainHostDraft(event.target.value)}
+                  placeholder="ib-portal.localhost"
+                  disabled={updatePortalSubdomainMutation.isPending}
+                  className="premium-input mt-2"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-900/30 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Effective preview
+              </p>
+              <div className="mt-2 space-y-2 text-xs">
+                <p className="text-slate-300">
+                  CRM shortcut:{' '}
+                  <span className="font-mono text-cyan-200">
+                    {crmSubdomainEnabledDraft ? crmPreviewUrl : '/crm/dashboard'}
+                  </span>
+                </p>
+                <p className="text-slate-300">
+                  IB shortcut:{' '}
+                  <span className="font-mono text-cyan-200">
+                    {ibSubdomainEnabledDraft ? ibPreviewUrl : '/ib-portal/dashboard'}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => updatePortalSubdomainMutation.mutate()}
+                disabled={
+                  updatePortalSubdomainMutation.isPending ||
+                  crmSubdomainHostDraft.trim().length === 0 ||
+                  ibSubdomainHostDraft.trim().length === 0
+                }
+                className="inline-flex min-w-42.5 items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
+              >
+                {updatePortalSubdomainMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Save subdomain routing'
                 )}
               </button>
             </div>

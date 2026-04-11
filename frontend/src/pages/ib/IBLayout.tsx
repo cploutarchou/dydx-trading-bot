@@ -1,8 +1,16 @@
-import { KeyRound, LayoutDashboard, Network, Percent, ScrollText, WalletCards } from 'lucide-react';
+import {
+  ExternalLink,
+  KeyRound,
+  LayoutDashboard,
+  Network,
+  Percent,
+  ScrollText,
+  WalletCards,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/auth';
-import { ibPortalPath } from './paths';
+import { ibPortalHref, ibPortalPath, isIBPortalHost } from './paths';
 
 const baseTabs = [
   { path: ibPortalPath('dashboard'), label: 'Dashboard', icon: LayoutDashboard },
@@ -23,6 +31,8 @@ interface IBLayoutProps {
 export const IBLayout = ({ children }: IBLayoutProps) => {
   const { pathname } = useLocation();
   const user = useAuthStore((state) => state.user);
+  const showSubdomainAction = !isIBPortalHost();
+  const subdomainHref = ibPortalHref('dashboard');
 
   const canSeeAdminTabs = user?.is_admin === true || user?.role === 'backoffice';
   const tabs = canSeeAdminTabs
@@ -52,7 +62,15 @@ export const IBLayout = ({ children }: IBLayoutProps) => {
               </Link>
             );
           })}
-          <div className="ml-auto flex items-center">
+          <div className="ml-auto flex items-center gap-2">
+            {showSubdomainAction && subdomainHref.startsWith('http') && (
+              <a
+                href={subdomainHref}
+                className="inline-flex items-center gap-1 rounded-lg border border-cyan-600/30 bg-cyan-900/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-200 transition hover:bg-cyan-900/35"
+              >
+                <ExternalLink className="h-3 w-3" /> Open in subdomain
+              </a>
+            )}
             <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-400">
               IB portal
             </span>

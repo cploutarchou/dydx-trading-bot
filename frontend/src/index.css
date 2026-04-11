@@ -855,6 +855,31 @@ h6 {
   max-width: 64ch;
 }
 
+@media (max-width: 767px) {
+  .public-shell-container {
+    width: min(100%, 100%);
+    padding-inline: 0.95rem;
+  }
+
+  .public-nav-link::after {
+    left: 0.65rem;
+    right: 0.65rem;
+    bottom: 0.36rem;
+  }
+
+  .public-hero-panel,
+  .public-section-panel,
+  .public-metric-card,
+  .public-note-card {
+    border-radius: 0.8rem;
+  }
+
+  .public-actions-row .premium-button {
+    min-width: 100%;
+    min-height: 2.95rem;
+  }
+}
+
 .public-cta-primary {
   border-color: rgba(94, 234, 212, 0.26);
   box-shadow:

@@ -4,6 +4,8 @@ interface IllustrationProps {
   className?: string;
 }
 
+type ServiceIllustrationVariant = 'research' | 'runtime' | 'intelligence' | 'security';
+
 export const DeFiHeroIllustration: React.FC<IllustrationProps> = ({ className = '' }) => {
   return (
     <div className={`market-illustration-shell ${className}`.trim()}>
@@ -249,6 +251,113 @@ export const ProfitShareIllustration: React.FC<IllustrationProps> = ({ className
           </text>
           <text x="569" y="332" textAnchor="middle" fill="#cbd5e1" fontSize="12" fontFamily="Manrope, sans-serif">
             realized upside
+          </text>
+        </g>
+      </svg>
+    </div>
+  );
+};
+
+export const ServicePulseIllustration: React.FC<
+  IllustrationProps & { variant: ServiceIllustrationVariant }
+> = ({ className = '', variant }) => {
+  const variantMeta = {
+    research: {
+      title: 'Research signal map',
+      subtitle: 'Backtest quality and confidence flow',
+      stroke: 'rgba(34,211,238,0.9)',
+      fill: 'rgba(8,47,73,0.55)',
+      points: ['M60 230 L150 190 L230 205 L315 145 L405 130 L490 110'],
+    },
+    runtime: {
+      title: 'Runtime state flow',
+      subtitle: 'Health, stream, and control visibility',
+      stroke: 'rgba(52,211,153,0.9)',
+      fill: 'rgba(6,78,59,0.52)',
+      points: ['M60 220 L145 170 L225 180 L305 140 L395 165 L490 135'],
+    },
+    intelligence: {
+      title: 'Context conviction path',
+      subtitle: 'Market narrative and timing clarity',
+      stroke: 'rgba(96,165,250,0.9)',
+      fill: 'rgba(30,58,138,0.5)',
+      points: ['M60 235 L140 205 L225 190 L305 155 L400 140 L490 118'],
+    },
+    security: {
+      title: 'Security readiness path',
+      subtitle: 'Account trust and access sequencing',
+      stroke: 'rgba(20,184,166,0.92)',
+      fill: 'rgba(19,78,74,0.52)',
+      points: ['M60 245 L150 218 L235 200 L315 168 L395 145 L490 122'],
+    },
+  }[variant];
+
+  return (
+    <div className={`market-illustration-shell market-illustration-compact ${className}`.trim()}>
+      <svg viewBox="0 0 560 320" role="img" aria-label={`${variantMeta.title} illustration`}>
+        <defs>
+          <linearGradient id={`service-bg-${variant}`} x1="0%" x2="100%" y1="0%" y2="100%">
+            <stop offset="0%" stopColor="rgba(14,165,233,0.2)" />
+            <stop offset="100%" stopColor="rgba(16,185,129,0.16)" />
+          </linearGradient>
+        </defs>
+
+        <rect x="20" y="20" width="520" height="280" rx="26" fill={`url(#service-bg-${variant})`} />
+
+        <g opacity="0.28">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <line
+              key={`service-v-${variant}-${idx}`}
+              x1={65 + idx * 80}
+              y1="55"
+              x2={65 + idx * 80}
+              y2="262"
+              stroke="rgba(148,163,184,0.18)"
+              strokeWidth="1"
+            />
+          ))}
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <line
+              key={`service-h-${variant}-${idx}`}
+              x1="52"
+              y1={90 + idx * 50}
+              x2="505"
+              y2={90 + idx * 50}
+              stroke="rgba(148,163,184,0.14)"
+              strokeWidth="1"
+            />
+          ))}
+        </g>
+
+        <g className="market-route">
+          {variantMeta.points.map((path) => (
+            <path
+              key={path}
+              d={path}
+              fill="none"
+              stroke={variantMeta.stroke}
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray="10 12"
+            />
+          ))}
+        </g>
+
+        <g>
+          {[80, 160, 240, 320, 400, 480].map((x, idx) => (
+            <g key={`service-node-${variant}-${x}`} className="market-node">
+              <circle cx={x} cy={250 - idx * 18} r="12" fill={variantMeta.fill} stroke={variantMeta.stroke} />
+            </g>
+          ))}
+        </g>
+
+        <g>
+          <rect x="55" y="50" width="235" height="72" rx="18" fill="rgba(8,15,28,0.84)" stroke="rgba(148,163,184,0.22)" />
+          <text x="74" y="78" fill="#94a3b8" fontSize="11" letterSpacing="1.8" fontFamily="Manrope, sans-serif">
+            {variantMeta.title.toUpperCase()}
+          </text>
+          <text x="74" y="100" fill="#f8fafc" fontSize="12" fontWeight="700" fontFamily="Manrope, sans-serif">
+            {variantMeta.subtitle}
           </text>
         </g>
       </svg>

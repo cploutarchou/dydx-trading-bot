@@ -3,6 +3,19 @@ import { Activity, LockKeyhole, Users, Workflow } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import { PageContainer } from '../components/PageContainer';
+import { crmHref } from './crm/paths';
+import { ibPortalHref } from './ib/paths';
+
+const resolveModuleHref = (route: string | undefined): string => {
+  if (!route) return '/dashboard';
+  if (route.startsWith('/crm/')) {
+    return crmHref(route.replace('/crm/', ''));
+  }
+  if (route.startsWith('/ib-portal/')) {
+    return ibPortalHref(route.replace('/ib-portal/', ''));
+  }
+  return route;
+};
 
 export const AdminHubPage = () => {
   const overviewQuery = useQuery({
@@ -65,9 +78,9 @@ export const AdminHubPage = () => {
         </p>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {modules.map((module) => (
-            <Link
+            <a
               key={module.key}
-              to={module.routes[0] || '/dashboard'}
+              href={resolveModuleHref(module.routes[0])}
               className="rounded-2xl border border-slate-700/60 bg-slate-950/60 p-4 transition hover:border-cyan-500/30 hover:bg-slate-900"
             >
               <p className="text-sm font-semibold text-white">{module.title}</p>
@@ -75,7 +88,7 @@ export const AdminHubPage = () => {
               <p className="mt-4 text-xs uppercase tracking-[0.16em] text-cyan-300">
                 Open workspace
               </p>
-            </Link>
+            </a>
           ))}
         </div>
       </section>
@@ -94,18 +107,18 @@ export const AdminHubPage = () => {
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
           <h2 className="text-lg font-semibold text-white">Fast access</h2>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link
-              to="/crm"
+            <a
+              href={crmHref('dashboard')}
               className="rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500/30"
             >
               Open CRM
-            </Link>
-            <Link
-              to="/ib-portal"
+            </a>
+            <a
+              href={ibPortalHref('dashboard')}
               className="rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500/30"
             >
               Open IB Portal
-            </Link>
+            </a>
             <Link
               to="/settings"
               className="rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500/30"

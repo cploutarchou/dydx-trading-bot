@@ -1,23 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import {
-    Loader2,
-    LockKeyhole,
-    RotateCcw,
-    ShieldCheck,
-    UserCog,
-    UserPlus,
-    Users,
+  Loader2,
+  LockKeyhole,
+  RotateCcw,
+  ShieldCheck,
+  UserCog,
+  UserPlus,
+  Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api, {
-    AdminUser,
-    CreateAdminUserPayload,
-    ResetAdminUserMFAResponse,
-    SeedDummyClientsResponse,
-    UpdateAdminUserPayload,
+  AdminUser,
+  CreateAdminUserPayload,
+  ResetAdminUserMFAResponse,
+  SeedDummyClientsResponse,
+  UpdateAdminUserPayload,
 } from '../api';
+import { ibPortalHref } from '../pages/ib/paths';
 import { useAuthStore } from '../store/auth';
 import { useToastStore } from './ErrorBoundary';
 
@@ -566,9 +566,12 @@ export function AdminAccessControlSettings() {
                 </p>
                 <p className="text-xs text-slate-500">
                   Need one-time or expiring partner onboarding tokens?{' '}
-                  <Link to="/ib-portal" className="text-cyan-300 hover:text-cyan-200 underline">
+                  <a
+                    href={ibPortalHref('dashboard')}
+                    className="text-cyan-300 hover:text-cyan-200 underline"
+                  >
                     Open IB Portal
-                  </Link>
+                  </a>
                   .
                 </p>
               </div>

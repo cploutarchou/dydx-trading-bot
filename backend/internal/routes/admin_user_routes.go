@@ -142,14 +142,6 @@ func generateInvitationTokenCode() (string, error) {
 
 func listInvitationTokensHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !c.GetBool("is_admin") {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": "Admin access required",
-			})
-			return
-		}
-
 		limit := 100
 		offset := 0
 		if parsedLimit, err := strconv.Atoi(c.DefaultQuery("limit", "100")); err == nil && parsedLimit > 0 && parsedLimit <= 500 {
@@ -197,14 +189,6 @@ func listInvitationTokensHandler(database *sql.DB) gin.HandlerFunc {
 
 func createInvitationTokenHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !c.GetBool("is_admin") {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": "Admin access required",
-			})
-			return
-		}
-
 		var req createInvitationTokenRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -296,14 +280,6 @@ func createInvitationTokenHandler(database *sql.DB) gin.HandlerFunc {
 
 func revokeInvitationTokenHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !c.GetBool("is_admin") {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": "Admin access required",
-			})
-			return
-		}
-
 		tokenCode := strings.TrimSpace(strings.ToUpper(c.Param("tokenCode")))
 		if tokenCode == "" {
 			c.JSON(http.StatusBadRequest, gin.H{

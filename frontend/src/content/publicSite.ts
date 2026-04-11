@@ -69,9 +69,10 @@ export const servicePages: ServicePageData[] = [
     navLabel: 'Runtime',
     kicker: 'Runtime Control',
     title: 'Control live bots with clear state, health, and recovery context.',
-    summary: 'Bot control, state visibility, and action flows designed for live operating conditions.',
+    summary:
+      'Bot control, state visibility, and action flows designed for live operating conditions.',
     heroIntro:
-      'Monitor stream health, bot state, and execution context without losing the current operational picture.',
+      'Translate bot state into instant decisions by keeping stream health, execution context, and action paths visible without operational drag.',
     heroStats: [
       ['Realtime', 'Stream health stays visible'],
       ['Actionable', 'Controls stay near state'],
@@ -92,9 +93,9 @@ export const servicePages: ServicePageData[] = [
       },
     ],
     outcomes: [
-      'Lower reaction time during runtime changes.',
-      'Identify degraded streams before they become silent operator confusion.',
-      'Keep critical bot actions close to the affected runtime state.',
+      'Spot state changes faster and act on them with less friction.',
+      'Keep stream health and bot state visible so operators never guess about degradation.',
+      'Reduce action lag by placing controls where the state is most urgent.',
     ],
     operatorNotes: [
       {
@@ -113,9 +114,10 @@ export const servicePages: ServicePageData[] = [
     navLabel: 'Market Intel',
     kicker: 'Market Intelligence',
     title: 'Read market context beside every strategy and runtime decision.',
-    summary: 'Asset context, market pulse, and supporting intelligence that strengthens research and runtime judgment.',
+    summary:
+      'Asset context, market pulse, and supporting intelligence that strengthens research and runtime judgment.',
     heroIntro:
-      'Connect performance, asset behavior, and current market conditions so operators can judge why an opportunity looks strong or risky.',
+      'Build operator conviction by pairing performance data, asset behavior, and market narrative so decisions rest on complete context.',
     heroStats: [
       ['Contextual', 'Signals tied to market conditions'],
       ['Readable', 'Fast summaries without noise'],
@@ -136,9 +138,9 @@ export const servicePages: ServicePageData[] = [
       },
     ],
     outcomes: [
-      'Improve research quality with better market framing.',
-      'Support live operators with quick narrative context.',
-      'Make the platform feel more complete and more trustworthy.',
+      'Connect research performance to live market behavior for stronger conviction.',
+      'Give live operators the narrative context they need to trust their execution in real time.',
+      'Reduce decision uncertainty by making market conditions and strategy reasoning equally visible.',
     ],
     operatorNotes: [
       {
@@ -146,8 +148,8 @@ export const servicePages: ServicePageData[] = [
         body: 'Market intelligence is most valuable when it explains current conditions without flooding the operator with noise.',
       },
       {
-        label: 'Timing judgment',
-        body: 'Better context helps teams separate structural opportunity from short-lived noise.',
+        label: 'Conviction building',
+        body: 'When operators understand market conditions and strategy performance together, conviction becomes defensible and repeatable.',
       },
     ],
   },

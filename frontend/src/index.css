@@ -1250,6 +1250,73 @@ h6 {
   padding: clamp(1.5rem, 3vw, 2.4rem);
 }
 
+.service-hero-security {
+  padding-block: clamp(3rem, 6vw, 5rem);
+}
+
+.service-hero-security .service-hero-grid {
+  gap: clamp(1.4rem, 2.6vw, 2.15rem);
+  padding: clamp(1.35rem, 2.9vw, 2.3rem);
+}
+
+.service-hero-security h1 {
+  max-width: 46rem;
+}
+
+.service-hero-security .service-stats {
+  padding: clamp(0.9rem, 1.9vw, 1.3rem);
+}
+
+.service-outcomes-security,
+.service-notes-security,
+.service-cta-security {
+  padding-block: clamp(2.9rem, 5.4vw, 4.6rem);
+}
+
+.service-outcomes-security {
+  padding-block: clamp(2.25rem, 4.6vw, 3.5rem);
+}
+
+.service-outcomes-compact {
+  padding-block: clamp(3rem, 5.2vw, 4.5rem);
+}
+
+.service-core-security {
+  background: rgba(8, 9, 7, 0.65);
+}
+
+.security-readiness-panel {
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.5rem;
+  background:
+    radial-gradient(circle at 10% 15%, rgba(45, 212, 191, 0.1), transparent 36%),
+    linear-gradient(180deg, rgba(14, 20, 22, 0.82), rgba(8, 11, 12, 0.94));
+  padding: clamp(1rem, 2.2vw, 1.4rem);
+}
+
+.security-readiness-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .security-readiness-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.security-readiness-card {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 34%), rgba(2, 6, 23, 0.52);
+  padding: 0.85rem 0.95rem;
+}
+
+.service-notes-security .service-note-card {
+  padding: 1.3rem;
+}
+
 .twofa-step-chip {
   display: inline-flex;
   align-items: center;

@@ -1,16 +1,21 @@
 import {
   ChevronRight,
   Command,
+  Languages,
   Menu,
+  Moon,
   Search,
   ShieldCheck,
+  Sun,
   Wifi,
   WifiOff,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getWorkspaceBreadcrumbs, workspaceNavItems } from '../navigation/workspaceNav';
+import { useI18n } from '../i18n/useI18n';
 import { useAuthStore } from '../store/auth';
+import { useUIPreferencesStore } from '../store/uiPreferences';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -20,8 +25,24 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalette }) => {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const environmentLabel = import.meta.env.DEV ? 'Development' : 'Production';
-  const environmentTone = import.meta.env.DEV ? 'text-amber-300' : 'text-emerald-300';
+  const { language, locale, t, tr } = useI18n();
+  const theme = useUIPreferencesStore((state) => state.theme);
+  const toggleTheme = useUIPreferencesStore((state) => state.toggleTheme);
+  const setLanguage = useUIPreferencesStore((state) => state.setLanguage);
+  const isLight = theme === 'light';
+  const controlCls = isLight
+    ? 'border-slate-300 bg-white/90 text-slate-700 hover:border-slate-400 hover:text-slate-900'
+    : 'border-stone-700/70 bg-stone-950/65 text-stone-300 hover:border-stone-600 hover:text-white';
+  const environmentLabel = import.meta.env.DEV
+    ? t('Development', 'Ανάπτυξη')
+    : t('Production', 'Παραγωγή');
+  const environmentTone = import.meta.env.DEV
+    ? isLight
+      ? 'text-amber-600'
+      : 'text-amber-300'
+    : isLight
+      ? 'text-emerald-700'
+      : 'text-emerald-300';
   const [now, setNow] = useState(() => new Date());
   const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
 
@@ -39,7 +60,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
   }, []);
 
   const breadcrumbs = getWorkspaceBreadcrumbs(location.pathname);
-  const pageTitle = breadcrumbs[breadcrumbs.length - 1]?.label || 'Dashboard';
+  const pageTitle = tr(breadcrumbs[breadcrumbs.length - 1]?.label || 'Dashboard');
   const routeMeta = useMemo(
     () =>
       workspaceNavItems.find((item) =>
@@ -67,13 +88,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
                 <React.Fragment key={`${crumb.path}-${index}`}>
                   {index > 0 && <ChevronRight className="h-4 w-4 text-slate-600" />}
                   {index === breadcrumbs.length - 1 ? (
-                    <span className="font-medium text-white">{crumb.label}</span>
+                    <span className="font-medium text-white">{tr(crumb.label)}</span>
                   ) : (
                     <Link
                       to={crumb.path}
                       className="text-slate-400 transition hover:text-slate-200"
                     >
-                      {crumb.label}
+                      {tr(crumb.label)}
                     </Link>
                   )}
                 </React.Fragment>
@@ -85,12 +106,16 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
                 <h1 className="text-lg font-semibold text-white sm:text-xl">{pageTitle}</h1>
                 <span className="workspace-chip border-cyan-500/20 text-cyan-200">
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  Live desk
+                  {t('Live desk', 'Ζωντανός πίνακας')}
                 </span>
               </div>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500 sm:text-sm">
-                {routeMeta?.description ||
-                  'Move across live workflows with route context, command access, and operational state in view.'}
+                {routeMeta?.description
+                  ? tr(routeMeta.description)
+                  : t(
+                      'Move across live workflows with route context, command access, and operational state in view.',
+                      'Μετακινηθείτε σε ζωντανές ροές με ορατό context διαδρομής, πρόσβαση εντολών και λειτουργική κατάσταση.'
+                    )}
               </p>
             </div>
           </div>
@@ -100,46 +125,98 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
           <button
             type="button"
             onClick={onOpenCommandPalette}
-            className="inline-flex items-center gap-3 rounded-lg border border-stone-700/70 bg-stone-950/65 px-3 py-2.5 text-sm text-stone-300 transition hover:border-stone-600 hover:text-white sm:px-4"
+            className={`inline-flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition sm:px-4 ${controlCls}`}
           >
-            <Search className="h-4 w-4 text-slate-500" />
-            <span className="hidden lg:inline">Jump anywhere</span>
-            <span className="inline-flex items-center gap-1 rounded-lg border border-stone-700 bg-stone-950 px-2 py-1 text-[10px] uppercase text-stone-500">
-              <Command className="h-3 w-3" />
-              K
+            <Search className="h-4 w-4 opacity-60" />
+            <span className="hidden lg:inline">{t('Jump anywhere', 'Μεταπήδηση παντού')}</span>
+            <span
+              className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] uppercase ${isLight ? 'border-slate-300 bg-slate-100 text-slate-500' : 'border-stone-700 bg-stone-950 text-stone-500'}`}
+            >
+              <Command className="h-3 w-3" />K
             </span>
           </button>
 
-          <div className="hidden items-center gap-2 xl:flex">
-            <div className="workspace-card px-4 py-3">
-              <p className="text-[10px] uppercase text-slate-500">Environment</p>
+          <div className="hidden items-center gap-2 lg:flex">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs transition ${controlCls}`}
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {theme === 'dark' ? 'Light' : 'Dark'}
+            </button>
+
+            <label
+              className={`inline-flex items-center gap-2 rounded-lg border px-2 py-2 text-xs ${controlCls}`}
+            >
+              <Languages className="h-4 w-4" />
+              <select
+                value={language}
+                onChange={(event) => setLanguage(event.target.value === 'el' ? 'el' : 'en')}
+                className={`bg-transparent text-xs outline-none ${isLight ? 'text-slate-700' : 'text-stone-200'}`}
+                aria-label="Language"
+              >
+                <option
+                  value="en"
+                  className={isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}
+                >
+                  EN
+                </option>
+                <option
+                  value="el"
+                  className={isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}
+                >
+                  EL
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <div className="hidden min-w-0 items-center gap-1.5 xl:flex">
+            <div className="workspace-card px-3 py-2.5">
+              <p className="text-[10px] uppercase text-slate-500">
+                {t('Environment', 'Περιβάλλον')}
+              </p>
               <p className={`mt-1 text-sm font-medium ${environmentTone}`}>{environmentLabel}</p>
             </div>
-            <div className="workspace-card px-4 py-3">
-              <p className="text-[10px] uppercase text-slate-500">Network</p>
+            <div className="workspace-card px-3 py-2.5">
+              <p className="text-[10px] uppercase text-slate-500">{t('Network', 'Δίκτυο')}</p>
               <p
                 className={`mt-1 inline-flex items-center gap-1 text-sm font-medium ${
-                  isOnline ? 'text-cyan-300' : 'text-amber-300'
+                  isOnline
+                    ? isLight
+                      ? 'text-cyan-700'
+                      : 'text-cyan-300'
+                    : isLight
+                      ? 'text-amber-600'
+                      : 'text-amber-300'
                 }`}
               >
                 {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                {isOnline ? 'Online' : 'Offline'}
+                {isOnline ? t('Online', 'Συνδεδεμένο') : t('Offline', 'Εκτός σύνδεσης')}
               </p>
             </div>
-            <div className="workspace-card px-4 py-3">
-              <p className="text-[10px] uppercase text-slate-500">Local time</p>
-              <p className="mt-1 text-sm font-medium text-cyan-300">
-                {now.toLocaleTimeString([], {
+            <div className="workspace-card px-3 py-2.5">
+              <p className="text-[10px] uppercase text-slate-500">
+                {t('Local time', 'Τοπική ώρα')}
+              </p>
+              <p
+                className={`mt-1 text-sm font-medium ${isLight ? 'text-cyan-700' : 'text-cyan-300'}`}
+              >
+                {now.toLocaleTimeString(locale, {
                   hour: '2-digit',
                   minute: '2-digit',
                   second: '2-digit',
                 })}
               </p>
             </div>
-            <div className="workspace-card px-4 py-3">
-              <p className="text-[10px] uppercase text-slate-500">Operator</p>
-              <p className="mt-1 text-sm font-medium text-white">
-                {user?.full_name || user?.username || 'Trader'}
+            <div className="workspace-card min-w-0 px-3 py-2.5">
+              <p className="text-[10px] uppercase text-slate-500">{t('Operator', 'Χειριστής')}</p>
+              <p
+                className={`mt-1 max-w-28 truncate text-sm font-medium ${isLight ? 'text-slate-800' : 'text-white'}`}
+              >
+                {user?.full_name || user?.username || t('Trader', 'Trader')}
               </p>
             </div>
           </div>

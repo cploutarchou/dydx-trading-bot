@@ -46,6 +46,7 @@ import SettingsPage from './pages/Settings';
 import { isIBPortalHost } from './pages/ib/paths';
 import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
 import { useAuthStore } from './store/auth';
+import { useUIPreferencesStore } from './store/uiPreferences';
 
 // Legacy error boundary removed - using enhanced version from components/ErrorBoundary
 
@@ -126,10 +127,17 @@ export const App: React.FC = () => {
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
   const toastWarning = useToastStore((state) => state.warning);
+  const theme = useUIPreferencesStore((state) => state.theme);
+  const language = useUIPreferencesStore((state) => state.language);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('lang', language === 'el' ? 'el' : 'en');
+  }, [theme, language]);
 
   useEffect(() => {
     let cancelled = false;

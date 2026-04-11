@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { type CRMUserRow } from '../../api';
 import { PageContainer } from '../../components/PageContainer';
+import { ibPortalPath } from '../ib/paths';
 import { crmPath } from './paths';
 
 const ROLE_OPTIONS = ['all', 'client', 'ib', 'sub_ib', 'backoffice', 'admin'] as const;
@@ -23,7 +24,15 @@ const formatDate = (value?: string) => {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
 };
 
-const UserRow = ({ user, onClick }: { user: CRMUserRow; onClick: () => void }) => (
+const UserRow = ({
+  user,
+  onClick,
+  onOpenIB,
+}: {
+  user: CRMUserRow;
+  onClick: () => void;
+  onOpenIB: () => void;
+}) => (
   <tr
     key={user.id}
     className="cursor-pointer border-t border-slate-800/80 transition hover:bg-slate-800/30"
@@ -68,16 +77,30 @@ const UserRow = ({ user, onClick }: { user: CRMUserRow; onClick: () => void }) =
       <span className="text-xs text-slate-500">{formatDate(user.created_at)}</span>
     </td>
     <td className="px-4 py-3 text-right">
-      <button
-        type="button"
-        className="flex items-center gap-1 text-xs text-cyan-400 transition hover:text-cyan-200"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
-      >
-        View <ArrowRight className="h-3.5 w-3.5" />
-      </button>
+      <div className="flex items-center justify-end gap-2">
+        {(user.role === 'ib' || user.role === 'sub_ib') && (
+          <button
+            type="button"
+            className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-violet-200 transition hover:bg-violet-500/20"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenIB();
+            }}
+          >
+            IB Network
+          </button>
+        )}
+        <button
+          type="button"
+          className="flex items-center gap-1 text-xs text-cyan-400 transition hover:text-cyan-200"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+        >
+          View <ArrowRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </td>
   </tr>
 );
@@ -87,6 +110,7 @@ export const CRMClients = () => {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [ibOnly, setIbOnly] = useState(false);
 
   const usersQuery = useQuery({
     queryKey: ['crm', 'users'],
@@ -101,21 +125,35 @@ export const CRMClients = () => {
     const term = search.toLowerCase().trim();
     return allUsers.filter((u) => {
       if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      if (ibOnly && u.role !== 'ib' && u.role !== 'sub_ib') return false;
       if (statusFilter === 'active' && !u.is_active) return false;
       if (statusFilter === 'inactive' && u.is_active) return false;
-      if (term && !u.username.toLowerCase().includes(term) && !u.email.toLowerCase().includes(term))
-        return false;
+
+      if (term) {
+        const fullName = String((u as Record<string, unknown>).full_name || '').toLowerCase();
+        const haystack = [
+          u.username.toLowerCase(),
+          u.email.toLowerCase(),
+          String(u.id),
+          String(u.sponsor_user_id || ''),
+          u.role.toLowerCase(),
+          String(u.relationship_type || '').toLowerCase(),
+          fullName,
+        ];
+        if (!haystack.some((value) => value.includes(term))) return false;
+      }
       return true;
     });
-  }, [allUsers, search, roleFilter, statusFilter]);
+  }, [allUsers, search, roleFilter, statusFilter, ibOnly]);
 
   const clear = () => {
     setSearch('');
     setRoleFilter('all');
     setStatusFilter('all');
+    setIbOnly(false);
   };
 
-  const isFiltered = search !== '' || roleFilter !== 'all' || statusFilter !== 'all';
+  const isFiltered = search !== '' || roleFilter !== 'all' || statusFilter !== 'all' || ibOnly;
 
   return (
     <PageContainer size="wide" className="space-y-6">
@@ -126,8 +164,8 @@ export const CRMClients = () => {
           <div>
             <h1 className="text-2xl font-semibold text-white">All users & clients</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Search by username or email, filter by role and status, then click a row to open the
-              full profile.
+              Search by ID, username, name, email, sponsor ID, or role. Filter by role/status and
+              jump directly between CRM and IB views.
             </p>
           </div>
           {usersQuery.isFetching && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
@@ -141,12 +179,22 @@ export const CRMClients = () => {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
-            placeholder="Search username or email…"
+            placeholder="Search by ID, name, email, sponsor, role…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="premium-input pl-9"
           />
         </div>
+
+        <label className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            checked={ibOnly}
+            onChange={(e) => setIbOnly(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-cyan-500"
+          />
+          IB / Sub-IB only
+        </label>
 
         {/* Role */}
         <select
@@ -244,6 +292,11 @@ export const CRMClients = () => {
                     key={user.id}
                     user={user}
                     onClick={() => navigate(`${crmPath('clients')}/${user.id}`)}
+                    onOpenIB={() =>
+                      navigate(
+                        `${ibPortalPath('network')}?focus_user_id=${encodeURIComponent(String(user.id))}`
+                      )
+                    }
                   />
                 ))}
               </tbody>

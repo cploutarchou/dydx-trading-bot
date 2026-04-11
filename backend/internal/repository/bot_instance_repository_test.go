@@ -11,65 +11,36 @@ import (
 	"time"
 
 	"github.com/lib/pq"
-	_ "modernc.org/sqlite"
 )
 
 func TestUpdateBotInstanceErrorUpdatesMatchingInstance(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite db: %v", err)
-	}
+	db := openScriptedDB(t, []scriptedStep{
+		{
+			op:            "exec",
+			queryContains: "SET error_message = $1, last_error_at = $2, status = $3, updated_at = $4",
+			assertArgs: func(t *testing.T, args []driver.NamedValue) {
+				t.Helper()
+				if len(args) != 5 {
+					t.Fatalf("expected 5 args for primary update, got %d", len(args))
+				}
+				if args[0].Value != "boom" {
+					t.Fatalf("expected error_message=boom, got %#v", args[0].Value)
+				}
+				if args[2].Value != "ERROR" {
+					t.Fatalf("expected status=ERROR, got %#v", args[2].Value)
+				}
+				if args[4].Value != "bot-1" {
+					t.Fatalf("expected WHERE instance_id=bot-1, got %#v", args[4].Value)
+				}
+			},
+			result: driver.RowsAffected(1),
+		},
+	})
 	defer func() { _ = db.Close() }()
-
-	if _, err := db.Exec(`
-		CREATE TABLE bot_instances (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			instance_id TEXT NOT NULL UNIQUE,
-			error_message TEXT,
-			last_error_at DATETIME,
-			status TEXT,
-			updated_at DATETIME
-		)
-	`); err != nil {
-		t.Fatalf("create bot_instances table: %v", err)
-	}
-
-	if _, err := db.Exec(
-		`INSERT INTO bot_instances (instance_id, status, updated_at) VALUES (?, ?, ?)`,
-		"bot-1",
-		"RUNNING",
-		time.Now().UTC(),
-	); err != nil {
-		t.Fatalf("insert bot instance: %v", err)
-	}
 
 	repo := NewBotInstanceRepository(db)
 	if err := repo.UpdateBotInstanceError("bot-1", "boom"); err != nil {
 		t.Fatalf("UpdateBotInstanceError returned error: %v", err)
-	}
-
-	var errorMessage string
-	var status string
-	var hasLastErrorAt bool
-	var hasUpdatedAt bool
-	if err := db.QueryRow(
-		`SELECT error_message, status, last_error_at IS NOT NULL, updated_at IS NOT NULL FROM bot_instances WHERE instance_id = ?`,
-		"bot-1",
-	).Scan(&errorMessage, &status, &hasLastErrorAt, &hasUpdatedAt); err != nil {
-		t.Fatalf("query updated bot instance: %v", err)
-	}
-
-	if errorMessage != "boom" {
-		t.Fatalf("expected error_message=boom, got %q", errorMessage)
-	}
-	if status != "ERROR" {
-		t.Fatalf("expected status=ERROR, got %q", status)
-	}
-	if !hasLastErrorAt {
-		t.Fatal("expected last_error_at to be set")
-	}
-	if !hasUpdatedAt {
-		t.Fatal("expected updated_at to be set")
 	}
 }
 

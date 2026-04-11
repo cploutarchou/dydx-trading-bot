@@ -10,9 +10,9 @@ import { getUserWorkspaceRole, roleMatches, type WorkspaceRole } from './auth/ro
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
 import {
-	ErrorBoundary as EnhancedErrorBoundary,
-	ToastContainer,
-	useToastStore,
+  ErrorBoundary as EnhancedErrorBoundary,
+  ToastContainer,
+  useToastStore,
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
@@ -24,9 +24,18 @@ import { BacktestsPage } from './pages/Backtests';
 import { ClientAreaPage } from './pages/ClientArea';
 import { CodexPage } from './pages/Codex';
 import { CRMRouter } from './pages/crm';
+import { CRMClientDetail } from './pages/crm/CRMClientDetail';
+import { CRMClients } from './pages/crm/CRMClients';
+import { CRMCommissions } from './pages/crm/CRMCommissions';
+import { CRMDashboard } from './pages/crm/CRMDashboard';
+import { CRMHierarchy } from './pages/crm/CRMHierarchy';
+import { CRMLayout } from './pages/crm/CRMLayout';
+import { CRMPipeline } from './pages/crm/CRMPipeline';
+import { CRMSecurity } from './pages/crm/CRMSecurity';
+import { isCRMHost } from './pages/crm/paths';
 import { DashboardPage } from './pages/Dashboard';
 import { ForcePasswordChangePage } from './pages/ForcePasswordChange';
-import { IBPortalPage } from './pages/IBPortal';
+import { IBRouter } from './pages/ib';
 import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
 import { NewsPage } from './pages/News';
@@ -34,6 +43,7 @@ import { PricingPage } from './pages/Pricing';
 import { PublicServicePage } from './pages/PublicServicePage';
 import { RegisterPage } from './pages/Register';
 import SettingsPage from './pages/Settings';
+import { isIBPortalHost } from './pages/ib/paths';
 import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
 import { useAuthStore } from './store/auth';
 
@@ -79,7 +89,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
 
   const requiresPrivilegedMFA =
     Boolean(allowedRoles && allowedRoles.length > 0) &&
-    allowedRoles.some((role) => role === 'admin' || role === 'backoffice');
+    (allowedRoles?.some((role) => role === 'admin' || role === 'backoffice') ?? false);
 
   if (requiresPrivilegedMFA && user.privileged_mfa_required && !user.mfa_enabled) {
     return <Navigate to="/2fa-setup" replace />;
@@ -111,6 +121,8 @@ export const App: React.FC = () => {
   const [mounted, setMounted] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [authBootstrapTimedOut, setAuthBootstrapTimedOut] = useState(false);
+  const ibPortalHost = isIBPortalHost();
+  const crmHost = isCRMHost();
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
   const toastWarning = useToastStore((state) => state.warning);
@@ -190,7 +202,12 @@ export const App: React.FC = () => {
         <Router>
           <ToastContainer />
           <Routes>
-            <Route path="/" element={<LandingPage />} />
+            <Route
+              path="/"
+              element={
+                ibPortalHost || crmHost ? <Navigate to="/dashboard" replace /> : <LandingPage />
+              }
+            />
             <Route path="/services/:slug" element={<PublicServicePage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/login" element={<LoginPage />} />
@@ -200,9 +217,17 @@ export const App: React.FC = () => {
             <Route
               path="/dashboard"
               element={
-                <ProtectedRoute>
-                  <DashboardPage />
-                </ProtectedRoute>
+                crmHost ? (
+                  <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                    <CRMLayout>
+                      <CRMDashboard />
+                    </CRMLayout>
+                  </ProtectedRoute>
+                ) : (
+                  <ProtectedRoute>
+                    <DashboardPage />
+                  </ProtectedRoute>
+                )
               }
             />
             <Route
@@ -253,6 +278,70 @@ export const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
+            {crmHost && (
+              <>
+                <Route
+                  path="/clients"
+                  element={
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                      <CRMLayout>
+                        <CRMClients />
+                      </CRMLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/clients/:id"
+                  element={
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                      <CRMLayout>
+                        <CRMClientDetail />
+                      </CRMLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pipeline"
+                  element={
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                      <CRMLayout>
+                        <CRMPipeline />
+                      </CRMLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/hierarchy"
+                  element={
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                      <CRMLayout>
+                        <CRMHierarchy />
+                      </CRMLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/commissions"
+                  element={
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                      <CRMLayout>
+                        <CRMCommissions />
+                      </CRMLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/security"
+                  element={
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                      <CRMLayout>
+                        <CRMSecurity />
+                      </CRMLayout>
+                    </ProtectedRoute>
+                  }
+                />
+              </>
+            )}
             <Route
               path="/admin"
               element={
@@ -270,13 +359,23 @@ export const App: React.FC = () => {
               }
             />
             <Route
-              path="/ib-portal"
+              path="/ib-portal/*"
               element={
                 <ProtectedRoute allowedRoles={['admin', 'backoffice', 'ib', 'sub_ib']}>
-                  <IBPortalPage />
+                  <IBRouter />
                 </ProtectedRoute>
               }
             />
+            {ibPortalHost && (
+              <Route
+                path="/*"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'backoffice', 'ib', 'sub_ib']}>
+                    <IBRouter />
+                  </ProtectedRoute>
+                }
+              />
+            )}
             <Route
               path="/strategies"
               element={

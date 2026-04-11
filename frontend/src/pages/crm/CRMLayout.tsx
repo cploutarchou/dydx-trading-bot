@@ -1,14 +1,15 @@
 import { GitBranch, LayoutDashboard, Shield, Users, WalletCards, Workflow } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { crmPath } from './paths';
 
 const tabs = [
-  { path: '/crm/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/crm/clients', label: 'Clients', icon: Users },
-  { path: '/crm/pipeline', label: 'Pipeline', icon: Workflow },
-  { path: '/crm/hierarchy', label: 'Hierarchy', icon: GitBranch },
-  { path: '/crm/commissions', label: 'Commissions', icon: WalletCards },
-  { path: '/crm/security', label: 'Security', icon: Shield },
+  { path: crmPath('dashboard'), label: 'Dashboard', icon: LayoutDashboard },
+  { path: crmPath('clients'), label: 'Clients', icon: Users },
+  { path: crmPath('pipeline'), label: 'Pipeline', icon: Workflow },
+  { path: crmPath('hierarchy'), label: 'Hierarchy', icon: GitBranch },
+  { path: crmPath('commissions'), label: 'Commissions', icon: WalletCards },
+  { path: crmPath('security'), label: 'Security', icon: Shield },
 ] as const;
 
 interface CRMLayoutProps {
@@ -17,11 +18,10 @@ interface CRMLayoutProps {
 
 export const CRMLayout = ({ children }: CRMLayoutProps) => {
   const { pathname } = useLocation();
+  const clientsPath = crmPath('clients');
 
   const activeTab = tabs.find((tab) =>
-    tab.path === '/crm/clients'
-      ? pathname.startsWith('/crm/clients')
-      : pathname.startsWith(tab.path)
+    tab.path === clientsPath ? pathname.startsWith(clientsPath) : pathname.startsWith(tab.path)
   );
 
   return (
@@ -32,8 +32,8 @@ export const CRMLayout = ({ children }: CRMLayoutProps) => {
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive =
-              tab.path === '/crm/clients'
-                ? pathname.startsWith('/crm/clients')
+              tab.path === clientsPath
+                ? pathname.startsWith(clientsPath)
                 : pathname.startsWith(tab.path);
             return (
               <Link

@@ -1,20 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-    AlertCircle,
-    ArrowRight,
-    CheckCircle2,
-    Clock3,
-    GitBranch,
-    Loader2,
-    Network,
-    Shield,
-    Users,
-    WalletCards,
-    Workflow,
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  GitBranch,
+  Loader2,
+  Network,
+  Shield,
+  Users,
+  WalletCards,
+  Workflow,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
 import { PageContainer } from '../../components/PageContainer';
+import { crmPath } from './paths';
 
 const formatCurrency = (value?: number) => {
   const numeric = Number(value ?? 0);
@@ -63,14 +64,14 @@ export const CRMDashboard = () => {
 
   const quickLinks = [
     {
-      to: '/crm/clients',
+      to: crmPath('clients'),
       icon: Users,
       label: 'Client directory',
       description: 'Search and manage all users, roles, and MFA state.',
       color: 'text-cyan-300 border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/10',
     },
     {
-      to: '/crm/pipeline',
+      to: crmPath('pipeline'),
       icon: Workflow,
       label: 'Application pipeline',
       description: 'Review and approve incoming IB / sub-IB upgrade requests.',
@@ -78,21 +79,21 @@ export const CRMDashboard = () => {
       badge: summary?.pending_partner_applications ?? 0,
     },
     {
-      to: '/crm/hierarchy',
+      to: crmPath('hierarchy'),
       icon: GitBranch,
       label: 'Sponsor hierarchy',
       description: 'Inspect the partner network tree and edge relationships.',
       color: 'text-violet-300 border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/10',
     },
     {
-      to: '/crm/commissions',
+      to: crmPath('commissions'),
       icon: WalletCards,
       label: 'Commission manager',
       description: 'Record and update IB rebate and notional volume metrics.',
       color: 'text-emerald-300 border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10',
     },
     {
-      to: '/crm/security',
+      to: crmPath('security'),
       icon: Shield,
       label: 'Security events',
       description: 'Monitor authentication outcomes and access anomalies.',
@@ -125,7 +126,7 @@ export const CRMDashboard = () => {
             </p>
           </div>
           <Link
-            to="/crm/pipeline"
+            to={crmPath('pipeline')}
             className="flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-500/20"
           >
             Review now <ArrowRight className="h-3.5 w-3.5" />

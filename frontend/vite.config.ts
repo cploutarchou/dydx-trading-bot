@@ -7,15 +7,21 @@ import { defineConfig } from 'vite';
 type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 type JsonObject = { [key: string]: JsonValue };
 
-const normalizeEnvironmentName = (value: string | undefined, fallback: 'development' | 'production') => {
-  const normalized = String(value ?? '').trim().toLowerCase();
+const normalizeEnvironmentName = (
+  value: string | undefined,
+  fallback: 'development' | 'production'
+) => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
   if (normalized === 'prod' || normalized === 'production') return 'production';
   if (normalized === 'dev' || normalized === 'development') return 'development';
   return fallback;
 };
 
 const isStructuredConfigRoot = (candidate: string) =>
-  existsSync(resolve(candidate, 'config', 'profiles')) || existsSync(resolve(candidate, 'run.json'));
+  existsSync(resolve(candidate, 'config', 'profiles')) ||
+  existsSync(resolve(candidate, 'run.json'));
 
 const findRepoRoot = (start: string) => {
   let current = resolve(start);
@@ -75,7 +81,9 @@ const resolveConfigKeyFile = (repoRoot: string) => {
 const decryptPayload = (parsed: JsonObject, repoRoot: string): JsonObject => {
   const keyPath = resolveConfigKeyFile(repoRoot);
   if (!existsSync(keyPath)) {
-    throw new Error(`Missing config key file. Expected ${keyPath}. Run 'make config-keygen' or install the shared key.`);
+    throw new Error(
+      `Missing config key file. Expected ${keyPath}. Run 'make config-keygen' or install the shared key.`
+    );
   }
 
   const key = readFileSync(keyPath);
@@ -88,7 +96,9 @@ const decryptPayload = (parsed: JsonObject, repoRoot: string): JsonObject => {
   const tag = Buffer.from(String(parsed.tag ?? ''), 'base64');
   const decipher = createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAuthTag(tag);
-  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf-8');
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString(
+    'utf-8'
+  );
   return JSON.parse(plaintext) as JsonObject;
 };
 
@@ -118,7 +128,8 @@ const flattenConfig = (tree: JsonObject): Record<string, string> => {
         return;
       }
       if (typeof value === 'string') flattened[key] = value;
-      else if (typeof value === 'number' || typeof value === 'boolean') flattened[key] = String(value);
+      else if (typeof value === 'number' || typeof value === 'boolean')
+        flattened[key] = String(value);
       else if (value == null) flattened[key] = '';
       else flattened[key] = JSON.stringify(value);
     });
@@ -134,7 +145,10 @@ const flattenConfig = (tree: JsonObject): Record<string, string> => {
 
 const loadStructuredEnvironment = (repoRoot: string, mode: string) => {
   const environment = normalizeEnvironmentName(
-    process.env.APP_CONFIG_ENV || process.env.CONFIG_ENV || process.env.ENVIRONMENT || process.env.APP_ENV,
+    process.env.APP_CONFIG_ENV ||
+      process.env.CONFIG_ENV ||
+      process.env.ENVIRONMENT ||
+      process.env.APP_ENV,
     mode === 'production' ? 'production' : 'development'
   );
   const profilePath = resolveProfilePath(repoRoot, environment);
@@ -156,6 +170,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: '0.0.0.0',
       port: 5173,
+      allowedHosts: ['.localhost'],
       proxy: {
         '/api': {
           target: env.VITE_API_URL || 'http://localhost:8888',

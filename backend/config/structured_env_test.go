@@ -37,10 +37,9 @@ func TestFindRepoRootPrefersMonorepoRootWithStructuredConfig(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_AllowsSQLiteInTestEnv(t *testing.T) {
+func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
-	t.Setenv("DB_TYPE", "sqlite3")
-	t.Setenv("DB_NAME", ":memory:")
+	t.Setenv("DB_TYPE", "postgres")
 
 	defer func() {
 		ConfigInstance = nil
@@ -51,8 +50,8 @@ func TestLoadConfig_AllowsSQLiteInTestEnv(t *testing.T) {
 	if ConfigInstance == nil {
 		t.Fatal("expected ConfigInstance to be initialized")
 	}
-	if got := ConfigInstance.Database.Type; got != "sqlite3" {
-		t.Fatalf("expected sqlite3 database type in test env, got %q", got)
+	if got := ConfigInstance.Database.Type; got != "postgres" {
+		t.Fatalf("expected postgres database type, got %q", got)
 	}
 }
 
@@ -64,7 +63,7 @@ func TestLoadConfig_PanicsForSQLiteOutsideTestEnv(t *testing.T) {
 		ConfigInstance = nil
 		recovered := recover()
 		if recovered == nil {
-			t.Fatal("expected LoadConfig to panic for sqlite3 outside test env")
+			t.Fatal("expected LoadConfig to panic for sqlite3")
 		}
 	}()
 

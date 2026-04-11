@@ -545,9 +545,7 @@ func isRetryableSchemaChangeError(err error) bool {
 		return false
 	}
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "database is locked") ||
-		strings.Contains(message, "sqlite_busy") ||
-		strings.Contains(message, "could not obtain lock on relation") ||
+	return strings.Contains(message, "could not obtain lock on relation") ||
 		strings.Contains(message, "deadlock detected")
 }
 

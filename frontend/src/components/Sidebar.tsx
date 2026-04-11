@@ -25,6 +25,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
   const visibleNavItems = filterNavItemsForRole(workspaceNavItems, role);
   const visibleQuickActions = filterNavItemsForRole(workspaceQuickActions, role);
 
+  const openWorkspace = (path: string) => {
+    navigate(path);
+  };
+
   const handleLogout = () => {
     logout();
     onClose?.();
@@ -33,9 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
   return (
     <>
-      {isOpen && (
-        <div className="fixed inset-0 z-40 bg-black/55 lg:hidden" onClick={onClose} />
-      )}
+      {isOpen && <div className="fixed inset-0 z-40 bg-black/55 lg:hidden" onClick={onClose} />}
 
       <aside
         className={`premium-sidebar fixed z-50 flex h-screen w-[19rem] shrink-0 flex-col border-r border-slate-800/80 transition-transform duration-300 lg:sticky lg:top-0 lg:self-start ${
@@ -106,9 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
         <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-6">
           <div className="workspace-card px-3 py-3">
-            <p className="px-1 text-[10px] uppercase text-slate-500">
-              Quick actions
-            </p>
+            <p className="px-1 text-[10px] uppercase text-slate-500">Quick actions</p>
             <div className="mt-3 space-y-2">
               {visibleQuickActions.slice(0, 3).map((item) => {
                 const Icon = item.icon;
@@ -117,7 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                     key={`quick-${item.path}`}
                     type="button"
                     onClick={() => {
-                      navigate(item.path);
+                      openWorkspace(item.path);
                       onClose?.();
                     }}
                     className="flex w-full items-center gap-3 rounded-lg border border-slate-800 bg-stone-950/78 px-3 py-3 text-left text-sm text-slate-300 transition hover:border-slate-700 hover:bg-stone-900 hover:text-white"
@@ -142,9 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
               return (
                 <div key={section}>
-                  <p className="px-3 text-[10px] uppercase text-slate-500">
-                    {section}
-                  </p>
+                  <p className="px-3 text-[10px] uppercase text-slate-500">{section}</p>
                   <div className="mt-2 space-y-1">
                     {items.map((item) => {
                       const active = isNavItemActive(location.pathname, item);
@@ -155,7 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                           key={item.path}
                           type="button"
                           onClick={() => {
-                            navigate(item.path);
+                            openWorkspace(item.path);
                             onClose?.();
                           }}
                           className={`group flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-all ${
@@ -164,12 +162,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                               : 'border border-transparent text-slate-400 hover:border-slate-800 hover:bg-stone-900/80 hover:text-white'
                           }`}
                         >
-                          <span className={active ? 'text-white' : 'text-slate-400 group-hover:text-white'}>
+                          <span
+                            className={
+                              active ? 'text-white' : 'text-slate-400 group-hover:text-white'
+                            }
+                          >
                             <Icon className="h-5 w-5" />
                           </span>
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium">{item.label}</p>
-                            <p className={`truncate text-xs ${active ? 'text-teal-100/80' : 'text-slate-500'}`}>
+                            <p
+                              className={`truncate text-xs ${active ? 'text-teal-100/80' : 'text-slate-500'}`}
+                            >
                               {item.description}
                             </p>
                           </div>
@@ -178,7 +182,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                               {item.shortcut}
                             </span>
                           )}
-                          {active && <div className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70" />}
+                          {active && (
+                            <div className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70" />
+                          )}
                         </button>
                       );
                     })}

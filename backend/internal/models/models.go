@@ -446,6 +446,33 @@ type PartnerCommissionMetric struct {
 	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
 }
 
+// ==================== IB TIER COMMISSION RATE MODELS ====================
+
+// IBTierCommissionRate stores commission and rebate rates for each tier level
+// in the unlimited-depth IB pyramid. Tier 1 = direct referral, Tier 2 = second-level, etc.
+type IBTierCommissionRate struct {
+	ID                int       `db:"id" json:"id"`
+	TierLevel         int       `db:"tier_level" json:"tier_level"`
+	CommissionRatePct float64   `db:"commission_rate_pct" json:"commission_rate_pct"`
+	RebateRatePct     float64   `db:"rebate_rate_pct" json:"rebate_rate_pct"`
+	Description       string    `db:"description" json:"description"`
+	IsActive          bool      `db:"is_active" json:"is_active"`
+	CreatedByUserID   *int      `db:"created_by_user_id" json:"created_by_user_id"`
+	CreatedAt         time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// IBPyramidNode represents one node in the unlimited-depth IB hierarchy tree,
+// returned by the pyramid tree endpoint. Children are populated recursively.
+type IBPyramidNode struct {
+	UserID           int              `json:"user_id"`
+	SponsorUserID    *int             `json:"sponsor_user_id"`
+	RelationshipType string           `json:"relationship_type"`
+	TierLevel        int              `json:"tier_level"`
+	IsActive         bool             `json:"is_active"`
+	Children         []*IBPyramidNode `json:"children"`
+}
+
 type RedisSetting struct {
 	ID        int       `db:"id" json:"id"`
 	Enabled   bool      `db:"enabled" json:"enabled"`

@@ -1,0 +1,76 @@
+export type PortalKind = 'crm' | 'ib';
+
+interface PortalSubdomainConfig {
+  enabled: boolean;
+  host: string;
+}
+
+const STORAGE_KEYS = {
+  crm: {
+    enabled: 'platform.crm_subdomain_enabled',
+    host: 'platform.crm_subdomain_host',
+  },
+  ib: {
+    enabled: 'platform.ib_subdomain_enabled',
+    host: 'platform.ib_subdomain_host',
+  },
+} as const;
+
+const DEFAULTS: Record<PortalKind, PortalSubdomainConfig> = {
+  crm: {
+    enabled: true,
+    host: 'crm.localhost',
+  },
+  ib: {
+    enabled: true,
+    host: 'ib-portal.localhost',
+  },
+};
+
+const parseBoolean = (value: string | null | undefined, fallback: boolean): boolean => {
+  if (value == null) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+};
+
+const sanitizeHost = (host: string, fallback: string): string => {
+  const normalized = host
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '');
+  if (!normalized) return fallback;
+  return normalized;
+};
+
+export const getPortalSubdomainConfig = (portal: PortalKind): PortalSubdomainConfig => {
+  const defaults = DEFAULTS[portal];
+  if (typeof window === 'undefined') {
+    return defaults;
+  }
+
+  const keys = STORAGE_KEYS[portal];
+  const enabled = parseBoolean(window.localStorage.getItem(keys.enabled), defaults.enabled);
+  const host = sanitizeHost(window.localStorage.getItem(keys.host) ?? defaults.host, defaults.host);
+
+  return {
+    enabled,
+    host,
+  };
+};
+
+export const setPortalSubdomainConfig = (
+  portal: PortalKind,
+  config: PortalSubdomainConfig
+): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const keys = STORAGE_KEYS[portal];
+  const defaults = DEFAULTS[portal];
+  window.localStorage.setItem(keys.enabled, String(config.enabled));
+  window.localStorage.setItem(keys.host, sanitizeHost(config.host, defaults.host));
+};

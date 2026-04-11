@@ -16,6 +16,8 @@ import {
   Target,
 } from 'lucide-react';
 import { roleMatches, type WorkspaceRole } from '../auth/roles';
+import { crmPath, crmSectionFromPath, isCRMHost } from '../pages/crm/paths';
+import { ibPortalPath, ibPortalSectionFromPath, isIBPortalHost } from '../pages/ib/paths';
 
 export interface WorkspaceNavItem {
   label: string;
@@ -118,11 +120,11 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
   },
   {
     label: 'CRM',
-    path: '/crm',
+    path: crmPath('dashboard'),
     description: 'Backoffice workflows for clients, IB approvals, and partner reviews.',
     section: 'System',
-    keywords: ['crm', 'backoffice', 'approvals', 'partners'],
-    exact: true,
+    keywords: ['crm', 'backoffice', 'approvals', 'partners', 'clients'],
+    exact: false,
     icon: BriefcaseBusiness,
     shortcut: 'G R',
     allowedRoles: ['admin', 'backoffice'],
@@ -139,11 +141,11 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
   },
   {
     label: 'IB Portal',
-    path: '/ib-portal',
+    path: ibPortalPath('dashboard'),
     description: 'Invitation tokens and Introducing Broker onboarding operations.',
     section: 'System',
     keywords: ['ib', 'invites', 'tokens', 'partners', 'onboarding'],
-    exact: true,
+    exact: false,
     icon: KeyRound,
     shortcut: 'G I',
     allowedRoles: ['admin', 'backoffice', 'ib', 'sub_ib'],
@@ -195,17 +197,49 @@ export const isNavItemActive = (pathname: string, item: WorkspaceNavItem): boole
 export const getWorkspaceBreadcrumbs = (pathname: string) => {
   const paths = pathname.split('/').filter(Boolean);
   const breadcrumbs = [{ label: 'Home', path: '/dashboard' }];
+  const isCrmHost = isCRMHost();
+  const crmSection = crmSectionFromPath(pathname);
+  const isIbHost = isIBPortalHost();
+  const ibSection = ibPortalSectionFromPath(pathname);
 
   if (paths.includes('settings')) {
     breadcrumbs.push({ label: 'Settings', path: '/settings' });
   } else if (paths.includes('admin')) {
     breadcrumbs.push({ label: 'Admin Hub', path: '/admin' });
-  } else if (paths.includes('crm')) {
-    breadcrumbs.push({ label: 'CRM', path: '/crm' });
+  } else if (paths.includes('crm') || (isCrmHost && crmSection)) {
+    breadcrumbs.push({ label: 'CRM', path: crmPath('dashboard') });
+    const crmSectionLabels: Record<string, string> = {
+      dashboard: 'Dashboard',
+      clients: 'Clients',
+      pipeline: 'Pipeline',
+      hierarchy: 'Hierarchy',
+      commissions: 'Commissions',
+      security: 'Security',
+    };
+    if (crmSection && crmSectionLabels[crmSection]) {
+      breadcrumbs.push({ label: crmSectionLabels[crmSection], path: crmPath(crmSection) });
+    }
+    const clientsIndex = paths.indexOf('clients');
+    const clientId =
+      crmSection === 'clients' && clientsIndex >= 0 ? paths[clientsIndex + 1] : undefined;
+    if (clientId && clientId !== 'clients') {
+      breadcrumbs.push({ label: `Client #${clientId}`, path: `${crmPath('clients')}/${clientId}` });
+    }
   } else if (paths.includes('client-area')) {
     breadcrumbs.push({ label: 'Client Area', path: '/client-area' });
-  } else if (paths.includes('ib-portal')) {
-    breadcrumbs.push({ label: 'IB Portal', path: '/ib-portal' });
+  } else if (paths.includes('ib-portal') || (isIbHost && ibSection)) {
+    breadcrumbs.push({ label: 'IB Portal', path: ibPortalPath('dashboard') });
+    const ibSectionLabels: Record<string, string> = {
+      dashboard: 'Dashboard',
+      network: 'My Network',
+      applications: 'Applications',
+      commissions: 'Commissions',
+      tokens: 'Tokens',
+      'tier-rates': 'Tier Rates',
+    };
+    if (ibSection && ibSectionLabels[ibSection]) {
+      breadcrumbs.push({ label: ibSectionLabels[ibSection], path: ibPortalPath(ibSection) });
+    }
   } else if (paths.includes('backtests') || paths.includes('backtest')) {
     const backtestIndex = paths.findIndex(
       (segment) => segment === 'backtests' || segment === 'backtest'

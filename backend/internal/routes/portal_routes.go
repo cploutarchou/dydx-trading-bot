@@ -52,6 +52,7 @@ func RegisterPortalRoutes(router *gin.Engine, database *sql.DB) {
 		portal.GET("/applications", listPartnerApplicationsHandler(database))
 		portal.POST("/applications", createPartnerApplicationHandler(database))
 		portal.GET("/hierarchy", portalHierarchyHandler(database))
+		portal.GET("/hierarchy/tree", portalHierarchyTreeHandler(database))
 		portal.GET("/commission-metrics", portalCommissionMetricsHandler(database))
 	}
 
@@ -688,6 +689,112 @@ func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 			"success":   true,
 			"message":   "Commission metric saved",
 			"data":      gin.H{"metric": metric},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+// portalHierarchyTreeHandler builds an unlimited-depth pyramid tree starting from the
+// requesting user (or all roots for admin/backoffice). It uses a recursive walk over
+// the flat edge list to avoid N+1 DB calls.
+func portalHierarchyTreeHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetInt("user_id")
+		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
+		relationshipRepo := repository.NewPartnerRelationshipRepository(database)
+
+		var (
+			allEdges []*models.PartnerRelationship
+			err      error
+		)
+		if canManageCRM(role) {
+			allEdges, err = relationshipRepo.List(10000, 0)
+		} else {
+			// For IBs, load all edges in the entire subtree (up to 10k) so we can
+			// recurse below their own direct partners as well.
+			allEdges, err = relationshipRepo.List(10000, 0)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load hierarchy: %v", err)})
+			return
+		}
+
+		// Build adjacency: sponsorID → []PartnerRelationship
+		children := make(map[int][]*models.PartnerRelationship)
+		partnerIDs := make(map[int]bool)
+		for _, e := range allEdges {
+			children[e.SponsorUserID] = append(children[e.SponsorUserID], e)
+			partnerIDs[e.PartnerUserID] = true
+		}
+
+		// Determine root IDs: sponsors that are nobody's partner
+		var rootIDs []int
+		if canManageCRM(role) {
+			seen := make(map[int]bool)
+			for _, e := range allEdges {
+				if !partnerIDs[e.SponsorUserID] && !seen[e.SponsorUserID] {
+					rootIDs = append(rootIDs, e.SponsorUserID)
+					seen[e.SponsorUserID] = true
+				}
+			}
+		} else {
+			rootIDs = []int{userID}
+		}
+
+		var buildTree func(sponsorID, depth int) []*models.IBPyramidNode
+		buildTree = func(sponsorID, depth int) []*models.IBPyramidNode {
+			edges := children[sponsorID]
+			nodes := make([]*models.IBPyramidNode, 0, len(edges))
+			for _, e := range edges {
+				node := &models.IBPyramidNode{
+					UserID:           e.PartnerUserID,
+					SponsorUserID:    &e.SponsorUserID,
+					RelationshipType: e.RelationshipType,
+					TierLevel:        depth,
+					IsActive:         e.IsActive,
+					Children:         buildTree(e.PartnerUserID, depth+1),
+				}
+				nodes = append(nodes, node)
+			}
+			return nodes
+		}
+
+		maxDepth := 0
+		totalNodes := 0
+
+		var countTree func(nodes []*models.IBPyramidNode, depth int)
+		countTree = func(nodes []*models.IBPyramidNode, depth int) {
+			for _, n := range nodes {
+				totalNodes++
+				if depth > maxDepth {
+					maxDepth = depth
+				}
+				countTree(n.Children, depth+1)
+			}
+		}
+
+		roots := make([]*models.IBPyramidNode, 0, len(rootIDs))
+		for _, rootID := range rootIDs {
+			node := &models.IBPyramidNode{
+				UserID:           rootID,
+				SponsorUserID:    nil,
+				RelationshipType: "root",
+				TierLevel:        0,
+				IsActive:         true,
+				Children:         buildTree(rootID, 1),
+			}
+			roots = append(roots, node)
+		}
+		countTree(roots, 0)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Pyramid tree loaded",
+			"data": gin.H{
+				"roots":       roots,
+				"total_nodes": totalNodes,
+				"max_depth":   maxDepth,
+			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	}

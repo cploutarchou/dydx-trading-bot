@@ -69,6 +69,13 @@ export const CRMPage = () => {
     refetchInterval: 30_000,
   });
 
+  const securityEventsQuery = useQuery({
+    queryKey: ['crm', 'security-events'],
+    queryFn: async () => (await api.getCRMSecurityEvents(100, 0)).data,
+    staleTime: 10_000,
+    refetchInterval: 20_000,
+  });
+
   const commissionQuery = useQuery({
     queryKey: ['crm', 'commission', selectedCommissionUserId],
     queryFn: async () => {
@@ -138,6 +145,7 @@ export const CRMPage = () => {
   const applications = applicationsQuery.data?.applications ?? [];
   const users = usersQuery.data?.users ?? [];
   const relationships = hierarchyQuery.data?.relationships ?? [];
+  const securityEvents = securityEventsQuery.data?.events ?? [];
 
   const ibCandidates = useMemo(
     () => users.filter((user) => user.role === 'ib' || user.role === 'sub_ib'),
@@ -408,6 +416,56 @@ export const CRMPage = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Security login events</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Recent authentication outcomes for operational monitoring, incident response, and
+              access anomaly triage.
+            </p>
+          </div>
+          {securityEventsQuery.isFetching && (
+            <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+          )}
+        </div>
+
+        <div className="mt-4 max-h-120 overflow-auto rounded-xl border border-slate-700/60">
+          <table className="min-w-full text-xs text-slate-300">
+            <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-[0.14em]">
+              <tr>
+                <th className="px-3 py-2 text-left">When</th>
+                <th className="px-3 py-2 text-left">User</th>
+                <th className="px-3 py-2 text-left">Outcome</th>
+                <th className="px-3 py-2 text-left">Reason</th>
+                <th className="px-3 py-2 text-left">IP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {securityEvents.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-10 text-center text-slate-500">
+                    No security events available yet.
+                  </td>
+                </tr>
+              ) : (
+                securityEvents.map((event) => (
+                  <tr key={event.id} className="border-t border-slate-800/80">
+                    <td className="px-3 py-2">{formatDateTime(event.created_at as string)}</td>
+                    <td className="px-3 py-2">{String(event.username || '—')}</td>
+                    <td className="px-3 py-2 uppercase tracking-[0.14em]">
+                      {String(event.outcome || '—')}
+                    </td>
+                    <td className="px-3 py-2">{String(event.reason || '—')}</td>
+                    <td className="px-3 py-2">{String(event.ip_address || '—')}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 

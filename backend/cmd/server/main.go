@@ -342,6 +342,7 @@ func main() {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterPortalRoutes(router, database.DB)
+	routes.RegisterIBTierRatesRoutes(router, database.DB)
 
 	// Initialize bot API client for delegating calls to Python bot API
 	botAPIToken := os.Getenv("BOT_API_TOKEN")

@@ -22,7 +22,16 @@ export const normalizeWorkspaceRole = (role?: string, isAdmin?: boolean): Worksp
 
   switch (normalized) {
     case 'admin':
+    case 'super_admin':
+      return 'admin';
     case 'backoffice':
+    case 'operations_admin':
+    case 'compliance_admin':
+    case 'support_agent':
+    case 'finance_admin':
+    case 'read_only_auditor':
+    case 'security_analyst':
+      return 'backoffice';
     case 'ib':
     case 'sub_ib':
     case 'client':

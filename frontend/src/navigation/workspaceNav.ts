@@ -1,19 +1,19 @@
 import {
-  BarChart3,
-  Bot,
-  BriefcaseBusiness,
-  Building2,
-  Home,
-  KeyRound,
-  Library,
-  type LucideIcon,
-  Newspaper,
-  PlayCircle,
-  PlusCircle,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  Target,
+    BarChart3,
+    Bot,
+    BriefcaseBusiness,
+    Building2,
+    Home,
+    KeyRound,
+    Library,
+    type LucideIcon,
+    Newspaper,
+    PlayCircle,
+    PlusCircle,
+    Settings,
+    ShieldCheck,
+    Sparkles,
+    Target,
 } from 'lucide-react';
 import { roleMatches, type WorkspaceRole } from '../auth/roles';
 
@@ -121,8 +121,8 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     path: '/crm',
     description: 'Backoffice workflows for clients, IB approvals, and partner reviews.',
     section: 'System',
-    keywords: ['crm', 'backoffice', 'approvals', 'partners'],
-    exact: true,
+    keywords: ['crm', 'backoffice', 'approvals', 'partners', 'clients'],
+    exact: false,
     icon: BriefcaseBusiness,
     shortcut: 'G R',
     allowedRoles: ['admin', 'backoffice'],
@@ -201,7 +201,23 @@ export const getWorkspaceBreadcrumbs = (pathname: string) => {
   } else if (paths.includes('admin')) {
     breadcrumbs.push({ label: 'Admin Hub', path: '/admin' });
   } else if (paths.includes('crm')) {
-    breadcrumbs.push({ label: 'CRM', path: '/crm' });
+    breadcrumbs.push({ label: 'CRM', path: '/crm/dashboard' });
+    const crmSectionLabels: Record<string, string> = {
+      dashboard: 'Dashboard',
+      clients: 'Clients',
+      pipeline: 'Pipeline',
+      hierarchy: 'Hierarchy',
+      commissions: 'Commissions',
+      security: 'Security',
+    };
+    const crmSection = paths[paths.indexOf('crm') + 1];
+    if (crmSection && crmSectionLabels[crmSection]) {
+      breadcrumbs.push({ label: crmSectionLabels[crmSection], path: `/crm/${crmSection}` });
+    }
+    const clientId = crmSection === 'clients' ? paths[paths.indexOf('clients') + 1] : undefined;
+    if (clientId && clientId !== 'clients') {
+      breadcrumbs.push({ label: `Client #${clientId}`, path: `/crm/clients/${clientId}` });
+    }
   } else if (paths.includes('client-area')) {
     breadcrumbs.push({ label: 'Client Area', path: '/client-area' });
   } else if (paths.includes('ib-portal')) {

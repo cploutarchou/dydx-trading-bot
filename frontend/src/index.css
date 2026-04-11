@@ -67,6 +67,11 @@ h6 {
   background: transparent;
 }
 
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.8);
+  outline-offset: 2px;
+}
+
 @keyframes fadeSlideUp {
   from {
     opacity: 0;
@@ -142,6 +147,16 @@ h6 {
   }
   100% {
     transform: translateX(130%);
+  }
+}
+
+@keyframes softCardDrift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
   }
 }
 
@@ -553,6 +568,18 @@ h6 {
 
 .interactive-surface:hover::before {
   opacity: 1;
+}
+
+.interactive-surface svg {
+  transition: transform 220ms ease, color 220ms ease;
+}
+
+.interactive-surface:hover svg {
+  transform: translateY(-1px) scale(1.02);
+}
+
+.telemetry-chip strong {
+  animation: softCardDrift 5.5s ease-in-out infinite;
 }
 
 .hero-spotlight {
@@ -1244,6 +1271,21 @@ h6 {
   border-radius: 0.5rem;
   background: rgba(2, 6, 23, 0.44);
   padding: 1.15rem;
+}
+
+.service-visual-panel {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0.5rem;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(45, 212, 191, 0.09), transparent 34%),
+    linear-gradient(180deg, rgba(8, 12, 14, 0.86), rgba(6, 9, 11, 0.94));
+  padding: clamp(0.9rem, 1.9vw, 1.3rem);
+}
+
+.service-visual-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
 }
 
 .service-cta-inner {
@@ -1938,6 +1980,10 @@ h6 {
   .reveal-block,
   .market-route path,
   .market-node {
+    animation: none !important;
+  }
+
+  .telemetry-chip strong {
     animation: none !important;
   }
 

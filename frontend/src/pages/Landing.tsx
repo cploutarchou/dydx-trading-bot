@@ -43,9 +43,9 @@ const valueItems = [
 export const LandingPage: React.FC = () => {
   return (
     <PublicSiteShell>
-      <section className="public-shell-container space-y-6 py-8">
+      <section className="public-shell-container grid gap-5 py-5 md:py-7 xl:grid-cols-[minmax(0,1.2fr),minmax(20rem,0.8fr)] xl:items-stretch">
         <MotionReveal
-          className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
+          className="public-hero-panel h-full rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
           distancePx={18}
         >
           <div className="surface-label">
@@ -60,10 +60,10 @@ export const LandingPage: React.FC = () => {
             runtime control—without the noise of a long marketing funnel.
           </p>
 
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <div className="public-actions-row mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               to="/register"
-              className="premium-button premium-button-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
+              className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
             >
               Start free evaluation
               <ArrowRight className="h-4 w-4" />
@@ -77,9 +77,9 @@ export const LandingPage: React.FC = () => {
           </div>
         </MotionReveal>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid content-start gap-4 md:grid-cols-3 xl:grid-cols-1 xl:auto-rows-fr">
           <MotionReveal
-            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
+            className="public-metric-card rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
             delayMs={40}
           >
             <div className="flex items-center gap-2 text-slate-300">
@@ -90,7 +90,7 @@ export const LandingPage: React.FC = () => {
           </MotionReveal>
 
           <MotionReveal
-            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
+            className="public-metric-card rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
             delayMs={80}
           >
             <div className="flex items-center gap-2 text-slate-300">
@@ -101,7 +101,7 @@ export const LandingPage: React.FC = () => {
           </MotionReveal>
 
           <MotionReveal
-            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
+            className="public-metric-card rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
             delayMs={120}
           >
             <div className="flex items-center gap-2 text-slate-300">
@@ -116,7 +116,7 @@ export const LandingPage: React.FC = () => {
       <section className="public-shell-container pb-8">
         <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
           <MotionReveal
-            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+            className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
             distancePx={18}
           >
             <h2 className="text-lg font-semibold text-white">Evaluation path</h2>
@@ -128,7 +128,7 @@ export const LandingPage: React.FC = () => {
               {pathItems.map(([Icon, title, body], index) => (
                 <div
                   key={title}
-                  className="rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+                  className="public-tile-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
                 >
                   <div className="flex items-start gap-3">
                     <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
@@ -148,7 +148,7 @@ export const LandingPage: React.FC = () => {
           </MotionReveal>
 
           <MotionReveal
-            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+            className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
             delayMs={120}
             distancePx={18}
           >
@@ -165,7 +165,7 @@ export const LandingPage: React.FC = () => {
               {valueItems.map(([Icon, title, body]) => (
                 <div
                   key={title}
-                  className="rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+                  className="public-tile-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
                 >
                   <div className="flex items-start gap-3">
                     <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
@@ -200,7 +200,7 @@ export const LandingPage: React.FC = () => {
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link
                 to="/register"
-                className="premium-button premium-button-primary justify-center px-6 py-3 text-sm font-semibold text-white"
+                className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
               >
                 Start free evaluation
               </Link>

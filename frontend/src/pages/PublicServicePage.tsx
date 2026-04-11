@@ -10,7 +10,6 @@ export const PublicServicePage: React.FC = () => {
   const { slug } = useParams();
   const page = servicePages.find((item) => item.slug === slug);
   const isSecurityPage = page?.slug === 'security';
-  const usesPricingOutcomeLayout = page?.slug === 'runtime' || page?.slug === 'intelligence';
 
   const securityReadinessSteps = [
     {
@@ -78,11 +77,6 @@ export const PublicServicePage: React.FC = () => {
         ? 'Translate market context into operator decisions by connecting research framing, live narrative signals, and timing clarity.'
         : 'Clear operating context helps teams decide when a strategy, account, or runtime workflow is ready for the next step.';
 
-  const outcomesModelLabel = page?.slug === 'runtime' ? 'Runtime model' : 'Intelligence model';
-  const outcomesModelTitle =
-    page?.slug === 'runtime' ? 'From state to action' : 'From context to conviction';
-  const outcomesModelStatus = page?.slug === 'runtime' ? 'Live-ready' : 'Signal-rich';
-
   const serviceVariant =
     page?.slug === 'runtime'
       ? 'runtime'
@@ -105,225 +99,181 @@ export const PublicServicePage: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
+  const outcomeCards = isSecurityPage ? securityOutcomeFlow : serviceOutcomeFlow;
+
   return (
     <PublicSiteShell>
-      <section
-        className={`service-hero public-shell-container ${isSecurityPage ? 'service-hero-security' : ''}`}
-      >
-        <MotionReveal className="service-hero-grid lg:items-end">
-          <div>
-            <div className="surface-label">
-              <Sparkles className="h-3.5 w-3.5" />
-              {page.kicker}
-            </div>
-            <h1
-              className={`max-w-4xl text-4xl font-bold leading-[1.06] text-white sm:text-5xl ${
-                isSecurityPage ? 'mt-4' : 'mt-6'
-              }`}
-            >
-              {page.title}
-            </h1>
-          </div>
-          <p
-            className={`max-w-2xl text-base text-slate-300 ${
-              isSecurityPage ? 'leading-7 lg:self-start lg:pt-1' : 'leading-8 lg:pb-1'
-            }`}
-          >
-            {page.heroIntro}
-          </p>
-        </MotionReveal>
-
+      <section className="public-shell-container space-y-5 py-6 md:py-8">
         <MotionReveal
-          delayMs={100}
-          className={`service-stats ${isSecurityPage ? 'mt-7' : 'mt-10'}`}
+          className="public-hero-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
+          distancePx={18}
         >
-          <div className="service-stats-grid">
-            {page.heroStats.map(([label, body]) => (
-              <div key={label} className="service-stat-item">
-                <p className="text-sm font-semibold text-cyan-300">{label}</p>
-                <p
-                  className={`mt-2 leading-6 text-slate-300 ${isSecurityPage ? 'text-base' : 'text-sm'}`}
-                >
-                  {body}
-                </p>
-              </div>
-            ))}
+          <div className="surface-label">
+            <Sparkles className="h-3.5 w-3.5" />
+            {page.kicker}
+          </div>
+          <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">{page.title}</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">{page.heroIntro}</p>
+
+          <div className="public-actions-row mt-6 flex flex-col gap-3 sm:flex-row">
+            <Link
+              to="/register"
+              className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
+            >
+              Start free evaluation
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link
+              to="/pricing"
+              className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium"
+            >
+              View pricing
+            </Link>
           </div>
         </MotionReveal>
 
-        <MotionReveal delayMs={130} className="service-visual-panel mt-7">
-          <ServicePulseIllustration variant={serviceVariant} />
-          <div className="service-visual-tags mt-4">
-            {serviceVisualTags.map((tag) => (
-              <span key={tag} className="data-chip">
-                <span className="h-2 w-2 rounded-full bg-cyan-300" />
-                {tag}
-              </span>
-            ))}
-          </div>
-        </MotionReveal>
-
-        {isSecurityPage && (
-          <MotionReveal delayMs={150} className="security-readiness-panel mt-6">
-            <div>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">Readiness flow</p>
-              <p className="mt-2 text-2xl font-semibold text-white">
-                Security before workspace access.
-              </p>
-            </div>
-
-            <div className="security-readiness-grid mt-6">
-              {securityReadinessSteps.map((step, index) => (
-                <div key={step.title} className="security-readiness-card">
-                  <p className="font-mono text-xs text-cyan-300">0{index + 1}</p>
-                  <p className="mt-2 text-base font-semibold text-white">{step.title}</p>
-                  <p className="mt-2 text-sm leading-7 text-slate-300">{step.body}</p>
-                </div>
-              ))}
-            </div>
-          </MotionReveal>
-        )}
-      </section>
-
-      <section className={`service-core-shell ${isSecurityPage ? 'service-core-security' : ''}`}>
-        <div className="public-shell-container service-core-grid">
-          {page.corePoints.map((point, index) => (
-            <MotionReveal key={point.title} delayMs={index * 70} className="service-core-card">
-              <p className="font-mono text-sm text-emerald-300">0{index + 1}</p>
-              <h2 className="mt-4 text-2xl font-semibold text-white">{point.title}</h2>
-              <p
-                className={`mt-4 leading-7 text-slate-300 ${isSecurityPage ? 'text-base' : 'text-sm'}`}
-              >
-                {point.body}
-              </p>
+        <div className="grid gap-4 md:grid-cols-3">
+          {page.heroStats.slice(0, 3).map(([label, body], index) => (
+            <MotionReveal
+              key={label}
+              delayMs={index * 60}
+              className="public-metric-card rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
+            >
+              <p className="text-[11px] font-semibold uppercase text-slate-500">{label}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">{body}</p>
             </MotionReveal>
           ))}
         </div>
       </section>
 
-      <section
-        className={`service-outcomes public-shell-container ${
-          isSecurityPage ? 'service-outcomes-security' : ''
-        } ${usesPricingOutcomeLayout ? 'service-outcomes-compact' : ''}`}
-      >
-        <MotionReveal className="grid gap-8 lg:grid-cols-[minmax(0,0.95fr),minmax(22rem,0.65fr)]">
-          <div>
-            <div className="surface-label">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Operator outcomes
-            </div>
-            <h2 className="mt-5 text-3xl font-bold text-white">{outcomesHeadline}</h2>
-          </div>
-          {isSecurityPage ? (
-            <p className="max-w-2xl text-base leading-8 text-slate-300 lg:pt-14">{outcomesIntro}</p>
-          ) : (
-            <p className="max-w-2xl text-sm leading-7 text-slate-400 lg:pt-10">{outcomesIntro}</p>
-          )}
-        </MotionReveal>
-
-        {isSecurityPage ? (
-          <MotionReveal delayMs={80} className="pricing-model-panel mt-6">
-            <div className="pricing-model-header">
-              <div>
-                <p className="text-[11px] font-semibold uppercase text-slate-400">Security model</p>
-                <p className="mt-2 text-2xl font-semibold text-white">
-                  Clear onboarding progression
-                </p>
-              </div>
-              <p className="pricing-model-open">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                Active
-              </p>
-            </div>
-
-            <div className="pricing-model-flow mt-5">
-              {securityOutcomeFlow.map((item, index) => (
-                <div key={item.stage} className="pricing-model-card">
-                  <p className="pricing-model-step">Step {index + 1}</p>
-                  <p className="mt-2 text-base font-semibold text-white">{item.stage}</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-200">{item.detail}</p>
-                  <p className="mt-3 text-xs text-slate-400">{item.note}</p>
-                </div>
-              ))}
-            </div>
-          </MotionReveal>
-        ) : usesPricingOutcomeLayout ? (
-          <MotionReveal delayMs={80} className="pricing-model-panel mt-6">
-            <div className="pricing-model-header">
-              <div>
-                <p className="text-[11px] font-semibold uppercase text-slate-400">
-                  {outcomesModelLabel}
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-white">{outcomesModelTitle}</p>
-              </div>
-              <p className="pricing-model-open">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                {outcomesModelStatus}
-              </p>
-            </div>
-
-            <div className="pricing-model-flow mt-5">
-              {serviceOutcomeFlow.map((item) => (
-                <div key={item.detail} className="pricing-model-card">
-                  <p className="pricing-model-step">{item.stage}</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-200">{item.detail}</p>
-                  <p className="mt-3 text-xs text-slate-400">{item.note}</p>
-                </div>
-              ))}
-            </div>
-          </MotionReveal>
-        ) : (
-          <div className="service-outcome-list mt-10">
-            {page.outcomes.map((outcome, index) => (
-              <MotionReveal key={outcome} delayMs={index * 60}>
-                <div className="service-outcome-item grid gap-4 py-5 md:grid-cols-[4rem,1fr] md:items-start">
-                  <span className="font-mono text-sm text-cyan-300">0{index + 1}</span>
-                  <p className="text-lg leading-8 text-slate-200">{outcome}</p>
-                </div>
-              </MotionReveal>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section
-        className={`service-notes public-shell-container ${isSecurityPage ? 'service-notes-security' : ''}`}
-      >
-        <div
-          className={`service-notes-grid grid lg:grid-cols-2 ${isSecurityPage ? 'gap-8' : 'gap-6'}`}
-        >
-          {page.operatorNotes.map((note, index) => (
-            <MotionReveal key={note.label} delayMs={index * 80} className="service-note-card">
-              <p className="text-[11px] font-semibold uppercase text-slate-500">{note.label}</p>
-              <p
-                className={`mt-3 leading-8 text-slate-200 ${isSecurityPage ? 'text-base' : 'text-lg'}`}
-              >
-                {note.body}
-              </p>
-            </MotionReveal>
-          ))}
-        </div>
-      </section>
-
-      <section
-        className={`service-cta public-shell-container ${isSecurityPage ? 'service-cta-security' : ''}`}
-      >
-        <MotionReveal className="service-cta-inner grid gap-8 lg:grid-cols-[minmax(0,0.95fr),minmax(22rem,0.65fr)] lg:items-center">
-          <div>
-            <div className="surface-label">
-              <ShieldCheck className="h-4 w-4" />
-              Continue the journey
-            </div>
-            <h2 className="mt-5 text-3xl font-bold text-white">
-              Continue from {page.navLabel.toLowerCase()} into evaluation.
-            </h2>
-          </div>
-          <div>
-            <p className="max-w-2xl text-sm leading-7 text-slate-400">
-              Review pricing, create an account, and complete security onboarding before live
-              access.
+      <section className="public-shell-container pb-8">
+        <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
+          <MotionReveal
+            className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+            distancePx={18}
+          >
+            <h2 className="text-lg font-semibold text-white">Core capabilities</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Practical capabilities this service layer adds to your operator workflow.
             </p>
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+
+            <div className="mt-4 space-y-3">
+              {page.corePoints.map((point, index) => (
+                <div
+                  key={point.title}
+                  className="public-tile-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+                >
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    0{index + 1}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-white">{point.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">{point.body}</p>
+                </div>
+              ))}
+            </div>
+          </MotionReveal>
+
+          <MotionReveal
+            className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+            delayMs={120}
+            distancePx={18}
+          >
+            <ServicePulseIllustration variant={serviceVariant} />
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {serviceVisualTags.map((tag) => (
+                <span key={tag} className="data-chip">
+                  <span className="h-2 w-2 rounded-full bg-cyan-300" />
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            {isSecurityPage && (
+              <div className="mt-5 space-y-3">
+                {securityReadinessSteps.map((step, index) => (
+                  <div
+                    key={step.title}
+                    className="public-tile-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      Readiness 0{index + 1}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-white">{step.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">{step.body}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </MotionReveal>
+        </div>
+      </section>
+
+      <section className="public-shell-container pb-8">
+        <MotionReveal
+          className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+          distancePx={18}
+        >
+          <div className="surface-label">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Operator outcomes
+          </div>
+          <h2 className="mt-3 text-2xl font-semibold text-white">{outcomesHeadline}</h2>
+          <p className="mt-2 text-sm leading-7 text-slate-400">{outcomesIntro}</p>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {outcomeCards.map((item) => (
+              <div
+                key={item.stage + item.detail}
+                className="public-outcome-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+              >
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  {item.stage}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">{item.detail}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">{item.note}</p>
+              </div>
+            ))}
+          </div>
+        </MotionReveal>
+      </section>
+
+      <section className="public-shell-container pb-8">
+        <div className="grid gap-6 lg:grid-cols-2">
+          {page.operatorNotes.map((note, index) => (
+            <MotionReveal
+              key={note.label}
+              delayMs={index * 70}
+              className="public-note-card rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+            >
+              <p className="text-[11px] font-semibold uppercase text-slate-500">{note.label}</p>
+              <p className="mt-3 text-sm leading-7 text-slate-300">{note.body}</p>
+            </MotionReveal>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-shell-container pb-10">
+        <MotionReveal
+          className="public-section-panel public-cta-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
+          distancePx={18}
+        >
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr),auto] lg:items-center">
+            <div>
+              <div className="surface-label">
+                <ShieldCheck className="h-4 w-4" />
+                Continue the journey
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold text-white">
+                Continue from {page.navLabel.toLowerCase()} into evaluation.
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">
+                Review pricing, create an account, and complete security onboarding before live
+                access.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
               <Link
                 to="/pricing"
                 className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium"
@@ -332,7 +282,7 @@ export const PublicServicePage: React.FC = () => {
               </Link>
               <Link
                 to="/register"
-                className="premium-button premium-button-primary justify-center px-6 py-3 text-sm font-semibold text-white"
+                className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
               >
                 Start free evaluation
                 <ArrowRight className="h-4 w-4" />

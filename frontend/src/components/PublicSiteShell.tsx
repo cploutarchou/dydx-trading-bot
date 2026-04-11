@@ -62,7 +62,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
   return (
     <div className="public-site-shell min-h-screen overflow-x-hidden text-white">
       <header className="sticky top-0 z-50 border-b border-stone-800/90 bg-[#070807]/92 backdrop-blur-xl">
-        <div className="public-shell-container flex min-h-18 items-center justify-between gap-4 py-3">
+        <div className="public-shell-container flex min-h-16 items-center justify-between gap-3 py-2.5">
           <Link to="/" className="group flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/12 text-sm font-semibold text-teal-100 transition duration-300 group-hover:border-teal-200/50">
               dY
@@ -73,16 +73,16 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-1 xl:flex">
+          <nav className="hidden items-center gap-0.5 xl:flex">
             {publicNavItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`rounded-lg px-4 py-2 text-sm transition ${
+                  className={`public-nav-link rounded-lg px-3 py-2 text-sm transition ${
                     isActive
-                      ? 'bg-teal-500/12 text-teal-100'
+                      ? 'is-active bg-teal-500/12 text-teal-100'
                       : 'text-slate-400 hover:bg-stone-900 hover:text-white'
                   }`}
                 >
@@ -92,7 +92,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
             })}
           </nav>
 
-          <div className="hidden items-center gap-3 lg:flex">
+          <div className="hidden items-center gap-2.5 lg:flex">
             <button
               type="button"
               onClick={handleToggleTheme}
@@ -108,12 +108,15 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
               </span>
               Evaluation open
             </div>
-            <Link to="/login" className="premium-button premium-button-secondary px-4 py-2 text-sm">
+            <Link
+              to="/login"
+              className="premium-button premium-button-secondary px-3.5 py-2 text-sm"
+            >
               Sign in
             </Link>
             <Link
               to={primaryCta.href}
-              className="premium-button premium-button-primary px-4 py-2 text-sm font-semibold text-white"
+              className="premium-button premium-button-primary px-3.5 py-2 text-sm font-semibold text-white"
             >
               {primaryCta.label}
               <ArrowRight className="h-4 w-4" />

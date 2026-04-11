@@ -311,18 +311,31 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     }
   };
 
+  const inputClass =
+    'premium-input bg-stone-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-600';
+  const labelClass = 'mb-2 block text-xs font-semibold uppercase text-slate-400';
+
   return (
-    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-      <h3 className="text-xl font-bold text-white mb-6">Start New Backtest</h3>
+    <div className="border-t border-slate-800/80 bg-stone-950/30 p-5">
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-[10px] font-semibold uppercase text-cyan-300">Backtest ticket</p>
+          <h3 className="mt-1 text-xl font-bold text-white">Start new research run</h3>
+        </div>
+        <p className="max-w-xl text-sm leading-6 text-slate-400">
+          Tune the run, keep risk assumptions explicit, and send the job through the backend
+          control plane.
+        </p>
+      </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-900 border border-red-700 rounded text-red-200">
+        <div className="mb-4 rounded-lg border border-red-700 bg-red-900/35 p-4 text-sm text-red-200">
           {error}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="border-b border-slate-700 pb-4">
+        <div className="rounded-lg border border-slate-800 bg-stone-950/55 p-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -333,7 +346,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                   setSelectedStrategyId(null);
                 }
               }}
-              className="w-4 h-4"
+              className="h-4 w-4 rounded border-slate-700 bg-stone-950 text-cyan-500"
             />
             <span className="text-sm font-medium text-gray-300">Use Saved Strategy</span>
           </label>
@@ -343,7 +356,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               <select
                 value={selectedStrategyId || ''}
                 onChange={handleStrategyChange}
-                className="w-full mt-2 px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+                className={`${inputClass} mt-3`}
               >
                 <option value="">Select a strategy...</option>
                 {strategies.map((strategy) => (
@@ -354,7 +367,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               </select>
 
               {selectedStrategyId && (
-                <p className="mt-2 text-xs text-blue-400">
+                <p className="mt-2 text-xs text-cyan-300">
                   Strategy parameters loaded below — you can override them before running.
                 </p>
               )}
@@ -364,31 +377,31 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Start Date</label>
+            <label className={labelClass}>Start Date</label>
             <input
               type="date"
               name="start_date"
               value={formData.start_date}
               onChange={handleChange}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">End Date</label>
+            <label className={labelClass}>End Date</label>
             <input
               type="date"
               name="end_date"
               value={formData.end_date}
               onChange={handleChange}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Number of Markets (0 = All)
             </label>
             <input
@@ -398,14 +411,14 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               min="0"
               max="50"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
             <p className="mt-1 text-xs text-gray-400">
               Set to 0 to scan opportunities across all available markets.
             </p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Pair Selection Mode
             </label>
             <select
@@ -426,7 +439,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                   },
                 }));
               }}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             >
               <option value="liquidity">Liquidity (highest volume first)</option>
               <option value="cointegration">Cointegration (strict statistical ranking)</option>
@@ -435,7 +448,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Z-Score Threshold
             </label>
             <input
@@ -446,11 +459,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               step="0.1"
               min="0.5"
               max="3"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Stats Window (days)
             </label>
             <input
@@ -460,11 +473,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               min="5"
               max="60"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">USD Per Trade</label>
+            <label className={labelClass}>USD Per Trade</label>
             <input
               type="number"
               name="usd_per_trade"
@@ -473,11 +486,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               step="1"
               min="1"
               max="1000"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Starting Balance
             </label>
             <input
@@ -487,11 +500,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               step="100"
               min="100"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Candle Resolution
             </label>
             <select
@@ -506,7 +519,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                   },
                 }))
               }
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             >
               <option value="15MINS">15 Minutes</option>
               <option value="30MINS">30 Minutes</option>
@@ -516,7 +529,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Transaction Fee
             </label>
             <input
@@ -526,11 +539,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               step="0.0001"
               min="0"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Slippage</label>
+            <label className={labelClass}>Slippage</label>
             <input
               type="number"
               name="slippage"
@@ -538,11 +551,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               step="0.0001"
               min="0"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Benchmark Symbol
             </label>
             <input
@@ -559,11 +572,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                   },
                 }))
               }
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Risk-Free Rate
             </label>
             <input
@@ -573,11 +586,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               step="0.001"
               min="0"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className={labelClass}>
               Max History Days
             </label>
             <input
@@ -587,7 +600,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               min="1"
               max="3650"
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"
+              className={inputClass}
             />
           </div>
         </div>
@@ -595,7 +608,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         <button
           type="submit"
           disabled={loading || runBacktestMutation.isPending}
-          className="w-full mt-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2"
+          className="premium-button premium-button-primary mt-6 flex w-full items-center justify-center gap-2 py-3 text-white disabled:opacity-50"
         >
           <Play className="w-4 h-4" />
           {loading || runBacktestMutation.isPending ? 'Running Backtest...' : 'Start Backtest'}

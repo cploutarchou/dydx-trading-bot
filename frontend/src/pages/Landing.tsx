@@ -1,4 +1,15 @@
-import { ArrowRight, CheckCircle2, Radar, ShieldCheck, Sparkles, TrendingUp, Waypoints } from 'lucide-react';
+import {
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  Compass,
+  Radar,
+  Shield,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
+  Waypoints,
+} from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { DeFiHeroIllustration } from '../components/DeFiIllustrations';
@@ -32,112 +43,143 @@ const valueItems = [
 export const LandingPage: React.FC = () => {
   return (
     <PublicSiteShell>
-      <section className="landing-hero public-shell-container">
-        <div className="landing-hero-copy">
-          <MotionReveal distancePx={18}>
-            <div className="surface-label">
-              <Radar className="h-3.5 w-3.5" />
-              DeFi operator platform
+      <section className="public-shell-container space-y-6 py-8">
+        <MotionReveal
+          className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
+          distancePx={18}
+        >
+          <div className="surface-label">
+            <Radar className="h-3.5 w-3.5" />
+            DeFi operator platform
+          </div>
+          <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">
+            A calmer front door for evaluating, preparing, and running dYdX strategies.
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
+            dYdX Arbitrage OS guides teams from research conviction to secure onboarding and live
+            runtime control—without the noise of a long marketing funnel.
+          </p>
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <Link
+              to="/register"
+              className="premium-button premium-button-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
+            >
+              Start free evaluation
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link
+              to="/pricing"
+              className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
+            >
+              View pricing
+            </Link>
+          </div>
+        </MotionReveal>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <MotionReveal
+            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
+            delayMs={40}
+          >
+            <div className="flex items-center gap-2 text-slate-300">
+              <Shield className="h-4 w-4 text-cyan-300" /> Security posture
             </div>
-            <h1>A calmer front door for evaluating, preparing, and running dYdX strategies.</h1>
+            <p className="mt-3 text-xl font-semibold text-white">Security-first onboarding</p>
+            <p className="mt-1 text-xs text-slate-500">Clear access expectations from day one</p>
           </MotionReveal>
 
-          <MotionReveal delayMs={120} distancePx={18} className="mt-7 max-w-2xl">
-            <p>
-              dYdX Arbitrage OS guides teams from research conviction to secure onboarding and live
-              runtime control—without the noise of a long marketing funnel.
-            </p>
-            <p className="mt-4 text-sm text-slate-400">
-              Start free, validate your process, and move to live operations only when your desk is
-              ready.
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                to="/register"
-                className="premium-button premium-button-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
-              >
-                Start free evaluation
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/pricing"
-                className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
-              >
-                View pricing
-              </Link>
+          <MotionReveal
+            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
+            delayMs={80}
+          >
+            <div className="flex items-center gap-2 text-slate-300">
+              <Compass className="h-4 w-4 text-emerald-300" /> Workflow clarity
             </div>
+            <p className="mt-3 text-xl font-semibold text-white">Research → Security → Runtime</p>
+            <p className="mt-1 text-xs text-slate-500">One practical path, no noisy detours</p>
+          </MotionReveal>
+
+          <MotionReveal
+            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
+            delayMs={120}
+          >
+            <div className="flex items-center gap-2 text-slate-300">
+              <Building2 className="h-4 w-4 text-violet-300" /> Commercial model
+            </div>
+            <p className="mt-3 text-xl font-semibold text-white">Start free, then scale</p>
+            <p className="mt-1 text-xs text-slate-500">Validate process before live monetization</p>
           </MotionReveal>
         </div>
+      </section>
 
-        <MotionReveal delayMs={180} distancePx={18} className="landing-product-path interactive-surface">
-          <DeFiHeroIllustration className="mb-4" />
+      <section className="public-shell-container pb-8">
+        <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
+          <MotionReveal
+            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+            distancePx={18}
+          >
+            <h2 className="text-lg font-semibold text-white">Evaluation path</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Move from strategy confidence to secure onboarding and live runtime in clear stages.
+            </p>
 
-          <div className="telemetry-marquee mb-3">
-            <div className="telemetry-marquee-track">
-              {['Research confidence', 'Security ready', 'Runtime visible', 'Performance aligned'].map((label) => (
-                <div key={label} className="telemetry-chip">
-                  <span className="h-2 w-2 rounded-full bg-emerald-300" />
-                  <strong>{label}</strong>
-                </div>
-              ))}
-              {['Research confidence', 'Security ready', 'Runtime visible', 'Performance aligned'].map((label) => (
-                <div key={`${label}-repeat`} className="telemetry-chip">
-                  <span className="h-2 w-2 rounded-full bg-cyan-300" />
-                  <strong>{label}</strong>
+            <div className="mt-4 space-y-3">
+              {pathItems.map(([Icon, title, body], index) => (
+                <div
+                  key={title}
+                  className="rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        Step {String(index + 1).padStart(2, '0')}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-white">{title}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">{body}</p>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
+          </MotionReveal>
 
-          <div className="landing-path-heading">
-            <span>Evaluation path</span>
-            <strong>Clarity first. Runtime second.</strong>
-          </div>
-          <div className="landing-path-stack">
-            {pathItems.map(([Icon, title, body], index) => (
-              <div key={title} className="landing-path-item">
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                <div>
-                  <strong className="inline-flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-cyan-300" />
-                    {title}
-                  </strong>
-                  <p>{body}</p>
+          <MotionReveal
+            className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+            delayMs={120}
+            distancePx={18}
+          >
+            <DeFiHeroIllustration className="mb-4" />
+            <div className="surface-label">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Product promise
+            </div>
+            <p className="mt-2 text-sm text-slate-400">
+              Built for confidence before the first live action.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              {valueItems.map(([Icon, title, body]) => (
+                <div
+                  key={title}
+                  className="rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-white">{title}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">{body}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </MotionReveal>
-      </section>
-
-      <section className="landing-value public-shell-container">
-        <MotionReveal className="landing-section-head" distancePx={18}>
-          <div className="surface-label">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Product promise
-          </div>
-          <h2>Built for confidence before the first live action.</h2>
-          <p>
-            The public experience is intentionally short, clear, and operator-friendly. Teams can
-            understand product value, risk posture, and onboarding expectations before committing
-            account details.
-          </p>
-        </MotionReveal>
-
-        <div className="landing-value-grid">
-          {valueItems.map(([Icon, title, body], index) => (
-            <MotionReveal
-              key={title}
-              delayMs={index * 90}
-              distancePx={16}
-              className="landing-value-item interactive-surface"
-            >
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <Icon className="mt-3 h-5 w-5 text-cyan-300" />
-              <h3>{title}</h3>
-              <p>{body}</p>
-            </MotionReveal>
-          ))}
+              ))}
+            </div>
+          </MotionReveal>
         </div>
       </section>
 

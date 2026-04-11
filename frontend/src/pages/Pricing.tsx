@@ -207,7 +207,7 @@ export const PricingPage: React.FC = () => {
                 to="/register"
                 className="premium-button premium-button-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
               >
-                Create free account
+                Start free evaluation
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
@@ -327,7 +327,7 @@ export const PricingPage: React.FC = () => {
                     plan.featured ? 'premium-button-primary text-white' : 'premium-button-secondary'
                   }`}
                 >
-                  {plan.name === 'Desk' ? 'Discuss rollout' : 'Start evaluation'}
+                  {plan.name === 'Desk' ? 'Discuss rollout' : 'Start free evaluation'}
                 </Link>
               </div>
             </MotionReveal>

@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Loader2, Users } from 'lucide-react';
+import { ChevronRight, Filter, Loader2, Search, Users } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api, { type IBPyramidNode } from '../../api';
 import { PageContainer } from '../../components/PageContainer';
+import { useAuthStore } from '../../store/auth';
+import { crmPath } from '../crm/paths';
 
 const TIER_BADGE_COLORS = [
   'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
@@ -26,10 +29,14 @@ const PyramidRow = ({
   row,
   expanded,
   onToggle,
+  onOpenCRM,
+  canOpenCRM,
 }: {
   row: FlatRow;
   expanded: boolean;
   onToggle: () => void;
+  onOpenCRM: () => void;
+  canOpenCRM: boolean;
 }) => {
   const { node, depth, parentDepths } = row;
   const hasChildren = node.children.length > 0;
@@ -41,11 +48,7 @@ const PyramidRow = ({
       }`}
     >
       {Array.from({ length: depth }).map((_, i) => (
-        <span
-          key={i}
-          className="shrink-0 font-mono text-slate-600"
-          style={{ width: '1.25rem' }}
-        >
+        <span key={i} className="shrink-0 font-mono text-slate-600" style={{ width: '1.25rem' }}>
           {i === depth - 1 ? '\u2514' : parentDepths[i] ? '\u2502' : '\u00a0'}
         </span>
       ))}
@@ -93,18 +96,31 @@ const PyramidRow = ({
 
       <span
         className={`ml-2 shrink-0 rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] ${
-          node.is_active
-            ? 'bg-emerald-500/15 text-emerald-400'
-            : 'bg-slate-700/40 text-slate-500'
+          node.is_active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700/40 text-slate-500'
         }`}
       >
         {node.is_active ? 'active' : 'off'}
       </span>
+
+      {canOpenCRM && (
+        <button
+          type="button"
+          onClick={onOpenCRM}
+          className="ml-2 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-200 transition hover:bg-cyan-500/20"
+        >
+          CRM
+        </button>
+      )}
     </div>
   );
 };
 
 export const IBNetwork = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const user = useAuthStore((state) => state.user);
+  const canOpenCRM = user?.is_admin === true || user?.role === 'backoffice';
+
   const treeQuery = useQuery({
     queryKey: ['portal', 'hierarchy', 'tree'],
     queryFn: async () => (await api.getPortalHierarchyTree()).data,
@@ -113,6 +129,19 @@ export const IBNetwork = () => {
   });
 
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [relationshipFilter, setRelationshipFilter] = useState<'all' | 'root' | 'ib' | 'sub_ib'>(
+    'all'
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const focusUserId = params.get('focus_user_id');
+    if (focusUserId && /^\d+$/.test(focusUserId)) {
+      setSearchTerm(focusUserId);
+    }
+  }, [location.search]);
 
   const toggleNode = (userId: number) => {
     setCollapsed((prev) => {
@@ -130,7 +159,7 @@ export const IBNetwork = () => {
     nodes: IBPyramidNode[],
     depth: number,
     parentDepths: boolean[],
-    out: FlatRow[],
+    out: FlatRow[]
   ) => {
     nodes.forEach((node, idx) => {
       const isLast = idx === nodes.length - 1;
@@ -152,6 +181,33 @@ export const IBNetwork = () => {
 
   const rows: FlatRow[] = [];
   flattenWithCollapse(roots, 0, [], rows);
+
+  const filteredRows = rows.filter((row) => {
+    const node = row.node;
+    if (statusFilter === 'active' && !node.is_active) return false;
+    if (statusFilter === 'inactive' && node.is_active) return false;
+
+    if (relationshipFilter !== 'all') {
+      if (relationshipFilter === 'root' && node.relationship_type !== 'root') return false;
+      if (relationshipFilter === 'ib' && node.relationship_type !== 'ib') return false;
+      if (relationshipFilter === 'sub_ib' && node.relationship_type !== 'sub_ib') return false;
+    }
+
+    const term = searchTerm.trim().toLowerCase();
+    if (term.length > 0) {
+      const candidate = [
+        String(node.user_id),
+        String(node.sponsor_user_id || ''),
+        String(node.tier_level),
+        String(node.relationship_type || ''),
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (!candidate.includes(term)) return false;
+    }
+
+    return true;
+  });
 
   return (
     <PageContainer size="wide" className="space-y-6">
@@ -185,6 +241,46 @@ export const IBNetwork = () => {
       )}
 
       <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="relative min-w-60 flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by user ID, sponsor ID, tier, relationship..."
+              className="premium-input pl-9"
+            />
+          </div>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+            className="premium-input min-w-32"
+          >
+            <option value="all">All status</option>
+            <option value="active">Active only</option>
+            <option value="inactive">Inactive only</option>
+          </select>
+
+          <select
+            value={relationshipFilter}
+            onChange={(e) =>
+              setRelationshipFilter(e.target.value as 'all' | 'root' | 'ib' | 'sub_ib')
+            }
+            className="premium-input min-w-36"
+          >
+            <option value="all">All relationships</option>
+            <option value="root">Roots</option>
+            <option value="ib">IB</option>
+            <option value="sub_ib">Sub-IB</option>
+          </select>
+
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400">
+            <Filter className="h-3.5 w-3.5" /> {filteredRows.length} / {rows.length}
+          </span>
+        </div>
+
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Partner tree</h2>
           {rows.length > 0 && (
@@ -215,22 +311,22 @@ export const IBNetwork = () => {
           <div className="mt-4 flex items-center gap-2 text-slate-300">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading pyramid...
           </div>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-slate-700/60 bg-slate-950/40 p-10 text-center">
             <Users className="mx-auto h-8 w-8 text-slate-600" />
-            <p className="mt-3 text-sm font-medium text-slate-300">No network yet</p>
-            <p className="mt-1 text-xs text-slate-500">
-              The pyramid grows as partner applications with sponsor IDs are approved.
-            </p>
+            <p className="mt-3 text-sm font-medium text-slate-300">No matching partners</p>
+            <p className="mt-1 text-xs text-slate-500">Try clearing or broadening your filters.</p>
           </div>
         ) : (
           <div className="mt-4 overflow-auto rounded-xl border border-slate-700/60">
-            {rows.map((row) => (
+            {filteredRows.map((row) => (
               <PyramidRow
                 key={`${row.node.user_id}-${row.depth}`}
                 row={row}
                 expanded={!collapsed.has(row.node.user_id)}
                 onToggle={() => toggleNode(row.node.user_id)}
+                canOpenCRM={canOpenCRM}
+                onOpenCRM={() => navigate(`${crmPath('clients')}/${row.node.user_id}`)}
               />
             ))}
           </div>

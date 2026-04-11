@@ -68,6 +68,7 @@ body {
     48px 48px,
     auto;
   color: var(--text-primary);
+  animation: appBackgroundDrift 70s linear infinite;
 }
 
 code {
@@ -219,6 +220,50 @@ h6 {
   }
 }
 
+@keyframes fintechGridDrift {
+  0% {
+    background-position:
+      0 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      110px 0,
+      -90px 0;
+  }
+}
+
+@keyframes fintechAuroraShift {
+  0%,
+  100% {
+    background-position:
+      0% 0%,
+      100% 0%;
+    opacity: 0.6;
+  }
+  50% {
+    background-position:
+      100% 0%,
+      0% 0%;
+    opacity: 0.85;
+  }
+}
+
+@keyframes appBackgroundDrift {
+  0% {
+    background-position:
+      0 0,
+      0 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      120px 0,
+      -96px 0,
+      0 0;
+  }
+}
+
 @keyframes routeFlow {
   to {
     stroke-dashoffset: -44;
@@ -354,6 +399,19 @@ h6 {
     linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.02));
+  animation: fintechGridDrift 44s linear infinite;
+}
+
+.premium-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(34, 211, 238, 0.06), transparent 36%),
+    radial-gradient(circle at 86% 14%, rgba(132, 204, 22, 0.05), transparent 40%);
+  opacity: 0.65;
+  animation: fintechAuroraShift 34s ease-in-out infinite;
 }
 
 .premium-topbar {
@@ -553,6 +611,7 @@ h6 {
     linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
   background-size: 72px 72px;
+  animation: fintechGridDrift 34s linear infinite;
 }
 
 .auth-panel {
@@ -671,6 +730,9 @@ h6 {
     rgba(255, 255, 255, 0.08) 58%,
     rgba(255, 255, 255, 0.02)
   );
+  animation:
+    fintechAuroraShift 26s ease-in-out infinite,
+    fintechGridDrift 40s linear infinite;
 }
 
 .public-site-shell::after {
@@ -687,7 +749,9 @@ h6 {
     rgba(132, 204, 22, 0.025) 52%,
     transparent 78%
   );
-  animation: publicAmbientDrift 14s ease-in-out infinite;
+  animation:
+    publicAmbientDrift 14s ease-in-out infinite,
+    fintechAuroraShift 30s ease-in-out infinite;
 }
 
 .public-page-block {
@@ -1785,6 +1849,87 @@ h6 {
 }
 
 /* ═══════════════════════════════════════════════════
+   Public pages — unified ClientArea-style concept
+   ═══════════════════════════════════════════════════ */
+
+.pricing-hero-grid,
+.pricing-model-panel,
+.pricing-principle-item,
+.pricing-persona-panel,
+.pricing-plan-row,
+.pricing-compare-table-wrap,
+.service-hero-grid,
+.service-stats,
+.service-visual-panel,
+.security-readiness-panel,
+.service-core-card,
+.service-note-card,
+.service-outcome-list,
+.service-cta-inner,
+.auth-panel,
+.signal-card,
+.metric-tile,
+.public-trust-strip,
+.public-trust-item,
+.landing-value,
+.landing-cta-inner,
+.landing-value-item,
+.landing-product-path,
+.landing-path-item {
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  border-radius: 1rem !important;
+  background: rgba(15, 23, 42, 0.62) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 16px 42px rgba(2, 8, 23, 0.24) !important;
+}
+
+.pricing-model-card,
+.pricing-scenario-card,
+.pricing-persona-recommendation,
+.pricing-persona-button,
+.service-stat-item,
+.security-readiness-card,
+.service-core-card,
+.service-note-card,
+.landing-value-item,
+.landing-path-item,
+.public-trust-item {
+  border-radius: 0.75rem !important;
+}
+
+:root[data-theme='light'] .pricing-hero-grid,
+:root[data-theme='light'] .pricing-model-panel,
+:root[data-theme='light'] .pricing-principle-item,
+:root[data-theme='light'] .pricing-persona-panel,
+:root[data-theme='light'] .pricing-plan-row,
+:root[data-theme='light'] .pricing-compare-table-wrap,
+:root[data-theme='light'] .service-hero-grid,
+:root[data-theme='light'] .service-stats,
+:root[data-theme='light'] .service-visual-panel,
+:root[data-theme='light'] .security-readiness-panel,
+:root[data-theme='light'] .service-core-card,
+:root[data-theme='light'] .service-note-card,
+:root[data-theme='light'] .service-outcome-list,
+:root[data-theme='light'] .service-cta-inner,
+:root[data-theme='light'] .auth-panel,
+:root[data-theme='light'] .signal-card,
+:root[data-theme='light'] .metric-tile,
+:root[data-theme='light'] .public-trust-strip,
+:root[data-theme='light'] .public-trust-item,
+:root[data-theme='light'] .landing-value,
+:root[data-theme='light'] .landing-cta-inner,
+:root[data-theme='light'] .landing-value-item,
+:root[data-theme='light'] .landing-product-path,
+:root[data-theme='light'] .landing-path-item {
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 8px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* ═══════════════════════════════════════════════════
    Light theme — comprehensive shell overrides
    ═══════════════════════════════════════════════════ */
 
@@ -2110,6 +2255,13 @@ h6 {
   background-image:
     linear-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(15, 23, 42, 0.04) 1px, transparent 1px) !important;
+}
+
+:root[data-theme='light'] .premium-shell::after {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(6, 182, 212, 0.08), transparent 34%),
+    radial-gradient(circle at 86% 14%, rgba(99, 102, 241, 0.06), transparent 40%) !important;
+  opacity: 0.58;
 }
 
 /* panels */
@@ -2796,14 +2948,19 @@ h6 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  body,
   .animate-fade-slide-up,
   .animate-fade-in,
   .page-reveal,
   .premium-orb,
+  .premium-shell::before,
+  .premium-shell::after,
   .auth-panel,
   .telemetry-marquee-track,
   .premium-button-primary::after,
+  .public-site-shell::before,
   .public-site-shell::after,
+  .auth-stage::before,
   .public-page-block::after,
   .pricing-model-card:not(:last-child)::after,
   .pricing-model-card:not(:last-child)::before,

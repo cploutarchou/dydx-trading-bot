@@ -50,15 +50,15 @@ const normalizeStatus = (status?: string): RunStatus => {
 const statusBadgeClass = (status: RunStatus): string => {
   switch (status) {
     case 'COMPLETED':
-      return 'bg-green-900 text-green-300';
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
     case 'RUNNING':
-      return 'bg-blue-900 text-blue-300';
+      return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300';
     case 'FAILED':
-      return 'bg-red-900 text-red-300';
+      return 'border-rose-500/30 bg-rose-500/10 text-rose-300';
     case 'CANCELLED':
-      return 'bg-slate-700 text-slate-300';
+      return 'border-slate-600/50 bg-slate-700/30 text-slate-300';
     default:
-      return 'bg-yellow-900 text-yellow-300';
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
   }
 };
 
@@ -329,8 +329,8 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 flex flex-col items-center justify-center gap-3 min-h-40">
-        <Loader className="w-7 h-7 animate-spin text-blue-400" />
+      <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border border-slate-700 bg-stone-950/60 p-8">
+        <Loader className="h-7 w-7 animate-spin text-cyan-400" />
         <p className="text-slate-400 text-sm">Loading backtest runs…</p>
       </div>
     );
@@ -365,17 +365,22 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       : run.max_drawdown;
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+    <div className="overflow-hidden rounded-lg border border-slate-700/80 bg-stone-950/45">
+      <div className="flex flex-col gap-3 border-b border-slate-700 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-base font-semibold text-white">Backtest Runs</h3>
+          <p className="text-[10px] font-semibold uppercase text-cyan-300">Run archive</p>
+          <h3 className="mt-1 text-base font-semibold text-white">Backtest runs</h3>
           <p className="text-xs text-slate-400 mt-0.5">
             {runs.length} total run{runs.length !== 1 ? 's' : ''}
           </p>
         </div>
+        <div className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-stone-950 px-3 py-2 text-xs text-slate-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
+          Soft refresh for active jobs
+        </div>
       </div>
 
-      <div className="px-6 py-3 border-b border-slate-700/60">
+      <div className="border-b border-slate-700/60 px-5 py-3">
         <div className="flex flex-wrap gap-2">
           {(
             [
@@ -390,10 +395,10 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
             <button
               key={status}
               onClick={() => setStatusFilter(status)}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
+              className={`rounded-lg border px-3 py-1 text-xs font-medium transition ${
                 statusFilter === status
-                  ? 'bg-blue-600 text-white border-blue-500'
-                  : 'bg-slate-700 text-slate-200 border-slate-600 hover:bg-slate-600'
+                  ? 'border-cyan-500/50 bg-cyan-500/15 text-white'
+                  : 'border-slate-700 bg-stone-950/80 text-slate-300 hover:border-slate-600 hover:bg-stone-900'
               }`}
             >
               {label} ({count})
@@ -439,36 +444,36 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-gray-300">
-            <thead className="border-b border-slate-700 bg-slate-900/30">
+            <thead className="sticky top-0 z-10 border-b border-slate-700 bg-stone-950/95">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
                   Run ID
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
                   Started
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
                   Period
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">
                   Trades
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">
                   P&L
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">
                   Win Rate
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">
                   Sharpe
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">
                   Max DD
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">
                   Status
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">
                   Action
                 </th>
               </tr>
@@ -486,9 +491,9 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                   <React.Fragment key={run.run_id}>
                     {/* ── Main data row ─────────────────────────────────── */}
                     <tr
-                      className={`border-b ${isActive ? 'border-slate-700/50' : 'border-slate-700'} hover:bg-slate-700`}
+                      className={`border-b ${isActive ? 'border-slate-700/50' : 'border-slate-700'} hover:bg-stone-900/80`}
                     >
-                      <td className="px-4 py-2 font-mono text-xs text-blue-400">
+                      <td className="px-4 py-2 font-mono text-xs text-cyan-300">
                         <span title={run.run_id}>{run.run_id.substring(0, 8)}…</span>
                         {run.name && (
                           <div className="text-slate-400 font-sans truncate max-w-28">
@@ -519,10 +524,10 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                       <td className="px-4 py-2 text-right">{formatPct(maxDdValue(run))}</td>
                       <td className="px-4 py-2 text-center">
                         <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${statusBadgeClass(normalizedStatus)}`}
+                          className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium ${statusBadgeClass(normalizedStatus)}`}
                         >
                           {normalizedStatus === 'RUNNING' && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cyan-400" />
                           )}
                           {normalizedStatus}
                           {isActive && progressPct > 0 && (
@@ -533,7 +538,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                       <td className="px-4 py-2 text-center">
                         <button
                           onClick={() => navigate(`/backtest/${run.run_id}`)}
-                          className="text-blue-400 hover:text-blue-300 underline font-semibold"
+                          className="font-semibold text-cyan-300 underline hover:text-cyan-200"
                         >
                           View Details
                         </button>
@@ -542,17 +547,17 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
                     {/* ── Progress sub-row (RUNNING / PENDING only) ─────── */}
                     {isActive && (
-                      <tr className="border-b border-slate-700 bg-slate-900/40">
+                      <tr className="border-b border-slate-700 bg-stone-950/55">
                         <td colSpan={10} className="px-4 pb-3 pt-1">
                           {/* Progress bar */}
                           <div className="flex items-center gap-2 mb-1.5">
-                            <div className="flex-1 bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700">
                               <div
-                                className="h-1.5 rounded-full bg-blue-500 transition-all duration-700"
+                                className="h-1.5 rounded-full bg-cyan-500 transition-all duration-700"
                                 style={{ width: `${Math.min(progressPct, 100)}%` }}
                               />
                             </div>
-                            <span className="text-xs text-blue-400 w-10 text-right shrink-0">
+                            <span className="w-10 shrink-0 text-right text-xs text-cyan-300">
                               {progressPct > 0 ? `${progressPct.toFixed(1)}%` : '…'}
                             </span>
                           </div>
@@ -583,7 +588,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
                       <tr className="border-b border-slate-700 bg-rose-950/20">
                         <td colSpan={10} className="px-4 pb-3 pt-2">
                           <div className="flex flex-wrap items-center gap-3 text-xs">
-                            <span className="rounded-full border border-rose-700/60 bg-rose-900/40 px-2 py-0.5 uppercase tracking-[0.12em] text-rose-200">
+                            <span className="rounded-lg border border-rose-700/60 bg-rose-900/40 px-2 py-0.5 uppercase text-rose-200">
                               {failureDiagnostic.category}
                             </span>
                             <span className="text-rose-100">{failureDiagnostic.summary}</span>

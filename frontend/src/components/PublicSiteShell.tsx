@@ -1,7 +1,6 @@
 import {
   Activity,
   ArrowRight,
-  Command,
   Menu,
   ShieldCheck,
   Waypoints,
@@ -9,18 +8,12 @@ import {
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { getPrimaryCta, publicNavItems } from '../content/publicSite';
 
 interface PublicSiteShellProps {
   children: React.ReactNode;
+  hideFooter?: boolean;
 }
-
-const navItems = [
-  { label: 'Platform', href: '/#platform' },
-  { label: 'Workflow', href: '/#workflow' },
-  { label: 'Pricing', href: '/pricing' },
-  { label: 'Security', href: '/#security' },
-  { label: 'FAQ', href: '/#faq' },
-];
 
 const trustIndicators = [
   { icon: Activity, label: 'Realtime operator telemetry' },
@@ -28,64 +21,57 @@ const trustIndicators = [
   { icon: Waypoints, label: 'Research-to-runtime workflow' },
 ];
 
-export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) => {
+const conversionTrustRows = [
+  ['Free start', 'Evaluate the workflow before any live commercial step'],
+  ['Secure onboarding', 'Account readiness and 2FA posture before runtime controls'],
+  ['Operator clarity', 'Research, pricing, and runtime path explained in one flow'],
+] as const;
+
+export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children, hideFooter = false }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
 
-  const isPricingPage = location.pathname === '/pricing';
   const primaryCta = useMemo(
-    () => (location.pathname === '/pricing' ? { href: '/register', label: 'Start evaluation' } : { href: '/pricing', label: 'Review plans' }),
+    () => getPrimaryCta(location.pathname),
     [location.pathname]
   );
 
   const closeMobile = () => setMobileOpen(false);
+  const footerItems = publicNavItems.filter((item) => item.path !== '/pricing');
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.14),_transparent_18%),radial-gradient(circle_at_84%_8%,_rgba(59,130,246,0.16),_transparent_22%),linear-gradient(180deg,#06101d_0%,#091221_48%,#050a14_100%)] text-white">
-      <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(148,163,184,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.03)_1px,transparent_1px)] bg-[size:68px_68px] [mask-image:linear-gradient(180deg,rgba(255,255,255,0.52),rgba(255,255,255,0.04))]" />
-
-      <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/78 backdrop-blur-xl">
-        <div className="public-shell-container flex items-center justify-between gap-4 py-4">
+    <div className="public-site-shell min-h-screen overflow-x-hidden text-white">
+      <header className="sticky top-0 z-50 border-b border-stone-800/90 bg-[#070807]/92 backdrop-blur-xl">
+        <div className="public-shell-container flex min-h-18 items-center justify-between gap-4 py-3">
           <Link to="/" className="group flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-linear-to-br from-cyan-400 via-blue-500 to-emerald-400 text-lg font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition duration-300 group-hover:scale-[1.03]">
-              ∿
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/12 text-sm font-semibold text-teal-100 transition duration-300 group-hover:border-teal-200/50">
+              dY
             </div>
             <div>
               <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                Fintech-grade DeFi operator platform
+              <p className="text-[11px] uppercase text-slate-500">
+                DeFi operator platform
               </p>
             </div>
           </Link>
 
           <nav className="hidden items-center gap-1 xl:flex">
-            {navItems.map((item) =>
-              item.href.startsWith('/#') && isPricingPage ? (
+            {publicNavItems.map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
                 <Link
-                  key={item.href}
-                  to="/"
-                  className="nav-link-premium rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-white"
+                  key={item.path}
+                  to={item.path}
+                  className={`rounded-lg px-4 py-2 text-sm transition ${
+                    isActive
+                      ? 'bg-teal-500/12 text-teal-100'
+                      : 'text-slate-400 hover:bg-stone-900 hover:text-white'
+                  }`}
                 >
                   {item.label}
                 </Link>
-              ) : item.href.startsWith('/#') ? (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  className="nav-link-premium rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-white"
-                >
-                  {item.label}
-                </a>
-              ) : (
-                <Link
-                  key={item.href}
-                  to={item.href}
-                  className="nav-link-premium rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-white"
-                >
-                  {item.label}
-                </Link>
-              )
-            )}
+              );
+            })}
           </nav>
 
           <div className="hidden items-center gap-3 lg:flex">
@@ -93,17 +79,17 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
               <span className="pulse-ring relative flex h-2.5 w-2.5 items-center justify-center">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
               </span>
-              Operator workflow active
+              Evaluation open
             </div>
             <Link
               to="/login"
-              className="premium-button premium-button-secondary rounded-xl px-4 py-2 text-sm"
+              className="premium-button premium-button-secondary px-4 py-2 text-sm"
             >
               Sign in
             </Link>
             <Link
               to={primaryCta.href}
-              className="premium-button premium-button-primary rounded-xl px-4 py-2 text-sm font-semibold text-white"
+              className="premium-button premium-button-primary px-4 py-2 text-sm font-semibold text-white"
             >
               {primaryCta.label}
               <ArrowRight className="h-4 w-4" />
@@ -113,7 +99,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
           <button
             type="button"
             onClick={() => setMobileOpen((current) => !current)}
-            className="inline-flex rounded-2xl border border-slate-800 bg-slate-900/80 p-2.5 text-slate-300 lg:hidden"
+            className="inline-flex rounded-lg border border-stone-800 bg-stone-950/80 p-2.5 text-slate-300 lg:hidden"
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -121,14 +107,14 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
         </div>
 
         {mobileOpen && (
-          <div className="mobile-shell-panel border-t border-slate-800 bg-slate-950/95 px-4 py-4 lg:hidden">
+          <div className="mobile-shell-panel border-t border-stone-800 bg-[#080a0b]/98 px-4 py-4 lg:hidden">
             <div className="space-y-3">
               {trustIndicators.map((item) => {
                 const Icon = item.icon;
                 return (
                   <div
                     key={item.label}
-                    className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300"
+                    className="flex items-center gap-3 rounded-lg border border-stone-800 bg-stone-950/60 px-4 py-3 text-sm text-slate-300"
                   >
                     <Icon className="h-4 w-4 text-cyan-300" />
                     <span>{item.label}</span>
@@ -136,51 +122,31 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
                 );
               })}
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-2">
-                {navItems.map((item) =>
-                  item.href.startsWith('/#') && isPricingPage ? (
-                    <Link
-                      key={item.href}
-                      to="/"
-                      onClick={closeMobile}
-                      className="block rounded-xl px-4 py-3 text-sm text-slate-300 transition hover:bg-slate-800/80"
-                    >
-                      {item.label}
-                    </Link>
-                  ) : item.href.startsWith('/#') ? (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      onClick={closeMobile}
-                      className="block rounded-xl px-4 py-3 text-sm text-slate-300 transition hover:bg-slate-800/80"
-                    >
-                      {item.label}
-                    </a>
-                  ) : (
-                    <Link
-                      key={item.href}
-                      to={item.href}
-                      onClick={closeMobile}
-                      className="block rounded-xl px-4 py-3 text-sm text-slate-300 transition hover:bg-slate-800/80"
-                    >
-                      {item.label}
-                    </Link>
-                  )
-                )}
+              <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
+                {publicNavItems.map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={closeMobile}
+                    className="block rounded-lg px-4 py-3 text-sm text-slate-300 transition hover:bg-stone-900/80"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <Link
                   to="/login"
                   onClick={closeMobile}
-                  className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-center text-sm text-slate-200"
+                  className="rounded-lg border border-stone-800 bg-stone-950 px-4 py-3 text-center text-sm text-slate-200"
                 >
                   Sign in
                 </Link>
                 <Link
                   to={primaryCta.href}
                   onClick={closeMobile}
-                  className="premium-button premium-button-primary rounded-xl px-4 py-3 text-center text-sm font-semibold text-white"
+                  className="premium-button premium-button-primary px-4 py-3 text-center text-sm font-semibold text-white"
                 >
                   {primaryCta.label}
                 </Link>
@@ -192,74 +158,85 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({ children }) =>
 
       <main className="relative z-10">{children}</main>
 
-      <footer className="border-t border-slate-800/80 bg-slate-950/72">
-        <div className="public-shell-container py-10">
-          <div className="signal-card signal-card-strong rounded-[1.9rem] px-6 py-6 sm:px-8">
-            <div className="grid gap-8 lg:grid-cols-[1.2fr,0.8fr] lg:items-end">
-              <div>
-                <div className="surface-label">
-                  <Command className="h-3.5 w-3.5" />
-                  Product direction
+      {!hideFooter && (
+        <section className="public-shell-container py-8">
+          <div className="public-trust-strip">
+            <div>
+              <p className="text-[11px] font-semibold uppercase text-slate-500">Why teams convert</p>
+              <p className="mt-2 text-xl font-semibold text-white">Trust first. Live access later.</p>
+            </div>
+
+            <div className="public-trust-grid">
+              {conversionTrustRows.map(([title, body]) => (
+                <div key={title} className="public-trust-item">
+                  <p className="text-sm font-semibold text-white">{title}</p>
+                  <p className="mt-1 text-xs leading-6 text-slate-400">{body}</p>
                 </div>
-                <h2 className="mt-4 max-w-2xl text-2xl font-semibold text-white sm:text-3xl">
-                  Built to feel trustworthy before the first trade and fast once the desk is live.
-                </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-                  dYdX Arbitrage OS brings public-site clarity, premium onboarding, and operator-first
-                  workspace design into one coherent product surface.
-                </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                {trustIndicators.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <div key={item.label} className="metric-tile px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="rounded-xl bg-cyan-500/10 p-2 text-cyan-300">
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <p className="text-sm font-medium text-slate-100">{item.label}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              ))}
             </div>
+
+            <Link
+              to="/register"
+              className="premium-button premium-button-primary justify-center px-5 py-3 text-sm font-semibold text-white lg:self-center"
+            >
+              Start free evaluation
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
+        </section>
+      )}
 
-          <div className="mt-10 grid gap-8 lg:grid-cols-[1.2fr,0.8fr,0.8fr]">
-            <div>
-              <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400">
-                Premium DeFi product design for research, live execution, and runtime confidence.
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Navigate</p>
-              <div className="mt-3 space-y-2 text-sm text-slate-400">
-                <Link to="/" className="block transition hover:text-white">
-                  Overview
-                </Link>
-                <Link to="/pricing" className="block transition hover:text-white">
+      {!hideFooter && (
+        <footer className="relative z-10 border-t border-stone-800/80 bg-[#060706]/96">
+          <div className="public-shell-container py-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-teal-300/25 bg-teal-400/10 text-xs font-semibold text-teal-100">
+                  dY
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
+                  <p className="text-xs text-slate-500">Research, runtime, market intel, and onboarding.</p>
+                </div>
+              </div>
+
+              <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-400">
+                {footerItems.map((item) => (
+                  <Link key={item.path} to={item.path} className="transition hover:text-white">
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Link to="/pricing" className="text-sm font-medium text-slate-300 transition hover:text-white">
                   Pricing
                 </Link>
-                <Link to="/login" className="block transition hover:text-white">
+                <Link to="/login" className="text-sm font-medium text-slate-300 transition hover:text-white">
                   Sign in
+                </Link>
+                <Link
+                  to="/register"
+                  className="rounded-lg border border-teal-400/25 bg-teal-500/10 px-3.5 py-2 text-sm font-semibold text-teal-100 transition hover:border-teal-300/50"
+                >
+                  Start free evaluation
                 </Link>
               </div>
             </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Design stance</p>
-              <div className="mt-3 space-y-2 text-sm text-slate-400">
-                <p>Dense where operators need signal</p>
-                <p>Clear onboarding before auth</p>
-                <p>Fintech-first trust semantics</p>
+
+            <div className="mt-5 flex flex-col gap-3 border-t border-stone-800 pt-4 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
+              <p>Start free. Prove fit. Move to live access with confidence.</p>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Link to="/services/security" className="transition hover:text-slate-300">
+                  Security onboarding
+                </Link>
+                <span>Account readiness</span>
+                <span>Runtime visibility</span>
               </div>
             </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
 };

@@ -21,6 +21,18 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 func (r *UserRepository) hasPasswordChangeRequiredColumn() bool {
+	return r.hasUserColumn("password_change_required")
+}
+
+func (r *UserRepository) hasMFAEnabledColumn() bool {
+	return r.hasUserColumn("mfa_enabled")
+}
+
+func (r *UserRepository) SupportsMFA() bool {
+	return r.hasMFAEnabledColumn()
+}
+
+func (r *UserRepository) hasUserColumn(columnName string) bool {
 	rows, err := r.db.Query(`SELECT * FROM users LIMIT 0`)
 	if err != nil {
 		return false
@@ -40,7 +52,7 @@ func (r *UserRepository) hasPasswordChangeRequiredColumn() bool {
 	}
 
 	for _, column := range columns {
-		if strings.EqualFold(column, "password_change_required") {
+		if strings.EqualFold(column, columnName) {
 			return true
 		}
 	}
@@ -53,9 +65,14 @@ func (r *UserRepository) selectUserColumns() string {
 	if r.hasPasswordChangeRequiredColumn() {
 		passwordChangeExpr = "COALESCE(password_change_required, FALSE)"
 	}
+	mfaEnabledExpr := "FALSE"
+	if r.hasMFAEnabledColumn() {
+		mfaEnabledExpr = "COALESCE(mfa_enabled, FALSE)"
+	}
 
 	return fmt.Sprintf(
-		`id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), full_name, avatar, hashed_password, is_active, is_admin, %s, last_login, created_at, updated_at`,
+		`id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), full_name, avatar, hashed_password, is_active, is_admin, %s, %s, last_login, created_at, updated_at`,
+		mfaEnabledExpr,
 		passwordChangeExpr,
 	)
 }
@@ -133,6 +150,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 		&user.Password,
 		&user.IsActive,
 		&user.IsAdmin,
+		&user.MFAEnabled,
 		&user.PasswordChangeRequired,
 		&user.LastLogin,
 		&user.CreatedAt,
@@ -168,6 +186,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 		&user.Password,
 		&user.IsActive,
 		&user.IsAdmin,
+		&user.MFAEnabled,
 		&user.PasswordChangeRequired,
 		&user.LastLogin,
 		&user.CreatedAt,
@@ -203,6 +222,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 		&user.Password,
 		&user.IsActive,
 		&user.IsAdmin,
+		&user.MFAEnabled,
 		&user.PasswordChangeRequired,
 		&user.LastLogin,
 		&user.CreatedAt,
@@ -251,6 +271,7 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 			&user.Password,
 			&user.IsActive,
 			&user.IsAdmin,
+			&user.MFAEnabled,
 			&user.PasswordChangeRequired,
 			&user.LastLogin,
 			&user.CreatedAt,
@@ -393,6 +414,24 @@ func (r *UserRepository) UpdateLastLogin(id int) error {
 		return fmt.Errorf("user not found")
 	}
 
+	return nil
+}
+
+func (r *UserRepository) SetMFAEnabled(id int, enabled bool) error {
+	if !r.hasMFAEnabledColumn() {
+		return nil
+	}
+	result, err := r.db.Exec(`UPDATE users SET mfa_enabled = $1, updated_at = $2 WHERE id = $3`, enabled, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update mfa_enabled: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found")
+	}
 	return nil
 }
 

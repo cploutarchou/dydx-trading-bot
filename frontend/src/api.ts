@@ -4,10 +4,10 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-	guardBacktestStatusContract,
-	guardListBacktestsContract,
-	guardRunBacktestContract,
-	guardSyncHealthContract,
+    guardBacktestStatusContract,
+    guardListBacktestsContract,
+    guardRunBacktestContract,
+    guardSyncHealthContract,
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
@@ -130,6 +130,8 @@ interface UserProfile extends Record<string, unknown> {
   role: string;
   is_active: boolean;
   is_admin: boolean;
+  mfa_enabled?: boolean;
+  privileged_mfa_required?: boolean;
   password_change_required: boolean;
   created_at: string;
   avatar?: string;
@@ -194,6 +196,21 @@ export interface CreateIBInvitationTokenPayload extends Record<string, unknown> 
   campaign_name?: string;
   max_uses?: number;
   expires_in_hours?: number;
+}
+
+export interface SeedDummyClientsResponse extends Record<string, unknown> {
+  created_users: AdminUser[];
+  existing_usernames: string[];
+  seeded_relationships: number;
+  seeded_commission_metrics: number;
+  seeded_applications: number;
+  shared_development_secret: string;
+}
+
+export interface ResetAdminUserMFAResponse extends Record<string, unknown> {
+  user: AdminUser;
+  had_mfa_enabled: boolean;
+  credential_removed: boolean;
 }
 
 export interface PortalOverviewModule extends Record<string, unknown> {
@@ -293,6 +310,22 @@ export interface PartnerHierarchyResponse extends Record<string, unknown> {
   relationships: PartnerRelationship[];
 }
 
+export interface CRMSecurityEvent extends Record<string, unknown> {
+  id: number;
+  user_id?: number;
+  username: string;
+  event_type: string;
+  outcome: string;
+  reason: string;
+  ip_address?: string;
+  user_agent?: string;
+  created_at: string;
+}
+
+export interface CRMSecurityEventsResponse extends Record<string, unknown> {
+  events: CRMSecurityEvent[];
+}
+
 export interface PartnerCommissionMetric extends Record<string, unknown> {
   id?: number;
   user_id: number;
@@ -323,6 +356,48 @@ export interface UpsertPartnerCommissionMetricPayload extends Record<string, unk
   gross_commission_usd: number;
   rebate_usd: number;
   net_commission_usd: number;
+}
+
+// ==================== IB TIER COMMISSION RATE TYPES ====================
+
+export interface IBTierCommissionRate extends Record<string, unknown> {
+  id: number;
+  tier_level: number;
+  commission_rate_pct: number;
+  rebate_rate_pct: number;
+  description: string;
+  is_active: boolean;
+  created_by_user_id?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IBTierCommissionRateListResponse extends Record<string, unknown> {
+  rates: IBTierCommissionRate[];
+  total: number;
+}
+
+export interface UpsertIBTierCommissionRatePayload extends Record<string, unknown> {
+  commission_rate_pct: number;
+  rebate_rate_pct: number;
+  description?: string;
+  is_active?: boolean;
+}
+
+// Pyramid tree — unlimited depth hierarchy
+export interface IBPyramidNode extends Record<string, unknown> {
+  user_id: number;
+  sponsor_user_id?: number;
+  relationship_type: string;
+  tier_level: number;
+  is_active: boolean;
+  children: IBPyramidNode[];
+}
+
+export interface IBHierarchyTreeResponse extends Record<string, unknown> {
+  roots: IBPyramidNode[];
+  total_nodes: number;
+  max_depth: number;
 }
 
 export interface MailgunStatusResponse extends Record<string, unknown> {
@@ -1528,6 +1603,13 @@ class ApiClient {
     return response.data;
   }
 
+  async getAdminUser(userId: number): Promise<ApiResponse<{ user: AdminUser }>> {
+    const response = await this.client.get<ApiResponse<{ user: AdminUser }>>(
+      `/api/v1/admin/users/${userId}`
+    );
+    return response.data;
+  }
+
   async createAdminUser(
     data: CreateAdminUserPayload
   ): Promise<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>> {
@@ -1544,6 +1626,22 @@ class ApiClient {
     const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
       `/api/v1/admin/users/${userId}`,
       data
+    );
+    return response.data;
+  }
+
+  async seedDummyClients(): Promise<ApiResponse<SeedDummyClientsResponse>> {
+    const response = await this.client.post<ApiResponse<SeedDummyClientsResponse>>(
+      '/api/v1/admin/users/seed-dummy-clients',
+      {}
+    );
+    return response.data;
+  }
+
+  async resetAdminUserMFA(userId: number): Promise<ApiResponse<ResetAdminUserMFAResponse>> {
+    const response = await this.client.post<ApiResponse<ResetAdminUserMFAResponse>>(
+      `/api/v1/admin/users/${userId}/reset-mfa`,
+      {}
     );
     return response.data;
   }
@@ -1627,6 +1725,16 @@ class ApiClient {
     return response.data;
   }
 
+  async getCRMSecurityEvents(
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<ApiResponse<CRMSecurityEventsResponse>> {
+    const response = await this.client.get<ApiResponse<CRMSecurityEventsResponse>>(
+      `/api/v1/admin/crm/security-events?limit=${limit}&offset=${offset}`
+    );
+    return response.data;
+  }
+
   async reviewPartnerApplication(
     applicationId: number,
     payload: ReviewPartnerApplicationPayload
@@ -1663,6 +1771,40 @@ class ApiClient {
     const response = await this.client.put<ApiResponse<{ metric: PartnerCommissionMetric }>>(
       `/api/v1/admin/crm/commission-metrics/${userId}`,
       payload
+    );
+    return response.data;
+  }
+
+  // ==================== IB TIER COMMISSION RATE METHODS ====================
+
+  async listIBTierRates(): Promise<ApiResponse<IBTierCommissionRateListResponse>> {
+    const response = await this.client.get<ApiResponse<IBTierCommissionRateListResponse>>(
+      '/api/v1/admin/ib/tier-rates'
+    );
+    return response.data;
+  }
+
+  async upsertIBTierRate(
+    tier: number,
+    payload: UpsertIBTierCommissionRatePayload
+  ): Promise<ApiResponse<{ rate: IBTierCommissionRate }>> {
+    const response = await this.client.put<ApiResponse<{ rate: IBTierCommissionRate }>>(
+      `/api/v1/admin/ib/tier-rates/${tier}`,
+      payload
+    );
+    return response.data;
+  }
+
+  async deleteIBTierRate(tier: number): Promise<ApiResponse<Record<string, unknown>>> {
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/admin/ib/tier-rates/${tier}`
+    );
+    return response.data;
+  }
+
+  async getPortalHierarchyTree(): Promise<ApiResponse<IBHierarchyTreeResponse>> {
+    const response = await this.client.get<ApiResponse<IBHierarchyTreeResponse>>(
+      '/api/v1/portal/hierarchy/tree'
     );
     return response.data;
   }

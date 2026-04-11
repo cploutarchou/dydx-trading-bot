@@ -3,10 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getUserWorkspaceRole } from '../auth/roles';
 import {
-    filterNavItemsForRole,
-    type WorkspaceNavItem,
-    workspaceNavItems,
-    workspaceQuickActions,
+  filterNavItemsForRole,
+  type WorkspaceNavItem,
+  workspaceNavItems,
+  workspaceQuickActions,
 } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 

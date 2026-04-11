@@ -61,7 +61,7 @@ export const LoginPage: React.FC = () => {
           tabIndex={-1}
           role="alert"
           aria-live="assertive"
-          className="mb-5 rounded-2xl border border-red-700 bg-red-950/55 p-4 text-red-200"
+          className="mb-5 rounded-lg border border-red-700 bg-red-950/55 p-4 text-red-200"
         >
           {error}
         </div>
@@ -69,14 +69,14 @@ export const LoginPage: React.FC = () => {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="metric-tile px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Access state</p>
+          <p className="text-[11px] uppercase text-slate-500">Access state</p>
           <p className="mt-2 text-sm font-semibold text-white">{registrationMode}</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             Sign-in remains available for existing operators.
           </p>
         </div>
         <div className="metric-tile px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Security posture</p>
+          <p className="text-[11px] uppercase text-slate-500">Security posture</p>
           <p className="mt-2 text-sm font-semibold text-white">Account-first entry</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             Authentication and follow-up security setup happen before live workflow access.
@@ -146,7 +146,7 @@ export const LoginPage: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/pricing')}
-            className="premium-button premium-button-secondary justify-center rounded-[1.1rem] px-4 py-3 text-sm"
+            className="premium-button premium-button-secondary justify-center px-4 py-3 text-sm"
           >
             Explore plans
             <ArrowRight className="h-4 w-4" />
@@ -179,7 +179,7 @@ export const LoginPage: React.FC = () => {
               onClick={() => navigate('/register')}
               className="font-medium text-cyan-300 hover:text-cyan-200"
             >
-              Start evaluation
+              Start free evaluation
             </button>
           </>
         )}

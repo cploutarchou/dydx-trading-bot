@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -342,6 +343,7 @@ func main() {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterPortalRoutes(router, database.DB)
+	routes.RegisterIBTierRatesRoutes(router, database.DB)
 
 	// Initialize bot API client for delegating calls to Python bot API
 	botAPIToken := os.Getenv("BOT_API_TOKEN")
@@ -383,6 +385,82 @@ func main() {
 			"username": username,
 			"email":    email,
 			"is_admin": isAdmin,
+		})
+	})
+
+	// Migration status - protected debug endpoint for confirming seed/data migrations.
+	router.GET("/api/v1/debug/migrations/status", middleware.RequireAuth(), func(c *gin.Context) {
+		if !c.GetBool("is_admin") {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Admin access required"})
+			return
+		}
+
+		var (
+			version int64
+			dirty   bool
+		)
+
+		if err := database.DB.QueryRow(`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty); err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusOK, gin.H{
+					"success": true,
+					"message": "No schema migration row found",
+					"data": gin.H{
+						"migration_version": nil,
+						"dirty":             false,
+					},
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Failed to query schema_migrations: %v", err),
+			})
+			return
+		}
+
+		seedPrefixes := []string{"seed_portal_20260411_%", "seed_portal_bulk_20260411_%"}
+		usersByPrefix := map[string]int64{}
+		applicationsByPrefix := map[string]int64{}
+		reviewingByPrefix := map[string]int64{}
+		for _, prefix := range seedPrefixes {
+			var userCount int64
+			_ = database.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE username LIKE $1`, prefix).Scan(&userCount)
+			usersByPrefix[prefix] = userCount
+
+			var appCount int64
+			_ = database.DB.QueryRow(`
+				SELECT COUNT(*)
+				FROM partner_applications pa
+				LEFT JOIN users u ON u.id = pa.applicant_user_id
+				WHERE u.username LIKE $1 OR pa.business_name LIKE REPLACE($1, '%', '') || '%'
+			`, prefix).Scan(&appCount)
+			applicationsByPrefix[prefix] = appCount
+
+			var reviewingCount int64
+			_ = database.DB.QueryRow(`
+				SELECT COUNT(*)
+				FROM partner_applications pa
+				LEFT JOIN users u ON u.id = pa.applicant_user_id
+				WHERE pa.status = 'reviewing'
+				  AND (u.username LIKE $1 OR pa.business_name LIKE REPLACE($1, '%', '') || '%')
+			`, prefix).Scan(&reviewingCount)
+			reviewingByPrefix[prefix] = reviewingCount
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Migration and seed status loaded",
+			"data": gin.H{
+				"migration_version":          version,
+				"dirty":                      dirty,
+				"seed_users_by_prefix":       usersByPrefix,
+				"seed_applications_by_prefix": applicationsByPrefix,
+				"seed_reviewing_by_prefix":   reviewingByPrefix,
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	})
 

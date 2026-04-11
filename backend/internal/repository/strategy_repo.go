@@ -5,19 +5,15 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
-// StrategyRepository handles strategy database operations
+// StrategyRepository handles strategy database operations.
+// Schema is fully managed by PostgreSQL migrations — no runtime ALTER TABLE patching.
 type StrategyRepository struct {
-	db                      *sql.DB
-	strategySchemaMu        sync.Mutex
-	strategySchemaSet       bool
-	executionStateSchemaMu  sync.Mutex
-	executionStateSchemaSet bool
+	db *sql.DB
 }
 
 // NewStrategyRepository creates a new strategy repository
@@ -25,170 +21,10 @@ func NewStrategyRepository(db *sql.DB) *StrategyRepository {
 	return &StrategyRepository{db: db}
 }
 
-func (r *StrategyRepository) ensureStrategySchema() error {
-	r.strategySchemaMu.Lock()
-	defer r.strategySchemaMu.Unlock()
-
-	if r.strategySchemaSet {
-		return nil
-	}
-
-	rows, err := r.db.Query(`SELECT * FROM backtest_strategies LIMIT 0`)
-	if err != nil {
-		return fmt.Errorf("failed to inspect backtest strategy schema: %w", err)
-	}
-
-	columnNames, err := rows.Columns()
-	if err != nil {
-		_ = rows.Close()
-		return fmt.Errorf("failed to read backtest strategy columns: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return fmt.Errorf("failed to inspect backtest strategy schema rows: %w", err)
-	}
-	if closeErr := rows.Close(); closeErr != nil {
-		log.Printf("failed to close strategy schema rows: %v", closeErr)
-	}
-
-	columns := make(map[string]struct{}, len(columnNames))
-	for _, name := range columnNames {
-		columns[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
-	}
-
-	if _, exists := columns["runtime_strategy"]; !exists {
-		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN runtime_strategy TEXT NOT NULL DEFAULT 'cointegration'`); err != nil {
-			return fmt.Errorf("failed to add backtest strategy runtime_strategy column: %w", err)
-		}
-	}
-	if _, exists := columns["runtime_network"]; !exists {
-		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN runtime_network TEXT NOT NULL DEFAULT 'testnet'`); err != nil {
-			return fmt.Errorf("failed to add backtest strategy runtime_network column: %w", err)
-		}
-	}
-	if _, exists := columns["runtime_subaccount"]; !exists {
-		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN runtime_subaccount INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return fmt.Errorf("failed to add backtest strategy runtime_subaccount column: %w", err)
-		}
-	}
-	if _, exists := columns["pair_selection_mode"]; !exists {
-		if _, err := r.db.Exec(`ALTER TABLE backtest_strategies ADD COLUMN pair_selection_mode TEXT NOT NULL DEFAULT 'liquidity'`); err != nil {
-			return fmt.Errorf("failed to add backtest strategy pair_selection_mode column: %w", err)
-		}
-	}
-
-	r.strategySchemaSet = true
-	return nil
-}
-
-func (r *StrategyRepository) ensureExecutionStateSchema() error {
-	r.executionStateSchemaMu.Lock()
-	defer r.executionStateSchemaMu.Unlock()
-
-	if r.executionStateSchemaSet {
-		return nil
-	}
-
-	rows, err := r.db.Query(`SELECT * FROM strategy_execution_states LIMIT 0`)
-	if err != nil {
-		return fmt.Errorf("failed to inspect strategy execution state schema: %w", err)
-	}
-
-	columnNames, err := rows.Columns()
-	if err != nil {
-		_ = rows.Close()
-		return fmt.Errorf("failed to read strategy execution state columns: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return fmt.Errorf("failed to inspect strategy execution state schema rows: %w", err)
-	}
-	if closeErr := rows.Close(); closeErr != nil {
-		log.Printf("failed to close execution state schema rows: %v", closeErr)
-	}
-
-	columns := make(map[string]struct{}, len(columnNames))
-	for _, name := range columnNames {
-		columns[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
-	}
-
-	type columnRepair struct {
-		name        string
-		addSQL      string
-		backfillSQL string
-	}
-
-	repairs := []columnRepair{
-		{
-			name:   "is_running",
-			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN is_running BOOLEAN DEFAULT 0`,
-			backfillSQL: `UPDATE strategy_execution_states
-				SET is_running = CASE
-					WHEN is_running IS NOT NULL THEN is_running
-					WHEN enabled IS NOT NULL THEN enabled
-					WHEN LOWER(COALESCE(status, '')) IN ('running', 'starting') THEN 1
-					ELSE 0
-				END`,
-		},
-		{
-			name:   "last_run_at",
-			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN last_run_at TIMESTAMP NULL`,
-			backfillSQL: `UPDATE strategy_execution_states
-				SET last_run_at = COALESCE(last_run_at, last_started, last_trade_at)`,
-		},
-		{
-			name:        "next_run_at",
-			addSQL:      `ALTER TABLE strategy_execution_states ADD COLUMN next_run_at TIMESTAMP NULL`,
-			backfillSQL: ``,
-		},
-		{
-			name:   "state",
-			addSQL: `ALTER TABLE strategy_execution_states ADD COLUMN state TEXT`,
-			backfillSQL: `UPDATE strategy_execution_states
-				SET state = COALESCE(
-					NULLIF(state, ''),
-					NULLIF(status, ''),
-					CASE
-						WHEN COALESCE(is_running, enabled, 0) = 1 THEN 'running'
-						ELSE 'stopped'
-					END
-				)`,
-		},
-	}
-
-	for _, repair := range repairs {
-		if _, exists := columns[repair.name]; exists {
-			continue
-		}
-		if _, err := r.db.Exec(repair.addSQL); err != nil {
-			return fmt.Errorf("failed to add strategy execution state column %s: %w", repair.name, err)
-		}
-		if strings.TrimSpace(repair.backfillSQL) != "" {
-			if _, err := r.db.Exec(repair.backfillSQL); err != nil {
-				return fmt.Errorf("failed to backfill strategy execution state column %s: %w", repair.name, err)
-			}
-		}
-	}
-
-	if _, err := r.db.Exec(`UPDATE strategy_execution_states SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)`); err != nil {
-		return fmt.Errorf("failed to backfill strategy execution state created_at: %w", err)
-	}
-
-	if _, err := r.db.Exec(`UPDATE strategy_execution_states SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`); err != nil {
-		return fmt.Errorf("failed to backfill strategy execution state updated_at: %w", err)
-	}
-
-	r.executionStateSchemaSet = true
-	return nil
-}
-
 // ============ BacktestStrategy Operations ============
 
 // CreateStrategy creates a new backtest strategy
 func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) error {
-	if err := r.ensureStrategySchema(); err != nil {
-		return err
-	}
 	if strings.TrimSpace(strategy.RuntimeStrategy) == "" {
 		strategy.RuntimeStrategy = "cointegration"
 	}
@@ -241,9 +77,6 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 
 // GetStrategyByID retrieves a strategy by ID
 func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, error) {
-	if err := r.ensureStrategySchema(); err != nil {
-		return nil, err
-	}
 
 	query := `
 		SELECT id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
@@ -290,9 +123,6 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 
 // GetStrategiesByUser retrieves all strategies for a user
 func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestStrategy, error) {
-	if err := r.ensureStrategySchema(); err != nil {
-		return nil, err
-	}
 
 	query := `
 		SELECT id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
@@ -349,9 +179,6 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 
 // UpdateStrategy updates an existing strategy
 func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) error {
-	if err := r.ensureStrategySchema(); err != nil {
-		return err
-	}
 	if strings.TrimSpace(strategy.RuntimeStrategy) == "" {
 		strategy.RuntimeStrategy = "cointegration"
 	}
@@ -437,9 +264,6 @@ func (r *StrategyRepository) DeleteStrategy(id int) error {
 
 // GetExecutionState retrieves execution state for a strategy
 func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.StrategyExecutionState, error) {
-	if err := r.ensureExecutionStateSchema(); err != nil {
-		return nil, err
-	}
 
 	query := `
 		SELECT id, strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at
@@ -466,9 +290,6 @@ func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.Strategy
 
 // CreateExecutionState creates a new execution state
 func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutionState) error {
-	if err := r.ensureExecutionStateSchema(); err != nil {
-		return err
-	}
 
 	query := `
 		INSERT INTO strategy_execution_states (strategy_id, is_running, created_at, updated_at)
@@ -496,9 +317,6 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 
 // UpdateExecutionState updates execution state
 func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutionState) error {
-	if err := r.ensureExecutionStateSchema(); err != nil {
-		return err
-	}
 
 	query := `
 		UPDATE strategy_execution_states
@@ -545,9 +363,7 @@ func isRetryableSchemaChangeError(err error) bool {
 		return false
 	}
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "database is locked") ||
-		strings.Contains(message, "sqlite_busy") ||
-		strings.Contains(message, "could not obtain lock on relation") ||
+	return strings.Contains(message, "could not obtain lock on relation") ||
 		strings.Contains(message, "deadlock detected")
 }
 

@@ -618,7 +618,7 @@ export default function Settings() {
   if (loading) {
     return (
       <PageContainer size="wide">
-        <div className="flex h-64 items-center justify-center rounded-2xl border border-slate-700/60 bg-slate-900/60">
+        <div className="premium-panel flex h-64 items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <Loader className="h-8 w-8 animate-spin text-cyan-400" />
             <p className="text-sm text-slate-400">Loading settings…</p>
@@ -653,6 +653,8 @@ export default function Settings() {
     (n, e) => n + Object.keys(e).length,
     0
   );
+  const secondaryButtonClass =
+    'inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-40';
 
   return (
     <PageContainer size="wide">
@@ -684,7 +686,7 @@ export default function Settings() {
       <div className="flex items-start gap-5">
         {/* Sidebar */}
         <aside className="sticky top-20 w-60 shrink-0">
-          <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/80 shadow-2xl">
+          <div className="premium-panel overflow-hidden p-0 shadow-2xl">
             {/* Search */}
             <div className="border-b border-slate-700/60 px-3 py-3">
               <div className="relative">
@@ -694,7 +696,7 @@ export default function Settings() {
                   placeholder="Search…"
                   value={sectionSearchQuery}
                   onChange={(e) => setSectionSearchQuery(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 py-2 pl-9 pr-3 text-sm text-slate-200 placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                  className="premium-input py-2 pl-9 pr-3 text-sm"
                 />
               </div>
             </div>
@@ -789,7 +791,7 @@ export default function Settings() {
 
           {/* Schema-driven sections */}
           {currentSection && (
-            <div className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/80 shadow-xl">
+            <div className="premium-panel overflow-hidden p-0 shadow-xl">
               {/* Section header */}
               <div className="border-b border-slate-700/60 px-6 py-5">
                 <div className="flex items-center gap-3">
@@ -849,12 +851,12 @@ export default function Settings() {
                         {(field.min_value !== undefined || field.max_value !== undefined) && (
                           <div className="flex flex-wrap gap-2 pt-1">
                             {field.min_value !== undefined && (
-                              <span className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
+                              <span className="workspace-chip border-slate-700/70 px-1.5 py-0.5 text-[10px] text-slate-500">
                                 min {field.min_value}
                               </span>
                             )}
                             {field.max_value !== undefined && (
-                              <span className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
+                              <span className="workspace-chip border-slate-700/70 px-1.5 py-0.5 text-[10px] text-slate-500">
                                 max {field.max_value}
                               </span>
                             )}
@@ -947,7 +949,7 @@ export default function Settings() {
                       type="button"
                       onClick={handleTestConnection}
                       disabled={testingConnection}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700 disabled:opacity-50"
+                      className={`${secondaryButtonClass} disabled:opacity-50`}
                     >
                       {testingConnection ? (
                         <RefreshCw className="h-4 w-4 animate-spin" />
@@ -963,7 +965,7 @@ export default function Settings() {
                     type="button"
                     onClick={handleReset}
                     disabled={!hasUnsavedChanges}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-40"
+                    className={secondaryButtonClass}
                   >
                     <RefreshCw className="h-4 w-4" />
                     Discard
@@ -989,7 +991,7 @@ export default function Settings() {
       </div>
 
       {/* Operational note */}
-      <p className="text-[10px] uppercase tracking-widest text-slate-700">
+      <p className="mt-5 text-[10px] uppercase tracking-widest text-slate-600">
         Changes to runtime config take effect on next bot restart · Schema-driven sections persist
         to database · Manual sections (profile, keys, integrations) use dedicated APIs · Admin
         sections are hidden for non-admin users

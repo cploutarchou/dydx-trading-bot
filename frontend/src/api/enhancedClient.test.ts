@@ -68,6 +68,7 @@ describe('enhanced API client helpers', () => {
           {
             run_id: 'run-1',
             status: 'RUNNING',
+            created_at: '2026-04-11T00:00:00Z',
             progress_pct: 42,
             current_pair: 'BTC-USD/ETH-USD',
             estimated_completion_seconds: 120,
@@ -96,6 +97,7 @@ describe('enhanced API client helpers', () => {
           {
             run_id: 'run-1',
             status: 'RUNNING',
+            created_at: '2026-04-11T00:00:00Z',
             progress_pct: 77,
           },
         ],

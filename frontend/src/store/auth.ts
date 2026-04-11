@@ -68,6 +68,8 @@ interface User {
   role: string;
   is_active: boolean;
   is_admin: boolean;
+  mfa_enabled?: boolean;
+  privileged_mfa_required?: boolean;
   password_change_required: boolean;
   created_at: string;
   avatar?: string; // Base64 or URL to avatar image
@@ -249,6 +251,8 @@ export const useAuthStore = create<AuthStore>()(
             twoFAQRCode: undefined,
             twoFASecret: undefined,
           });
+
+          await get().getCurrentUser();
         } catch (error: Error | unknown) {
           const errorMessage =
             error instanceof Error ? error.message : 'Failed to verify 2FA token';
@@ -261,7 +265,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       has2FAEnabled: () => {
-        return get().user?.is_active ?? false;
+        return get().user?.mfa_enabled ?? false;
       },
     }),
     {

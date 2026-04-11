@@ -1,9 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
-import { Loader2, LockKeyhole, ShieldCheck, UserCog, UserPlus, Users } from 'lucide-react';
+import {
+    Loader2,
+    LockKeyhole,
+    RotateCcw,
+    ShieldCheck,
+    UserCog,
+    UserPlus,
+    Users,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api, { AdminUser, CreateAdminUserPayload, UpdateAdminUserPayload } from '../api';
+import api, {
+    AdminUser,
+    CreateAdminUserPayload,
+    ResetAdminUserMFAResponse,
+    SeedDummyClientsResponse,
+    UpdateAdminUserPayload,
+} from '../api';
 import { useAuthStore } from '../store/auth';
 import { useToastStore } from './ErrorBoundary';
 
@@ -15,6 +29,19 @@ interface UserDraft {
 }
 
 type RegistrationMode = 'open' | 'disabled' | 'invitation_only';
+
+interface SettingsSectionRecord {
+  section: string;
+  settings: Array<{
+    key: string;
+    value?: unknown;
+    default_value?: unknown;
+  }>;
+}
+
+interface SettingsPayload {
+  sections?: SettingsSectionRecord[];
+}
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof AxiosError) {
@@ -48,8 +75,28 @@ const hasDraftChanges = (user: AdminUser, draft: UserDraft | undefined): boolean
   );
 };
 
+const readBooleanPlatformSetting = (
+  payload: SettingsPayload | undefined,
+  key: string,
+  fallback: boolean
+): boolean => {
+  const platformSection = payload?.sections?.find((section) => section.section === 'platform');
+  const setting = platformSection?.settings?.find((candidate) => candidate.key === key);
+  const rawValue = setting?.value ?? setting?.default_value;
+
+  if (typeof rawValue === 'boolean') return rawValue;
+  if (typeof rawValue === 'string') {
+    const normalized = rawValue.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off', ''].includes(normalized)) return false;
+  }
+
+  return fallback;
+};
+
 export function AdminAccessControlSettings() {
   const currentUser = useAuthStore((state) => state.user);
+  const refreshCurrentUser = useAuthStore((state) => state.getCurrentUser);
   const queryClient = useQueryClient();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
@@ -57,6 +104,7 @@ export function AdminAccessControlSettings() {
   const [drafts, setDrafts] = useState<Record<string, UserDraft>>({});
   const [registrationModeDraft, setRegistrationModeDraft] = useState<RegistrationMode>('open');
   const [invitationCodeDraft, setInvitationCodeDraft] = useState('');
+  const [privilegedMfaRequiredDraft, setPrivilegedMfaRequiredDraft] = useState(false);
   const [createForm, setCreateForm] = useState<CreateAdminUserPayload>({
     username: '',
     email: '',
@@ -93,6 +141,15 @@ export function AdminAccessControlSettings() {
     staleTime: 30_000,
   });
 
+  const platformSettingsQuery = useQuery({
+    queryKey: ['settings', 'platform', 'access-control'],
+    queryFn: async () => {
+      const response = await api.getSettings();
+      return (response.data || {}) as SettingsPayload;
+    },
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     if (!usersQuery.data?.users) {
       return;
@@ -119,6 +176,12 @@ export function AdminAccessControlSettings() {
       setRegistrationModeDraft('disabled');
     }
   }, [registrationStatusQuery.data]);
+
+  useEffect(() => {
+    setPrivilegedMfaRequiredDraft(
+      readBooleanPlatformSetting(platformSettingsQuery.data, 'require_privileged_mfa', false)
+    );
+  }, [platformSettingsQuery.data]);
 
   const updateRegistrationPolicyMutation = useMutation({
     mutationFn: async ({
@@ -194,6 +257,48 @@ export function AdminAccessControlSettings() {
     },
   });
 
+  const updatePrivilegedMfaMutation = useMutation({
+    mutationFn: async (enabled: boolean) =>
+      api.updateSettings({
+        'platform.require_privileged_mfa': enabled,
+      }),
+    onSuccess: async (_, enabled) => {
+      successToast(
+        enabled ? 'Privileged MFA enabled' : 'Privileged MFA disabled',
+        enabled
+          ? 'Admin and CRM operators will be required to enroll in MFA before privileged actions.'
+          : 'Privileged routes are no longer forcing MFA during development.'
+      );
+      await refreshCurrentUser();
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'platform'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to update MFA policy', getErrorMessage(error));
+    },
+  });
+
+  const seedDummyClientsMutation = useMutation({
+    mutationFn: async () => api.seedDummyClients(),
+    onSuccess: (response) => {
+      const data = response.data as SeedDummyClientsResponse | undefined;
+      successToast(
+        'Dummy CRM clients ready',
+        `Created ${data?.created_users?.length || 0} users. Shared password: ${data?.shared_development_secret || 'DevClient123!'}`
+      );
+      if (data?.existing_usernames?.length) {
+        successToast('Existing dummy users reused', data.existing_usernames.join(', '));
+      }
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      void queryClient.invalidateQueries({ queryKey: ['crm'] });
+      void queryClient.invalidateQueries({ queryKey: ['portal'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to seed dummy clients', getErrorMessage(error));
+    },
+  });
+
   const updateUserMutation = useMutation({
     mutationFn: async ({ userId, payload }: { userId: number; payload: UpdateAdminUserPayload }) =>
       api.updateAdminUser(userId, payload),
@@ -203,6 +308,26 @@ export function AdminAccessControlSettings() {
     },
     onError: (error: unknown) => {
       errorToast('Failed to update user', getErrorMessage(error));
+    },
+  });
+
+  const resetUserMFAMutation = useMutation({
+    mutationFn: async (userId: number) => api.resetAdminUserMFA(userId),
+    onSuccess: async (response, userId) => {
+      const data = response.data as ResetAdminUserMFAResponse | undefined;
+      successToast(
+        'MFA reset',
+        data?.credential_removed
+          ? 'Authenticator enrollment was cleared. The user must enroll again on next setup.'
+          : 'No stored MFA credential was found, but the user MFA flag is now cleared.'
+      );
+      if (currentUser?.id === userId) {
+        await refreshCurrentUser();
+      }
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to reset MFA', getErrorMessage(error));
     },
   });
 
@@ -364,6 +489,45 @@ export function AdminAccessControlSettings() {
           <div className="mt-5 rounded-2xl border border-slate-700/60 bg-slate-950/50 p-4">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
+                <p className="text-sm font-semibold text-white">Privileged MFA policy</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  Keep this disabled while developing locally, then enable it before staging or
+                  production cutover.
+                </p>
+              </div>
+              <label className="flex items-center gap-3 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={privilegedMfaRequiredDraft}
+                  onChange={(event) => setPrivilegedMfaRequiredDraft(event.target.checked)}
+                  disabled={
+                    updatePrivilegedMfaMutation.isPending || platformSettingsQuery.isLoading
+                  }
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500"
+                />
+                Require MFA for admin and CRM roles
+              </label>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => updatePrivilegedMfaMutation.mutate(privilegedMfaRequiredDraft)}
+                disabled={updatePrivilegedMfaMutation.isPending || platformSettingsQuery.isLoading}
+                className="inline-flex min-w-42.5 items-center justify-center rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
+              >
+                {updatePrivilegedMfaMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Save MFA policy'
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-700/60 bg-slate-950/50 p-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
                 <p className="text-sm font-semibold text-white">Registration mode</p>
                 <p className="mt-1 text-sm text-slate-400">
                   Choose open access, lock registration, or require invitation codes.
@@ -518,6 +682,31 @@ export function AdminAccessControlSettings() {
               )}
               Create platform user
             </button>
+
+            <div className="mt-6 rounded-2xl border border-dashed border-slate-700/60 bg-slate-950/40 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-white">Development dummy CRM clients</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Seed sample IB, sub-IB, clients, relationships, commission metrics, and one
+                    pending application for CRM testing.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => seedDummyClientsMutation.mutate()}
+                  disabled={seedDummyClientsMutation.isPending}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+                >
+                  {seedDummyClientsMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Users className="h-4 w-4" />
+                  )}
+                  Seed dummy clients
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -554,6 +743,8 @@ export function AdminAccessControlSettings() {
                 const dirty = hasDraftChanges(user, draft);
                 const isSavingThisUser =
                   updateUserMutation.isPending && updateUserMutation.variables?.userId === user.id;
+                const isResettingThisUser =
+                  resetUserMFAMutation.isPending && resetUserMFAMutation.variables === user.id;
 
                 return (
                   <div
@@ -588,24 +779,48 @@ export function AdminAccessControlSettings() {
                               Password reset pending
                             </span>
                           )}
+                          {user.mfa_enabled ? (
+                            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-emerald-200">
+                              MFA enabled
+                            </span>
+                          ) : (
+                            <span className="rounded-full border border-slate-700 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                              MFA not enabled
+                            </span>
+                          )}
                         </div>
                         <p className="mt-1 text-sm text-slate-400">
                           {user.username} · {user.email}
                         </p>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleSaveUser(user)}
-                        disabled={!dirty || isSavingThisUser}
-                        className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-700"
-                      >
-                        {isSavingThisUser ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          'Save changes'
-                        )}
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => resetUserMFAMutation.mutate(user.id)}
+                          disabled={isResettingThisUser}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
+                        >
+                          {isResettingThisUser ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-4 w-4" />
+                          )}
+                          Reset MFA
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveUser(user)}
+                          disabled={!dirty || isSavingThisUser}
+                          className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+                        >
+                          {isSavingThisUser ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            'Save changes'
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -676,7 +891,8 @@ export function AdminAccessControlSettings() {
                     {isSelf && (
                       <p className="mt-3 text-xs text-slate-500">
                         Your own admin role and active state are locked here for safety. Use Profile
-                        for your personal details.
+                        for your personal details. If you reset your own MFA while privileged MFA is
+                        required, you will need to enroll again before returning to admin routes.
                       </p>
                     )}
                   </div>

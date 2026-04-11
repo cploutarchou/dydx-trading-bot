@@ -261,6 +261,19 @@ FROM (
       INTERVAL '6 days'
     ),
     (
+      'seed_portal_20260411_client_alpha_2',
+      'seed_portal_20260411_ib_atlas',
+      'sub_ib',
+      'reviewing',
+      'seed_portal_20260411 alpha reviewing application',
+      'seed_portal_20260411 in manual review queue',
+      'reviewing for additional checks',
+      'seed_portal_20260411_ib_atlas',
+      CURRENT_TIMESTAMP - INTERVAL '2 days',
+      INTERVAL '4 days',
+      INTERVAL '2 days'
+    ),
+    (
       'seed_portal_20260411_client_nova_1',
       'seed_portal_20260411_ib_nova',
       'sub_ib',

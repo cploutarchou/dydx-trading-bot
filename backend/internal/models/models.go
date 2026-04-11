@@ -57,14 +57,6 @@ type DYDXKey struct {
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
 }
 
-type DYDXKeySettings struct {
-	ID                int       `db:"id" json:"id"`
-	UserID            int       `db:"user_id" json:"user_id"`
-	DefaultNetwork    string    `db:"default_network" json:"default_network"`
-	AutoSwitchTestnet bool      `db:"auto_switch_testnet" json:"auto_switch_testnet"`
-	CreatedAt         time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
-}
 
 type ExternalAPICredential struct {
 	ID              int       `db:"id" json:"id"`
@@ -333,13 +325,6 @@ type BacktestPosition struct {
 
 // ==================== ADDITIONAL MODELS ====================
 
-type BacktestLog struct {
-	ID        int       `db:"id" json:"id"`
-	RunID     int       `db:"run_id" json:"run_id"`
-	Level     string    `db:"level" json:"level"`
-	Message   string    `db:"message" json:"message"`
-	Timestamp time.Time `db:"timestamp" json:"timestamp"`
-}
 
 type AuditLog struct {
 	ID           int         `db:"id" json:"id"`
@@ -485,16 +470,6 @@ type RedisSetting struct {
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
-type BacktestComparison struct {
-	ID             int            `db:"id" json:"id"`
-	UserID         int            `db:"user_id" json:"user_id"`
-	Run1ID         int            `db:"run_1_id" json:"run_1_id"`
-	Run2ID         int            `db:"run_2_id" json:"run_2_id"`
-	Strategy1ID    int            `db:"strategy_1_id" json:"strategy_1_id"`
-	Strategy2ID    int            `db:"strategy_2_id" json:"strategy_2_id"`
-	ComparisonData sql.NullString `db:"comparison_data" json:"comparison_data"`
-	CreatedAt      time.Time      `db:"created_at" json:"created_at"`
-}
 
 type StrategyExecutionState struct {
 	ID         int            `db:"id" json:"id"`
@@ -518,23 +493,6 @@ type StrategyVersionHistory struct {
 	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
 }
 
-// ==================== COINTEGRATION MODELS ====================
-
-type CointegrationResult struct {
-	ID                int       `db:"id" json:"id"`
-	BaseMarket        string    `db:"base_market" json:"base_market"`
-	QuoteMarket       string    `db:"quote_market" json:"quote_market"`
-	HedgeRatio        float64   `db:"hedge_ratio" json:"hedge_ratio"`
-	HalfLife          float64   `db:"half_life" json:"half_life"`
-	ZeroCrossings     int       `db:"zero_crossings" json:"zero_crossings"`
-	PValue            float64   `db:"p_value" json:"p_value"`
-	ZScoreMean        float64   `db:"z_score_mean" json:"z_score_mean"`
-	ZScoreStd         float64   `db:"z_score_std" json:"zscore_std"`
-	AnalysisTimestamp string    `db:"analysis_timestamp" json:"analysis_timestamp"`
-	ConfidenceScore   float64   `db:"confidence_score" json:"confidence_score"`
-	CreatedAt         time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
-}
 
 // ==================== BOT INSTANCE MODELS ====================
 
@@ -624,16 +582,3 @@ type BotPosition struct {
 	UpdatedAt        time.Time  `db:"updated_at" json:"updated_at"`
 }
 
-type BotAlert struct {
-	ID             int            `db:"id" json:"id"`
-	BotInstanceID  int            `db:"bot_instance_id" json:"bot_instance_id"`
-	AlertType      string         `db:"alert_type" json:"alert_type"`
-	Severity       string         `db:"severity" json:"severity"`
-	Title          string         `db:"title" json:"title"`
-	Message        string         `db:"message" json:"message"`
-	Details        sql.NullString `db:"details" json:"details"`
-	IsRead         int            `db:"is_read" json:"is_read"`
-	AcknowledgedAt *time.Time     `db:"acknowledged_at" json:"acknowledged_at"`
-	CreatedAt      time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time      `db:"updated_at" json:"updated_at"`
-}

@@ -4,10 +4,10 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-	guardBacktestStatusContract,
-	guardListBacktestsContract,
-	guardRunBacktestContract,
-	guardSyncHealthContract,
+    guardBacktestStatusContract,
+    guardListBacktestsContract,
+    guardRunBacktestContract,
+    guardSyncHealthContract,
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
@@ -130,6 +130,8 @@ interface UserProfile extends Record<string, unknown> {
   role: string;
   is_active: boolean;
   is_admin: boolean;
+  mfa_enabled?: boolean;
+  privileged_mfa_required?: boolean;
   password_change_required: boolean;
   created_at: string;
   avatar?: string;
@@ -194,6 +196,21 @@ export interface CreateIBInvitationTokenPayload extends Record<string, unknown> 
   campaign_name?: string;
   max_uses?: number;
   expires_in_hours?: number;
+}
+
+export interface SeedDummyClientsResponse extends Record<string, unknown> {
+  created_users: AdminUser[];
+  existing_usernames: string[];
+  seeded_relationships: number;
+  seeded_commission_metrics: number;
+  seeded_applications: number;
+  shared_development_secret: string;
+}
+
+export interface ResetAdminUserMFAResponse extends Record<string, unknown> {
+  user: AdminUser;
+  had_mfa_enabled: boolean;
+  credential_removed: boolean;
 }
 
 export interface PortalOverviewModule extends Record<string, unknown> {
@@ -291,6 +308,22 @@ export interface PartnerRelationship extends Record<string, unknown> {
 
 export interface PartnerHierarchyResponse extends Record<string, unknown> {
   relationships: PartnerRelationship[];
+}
+
+export interface CRMSecurityEvent extends Record<string, unknown> {
+  id: number;
+  user_id?: number;
+  username: string;
+  event_type: string;
+  outcome: string;
+  reason: string;
+  ip_address?: string;
+  user_agent?: string;
+  created_at: string;
+}
+
+export interface CRMSecurityEventsResponse extends Record<string, unknown> {
+  events: CRMSecurityEvent[];
 }
 
 export interface PartnerCommissionMetric extends Record<string, unknown> {
@@ -1528,6 +1561,13 @@ class ApiClient {
     return response.data;
   }
 
+  async getAdminUser(userId: number): Promise<ApiResponse<{ user: AdminUser }>> {
+    const response = await this.client.get<ApiResponse<{ user: AdminUser }>>(
+      `/api/v1/admin/users/${userId}`
+    );
+    return response.data;
+  }
+
   async createAdminUser(
     data: CreateAdminUserPayload
   ): Promise<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>> {
@@ -1544,6 +1584,22 @@ class ApiClient {
     const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
       `/api/v1/admin/users/${userId}`,
       data
+    );
+    return response.data;
+  }
+
+  async seedDummyClients(): Promise<ApiResponse<SeedDummyClientsResponse>> {
+    const response = await this.client.post<ApiResponse<SeedDummyClientsResponse>>(
+      '/api/v1/admin/users/seed-dummy-clients',
+      {}
+    );
+    return response.data;
+  }
+
+  async resetAdminUserMFA(userId: number): Promise<ApiResponse<ResetAdminUserMFAResponse>> {
+    const response = await this.client.post<ApiResponse<ResetAdminUserMFAResponse>>(
+      `/api/v1/admin/users/${userId}/reset-mfa`,
+      {}
     );
     return response.data;
   }
@@ -1623,6 +1679,16 @@ class ApiClient {
   async getCRMHierarchyTable(): Promise<ApiResponse<PartnerHierarchyResponse>> {
     const response = await this.client.get<ApiResponse<PartnerHierarchyResponse>>(
       '/api/v1/admin/crm/hierarchy'
+    );
+    return response.data;
+  }
+
+  async getCRMSecurityEvents(
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<ApiResponse<CRMSecurityEventsResponse>> {
+    const response = await this.client.get<ApiResponse<CRMSecurityEventsResponse>>(
+      `/api/v1/admin/crm/security-events?limit=${limit}&offset=${offset}`
     );
     return response.data;
   }

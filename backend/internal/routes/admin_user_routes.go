@@ -31,6 +31,21 @@ type createAdminUserRequest struct {
 	IsActive *bool  `json:"is_active"`
 }
 
+type seedDummyClientsResponse struct {
+	CreatedUsers            []UserResponse `json:"created_users"`
+	ExistingUsernames       []string       `json:"existing_usernames"`
+	SeededRelationships     int            `json:"seeded_relationships"`
+	SeededCommissionMetrics int            `json:"seeded_commission_metrics"`
+	SeededApplications      int            `json:"seeded_applications"`
+	SharedDevelopmentSecret string         `json:"shared_development_secret"`
+}
+
+type resetUserMFAResponse struct {
+	User              UserResponse `json:"user"`
+	HadMFAEnabled     bool         `json:"had_mfa_enabled"`
+	CredentialRemoved bool         `json:"credential_removed"`
+}
+
 type updateAdminUserRequest struct {
 	Email    *string `json:"email"`
 	FullName *string `json:"full_name"`
@@ -66,13 +81,17 @@ type invitationTokenResponse struct {
 func RegisterAdminUserRoutes(router *gin.Engine, database *sql.DB) {
 	adminRoutes := router.Group("/api/v1/admin")
 	adminRoutes.Use(middleware.RequireAuth())
+	adminRoutes.Use(middleware.RequireMFA(database))
 	{
-		adminRoutes.GET("/users", listAdminUsersHandler(database))
-		adminRoutes.POST("/users", createAdminUserHandler(database))
-		adminRoutes.PUT("/users/:id", updateAdminUserHandler(database))
-		adminRoutes.GET("/ib/invitations", listInvitationTokensHandler(database))
-		adminRoutes.POST("/ib/invitations", createInvitationTokenHandler(database))
-		adminRoutes.POST("/ib/invitations/:tokenCode/revoke", revokeInvitationTokenHandler(database))
+		adminRoutes.GET("/users", middleware.RequirePermission(database, "users.read"), listAdminUsersHandler(database))
+		adminRoutes.GET("/users/:id", middleware.RequirePermission(database, "users.read"), getAdminUserHandler(database))
+		adminRoutes.POST("/users", middleware.RequirePermission(database, "roles.manage"), createAdminUserHandler(database))
+		adminRoutes.POST("/users/seed-dummy-clients", middleware.RequirePermission(database, "crm.admin.manage"), seedDummyClientsHandler(database))
+		adminRoutes.POST("/users/:id/reset-mfa", middleware.RequirePermission(database, "roles.manage"), resetAdminUserMFAHandler(database))
+		adminRoutes.PUT("/users/:id", middleware.RequirePermission(database, "roles.manage"), updateAdminUserHandler(database))
+		adminRoutes.GET("/ib/invitations", middleware.RequirePermission(database, "crm.admin.manage"), listInvitationTokensHandler(database))
+		adminRoutes.POST("/ib/invitations", middleware.RequirePermission(database, "crm.admin.manage"), createInvitationTokenHandler(database))
+		adminRoutes.POST("/ib/invitations/:tokenCode/revoke", middleware.RequirePermission(database, "crm.admin.manage"), revokeInvitationTokenHandler(database))
 	}
 }
 
@@ -332,8 +351,9 @@ func listAdminUsersHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		payload := make([]UserResponse, 0, len(users))
+		privilegedMFARequired := middleware.IsPrivilegedMFARequired(database)
 		for _, user := range users {
-			payload = append(payload, toUserResponse(user))
+			payload = append(payload, toUserResponse(user, privilegedMFARequired))
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -342,6 +362,37 @@ func listAdminUsersHandler(database *sql.DB) gin.HandlerFunc {
 			"data": adminUserListResponse{
 				Users: payload,
 				Roles: models.AvailableUserRoles(),
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+func getAdminUserHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !c.GetBool("is_admin") {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Admin access required"})
+			return
+		}
+
+		targetID, err := strconv.Atoi(c.Param("id"))
+		if err != nil || targetID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid user ID"})
+			return
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(targetID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "User not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "User loaded",
+			"data": gin.H{
+				"user": toUserResponse(user, middleware.IsPrivilegedMFARequired(database)),
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
@@ -419,11 +470,18 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 			onboardingNotice = result.Message
 		}
 
+		writeAuditLog(database, c, "admin.user.create", "user", stringPointer(strconv.Itoa(user.ID)), gin.H{
+			"username":  user.Username,
+			"email":     user.Email,
+			"role":      user.Role,
+			"is_active": user.IsActive,
+		}, "success")
+
 		c.JSON(http.StatusCreated, gin.H{
 			"success": true,
 			"message": "User created successfully",
 			"data": gin.H{
-				"user":              toUserResponse(user),
+				"user":              toUserResponse(user, middleware.IsPrivilegedMFARequired(database)),
 				"roles":             models.AvailableUserRoles(),
 				"onboarding_notice": onboardingNotice,
 			},
@@ -489,7 +547,9 @@ func updateAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if req.Email != nil {
+			beforeEmail := user.Email
 			user.Email = strings.TrimSpace(*req.Email)
+			_ = beforeEmail
 		}
 		if req.FullName != nil {
 			user.FullName = strings.TrimSpace(*req.FullName)
@@ -514,16 +574,256 @@ func updateAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		writeAuditLog(database, c, "admin.user.update", "user", stringPointer(strconv.Itoa(user.ID)), gin.H{
+			"email":     user.Email,
+			"full_name": user.FullName,
+			"role":      user.Role,
+			"is_active": user.IsActive,
+		}, "success")
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "User updated successfully",
 			"data": gin.H{
-				"user":  toUserResponse(user),
+				"user":  toUserResponse(user, middleware.IsPrivilegedMFARequired(database)),
 				"roles": models.AvailableUserRoles(),
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	}
+}
+
+func resetAdminUserMFAHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !c.GetBool("is_admin") {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": "Admin access required",
+			})
+			return
+		}
+
+		targetID, err := strconv.Atoi(c.Param("id"))
+		if err != nil || targetID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid user ID",
+			})
+			return
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		user, err := userRepo.GetByID(targetID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"message": "User not found",
+			})
+			return
+		}
+
+		credentialRemoved := false
+		if tableExists(database, "user_mfa_credentials") {
+			mfaRepo := repository.NewUserMFARepository(database)
+			credentialRemoved, err = mfaRepo.DeleteByUserID(targetID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": fmt.Sprintf("Failed to reset MFA enrollment: %v", err),
+				})
+				return
+			}
+		}
+
+		if err := userRepo.SetMFAEnabled(targetID, false); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Failed to clear MFA status: %v", err),
+			})
+			return
+		}
+
+		updatedUser, err := userRepo.GetByID(targetID)
+		if err != nil || updatedUser == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Failed to reload user after MFA reset",
+			})
+			return
+		}
+
+		writeAuditLog(database, c, "admin.user.reset_mfa", "user", stringPointer(strconv.Itoa(updatedUser.ID)), gin.H{
+			"username":             updatedUser.Username,
+			"role":                 updatedUser.Role,
+			"had_mfa_enabled":      user.MFAEnabled,
+			"credential_removed":   credentialRemoved,
+			"privileged_mfa_guard": middleware.IsPrivilegedMFARequired(database),
+		}, "success")
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "User MFA enrollment reset successfully",
+			"data": resetUserMFAResponse{
+				User:              toUserResponse(updatedUser, middleware.IsPrivilegedMFARequired(database)),
+				HadMFAEnabled:     user.MFAEnabled,
+				CredentialRemoved: credentialRemoved,
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+func seedDummyClientsHandler(database *sql.DB) gin.HandlerFunc {
+	type dummyUserSpec struct {
+		Username string
+		Email    string
+		FullName string
+		Role     string
+	}
+
+	return func(c *gin.Context) {
+		if !c.GetBool("is_admin") {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Admin access required"})
+			return
+		}
+
+		const sharedPassword = "DevClient123!"
+		specs := []dummyUserSpec{
+			{Username: "atlas_ib", Email: "atlas_ib@example.local", FullName: "Atlas Introducing Broker", Role: "ib"},
+			{Username: "delta_subib", Email: "delta_subib@example.local", FullName: "Delta Sub IB", Role: "sub_ib"},
+			{Username: "client_alpha", Email: "client_alpha@example.local", FullName: "Client Alpha", Role: "client"},
+			{Username: "client_beta", Email: "client_beta@example.local", FullName: "Client Beta", Role: "client"},
+			{Username: "client_gamma", Email: "client_gamma@example.local", FullName: "Client Gamma", Role: "client"},
+			{Username: "client_pending", Email: "client_pending@example.local", FullName: "Client Pending Review", Role: "client"},
+		}
+
+		userRepo := repository.NewUserRepository(database)
+		createdUsers := make([]UserResponse, 0, len(specs))
+		existingUsernames := make([]string, 0)
+		userByUsername := make(map[string]*models.User, len(specs))
+		privilegedMFARequired := middleware.IsPrivilegedMFARequired(database)
+
+		for _, spec := range specs {
+			existing, err := userRepo.GetByUsername(spec.Username)
+			if err == nil && existing != nil {
+				userByUsername[spec.Username] = existing
+				existingUsernames = append(existingUsernames, spec.Username)
+				continue
+			}
+			if err != nil && !strings.Contains(strings.ToLower(err.Error()), "user not found") {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to inspect user %s: %v", spec.Username, err)})
+				return
+			}
+
+			user := &models.User{
+				Username:               spec.Username,
+				Email:                  spec.Email,
+				Role:                   spec.Role,
+				FullName:               spec.FullName,
+				IsActive:               true,
+				IsAdmin:                false,
+				PasswordChangeRequired: false,
+			}
+			if err := user.SetPassword(sharedPassword); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to secure dummy user %s", spec.Username)})
+				return
+			}
+			if err := userRepo.Create(user); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("Failed to create dummy user %s: %v", spec.Username, err)})
+				return
+			}
+			userByUsername[spec.Username] = user
+			createdUsers = append(createdUsers, toUserResponse(user, privilegedMFARequired))
+		}
+
+		seededRelationships := 0
+		if tableExists(database, "partner_relationships") {
+			relRepo := repository.NewPartnerRelationshipRepository(database)
+			relationships := []models.PartnerRelationship{
+				{SponsorUserID: userByUsername["atlas_ib"].ID, PartnerUserID: userByUsername["delta_subib"].ID, RelationshipType: "sub_ib", IsActive: true},
+				{SponsorUserID: userByUsername["atlas_ib"].ID, PartnerUserID: userByUsername["client_alpha"].ID, RelationshipType: "client", IsActive: true},
+				{SponsorUserID: userByUsername["atlas_ib"].ID, PartnerUserID: userByUsername["client_beta"].ID, RelationshipType: "client", IsActive: true},
+				{SponsorUserID: userByUsername["delta_subib"].ID, PartnerUserID: userByUsername["client_gamma"].ID, RelationshipType: "client", IsActive: true},
+			}
+			for _, relationship := range relationships {
+				relCopy := relationship
+				if err := relRepo.Upsert(&relCopy); err == nil {
+					seededRelationships++
+				}
+			}
+		}
+
+		seededCommissionMetrics := 0
+		if tableExists(database, "partner_commission_metrics") {
+			metricRepo := repository.NewPartnerCommissionMetricRepository(database)
+			now := time.Now().UTC()
+			metrics := []models.PartnerCommissionMetric{
+				{UserID: userByUsername["atlas_ib"].ID, PeriodStart: now.AddDate(0, 0, -30), PeriodEnd: now, DirectClients: 3, SubIBCount: 1, NotionalVolumeUSD: 275000, GrossCommissionUSD: 9100, RebateUSD: 1250, NetCommissionUSD: 7850},
+				{UserID: userByUsername["delta_subib"].ID, PeriodStart: now.AddDate(0, 0, -30), PeriodEnd: now, DirectClients: 1, SubIBCount: 0, NotionalVolumeUSD: 72000, GrossCommissionUSD: 2300, RebateUSD: 320, NetCommissionUSD: 1980},
+			}
+			for _, metric := range metrics {
+				metricCopy := metric
+				if err := metricRepo.Upsert(&metricCopy); err == nil {
+					seededCommissionMetrics++
+				}
+			}
+		}
+
+		seededApplications := 0
+		if tableExists(database, "partner_applications") {
+			appRepo := repository.NewPartnerApplicationRepository(database)
+			atlasIB := userByUsername["atlas_ib"]
+			var atlasIBID *int
+			if atlasIB != nil {
+				atlasIBID = &atlasIB.ID
+			}
+			applications := []models.PartnerApplication{
+				{ApplicantUserID: userByUsername["client_pending"].ID, SponsorUserID: atlasIBID, RequestedRole: "ib", Status: "pending", BusinessName: "Pending Atlas Desk", Notes: "Development seed for CRM review queue", ReviewNotes: ""},
+			}
+			for _, application := range applications {
+				appCopy := application
+				if err := appRepo.Create(&appCopy); err == nil {
+					seededApplications++
+				}
+			}
+		}
+
+		writeAuditLog(database, c, "admin.user.seed_dummy_clients", "user", nil, gin.H{
+			"created_users":             len(createdUsers),
+			"existing_users":            len(existingUsernames),
+			"seeded_relationships":      seededRelationships,
+			"seeded_commission_metrics": seededCommissionMetrics,
+			"seeded_applications":       seededApplications,
+		}, "success")
+
+		c.JSON(http.StatusCreated, gin.H{
+			"success": true,
+			"message": "Dummy CRM clients seeded successfully",
+			"data": seedDummyClientsResponse{
+				CreatedUsers:            createdUsers,
+				ExistingUsernames:       existingUsernames,
+				SeededRelationships:     seededRelationships,
+				SeededCommissionMetrics: seededCommissionMetrics,
+				SeededApplications:      seededApplications,
+				SharedDevelopmentSecret: sharedPassword,
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+func tableExists(database *sql.DB, tableName string) bool {
+	if database == nil || strings.TrimSpace(tableName) == "" {
+		return false
+	}
+	query := fmt.Sprintf("SELECT 1 FROM %s LIMIT 1", tableName)
+	if _, err := database.Exec(query); err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "no such table") || strings.Contains(lower, "does not exist") {
+			return false
+		}
+	}
+	return true
 }
 
 func ensureAdminMutationIsSafe(userRepo *repository.UserRepository, target *models.User, actorID int, nextRole string, nextIsActive bool) error {

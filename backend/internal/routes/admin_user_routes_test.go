@@ -43,12 +43,30 @@ func setupAdminUserRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 		hashed_password TEXT NOT NULL,
 		is_active BOOLEAN NOT NULL DEFAULT 1,
 		is_admin BOOLEAN NOT NULL DEFAULT 0,
+		mfa_enabled BOOLEAN NOT NULL DEFAULT 0,
 		password_change_required BOOLEAN NOT NULL DEFAULT 0,
 		last_login DATETIME,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL
 	);`); err != nil {
 		t.Fatalf("create users table: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
+	CREATE TABLE bot_settings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		section TEXT NOT NULL,
+		key TEXT NOT NULL,
+		value TEXT NOT NULL,
+		value_type TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		default_value TEXT NOT NULL DEFAULT '',
+		is_active BOOLEAN NOT NULL DEFAULT 1,
+		version INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);`); err != nil {
+		t.Fatalf("create bot_settings table: %v", err)
 	}
 
 	router := gin.New()
@@ -104,6 +122,24 @@ func issueAdminBearerToken(t *testing.T, userID int, username, role string) stri
 		t.Fatalf("generate token: %v", err)
 	}
 	return "Bearer " + token
+}
+
+func createUserMFACredentialsSchema(t *testing.T, dbConn *sql.DB) {
+	t.Helper()
+	if _, err := dbConn.Exec(`
+	CREATE TABLE user_mfa_credentials (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL UNIQUE,
+		encrypted_secret TEXT NOT NULL,
+		encrypted_backup_codes TEXT NOT NULL,
+		enabled BOOLEAN NOT NULL DEFAULT 0,
+		verified_at DATETIME,
+		last_used_at DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);`); err != nil {
+		t.Fatalf("create user_mfa_credentials table: %v", err)
+	}
 }
 
 func TestAdminUserRoutes_ListUsers(t *testing.T) {
@@ -201,5 +237,178 @@ func TestAdminUserRoutes_PreventLastAdminRemoval(t *testing.T) {
 
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestAdminUserRoutes_SeedDummyClients(t *testing.T) {
+	router, dbConn := setupAdminUserRouter(t)
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+
+	createPartnerApplicationsSchema(t, dbConn)
+	createPartnerRelationshipsSchema(t, dbConn)
+	createPartnerCommissionMetricsSchema(t, dbConn)
+
+	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/seed-dummy-clients", nil)
+	req.Header.Set("Authorization", issueAdminBearerToken(t, adminID, "admin", "admin"))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			CreatedUsers            []UserResponse `json:"created_users"`
+			ExistingUsernames       []string       `json:"existing_usernames"`
+			SeededRelationships     int            `json:"seeded_relationships"`
+			SeededCommissionMetrics int            `json:"seeded_commission_metrics"`
+			SeededApplications      int            `json:"seeded_applications"`
+			SharedPassword          string         `json:"shared_development_secret"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data.CreatedUsers) == 0 {
+		t.Fatalf("expected dummy users to be created")
+	}
+	if body.Data.SharedPassword != "DevClient123!" {
+		t.Fatalf("unexpected shared password: %q", body.Data.SharedPassword)
+	}
+	if body.Data.SeededRelationships == 0 {
+		t.Fatalf("expected seeded relationships")
+	}
+	if body.Data.SeededCommissionMetrics == 0 {
+		t.Fatalf("expected seeded commission metrics")
+	}
+	if body.Data.SeededApplications == 0 {
+		t.Fatalf("expected seeded applications")
+	}
+
+	var clientCount int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM users WHERE username IN (?, ?, ?, ?, ?, ?)`, "atlas_ib", "delta_subib", "client_alpha", "client_beta", "client_gamma", "client_pending").Scan(&clientCount); err != nil {
+		t.Fatalf("count dummy users: %v", err)
+	}
+	if clientCount != 6 {
+		t.Fatalf("expected 6 dummy users, got %d", clientCount)
+	}
+}
+
+func TestAdminUserRoutes_ResetUserMFA(t *testing.T) {
+	router, dbConn := setupAdminUserRouter(t)
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+
+	createUserMFACredentialsSchema(t, dbConn)
+
+	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
+	targetID := seedAdminUser(t, dbConn, "ops1", "ops1@example.local", "backoffice", true)
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(`UPDATE users SET mfa_enabled = 1 WHERE id = ?`, targetID); err != nil {
+		t.Fatalf("enable mfa flag: %v", err)
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO user_mfa_credentials (user_id, encrypted_secret, encrypted_backup_codes, enabled, verified_at, last_used_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		targetID,
+		"enc-secret",
+		"enc-backups",
+		true,
+		now,
+		now,
+		now,
+		now,
+	); err != nil {
+		t.Fatalf("insert user mfa credential: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/reset-mfa", targetID), nil)
+	req.Header.Set("Authorization", issueAdminBearerToken(t, adminID, "admin", "admin"))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Data resetUserMFAResponse `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.Data.HadMFAEnabled {
+		t.Fatalf("expected prior MFA to be reported as enabled")
+	}
+	if !body.Data.CredentialRemoved {
+		t.Fatalf("expected stored credential to be removed")
+	}
+	if body.Data.User.MFAEnabled {
+		t.Fatalf("expected user mfa_enabled to be false after reset")
+	}
+
+	var remainingCredentials int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM user_mfa_credentials WHERE user_id = ?`, targetID).Scan(&remainingCredentials); err != nil {
+		t.Fatalf("count remaining credentials: %v", err)
+	}
+	if remainingCredentials != 0 {
+		t.Fatalf("expected 0 remaining credentials, got %d", remainingCredentials)
+	}
+
+	var mfaEnabled bool
+	if err := dbConn.QueryRow(`SELECT mfa_enabled FROM users WHERE id = ?`, targetID).Scan(&mfaEnabled); err != nil {
+		t.Fatalf("reload user mfa flag: %v", err)
+	}
+	if mfaEnabled {
+		t.Fatalf("expected mfa flag to be cleared")
+	}
+}
+
+func TestAdminUserRoutes_ResetUserMFA_IdempotentWhenAlreadyClear(t *testing.T) {
+	router, dbConn := setupAdminUserRouter(t)
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+
+	createUserMFACredentialsSchema(t, dbConn)
+
+	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
+	targetID := seedAdminUser(t, dbConn, "ops2", "ops2@example.local", "backoffice", true)
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/reset-mfa", targetID), nil)
+	req.Header.Set("Authorization", issueAdminBearerToken(t, adminID, "admin", "admin"))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Data resetUserMFAResponse `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.HadMFAEnabled {
+		t.Fatalf("expected prior MFA to be reported as disabled")
+	}
+	if body.Data.CredentialRemoved {
+		t.Fatalf("expected no credential to be removed")
+	}
+	if body.Data.User.MFAEnabled {
+		t.Fatalf("expected user mfa_enabled to remain false")
 	}
 }

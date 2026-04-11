@@ -4,12 +4,16 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
 import { getUserWorkspaceRole, roleMatches, type WorkspaceRole } from './auth/roles';
 import { BacktestComparator } from './components/BacktestComparator';
 import BotManager from './components/BotManager';
-import { ErrorBoundary as EnhancedErrorBoundary, ToastContainer, useToastStore } from './components/ErrorBoundary';
+import {
+	ErrorBoundary as EnhancedErrorBoundary,
+	ToastContainer,
+	useToastStore,
+} from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
@@ -19,7 +23,7 @@ import BacktestDetailsV2 from './pages/BacktestDetailsV2';
 import { BacktestsPage } from './pages/Backtests';
 import { ClientAreaPage } from './pages/ClientArea';
 import { CodexPage } from './pages/Codex';
-import { CRMPage } from './pages/CRM';
+import { CRMRouter } from './pages/crm';
 import { DashboardPage } from './pages/Dashboard';
 import { ForcePasswordChangePage } from './pages/ForcePasswordChange';
 import { IBPortalPage } from './pages/IBPortal';
@@ -71,6 +75,14 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
 
   if (user.password_change_required) {
     return <Navigate to="/force-password" replace />;
+  }
+
+  const requiresPrivilegedMFA =
+    Boolean(allowedRoles && allowedRoles.length > 0) &&
+    allowedRoles.some((role) => role === 'admin' || role === 'backoffice');
+
+  if (requiresPrivilegedMFA && user.privileged_mfa_required && !user.mfa_enabled) {
+    return <Navigate to="/2fa-setup" replace />;
   }
 
   if (!roleMatches(getUserWorkspaceRole(user), allowedRoles)) {
@@ -234,10 +246,10 @@ export const App: React.FC = () => {
               }
             />
             <Route
-              path="/crm"
+              path="/crm/*"
               element={
                 <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                  <CRMPage />
+                  <CRMRouter />
                 </ProtectedRoute>
               }
             />

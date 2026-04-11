@@ -62,9 +62,13 @@ The current UI direction is production DeFi:
 ## Shared Product Patterns
 
 - public pages should explain workflow, trust posture, and pricing before auth
+- public navigation is route-based rather than anchor-based: Home, Research, Runtime, Market Intel, Security, and Pricing are separate journeys
+- pre-auth public pages should favor editorial bands, thin separators, and row-based comparison over long one-page scrolls or stacked rounded cards
 - auth screens should expose access state, security expectations, and next-step clarity
 - workspace chrome should keep grouped navigation, command access, environment context, and operator identity visible
 - operator pages should use control-room headers, compact status pills, and reusable terminal-style cards/grids
+- the workspace shell uses sharper 8px surfaces, neutral dark panels, and restrained cyan/emerald/amber state color so data hierarchy stays stronger than decoration
+- dashboard quick-launch and activity-tape surfaces should refresh softly and preserve visible data while active jobs update
 - live-state semantics should stay consistent:
   - healthy/positive: emerald
   - live/realtime: cyan

@@ -108,7 +108,7 @@ const LiveClock: React.FC = () => {
     return () => clearInterval(id);
   }, []);
   return (
-    <span className="font-mono tabular-nums text-blue-300">
+    <span className="font-mono tabular-nums text-cyan-300">
       {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
     </span>
   );
@@ -121,16 +121,15 @@ interface KpiCardProps {
   value: string;
   subtitle?: string;
   icon: React.ReactNode;
-  color: 'blue' | 'green' | 'red' | 'purple' | 'amber' | 'cyan' | 'emerald' | 'rose';
+  color: 'teal' | 'green' | 'red' | 'amber' | 'cyan' | 'emerald' | 'rose';
   trend?: 'up' | 'down' | 'neutral';
   animDelay?: number;
 }
 
 const colorMap: Record<KpiCardProps['color'], { border: string; bg: string; icon: string }> = {
-  blue: { border: 'border-blue-500/30', bg: 'bg-blue-500/10', icon: 'text-blue-400' },
+  teal: { border: 'border-teal-500/30', bg: 'bg-teal-500/10', icon: 'text-teal-300' },
   green: { border: 'border-green-500/30', bg: 'bg-green-500/10', icon: 'text-green-400' },
   red: { border: 'border-red-500/30', bg: 'bg-red-500/10', icon: 'text-red-400' },
-  purple: { border: 'border-purple-500/30', bg: 'bg-purple-500/10', icon: 'text-purple-400' },
   amber: { border: 'border-amber-500/30', bg: 'bg-amber-500/10', icon: 'text-amber-400' },
   cyan: { border: 'border-cyan-500/30', bg: 'bg-cyan-500/10', icon: 'text-cyan-400' },
   emerald: { border: 'border-emerald-500/30', bg: 'bg-emerald-500/10', icon: 'text-emerald-400' },
@@ -153,7 +152,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
       style={{ animationDelay: `${animDelay}ms` }}
     >
       <div className="mb-3 flex items-start justify-between">
-        <div className={`rounded-xl p-2.5 ${c.bg}`}>
+        <div className={`rounded-lg p-2.5 ${c.bg}`}>
           <div className={c.icon}>{icon}</div>
         </div>
         {trend && trend !== 'neutral' && (
@@ -161,15 +160,15 @@ const KpiCard: React.FC<KpiCardProps> = ({
             className={`flex items-center gap-0.5 text-xs font-medium ${trend === 'up' ? 'text-green-400' : 'text-red-400'}`}
           >
             {trend === 'up' ? (
-              <TrendingUp className="w-3.5 h-3.5" />
+              <TrendingUp className="h-3.5 w-3.5" />
             ) : (
-              <TrendingDown className="w-3.5 h-3.5" />
+              <TrendingDown className="h-3.5 w-3.5" />
             )}
           </span>
         )}
       </div>
-      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-white">{value}</p>
+      <p className="text-[10px] uppercase text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-white">{value}</p>
       {subtitle && <p className="mt-1 text-[11px] text-slate-500">{subtitle}</p>}
     </div>
   );
@@ -186,13 +185,13 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
         <div className="flex items-center gap-2 min-w-0">
           <span className="relative flex h-2 w-2 shrink-0">
             {isRunning && (
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
             )}
             <span
-              className={`relative inline-flex rounded-full h-2 w-2 ${isRunning ? 'bg-blue-400' : 'bg-yellow-400'}`}
+              className={`relative inline-flex h-2 w-2 rounded-full ${isRunning ? 'bg-cyan-400' : 'bg-amber-400'}`}
             />
           </span>
-          <span className="text-xs font-mono text-blue-400 truncate">
+          <span className="truncate font-mono text-xs text-cyan-300">
             {(run.name || run.run_id).substring(0, 22)}
           </span>
         </div>
@@ -239,7 +238,7 @@ const StrategySpotlightCard: React.FC<{
   <div className="operator-section-card p-5">
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="flex items-center gap-3">
-        <div className={`rounded-xl p-2.5 ${accentClass}`}>{icon}</div>
+        <div className={`rounded-lg p-2.5 ${accentClass}`}>{icon}</div>
         <div>
           <p className="text-sm font-semibold text-white">{title}</p>
           <p className="text-xs text-slate-500">{subtitle}</p>
@@ -247,7 +246,7 @@ const StrategySpotlightCard: React.FC<{
       </div>
       <Link
         to={href}
-        className="inline-flex items-center gap-1 text-xs font-medium text-blue-300 transition hover:text-blue-200"
+        className="inline-flex items-center gap-1 text-xs font-medium text-cyan-300 transition hover:text-cyan-200"
       >
         Open
         <ArrowRight className="h-3.5 w-3.5" />
@@ -549,15 +548,14 @@ export const DashboardPage: React.FC = () => {
           <div>
             <div className="surface-label">
               <Sparkles className="h-3.5 w-3.5" />
-              Operator command center
+              Operator cockpit
             </div>
             <h1 className="mt-5 max-w-3xl text-3xl font-bold text-white sm:text-4xl">
               {greeting}, {user?.username ?? 'Trader'}.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-              This workspace is now tuned more like a trading control room: live status close to the
-              top, quick actions near decision surfaces, and performance context that stays stable
-              while runs are active.
+              Watch live runs, research quality, and market context from one steady desk before
+              moving capital into the next strategy cycle.
             </p>
 
             <div className="mt-5 flex flex-wrap gap-3">
@@ -589,7 +587,7 @@ export const DashboardPage: React.FC = () => {
 
             <div className="operator-mini-grid mt-6">
               <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Date</p>
+                <p className="text-[10px] uppercase text-slate-500">Date</p>
                 <p className="mt-2 text-sm font-semibold text-white">
                   {new Date().toLocaleDateString('en-US', {
                     weekday: 'long',
@@ -598,22 +596,22 @@ export const DashboardPage: React.FC = () => {
                     day: 'numeric',
                   })}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">Operator context stays visible</p>
+                <p className="mt-1 text-xs text-slate-500">Session context</p>
               </div>
               <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Completed</p>
+                <p className="text-[10px] uppercase text-slate-500">Completed</p>
                 <p className="mt-2 text-xl font-semibold text-white">{stats.completed}</p>
-                <p className="mt-1 text-xs text-slate-500">Runs available for quality scoring</p>
+                <p className="mt-1 text-xs text-slate-500">Quality-scored runs</p>
               </div>
               <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Trades simulated</p>
+                <p className="text-[10px] uppercase text-slate-500">Trades simulated</p>
                 <p className="mt-2 text-xl font-semibold text-white">{fmtN(countTrades)}</p>
-                <p className="mt-1 text-xs text-slate-500">Across every loaded run</p>
+                <p className="mt-1 text-xs text-slate-500">Loaded run archive</p>
               </div>
               <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Best Sharpe</p>
+                <p className="text-[10px] uppercase text-slate-500">Best Sharpe</p>
                 <p className="mt-2 text-xl font-semibold text-white">{stats.bestSharpe.toFixed(2)}</p>
-                <p className="mt-1 text-xs text-slate-500">Current top risk-adjusted score</p>
+                <p className="mt-1 text-xs text-slate-500">Top risk-adjusted score</p>
               </div>
             </div>
           </div>
@@ -621,28 +619,28 @@ export const DashboardPage: React.FC = () => {
           <div className="grid gap-4">
             <div className="operator-hero-panel px-5 py-5">
               <div className="flex items-start gap-3">
-                <div className="premium-icon-wrap text-cyan-300">
+                <div className="premium-icon-wrap text-teal-300">
                   <Activity className="h-5 w-5" />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">Live readiness</p>
                   <p className="mt-1 text-sm leading-6 text-slate-400">
-                    The dashboard keeps active run visibility, sync health, and launch controls near
-                    the top so operators do not have to hunt across the app during execution.
+                    Active run progress, sync health, and launch controls remain in the first
+                    viewport during execution.
                   </p>
                 </div>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 <div className="metric-tile px-4 py-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Quality signal</p>
+                  <p className="text-[10px] uppercase text-slate-500">Quality signal</p>
                   <p className="mt-2 text-sm font-semibold text-emerald-300">
                     {stats.bestWinRate > 0 ? fmtPct(stats.bestWinRate) : 'Awaiting completed runs'}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">Best observed win rate</p>
                 </div>
                 <div className="metric-tile px-4 py-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Average run</p>
+                  <p className="text-[10px] uppercase text-slate-500">Average run</p>
                   <p
                     className={`mt-2 text-sm font-semibold ${
                       stats.avgPnlPerRun >= 0 ? 'text-emerald-300' : 'text-rose-300'
@@ -662,7 +660,7 @@ export const DashboardPage: React.FC = () => {
                 className="operator-action-card p-4 text-left"
               >
                 <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-cyan-500/10 p-2.5 text-cyan-300">
+                  <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
                     <Rocket className="h-5 w-5" />
                   </div>
                   <div>
@@ -675,7 +673,7 @@ export const DashboardPage: React.FC = () => {
               </button>
               <Link to="/backtests" className="operator-action-card p-4">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-emerald-500/10 p-2.5 text-emerald-300">
+                  <div className="rounded-lg bg-emerald-500/10 p-2.5 text-emerald-300">
                     <Target className="h-5 w-5" />
                   </div>
                   <div>
@@ -688,7 +686,7 @@ export const DashboardPage: React.FC = () => {
               </Link>
               <Link to="/bots" className="operator-action-card p-4">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-300">
+                  <div className="rounded-lg bg-amber-500/10 p-2.5 text-amber-300">
                     <Play className="h-5 w-5" />
                   </div>
                   <div>
@@ -701,7 +699,7 @@ export const DashboardPage: React.FC = () => {
               </Link>
               <Link to="/codex" className="operator-action-card p-4">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-blue-500/10 p-2.5 text-blue-300">
+                  <div className="rounded-lg bg-teal-500/10 p-2.5 text-teal-300">
                     <Newspaper className="h-5 w-5" />
                   </div>
                   <div>
@@ -718,7 +716,7 @@ export const DashboardPage: React.FC = () => {
       </section>
 
       {statsError && (
-        <div className="rounded-2xl border border-red-700/60 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-lg border border-red-700/60 bg-red-950/30 px-4 py-3 text-sm text-red-200">
           {statsError}
         </div>
       )}
@@ -729,7 +727,7 @@ export const DashboardPage: React.FC = () => {
           icon={<BarChart2 className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countTotal)}
           subtitle={`${stats.completed} completed`}
-          color="blue"
+          color="teal"
           animDelay={0}
         />
         <KpiCard
@@ -749,7 +747,7 @@ export const DashboardPage: React.FC = () => {
           icon={<Activity className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countRunning)}
           subtitle={stats.running > 0 ? 'In progress' : 'All idle'}
-          color={stats.running > 0 ? 'cyan' : 'blue'}
+          color={stats.running > 0 ? 'cyan' : 'teal'}
           trend={stats.running > 0 ? 'up' : 'neutral'}
           animDelay={120}
         />
@@ -757,7 +755,7 @@ export const DashboardPage: React.FC = () => {
           label="Failed / Cancelled"
           icon={<AlertCircle className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countFailed)}
-          subtitle={stats.failed === 0 ? 'No failures 🎉' : 'Review errors'}
+          subtitle={stats.failed === 0 ? 'No failures' : 'Review errors'}
           color={stats.failed > 0 ? 'rose' : 'emerald'}
           animDelay={180}
         />
@@ -787,7 +785,7 @@ export const DashboardPage: React.FC = () => {
           icon={<Rocket className="w-5 h-5" />}
           value={statsLoading ? '—' : stats.bestSharpe.toFixed(2)}
           subtitle="Risk-adj. return"
-          color="purple"
+          color="cyan"
           animDelay={360}
         />
         <KpiCard
@@ -859,15 +857,14 @@ export const DashboardPage: React.FC = () => {
           emptyMessage="Consistency scoring needs a few completed runs before it becomes meaningful."
         />
         <div
-          className="relative overflow-hidden rounded-2xl border border-slate-700/60 p-5"
+          className="operator-section-card relative overflow-hidden p-5"
           style={{
             background:
-              'linear-gradient(135deg, rgba(15,23,42,.96) 0%, rgba(30,41,59,.92) 55%, rgba(30,64,175,.18) 100%)',
+              'linear-gradient(135deg, rgba(18,24,25,.96) 0%, rgba(9,13,14,.94) 58%, rgba(20,83,74,.22) 100%)',
           }}
         >
-          <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-blue-500/10 blur-3xl" />
           <div className="relative">
-            <div className="mb-3 inline-flex rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
+            <div className="mb-3 inline-flex rounded-lg border border-teal-500/20 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase text-teal-300">
               Market Intel
             </div>
             <h2 className="text-lg font-semibold text-white">Codex.io Snapshot</h2>
@@ -882,7 +879,7 @@ export const DashboardPage: React.FC = () => {
               ].map((token) => (
                 <div
                   key={token.id}
-                  className="rounded-xl border border-slate-700/60 bg-slate-950/45 px-3 py-2"
+                  className="rounded-lg border border-slate-700/60 bg-stone-950/55 px-3 py-2"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -900,7 +897,7 @@ export const DashboardPage: React.FC = () => {
             </div>
             <Link
               to="/codex"
-              className="mt-5 inline-flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/15 px-4 py-2 text-sm font-medium text-blue-100 transition hover:bg-blue-500/20"
+              className="mt-5 inline-flex items-center gap-2 rounded-lg border border-teal-500/30 bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-100 transition hover:bg-teal-500/20"
             >
               Open Market Intel
               <ArrowRight className="h-4 w-4" />
@@ -945,7 +942,7 @@ export const DashboardPage: React.FC = () => {
               className="flex w-full items-center justify-between px-5 py-4 transition-colors hover:bg-slate-900/35"
             >
               <div className="flex items-center gap-3">
-                <div className="rounded-xl bg-cyan-500/10 p-2.5 text-cyan-300">
+                <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
                   <Rocket className="h-4 w-4" />
                 </div>
                 <div className="text-left">
@@ -975,7 +972,7 @@ export const DashboardPage: React.FC = () => {
           <div className="operator-section-card p-5 animate-fade-slide-up" style={{ animationDelay: '340ms' }}>
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="rounded-xl bg-cyan-500/10 p-2.5 text-cyan-300">
+                <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
                   <Activity className="h-4 w-4" />
                 </div>
                 <div>
@@ -1077,7 +1074,7 @@ export const DashboardPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setLauncherOpen(true)}
-            className="premium-button premium-button-secondary rounded-[1rem] px-4 py-2 text-sm"
+            className="premium-button premium-button-secondary px-4 py-2 text-sm"
           >
             Launch a backtest
             <ArrowRight className="h-4 w-4" />

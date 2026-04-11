@@ -164,7 +164,7 @@ export const RegisterPage: React.FC = () => {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="metric-tile px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Registration mode</p>
+          <p className="text-[11px] uppercase text-slate-500">Registration mode</p>
           <p className="mt-2 text-sm font-semibold text-white">
             {registrationStatusQuery.data?.invitation_required ? 'Invitation required' : 'Open evaluation'}
           </p>
@@ -173,7 +173,7 @@ export const RegisterPage: React.FC = () => {
           </p>
         </div>
         <div className="metric-tile px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Onboarding standard</p>
+          <p className="text-[11px] uppercase text-slate-500">Onboarding standard</p>
           <p className="mt-2 text-sm font-semibold text-white">Security-aware entry</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             Password quality, invitation state, and next steps are all visible during signup.
@@ -185,14 +185,14 @@ export const RegisterPage: React.FC = () => {
         <div
           role="alert"
           aria-live="polite"
-          className="mt-5 rounded-2xl border border-amber-600/50 bg-amber-950/30 p-4 text-sm text-amber-200"
+          className="mt-5 rounded-lg border border-amber-600/50 bg-amber-950/30 p-4 text-sm text-amber-200"
         >
           {registrationStatusQuery.data.reason}
         </div>
       )}
 
       {registrationStatusQuery.data?.invitation_required && (
-        <div className="mt-5 rounded-2xl border border-cyan-500/30 bg-cyan-950/30 p-4 text-sm text-cyan-200">
+        <div className="mt-5 rounded-lg border border-cyan-500/30 bg-cyan-950/30 p-4 text-sm text-cyan-200">
           This workspace is currently invite-only. Enter your invitation code to continue.
         </div>
       )}
@@ -203,7 +203,7 @@ export const RegisterPage: React.FC = () => {
           tabIndex={-1}
           role="alert"
           aria-live="assertive"
-          className="mt-5 flex items-start gap-3 rounded-2xl border border-red-700 bg-red-950/55 p-4"
+          className="mt-5 flex items-start gap-3 rounded-lg border border-red-700 bg-red-950/55 p-4"
         >
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
           <div className="text-sm text-red-200">{error}</div>
@@ -216,7 +216,7 @@ export const RegisterPage: React.FC = () => {
           tabIndex={-1}
           role="alert"
           aria-live="assertive"
-          className="mt-5 flex items-start gap-3 rounded-2xl border border-red-700 bg-red-950/55 p-4"
+          className="mt-5 flex items-start gap-3 rounded-lg border border-red-700 bg-red-950/55 p-4"
         >
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
           <div className="text-sm text-red-200">{formError}</div>

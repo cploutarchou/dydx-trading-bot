@@ -60,9 +60,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   return (
     <div className="premium-shell flex h-screen overflow-hidden text-white">
-      <div className="premium-orb left-[-8rem] top-12 h-64 w-64 bg-cyan-500/10" />
-      <div className="premium-orb right-[-6rem] top-28 h-72 w-72 bg-blue-500/12" />
-
       {/* Sidebar */}
       <Sidebar
         isOpen={isMobileMenuOpen}

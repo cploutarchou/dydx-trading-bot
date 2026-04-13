@@ -69,7 +69,9 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
             </div>
             <div>
               <p className="text-[13px] font-semibold text-white sm:text-sm">dYdX Arbitrage OS</p>
-              <p className="text-[10px] uppercase text-slate-500 sm:text-[11px]">DeFi operator platform</p>
+              <p className="text-[10px] uppercase text-slate-500 sm:text-[11px]">
+                DeFi operator platform
+              </p>
             </div>
           </Link>
 

@@ -2,6 +2,7 @@ import { Activity, ArrowRight, Menu, ShieldCheck, Waypoints, X } from 'lucide-re
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getPrimaryCta, publicNavItems } from '../content/publicSite';
+import { PublicMarketTape } from './PublicMarketPulse';
 
 interface PublicSiteShellProps {
   children: React.ReactNode;
@@ -148,6 +149,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
           </div>
         )}
       </header>
+      <PublicMarketTape />
 
       <main className="relative z-10">{children}</main>
 

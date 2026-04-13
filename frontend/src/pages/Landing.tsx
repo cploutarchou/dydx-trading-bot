@@ -11,6 +11,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { DeFiHeroIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
+import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
 import PublicSiteShell from '../components/PublicSiteShell';
 
 const pathItems = [
@@ -107,6 +108,16 @@ export const LandingPage: React.FC = () => {
               <p>{body}</p>
             </MotionReveal>
           ))}
+        </section>
+
+        <section className="public-modern-container public-market-section">
+          <MotionReveal distancePx={18}>
+            <PublicMarketPulsePanel
+              eyebrow="Market intelligence"
+              title="Route quality, spread, and depth stay close to every arbitrage decision."
+              description="Compare active pairs, watch spread discipline, and keep liquidity context visible before a strategy moves toward runtime."
+            />
+          </MotionReveal>
         </section>
 
         <section className="public-modern-band">

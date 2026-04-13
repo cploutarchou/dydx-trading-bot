@@ -2161,6 +2161,7 @@ h6 {
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
   background: rgba(3, 7, 8, 0.92);
   backdrop-filter: blur(18px);
+  scrollbar-width: none;
 }
 
 .public-market-tape-label {
@@ -2182,12 +2183,18 @@ h6 {
   min-width: 0;
   overflow: hidden;
   mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
+  scrollbar-width: none;
+}
+
+.public-market-tape-window::-webkit-scrollbar {
+  display: none;
 }
 
 .public-market-tape-track {
   display: flex;
   width: max-content;
-  animation: publicTickerScroll 42s linear infinite;
+  animation: publicTickerScroll 48s linear infinite;
+  gap: 0;
 }
 
 .public-market-tape:hover .public-market-tape-track {
@@ -2196,12 +2203,12 @@ h6 {
 
 .public-market-tape-item {
   display: inline-flex;
-  min-width: 18rem;
+  min-width: 19rem;
   align-items: center;
   gap: 0.72rem;
   height: 2.35rem;
   border-right: 1px solid rgba(148, 163, 184, 0.1);
-  padding-inline: 1rem;
+  padding-inline: 1.1rem;
   white-space: nowrap;
 }
 
@@ -2652,7 +2659,9 @@ h6 {
   transition:
     border-color 180ms ease,
     background-color 180ms ease,
-    transform 180ms ease;
+    transform 180ms ease,
+    box-shadow 180ms ease;
+  cursor: pointer;
 }
 
 .public-market-pair:hover,
@@ -2660,6 +2669,7 @@ h6 {
   border-color: rgba(45, 212, 191, 0.36);
   background: rgba(13, 148, 136, 0.14);
   transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(45, 212, 191, 0.08);
 }
 
 .public-market-pair span {
@@ -2688,11 +2698,11 @@ h6 {
   border: 1px solid rgba(34, 211, 238, 0.18);
   border-radius: 0.5rem;
   background:
-    linear-gradient(180deg, rgba(3, 7, 18, 0.7), rgba(3, 7, 18, 0.9)),
-    rgba(2, 6, 23, 0.52);
+    linear-gradient(180deg, rgba(3, 7, 18, 0.7), rgba(3, 7, 18, 0.9)), rgba(2, 6, 23, 0.52);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 20px 50px rgba(0, 0, 0, 0.28);
+    0 20px 50px rgba(0, 0, 0, 0.28),
+    0 0 1px rgba(45, 212, 191, 0.12);
 }
 
 .public-market-chart-header,
@@ -2773,20 +2783,21 @@ h6 {
   display: grid;
   gap: 0.75rem;
   border-top: 1px solid rgba(148, 163, 184, 0.12);
-  padding: 1rem;
+  padding: 1.1rem;
+  background: rgba(2, 6, 23, 0.32);
 }
 
 @media (min-width: 768px) {
   .public-market-metrics {
-    grid-template-columns: 0.7fr 0.7fr 1.4fr;
+    grid-template-columns: 0.75fr 0.75fr 1.5fr;
   }
 }
 
 .public-market-metrics div {
   border: 1px solid rgba(148, 163, 184, 0.12);
   border-radius: 0.5rem;
-  background: rgba(2, 6, 23, 0.44);
-  padding: 0.75rem;
+  background: rgba(2, 6, 23, 0.56);
+  padding: 0.8rem;
 }
 
 .public-market-metrics span {
@@ -2800,9 +2811,9 @@ h6 {
 
 .public-market-metrics strong {
   display: block;
-  margin-top: 0.4rem;
+  margin-top: 0.45rem;
   color: #f8fafc;
-  font-size: 0.95rem;
+  font-size: 0.98rem;
 }
 
 .public-market-action-row {
@@ -3034,8 +3045,7 @@ h6 {
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.5rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 34%),
-    rgba(5, 10, 16, 0.78);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 34%), rgba(5, 10, 16, 0.78);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 20px 54px rgba(0, 0, 0, 0.24);
@@ -3079,8 +3089,7 @@ h6 {
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.5rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 34%),
-    rgba(5, 10, 16, 0.78);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 34%), rgba(5, 10, 16, 0.78);
   padding: clamp(1.15rem, 2vw, 1.55rem);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
@@ -3090,8 +3099,7 @@ h6 {
 .pricing-modern-plan.is-persona-match {
   border-color: rgba(45, 212, 191, 0.34);
   background:
-    linear-gradient(145deg, rgba(45, 212, 191, 0.11), transparent 42%),
-    rgba(5, 10, 16, 0.84);
+    linear-gradient(145deg, rgba(45, 212, 191, 0.11), transparent 42%), rgba(5, 10, 16, 0.84);
 }
 
 .pricing-modern-plan-top {
@@ -3531,30 +3539,39 @@ h6 {
     overflow-x: hidden;
   }
 
+  .public-site-shell {
+    overflow-x: hidden;
+  }
+
+  .public-modern-page {
+    overflow-x: hidden;
+  }
+
   .public-modern-hero {
     max-width: 100vw;
     min-height: auto;
     padding-block: 3.5rem;
+    overflow-x: hidden;
   }
 
   .public-modern-copy,
   .public-modern-copy p,
   .public-modern-copy .mt-8 {
-    width: min(100%, 21.75rem);
-    max-width: 21.75rem;
+    width: min(calc(100vw - 2rem), 21.75rem);
+    max-width: calc(100vw - 2rem);
   }
 
   .public-modern-copy h1,
   .auth-modern-story h1 {
-    width: min(100%, 21.75rem);
-    max-width: 21.75rem;
+    width: min(calc(100vw - 2rem), 21.75rem);
+    max-width: calc(100vw - 2rem);
     font-size: clamp(2rem, 9.4vw, 2.5rem);
     line-height: 1.02;
   }
 
   .public-modern-visual {
-    width: min(100%, 21.75rem);
-    max-width: 21.75rem;
+    width: min(calc(100vw - 2rem), 21.75rem);
+    max-width: calc(100vw - 2rem);
     min-height: 28rem;
   }
 
@@ -3571,6 +3588,20 @@ h6 {
   .auth-readiness-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .public-market-panel {
+    overflow-x: hidden;
+  }
+
+  .public-market-chart {
+    overflow-x: auto;
+    min-height: clamp(14rem, 22vw, 18rem);
+    padding: 0.8rem;
+  }
+
+  .public-market-chart svg {
+    min-width: 100%;
   }
 }
 
@@ -3650,6 +3681,15 @@ h6 {
 @media (max-width: 1023px) {
   .market-illustration-compact {
     max-width: none;
+  }
+
+  .public-market-panel {
+    gap: clamp(1rem, 3vw, 2rem);
+    grid-template-columns: 1fr;
+  }
+
+  .public-market-chart {
+    min-height: clamp(16rem, 28vw, 22rem);
   }
 }
 

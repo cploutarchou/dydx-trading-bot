@@ -3822,18 +3822,6 @@ h6 {
     0 12px 32px rgba(2, 8, 23, 0.18);
 }
 
-.surface-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgb(148, 163, 184);
-  margin-bottom: 0.5rem;
-}
-
 @media (prefers-reduced-motion: reduce) {
   body,
   .animate-fade-slide-up,

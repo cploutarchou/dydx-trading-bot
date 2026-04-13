@@ -1,8 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, LockKeyhole, Users, Workflow } from 'lucide-react';
+import { Activity, ArrowRight, LockKeyhole, ShieldCheck, Users, Workflow } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import { PageContainer } from '../components/PageContainer';
+import {
+  EmptyState,
+  PlatformPageHeader,
+  PlatformPanel,
+  PlatformStatCard,
+} from '../components/ui/PlatformUI';
 import { crmHref } from './crm/paths';
 import { ibPortalHref } from './ib/paths';
 
@@ -31,102 +37,112 @@ export const AdminHubPage = () => {
   });
 
   const modules = overviewQuery.data?.modules ?? [];
+  const pendingApps = summaryQuery.data?.pending_partner_applications ?? 0;
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6">
-        <div className="premium-kicker">Admin Hub</div>
-        <h1 className="mt-2 text-2xl font-semibold text-white">
-          Platform operations command center
-        </h1>
-        <p className="mt-2 text-sm text-slate-400">
-          One place to oversee access, partner growth, CRM flow, and the rest of the platform
-          machinery humming behind the curtain.
-        </p>
-      </div>
+      <PlatformPageHeader
+        kicker="Admin Hub"
+        title="Platform operations command center"
+        description="Oversee access, partner growth, CRM flow, security posture, and high-importance operating surfaces from one controlled workspace."
+        icon={ShieldCheck}
+        actions={[
+          { label: 'Open CRM', href: crmHref('dashboard'), variant: 'secondary' },
+          { label: 'Open IB Portal', href: ibPortalHref('dashboard') },
+        ]}
+      />
 
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          { label: 'Active users', value: summaryQuery.data?.active_users ?? 0, icon: Users },
+          {
+            label: 'Active users',
+            value: summaryQuery.data?.active_users ?? 0,
+            icon: Users,
+            tone: 'accent' as const,
+          },
           {
             label: 'Pending partner apps',
-            value: summaryQuery.data?.pending_partner_applications ?? 0,
+            value: pendingApps,
             icon: Workflow,
+            tone: pendingApps > 0 ? ('warning' as const) : ('success' as const),
           },
-          { label: 'Portal modules', value: modules.length, icon: Activity },
-          { label: 'Security surfaces', value: 3, icon: LockKeyhole },
+          { label: 'Portal modules', value: modules.length, icon: Activity, tone: 'violet' as const },
+          {
+            label: 'Security surfaces',
+            value: 3,
+            icon: LockKeyhole,
+            tone: 'success' as const,
+          },
         ].map((card) => {
-          const Icon = card.icon;
           return (
-            <div
+            <PlatformStatCard
               key={card.label}
-              className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
-            >
-              <div className="flex items-center gap-2 text-slate-300">
-                <Icon className="h-4 w-4 text-cyan-300" /> {card.label}
-              </div>
-              <p className="mt-3 text-2xl font-semibold text-white">{card.value}</p>
-            </div>
+              label={card.label}
+              value={card.value}
+              icon={card.icon}
+              tone={card.tone}
+              loading={summaryQuery.isLoading || overviewQuery.isLoading}
+            />
           );
         })}
       </div>
 
-      <section className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
-        <h2 className="text-lg font-semibold text-white">Role-based workspaces</h2>
-        <p className="mt-1 text-sm text-slate-400">
-          These are the live surfaces the current admin account can jump into.
-        </p>
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {modules.map((module) => (
-            <a
-              key={module.key}
-              href={resolveModuleHref(module.routes[0])}
-              className="rounded-2xl border border-slate-700/60 bg-slate-950/60 p-4 transition hover:border-cyan-500/30 hover:bg-slate-900"
-            >
-              <p className="text-sm font-semibold text-white">{module.title}</p>
-              <p className="mt-2 text-sm text-slate-400">{module.description}</p>
-              <p className="mt-4 text-xs uppercase tracking-[0.16em] text-cyan-300">
-                Open workspace
-              </p>
-            </a>
-          ))}
-        </div>
-      </section>
+      <PlatformPanel
+        title="Role-based workspaces"
+        description="Live surfaces available to the current admin account."
+      >
+        {modules.length === 0 && !overviewQuery.isLoading ? (
+          <EmptyState
+            icon={Activity}
+            title="No modules reported"
+            description="The backend did not return any role-based modules for this account."
+          />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {modules.map((module) => (
+              <a
+                key={module.key}
+                href={resolveModuleHref(module.routes[0])}
+                className="group rounded-lg border border-slate-700/60 bg-slate-950/60 p-4 transition hover:border-cyan-500/30 hover:bg-slate-900"
+              >
+                <p className="text-sm font-semibold text-white">{module.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{module.description}</p>
+                <p className="mt-4 inline-flex items-center gap-1 text-xs font-semibold uppercase text-cyan-300">
+                  Open workspace
+                  <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+                </p>
+              </a>
+            ))}
+          </div>
+        )}
+      </PlatformPanel>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
-          <h2 className="text-lg font-semibold text-white">Operational checklist</h2>
-          <ul className="mt-4 space-y-3 text-sm text-slate-300">
+        <PlatformPanel title="Operational checklist">
+          <ul className="space-y-3 text-sm leading-6 text-slate-300">
             <li>Review partner applications and approve only validated sponsor hierarchies.</li>
             <li>
               Use the CRM desk for backoffice intervention instead of editing records directly.
             </li>
             <li>Keep invitation issuance constrained to named campaigns and monitored usage.</li>
           </ul>
-        </div>
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
-          <h2 className="text-lg font-semibold text-white">Fast access</h2>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <a
-              href={crmHref('dashboard')}
-              className="rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500/30"
-            >
+        </PlatformPanel>
+        <PlatformPanel title="Fast access">
+          <div className="flex flex-wrap gap-2">
+            <a href={crmHref('dashboard')} className="platform-button platform-button-secondary">
               Open CRM
             </a>
             <a
               href={ibPortalHref('dashboard')}
-              className="rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500/30"
+              className="platform-button platform-button-secondary"
             >
               Open IB Portal
             </a>
-            <Link
-              to="/settings"
-              className="rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500/30"
-            >
+            <Link to="/settings" className="platform-button platform-button-secondary">
               Open Settings
             </Link>
           </div>
-        </div>
+        </PlatformPanel>
       </section>
     </PageContainer>
   );

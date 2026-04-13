@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, ShieldCheck, TimerReset, Waves } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ProfitShareIllustration } from '../components/DeFiIllustrations';
@@ -54,24 +54,6 @@ const plans = [
       'Desk-level commercial discussion',
       'Negotiated support model',
     ],
-  },
-];
-
-const principles = [
-  {
-    icon: TimerReset,
-    title: 'Evaluation first',
-    body: 'Users can understand the product before live economics are active.',
-  },
-  {
-    icon: Waves,
-    title: 'Outcome aligned',
-    body: 'Profit share maps the commercial model to realized trading upside.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Clear progression',
-    body: 'Pricing, onboarding, and runtime access move in a clear order.',
   },
 ];
 
@@ -138,6 +120,27 @@ const personaGuides = [
   },
 ] as const;
 
+const trustSignals = [
+  ['No fixed fee to evaluate', 'Start with product fit, not procurement pressure'],
+  ['Performance-aligned live terms', 'Commercial upside follows realized live net profit'],
+  ['Desk rollout clarity', 'Team workflows can move into tailored commercial structure'],
+] as const;
+
+const pricingFaqs = [
+  [
+    'When does the performance share apply?',
+    'Only after live operation produces realized net profit under the performance plan.',
+  ],
+  [
+    'Can a team evaluate before committing?',
+    'Yes. Explorer exists so operators can inspect workflows, security posture, and research quality before live economics.',
+  ],
+  [
+    'What changes for a desk team?',
+    'Desk plans add rollout planning, multi-operator workflow alignment, and negotiated support terms.',
+  ],
+] as const;
+
 const PricingModelPanel: React.FC = () => (
   <div className="pricing-model-panel">
     <div className="pricing-model-header">
@@ -184,212 +187,243 @@ export const PricingPage: React.FC = () => {
 
   return (
     <PublicSiteShell>
-      <section className="pricing-hero public-shell-container">
-        <MotionReveal className="pricing-hero-grid">
-          <div>
-            <div className="surface-label">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Pricing
-            </div>
-            <h1 className="mt-6 max-w-4xl text-4xl font-bold leading-[1.06] text-white sm:text-5xl">
-              Commercial terms designed to feel as clear as the product itself.
-            </h1>
-          </div>
-          <div className="lg:pb-1">
-            <p className="max-w-2xl text-base leading-8 text-slate-300">
-              Evaluate the workspace first, then move into performance-aligned economics when live
-              operation is ready.
-            </p>
-            <p className="mt-3 text-sm text-slate-400">
-              No flat fee to start. Commercial terms activate when live outcomes are real.
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                to="/register"
-                className="premium-button premium-button-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
-              >
-                Start free evaluation
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/services/security"
-                className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
-              >
-                Review onboarding
-              </Link>
-            </div>
+      <div className="public-modern-page">
+        <section className="public-modern-hero public-modern-hero-runtime">
+          <div className="public-modern-container public-modern-hero-grid">
+            <MotionReveal className="public-modern-copy" distancePx={18}>
+              <div className="surface-label">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Pricing
+              </div>
+              <h1>
+                DefiArbitrage pricing built around evidence, live performance, and desk readiness.
+              </h1>
+              <p>
+                Evaluate the workspace first, then move into performance-aligned economics when live
+                operation is ready. No flat fee to start. Commercial terms activate when live
+                outcomes are real.
+              </p>
 
-            <div className="mt-7">
-              <ProfitShareIllustration />
-            </div>
-          </div>
-        </MotionReveal>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  to="/register"
+                  className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
+                >
+                  Start free evaluation
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  to="/services/security"
+                  className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
+                >
+                  Review onboarding
+                </Link>
+              </div>
+            </MotionReveal>
 
-        <MotionReveal delayMs={100} className="mt-12">
-          <div className="interactive-surface rounded-lg">
-            <PricingModelPanel />
-          </div>
-          <div className="pricing-principles-grid mt-6">
-            {principles.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <div key={item.title} className="pricing-principle-item interactive-surface">
-                  <Icon className="h-5 w-5 text-cyan-300" />
-                  <p className="mt-3 text-sm font-semibold text-white">{item.title}</p>
-                  <p className="mt-2 max-w-xs text-xs leading-5 text-slate-400">{item.body}</p>
-                  <p className="mt-3 font-mono text-xs text-slate-600">0{index + 1}</p>
+            <MotionReveal className="public-modern-visual" delayMs={90} distancePx={18}>
+              <div className="public-visual-photo" aria-hidden="true" />
+              <div className="public-visual-terminal">
+                <div className="public-terminal-bar">
+                  <span />
+                  <span />
+                  <span />
+                  <strong>COMMERCIAL DESK</strong>
                 </div>
-              );
-            })}
+                <ProfitShareIllustration />
+              </div>
+              <div className="public-visual-tags">
+                <span>No fixed fee</span>
+                <span>12% net profit share</span>
+                <span>Desk rollout</span>
+              </div>
+            </MotionReveal>
           </div>
-        </MotionReveal>
-      </section>
+        </section>
 
-      <section className="public-shell-container pt-2 pb-8">
-        <MotionReveal className="pricing-persona-panel">
-          <div>
-            <p className="text-[11px] font-semibold uppercase text-slate-500">Plan selector</p>
-            <h2 className="mt-2 text-2xl font-semibold text-white">Which model fits your desk?</h2>
+        <section className="public-modern-container public-proof-strip">
+          {trustSignals.map(([title, body], index) => (
+            <MotionReveal key={title} className="public-proof-item" delayMs={index * 60}>
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <strong>{title}</strong>
+              <p>{body}</p>
+            </MotionReveal>
+          ))}
+        </section>
+
+        <section className="public-modern-band">
+          <div className="public-modern-container public-modern-split">
+            <MotionReveal className="public-modern-section-copy" distancePx={18}>
+              <div className="surface-label">Commercial model</div>
+              <h2>Evaluation before commitment, live economics after proof.</h2>
+              <p>
+                Pricing should feel as clear and operational as the product itself: start with
+                evidence, activate live terms only when live outcomes are measurable, and move desks
+                into tailored rollout when the workflow demands it.
+              </p>
+            </MotionReveal>
+
+            <MotionReveal className="pricing-modern-model" delayMs={90} distancePx={18}>
+              <PricingModelPanel />
+            </MotionReveal>
           </div>
+        </section>
 
-          <div className="pricing-persona-buttons">
-            {personaGuides.map((guide) => (
-              <button
-                key={guide.id}
-                type="button"
-                onClick={() => setActivePersona(guide.id)}
-                className={`pricing-persona-button ${activePersona === guide.id ? 'is-active' : ''}`}
-              >
-                {guide.label}
-              </button>
-            ))}
-          </div>
+        <section className="public-modern-container public-outcome-stage pricing-modern-selector">
+          <MotionReveal className="public-modern-section-copy" distancePx={18}>
+            <div className="surface-label">Plan selector</div>
+            <h2>Which model fits your desk?</h2>
+            <p>{selectedGuide.reason}</p>
+          </MotionReveal>
 
-          <div className="pricing-persona-recommendation">
-            <p className="text-sm text-slate-300">
-              <span className="font-semibold text-white">Recommended:</span>{' '}
-              {selectedGuide.recommendedPlan}
-            </p>
-            <p className="mt-1 text-xs leading-6 text-slate-400">{selectedGuide.reason}</p>
-          </div>
-        </MotionReveal>
-      </section>
+          <MotionReveal className="pricing-persona-panel" delayMs={80}>
+            <div className="pricing-persona-buttons">
+              {personaGuides.map((guide) => (
+                <button
+                  key={guide.id}
+                  type="button"
+                  onClick={() => setActivePersona(guide.id)}
+                  className={`pricing-persona-button ${activePersona === guide.id ? 'is-active' : ''}`}
+                >
+                  {guide.label}
+                </button>
+              ))}
+            </div>
 
-      <section className="pricing-plans-shell">
-        <div className="public-shell-container pricing-plans-list">
-          {plans.map((plan, index) => (
-            <MotionReveal key={plan.name} delayMs={index * 70}>
-              <div
-                className={`pricing-plan-row ${
-                  plan.name === selectedGuide.recommendedPlan ? 'is-persona-match' : ''
-                }`}
-              >
-                <div>
-                  <p className="font-mono text-sm text-cyan-300">0{index + 1}</p>
-                  {plan.featured && (
-                    <p className="mt-3 inline-flex rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-200">
-                      Recommended
-                    </p>
-                  )}
-                  {plan.name === selectedGuide.recommendedPlan && (
-                    <p className="mt-2 inline-flex rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
-                      Best fit for your selection
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold text-white">{plan.name}</p>
-                  <p className="mt-2 text-sm text-slate-400">{plan.audience}</p>
-                  <div className="mt-4 grid gap-2">
-                    <p className="text-xs text-slate-300">
-                      <span className="font-semibold text-slate-100">Activation:</span>{' '}
+            <div className="pricing-persona-recommendation">
+              <p className="text-sm text-slate-300">
+                <span className="font-semibold text-white">Recommended:</span>{' '}
+                {selectedGuide.recommendedPlan}
+              </p>
+              <p className="mt-1 text-xs leading-6 text-slate-400">{selectedGuide.reason}</p>
+            </div>
+          </MotionReveal>
+        </section>
+
+        <section className="public-modern-container pricing-modern-plan-section">
+          <div className="pricing-modern-plan-grid">
+            {plans.map((plan, index) => (
+              <MotionReveal key={plan.name} delayMs={index * 70}>
+                <div
+                  className={`pricing-modern-plan ${
+                    plan.name === selectedGuide.recommendedPlan ? 'is-persona-match' : ''
+                  }`}
+                >
+                  <div className="pricing-modern-plan-top">
+                    <span>0{index + 1}</span>
+                    <div>
+                      {plan.featured && <strong>Recommended</strong>}
+                      {plan.name === selectedGuide.recommendedPlan && <strong>Best fit</strong>}
+                    </div>
+                  </div>
+                  <h3>{plan.name}</h3>
+                  <p className="pricing-modern-audience">{plan.audience}</p>
+                  <div className="pricing-modern-price">
+                    <strong>{plan.price}</strong>
+                    <span>{plan.cadence}</span>
+                  </div>
+                  <p className="pricing-modern-description">{plan.description}</p>
+                  <div className="pricing-modern-meta">
+                    <p>
+                      <span>Activation</span>
                       {plan.activation}
                     </p>
-                    <p className="text-xs text-slate-300">
-                      <span className="font-semibold text-slate-100">Commitment:</span>{' '}
+                    <p>
+                      <span>Commitment</span>
                       {plan.commitment}
                     </p>
                   </div>
-                </div>
-                <div>
-                  <div className="flex items-end gap-2">
-                    <p className="text-4xl font-semibold text-white">{plan.price}</p>
-                    <p className="pb-1 text-sm text-slate-400">{plan.cadence}</p>
-                  </div>
-                  <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400">
-                    {plan.description}
-                  </p>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <div className="pricing-modern-features">
                     {plan.features.map((feature) => (
-                      <div key={feature} className="flex items-start gap-3 text-sm text-slate-300">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                      <div key={feature}>
+                        <CheckCircle2 className="h-4 w-4" />
                         <span>{feature}</span>
                       </div>
                     ))}
                   </div>
+                  <Link
+                    to="/register"
+                    className={`premium-button justify-center px-5 py-3 text-sm font-semibold ${
+                      plan.featured ? 'premium-button-primary text-white' : 'premium-button-secondary'
+                    }`}
+                  >
+                    {plan.name === 'Desk' ? 'Discuss rollout' : 'Start free evaluation'}
+                  </Link>
                 </div>
-                <Link
-                  to="/register"
-                  className={`premium-button justify-center px-5 py-3 text-sm font-semibold lg:self-center ${
-                    plan.featured ? 'premium-button-primary text-white' : 'premium-button-secondary'
-                  }`}
-                >
-                  {plan.name === 'Desk' ? 'Discuss rollout' : 'Start free evaluation'}
-                </Link>
-              </div>
-            </MotionReveal>
-          ))}
-        </div>
-      </section>
-
-      <section className="pricing-compare public-shell-container">
-        <MotionReveal className="grid gap-8 lg:grid-cols-[minmax(0,0.95fr),minmax(22rem,0.65fr)]">
-          <div>
-            <div className="surface-label">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Compare access
-            </div>
-            <h2 className="mt-5 text-3xl font-bold text-white">
-              Clear access levels for evaluation, live operation, and desk rollout.
-            </h2>
+              </MotionReveal>
+            ))}
           </div>
-          <p className="max-w-2xl text-sm leading-7 text-slate-400 lg:pt-10">
-            Start with the lowest commitment path, then move to performance or desk terms when the
-            workflow is ready.
-          </p>
-        </MotionReveal>
+        </section>
 
-        <div className="mt-10">
-          <MotionReveal delayMs={100} className="pricing-compare-table-wrap overflow-x-auto">
-            <table className="min-w-190 w-full text-sm">
-              <thead>
-                <tr className="text-left">
-                  <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Capability</th>
-                  <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Explorer</th>
-                  <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Performance</th>
-                  <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Desk</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparisonRows.map((row) => (
-                  <tr key={row[0]} className="border-t border-stone-800">
-                    {row.map((cell, cellIndex) => (
-                      <td
-                        key={`${row[0]}-${cellIndex}`}
-                        className={`px-4 py-4 ${
-                          cellIndex === 0 ? 'font-medium text-slate-100' : 'text-slate-300'
-                        }`}
-                      >
-                        {cell}
-                      </td>
-                    ))}
+        <section className="public-modern-band pricing-modern-compare">
+          <div className="public-modern-container public-modern-split">
+            <MotionReveal className="public-modern-section-copy" distancePx={18}>
+              <div className="surface-label">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Compare access
+              </div>
+              <h2>Clear access levels for evaluation, live operation, and desk rollout.</h2>
+              <p>
+                Start with the lowest commitment path, then move to performance or desk terms when
+                the workflow is ready.
+              </p>
+            </MotionReveal>
+
+            <MotionReveal delayMs={100} className="pricing-compare-table-wrap overflow-x-auto">
+              <table className="min-w-190 w-full text-sm">
+                <thead>
+                  <tr className="text-left">
+                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Capability</th>
+                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Explorer</th>
+                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Performance</th>
+                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Desk</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {comparisonRows.map((row) => (
+                    <tr key={row[0]} className="border-t border-stone-800">
+                      {row.map((cell, cellIndex) => (
+                        <td
+                          key={`${row[0]}-${cellIndex}`}
+                          className={`px-4 py-4 ${
+                            cellIndex === 0 ? 'font-medium text-slate-100' : 'text-slate-300'
+                          }`}
+                        >
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </MotionReveal>
+          </div>
+        </section>
+
+        <section className="public-modern-container public-outcome-stage pricing-modern-faq">
+          <MotionReveal className="public-modern-section-copy" distancePx={18}>
+            <div className="surface-label">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Pricing FAQ
+            </div>
+            <h2>Straight answers before the first live workflow.</h2>
+            <p>
+              Evaluation, onboarding, and live commercial activation stay intentionally separate so
+              teams always understand the next step.
+            </p>
           </MotionReveal>
-        </div>
-      </section>
+
+          <div className="public-outcome-grid">
+            {pricingFaqs.map(([question, answer], index) => (
+              <MotionReveal key={question} className="public-outcome-modern" delayMs={index * 70}>
+                <span>FAQ {String(index + 1).padStart(2, '0')}</span>
+                <strong>{question}</strong>
+                <p>{answer}</p>
+              </MotionReveal>
+            ))}
+          </div>
+        </section>
+      </div>
     </PublicSiteShell>
   );
 };

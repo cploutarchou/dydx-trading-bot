@@ -65,10 +65,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
           <div className="mt-4 flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/15 text-sm font-semibold text-teal-100">
-              dY
+              DA
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-white">dYdX Arbitrage OS</h1>
+              <h1 className="text-lg font-semibold text-white">DefiArbitrage</h1>
               <p className="text-xs text-slate-500">
                 {t(
                   'Research, backtests, bots, and controls',

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layers3, Search, Sparkles } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { PageContainer } from './PageContainer';
@@ -490,100 +491,104 @@ export default function StrategyLibrary() {
         </div>
       )}
 
-      {runModalOpen && selectedStrategy && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-          <div className="premium-panel w-full max-w-md">
-            <h2 className="text-xl font-bold text-white mb-4">
-              Run Backtest: {selectedStrategy.name}
-            </h2>
+      {runModalOpen &&
+        selectedStrategy &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+            <div className="premium-panel w-full max-w-md">
+              <h2 className="text-xl font-bold text-white mb-4">
+                Run Backtest: {selectedStrategy.name}
+              </h2>
 
-            <div className="workspace-card mb-4 p-4">
-              <p className="mb-2 text-sm text-slate-400">Strategy Parameters:</p>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="text-slate-300">
-                  Z-Score:{' '}
-                  <span className="text-cyan-300">{selectedStrategy.zscore_threshold}</span>
-                </div>
-                <div className="text-slate-300">
-                  Stats Window:{' '}
-                  <span className="text-cyan-300">{selectedStrategy.stats_window}h</span>
-                </div>
-                <div className="text-slate-300">
-                  Max Positions:{' '}
-                  <span className="text-cyan-300">{selectedStrategy.max_positions}</span>
-                </div>
-                <div className="text-slate-300">
-                  USD/Trade:{' '}
-                  <span className="text-cyan-300">${selectedStrategy.usd_per_trade}</span>
-                </div>
-                <div className="text-slate-300">
-                  Max Drawdown:{' '}
-                  <span className="text-cyan-300">{selectedStrategy.max_drawdown_pct}%</span>
-                </div>
-                <div className="text-slate-300">
-                  Stop Loss:{' '}
-                  <span className="text-cyan-300">{selectedStrategy.stop_loss_pct}%</span>
+              <div className="workspace-card mb-4 p-4">
+                <p className="mb-2 text-sm text-slate-400">Strategy Parameters:</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="text-slate-300">
+                    Z-Score:{' '}
+                    <span className="text-cyan-300">{selectedStrategy.zscore_threshold}</span>
+                  </div>
+                  <div className="text-slate-300">
+                    Stats Window:{' '}
+                    <span className="text-cyan-300">{selectedStrategy.stats_window}h</span>
+                  </div>
+                  <div className="text-slate-300">
+                    Max Positions:{' '}
+                    <span className="text-cyan-300">{selectedStrategy.max_positions}</span>
+                  </div>
+                  <div className="text-slate-300">
+                    USD/Trade:{' '}
+                    <span className="text-cyan-300">${selectedStrategy.usd_per_trade}</span>
+                  </div>
+                  <div className="text-slate-300">
+                    Max Drawdown:{' '}
+                    <span className="text-cyan-300">{selectedStrategy.max_drawdown_pct}%</span>
+                  </div>
+                  <div className="text-slate-300">
+                    Stop Loss:{' '}
+                    <span className="text-cyan-300">{selectedStrategy.stop_loss_pct}%</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {runError && (
-              <div className="mb-4 rounded-lg border border-red-500 bg-red-500/10 p-3 text-sm text-red-400">
-                {runError}
+              {runError && (
+                <div className="mb-4 rounded-lg border border-red-500 bg-red-500/10 p-3 text-sm text-red-400">
+                  {runError}
+                </div>
+              )}
+
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={backtestStartDate}
+                    onChange={(e) => setBacktestStartDate(e.target.value)}
+                    className="premium-input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={backtestEndDate}
+                    onChange={(e) => setBacktestEndDate(e.target.value)}
+                    className="premium-input"
+                  />
+                </div>
               </div>
-            )}
 
-            <div className="space-y-3 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Start Date</label>
-                <input
-                  type="date"
-                  value={backtestStartDate}
-                  onChange={(e) => setBacktestStartDate(e.target.value)}
-                  className="premium-input"
-                />
+              <div className="workspace-card mb-4 p-3">
+                <p className="text-xs text-slate-300 mb-2">Request payload preview</p>
+                <pre className="text-[11px] text-slate-400 whitespace-pre-wrap break-all">
+                  {JSON.stringify(buildRunPayload(), null, 2)}
+                </pre>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={backtestEndDate}
-                  onChange={(e) => setBacktestEndDate(e.target.value)}
-                  className="premium-input"
-                />
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void handleExecuteBacktest()}
+                  disabled={runBacktestMutation.isPending}
+                  className="flex-1 rounded border border-emerald-900/15 bg-emerald-700 px-4 py-2 font-medium text-white shadow-sm shadow-emerald-950/10 transition hover:bg-emerald-600 disabled:bg-emerald-700/50"
+                >
+                  {runBacktestMutation.isPending ? 'Running...' : '▶️ Run Backtest'}
+                </button>
+                <button
+                  onClick={() => {
+                    setRunModalOpen(false);
+                    setSelectedStrategy(null);
+                    setRunError(null);
+                  }}
+                  disabled={runBacktestMutation.isPending}
+                  className="flex-1 rounded border border-slate-700/70 bg-slate-900/70 px-4 py-2 font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
-
-            <div className="workspace-card mb-4 p-3">
-              <p className="text-xs text-slate-300 mb-2">Request payload preview</p>
-              <pre className="text-[11px] text-slate-400 whitespace-pre-wrap break-all">
-                {JSON.stringify(buildRunPayload(), null, 2)}
-              </pre>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => void handleExecuteBacktest()}
-                disabled={runBacktestMutation.isPending}
-                className="flex-1 rounded border border-emerald-900/15 bg-emerald-700 px-4 py-2 font-medium text-white shadow-sm shadow-emerald-950/10 transition hover:bg-emerald-600 disabled:bg-emerald-700/50"
-              >
-                {runBacktestMutation.isPending ? 'Running...' : '▶️ Run Backtest'}
-              </button>
-              <button
-                onClick={() => {
-                  setRunModalOpen(false);
-                  setSelectedStrategy(null);
-                  setRunError(null);
-                }}
-                disabled={runBacktestMutation.isPending}
-                className="flex-1 rounded border border-slate-700/70 bg-slate-900/70 px-4 py-2 font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </PageContainer>
   );
 }

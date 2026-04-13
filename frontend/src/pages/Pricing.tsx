@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ProfitShareIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
+import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
 import PublicSiteShell from '../components/PublicSiteShell';
 
 const plans = [
@@ -249,6 +250,16 @@ export const PricingPage: React.FC = () => {
               <p>{body}</p>
             </MotionReveal>
           ))}
+        </section>
+
+        <section className="public-modern-container public-market-section">
+          <MotionReveal distancePx={18}>
+            <PublicMarketPulsePanel
+              eyebrow="Commercial signal"
+              title="Pricing stays tied to route quality, liquidity, and live operating context."
+              description="Use the market view to evaluate where spread, depth, and execution quality support a performance-aligned operating model."
+            />
+          </MotionReveal>
         </section>
 
         <section className="public-modern-band">

@@ -21,6 +21,12 @@
   --workspace-chip-bg: rgba(2, 6, 23, 0.54);
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body,
 #root {
@@ -151,6 +157,15 @@ h6 {
 }
 
 @keyframes telemetryDrift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes publicTickerScroll {
   0% {
     transform: translate3d(0, 0, 0);
   }
@@ -688,6 +703,8 @@ h6 {
 .public-site-shell {
   position: relative;
   isolation: isolate;
+  max-width: 100vw;
+  overflow-x: hidden;
   background: linear-gradient(
     145deg,
     rgba(6, 9, 8, 1) 0%,
@@ -2124,6 +2141,7 @@ h6 {
 
 .public-modern-page {
   position: relative;
+  max-width: 100vw;
   overflow: hidden;
 }
 
@@ -2132,8 +2150,87 @@ h6 {
   transform: none;
 }
 
+.public-market-tape {
+  position: sticky;
+  top: 4rem;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(3, 7, 8, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.public-market-tape-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 2.35rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+  padding-inline: clamp(0.8rem, 2vw, 1.35rem);
+  color: #67e8f9;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-market-tape-window {
+  min-width: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
+}
+
+.public-market-tape-track {
+  display: flex;
+  width: max-content;
+  animation: publicTickerScroll 42s linear infinite;
+}
+
+.public-market-tape:hover .public-market-tape-track {
+  animation-play-state: paused;
+}
+
+.public-market-tape-item {
+  display: inline-flex;
+  min-width: 18rem;
+  align-items: center;
+  gap: 0.72rem;
+  height: 2.35rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.1);
+  padding-inline: 1rem;
+  white-space: nowrap;
+}
+
+.public-market-tape-item strong {
+  color: #f8fafc;
+  font-size: 0.82rem;
+}
+
+.public-market-tape-item span {
+  color: #cbd5e1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+}
+
+.public-market-tape-item em {
+  color: #86efac;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.public-market-tape-item small {
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
 .public-modern-container {
   width: min(100%, 94rem);
+  max-width: 100vw;
   margin-inline: auto;
   padding-inline: clamp(1rem, 3vw, 3.25rem);
 }
@@ -2232,6 +2329,7 @@ h6 {
   display: grid;
   gap: clamp(2.2rem, 5vw, 5.4rem);
   align-items: center;
+  min-width: 0;
 }
 
 @media (min-width: 1024px) {
@@ -2248,6 +2346,13 @@ h6 {
   font-weight: 850;
   letter-spacing: 0;
   line-height: 0.96;
+  overflow-wrap: break-word;
+}
+
+.public-modern-copy {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .public-modern-copy p {
@@ -2260,6 +2365,7 @@ h6 {
 
 .public-modern-visual {
   position: relative;
+  min-width: 0;
   min-height: clamp(26rem, 44vw, 40rem);
 }
 
@@ -2467,6 +2573,253 @@ h6 {
   color: #9aa8ba;
   font-size: 0.88rem;
   line-height: 1.7;
+}
+
+.public-market-section {
+  padding-bottom: clamp(3.5rem, 6vw, 5.5rem);
+}
+
+.public-market-panel {
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 3rem);
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    radial-gradient(circle at 14% 18%, rgba(34, 211, 238, 0.12), transparent 24rem),
+    radial-gradient(circle at 90% 30%, rgba(132, 204, 22, 0.1), transparent 26rem),
+    rgba(5, 10, 16, 0.78);
+  background-size:
+    48px 48px,
+    48px 48px,
+    auto,
+    auto,
+    auto;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 28px 70px rgba(0, 0, 0, 0.28);
+}
+
+@media (min-width: 1024px) {
+  .public-market-panel {
+    grid-template-columns: minmax(20rem, 0.58fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+}
+
+.public-market-panel-copy h2 {
+  max-width: 42rem;
+  margin-top: 1rem;
+  color: #f8fafc;
+  font-size: clamp(1.9rem, 3.6vw, 3.35rem);
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+.public-market-panel-copy p {
+  max-width: 40rem;
+  margin-top: 1rem;
+  color: #a9b6c7;
+  font-size: 0.96rem;
+  line-height: 1.82;
+}
+
+.public-market-pair-grid {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 1.45rem;
+}
+
+@media (min-width: 640px) {
+  .public-market-pair-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.public-market-pair {
+  display: grid;
+  gap: 0.28rem;
+  min-height: 5.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0.5rem;
+  background: rgba(2, 6, 23, 0.46);
+  padding: 0.85rem;
+  text-align: left;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+
+.public-market-pair:hover,
+.public-market-pair.is-active {
+  border-color: rgba(45, 212, 191, 0.36);
+  background: rgba(13, 148, 136, 0.14);
+  transform: translateY(-1px);
+}
+
+.public-market-pair span {
+  color: #67e8f9;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+}
+
+.public-market-pair strong {
+  color: #f8fafc;
+  font-size: 1.05rem;
+}
+
+.public-market-pair em {
+  color: #86efac;
+  font-size: 0.8rem;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.public-market-chart-card {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(180deg, rgba(3, 7, 18, 0.7), rgba(3, 7, 18, 0.9)),
+    rgba(2, 6, 23, 0.52);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 50px rgba(0, 0, 0, 0.28);
+}
+
+.public-market-chart-header,
+.public-market-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 1rem;
+}
+
+.public-market-chart-header span {
+  color: #67e8f9;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-market-chart-header strong {
+  display: block;
+  margin-top: 0.3rem;
+  color: #f8fafc;
+  font-size: 1.2rem;
+}
+
+.public-market-quality {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  border-radius: 0.5rem;
+  background: rgba(13, 148, 136, 0.14);
+  padding: 0.48rem 0.62rem;
+  color: #a7f3d0;
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.public-market-chart {
+  min-height: clamp(17rem, 29vw, 24rem);
+  padding: clamp(1rem, 2.2vw, 1.4rem);
+}
+
+.public-market-chart svg {
+  width: 100%;
+  height: 100%;
+  min-height: clamp(15rem, 25vw, 20rem);
+  overflow: visible;
+}
+
+.public-market-grid-lines line {
+  stroke: rgba(148, 163, 184, 0.12);
+  stroke-width: 1;
+}
+
+.public-market-line {
+  fill: none;
+  stroke: url(#marketPulseLine);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 12px rgba(45, 212, 191, 0.36));
+}
+
+.public-market-chart circle {
+  fill: #06130f;
+  stroke: #67e8f9;
+  stroke-width: 2;
+}
+
+.public-market-chart circle:last-child {
+  stroke: #84cc16;
+}
+
+.public-market-metrics {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 1rem;
+}
+
+@media (min-width: 768px) {
+  .public-market-metrics {
+    grid-template-columns: 0.7fr 0.7fr 1.4fr;
+  }
+}
+
+.public-market-metrics div {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 0.5rem;
+  background: rgba(2, 6, 23, 0.44);
+  padding: 0.75rem;
+}
+
+.public-market-metrics span {
+  display: block;
+  color: #64748b;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-market-metrics strong {
+  display: block;
+  margin-top: 0.4rem;
+  color: #f8fafc;
+  font-size: 0.95rem;
+}
+
+.public-market-action-row {
+  justify-content: flex-start;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  border-bottom: 0;
+  color: #9aa8ba;
+  font-size: 0.82rem;
+}
+
+.public-market-action-row svg {
+  flex-shrink: 0;
+  color: #67e8f9;
+}
+
+.public-market-action-row svg:last-child {
+  margin-left: auto;
 }
 
 .public-modern-band,
@@ -3170,22 +3523,48 @@ h6 {
 }
 
 @media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
   .public-modern-hero {
+    max-width: 100vw;
     min-height: auto;
     padding-block: 3.5rem;
   }
 
+  .public-modern-copy,
+  .public-modern-copy p,
+  .public-modern-copy .mt-8 {
+    width: min(100%, 21.75rem);
+    max-width: 21.75rem;
+  }
+
   .public-modern-copy h1,
   .auth-modern-story h1 {
-    font-size: clamp(2.35rem, 12vw, 3.4rem);
+    width: min(100%, 21.75rem);
+    max-width: 21.75rem;
+    font-size: clamp(2rem, 9.4vw, 2.5rem);
+    line-height: 1.02;
   }
 
   .public-modern-visual {
+    width: min(100%, 21.75rem);
+    max-width: 21.75rem;
     min-height: 28rem;
   }
 
+  .public-visual-terminal {
+    inset: 0.75rem;
+  }
+
   .public-visual-terminal .market-illustration-shell {
-    width: min(90%, 26rem);
+    width: 100%;
+    margin-top: 4.1rem;
   }
 
   .auth-commercial-heading,
@@ -3300,6 +3679,7 @@ h6 {
   .premium-shell::after,
   .auth-panel,
   .telemetry-marquee-track,
+  .public-market-tape-track,
   .premium-button-primary::after,
   .public-site-shell::before,
   .public-site-shell::after,

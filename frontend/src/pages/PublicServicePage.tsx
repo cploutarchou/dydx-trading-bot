@@ -3,6 +3,7 @@ import React from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { ServicePulseIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
+import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
 import PublicSiteShell from '../components/PublicSiteShell';
 import { servicePages } from '../content/publicSite';
 
@@ -152,6 +153,16 @@ export const PublicServicePage: React.FC = () => {
               <p>{body}</p>
             </MotionReveal>
           ))}
+        </section>
+
+        <section className="public-modern-container public-market-section">
+          <MotionReveal distancePx={18}>
+            <PublicMarketPulsePanel
+              eyebrow={`${page.navLabel} market context`}
+              title="Pair movement, spread, and route quality stay visible beside the workflow."
+              description={`Use market context to connect ${page.navLabel.toLowerCase()} decisions with liquidity, execution quality, and operator timing.`}
+            />
+          </MotionReveal>
         </section>
 
         <section className="public-modern-band">

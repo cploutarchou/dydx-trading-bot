@@ -116,7 +116,8 @@ export const PublicMarketPulsePanel: React.FC<PublicMarketPulsePanelProps> = ({
   title = 'Route quality, spread, and depth stay visible before live action.',
   description = 'Scan the pairs that matter, compare spread discipline, and keep route context close to every evaluation path.',
 }) => {
-  const [activeSymbol, setActiveSymbol] = useState<(typeof marketRows)[number]['symbol']>('ETH/USDC');
+  const [activeSymbol, setActiveSymbol] =
+    useState<(typeof marketRows)[number]['symbol']>('ETH/USDC');
   const activeMarket = useMemo(
     () => marketRows.find((market) => market.symbol === activeSymbol) ?? marketRows[0],
     [activeSymbol]
@@ -189,7 +190,14 @@ export const PublicMarketPulsePanel: React.FC<PublicMarketPulsePanelProps> = ({
               const normalized = max === min ? 0.5 : (point - min) / (max - min);
               const x = index * (500 / (activeMarket.points.length - 1));
               const y = 190 - normalized * 190 + 12;
-              return <circle key={`${point}-${index}`} cx={x} cy={y} r={index === activeMarket.points.length - 1 ? 5 : 3} />;
+              return (
+                <circle
+                  key={`${point}-${index}`}
+                  cx={x}
+                  cy={y}
+                  r={index === activeMarket.points.length - 1 ? 5 : 3}
+                />
+              );
             })}
           </svg>
         </div>
@@ -204,14 +212,14 @@ export const PublicMarketPulsePanel: React.FC<PublicMarketPulsePanelProps> = ({
             <strong>{activeMarket.depth}</strong>
           </div>
           <div>
-            <span>Route</span>
-            <strong>{activeMarket.route}</strong>
+            <span>Route intelligence</span>
+            <strong className="text-cyan-300">{activeMarket.route}</strong>
           </div>
         </div>
 
         <div className="public-market-action-row">
           <BarChart3 className="h-4 w-4" />
-          <span>Illustrative desk feed for route evaluation</span>
+          <span>Illustrative market feed for route evaluation</span>
           <ArrowUpRight className="h-4 w-4" />
         </div>
       </div>

@@ -3,6 +3,7 @@ import React from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { ServicePulseIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
+import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
 import PublicSiteShell from '../components/PublicSiteShell';
 import { servicePages } from '../content/publicSite';
 
@@ -103,194 +104,155 @@ export const PublicServicePage: React.FC = () => {
 
   return (
     <PublicSiteShell>
-      <section className="public-shell-container space-y-4 py-4 md:space-y-5 md:py-8">
-        <MotionReveal
-          className="public-hero-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5 sm:p-6"
-          distancePx={18}
-        >
-          <div className="surface-label">
-            <Sparkles className="h-3.5 w-3.5" />
-            {page.kicker}
-          </div>
-          <h1 className="mt-3 text-2xl font-semibold text-white sm:text-4xl">{page.title}</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400 sm:leading-7">{page.heroIntro}</p>
-
-          <div className="public-actions-row mt-6 flex flex-col gap-3 sm:flex-row">
-            <Link
-              to="/register"
-              className="premium-button premium-button-primary public-cta-primary w-full justify-center px-6 py-3 text-sm font-semibold text-white sm:w-auto"
-            >
-              Start free evaluation
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              to="/pricing"
-              className="premium-button premium-button-secondary w-full justify-center px-6 py-3 text-sm font-medium sm:w-auto"
-            >
-              View pricing
-            </Link>
-          </div>
-        </MotionReveal>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          {page.heroStats.slice(0, 3).map(([label, body], index) => (
-            <MotionReveal
-              key={label}
-              delayMs={index * 60}
-              className="public-metric-card rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
-            >
-              <p className="text-[11px] font-semibold uppercase text-slate-500">{label}</p>
-              <p className="mt-2 text-sm leading-6 text-slate-300">{body}</p>
+      <div className="public-modern-page">
+        <section className={`public-modern-hero public-modern-hero-${serviceVariant}`}>
+          <div className="public-modern-container public-modern-hero-grid">
+            <MotionReveal className="public-modern-copy" distancePx={18}>
+              <div className="surface-label">
+                <Sparkles className="h-3.5 w-3.5" />
+                {page.kicker}
+              </div>
+              <h1>{page.title}</h1>
+              <p>{page.heroIntro}</p>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link to="/register" className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white">
+                  Start free evaluation
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link to="/pricing" className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium">
+                  View pricing
+                </Link>
+              </div>
             </MotionReveal>
-          ))}
-        </div>
-      </section>
 
-      <section className="public-shell-container pb-8">
-        <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
-          <MotionReveal
-            className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
-            distancePx={18}
-          >
-            <h2 className="text-lg font-semibold text-white">Core capabilities</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Practical capabilities this service layer adds to your operator workflow.
-            </p>
-
-            <div className="mt-4 space-y-3">
-              {page.corePoints.map((point, index) => (
-                <div
-                  key={point.title}
-                  className="public-tile-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
-                >
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                    0{index + 1}
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-white">{point.title}</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-400">{point.body}</p>
+            <MotionReveal className="public-modern-visual" delayMs={90} distancePx={18}>
+              <div className="public-visual-photo" aria-hidden="true" />
+              <div className="public-visual-terminal">
+                <div className="public-terminal-bar">
+                  <span />
+                  <span />
+                  <span />
+                  <strong>{page.navLabel.toUpperCase()} DESK</strong>
                 </div>
-              ))}
-            </div>
-          </MotionReveal>
-
-          <MotionReveal
-            className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
-            delayMs={120}
-            distancePx={18}
-          >
-            <ServicePulseIllustration variant={serviceVariant} />
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {serviceVisualTags.map((tag) => (
-                <span key={tag} className="data-chip">
-                  <span className="h-2 w-2 rounded-full bg-cyan-300" />
-                  {tag}
-                </span>
-              ))}
-            </div>
-
-            {isSecurityPage && (
-              <div className="mt-5 space-y-3">
-                {securityReadinessSteps.map((step, index) => (
-                  <div
-                    key={step.title}
-                    className="public-tile-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                      Readiness 0{index + 1}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-white">{step.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">{step.body}</p>
-                  </div>
+                <ServicePulseIllustration variant={serviceVariant} />
+              </div>
+              <div className="public-visual-tags">
+                {serviceVisualTags.map((tag) => (
+                  <span key={tag}>{tag}</span>
                 ))}
               </div>
-            )}
-          </MotionReveal>
-        </div>
-      </section>
-
-      <section className="public-shell-container pb-8">
-        <MotionReveal
-          className="public-section-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
-          distancePx={18}
-        >
-          <div className="surface-label">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Operator outcomes
+            </MotionReveal>
           </div>
-          <h2 className="mt-3 text-2xl font-semibold text-white">{outcomesHeadline}</h2>
-          <p className="mt-2 text-sm leading-7 text-slate-400">{outcomesIntro}</p>
+        </section>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {outcomeCards.map((item) => (
-              <div
-                key={item.stage + item.detail}
-                className="public-outcome-card rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
-              >
-                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                  {item.stage}
-                </p>
-                <p className="mt-1 text-sm font-semibold text-white">{item.detail}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-400">{item.note}</p>
-              </div>
-            ))}
-          </div>
-        </MotionReveal>
-      </section>
-
-      <section className="public-shell-container pb-8">
-        <div className="grid gap-6 lg:grid-cols-2">
-          {page.operatorNotes.map((note, index) => (
-            <MotionReveal
-              key={note.label}
-              delayMs={index * 70}
-              className="public-note-card rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
-            >
-              <p className="text-[11px] font-semibold uppercase text-slate-500">{note.label}</p>
-              <p className="mt-3 text-sm leading-7 text-slate-300">{note.body}</p>
+        <section className="public-modern-container public-proof-strip">
+          {page.heroStats.slice(0, 3).map(([label, body], index) => (
+            <MotionReveal key={label} delayMs={index * 50} className="public-proof-item">
+              <span>0{index + 1}</span>
+              <strong>{label}</strong>
+              <p>{body}</p>
             </MotionReveal>
           ))}
-        </div>
-      </section>
+        </section>
 
-      <section className="public-shell-container pb-10">
-        <MotionReveal
-          className="public-section-panel public-cta-panel rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6"
-          distancePx={18}
-        >
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr),auto] lg:items-center">
+        <section className="public-modern-container public-market-section">
+          <MotionReveal distancePx={18}>
+            <PublicMarketPulsePanel
+              eyebrow={`${page.navLabel} market context`}
+              title="Pair movement, spread, and route quality stay visible beside the workflow."
+              description={`Use market context to connect ${page.navLabel.toLowerCase()} decisions with liquidity, execution quality, and operator timing.`}
+            />
+          </MotionReveal>
+        </section>
+
+        <section className="public-modern-band">
+          <div className="public-modern-container public-modern-split">
+            <MotionReveal className="public-modern-section-copy" distancePx={18}>
+              <div className="surface-label">Capability layer</div>
+              <h2>Built to make the next operating decision obvious.</h2>
+              <p>
+                The public page should explain the platform quickly, then move the user toward
+                evaluation with confidence. This layer turns {page.navLabel.toLowerCase()} into a
+                clear operational promise instead of a generic feature list.
+              </p>
+            </MotionReveal>
+
+            <div className="public-capability-grid">
+              {page.corePoints.map((point, index) => (
+                <MotionReveal key={point.title} delayMs={index * 70} className="public-capability-card">
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <h3>{point.title}</h3>
+                  <p>{point.body}</p>
+                </MotionReveal>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {isSecurityPage && (
+          <section className="public-modern-container public-readiness-rail">
+            {securityReadinessSteps.map((step, index) => (
+              <MotionReveal key={step.title} delayMs={index * 60} className="public-readiness-step">
+                <span>Readiness 0{index + 1}</span>
+                <strong>{step.title}</strong>
+                <p>{step.body}</p>
+              </MotionReveal>
+            ))}
+          </section>
+        )}
+
+        <section className="public-modern-container public-outcome-stage">
+          <MotionReveal className="public-modern-section-copy" distancePx={18}>
+            <div className="surface-label">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Operator outcomes
+            </div>
+            <h2>{outcomesHeadline}</h2>
+            <p>{outcomesIntro}</p>
+          </MotionReveal>
+
+          <div className="public-outcome-grid">
+            {outcomeCards.map((item, index) => (
+              <MotionReveal key={item.stage + item.detail} delayMs={index * 70} className="public-outcome-modern">
+                <span>{item.stage}</span>
+                <strong>{item.detail}</strong>
+                <p>{item.note}</p>
+              </MotionReveal>
+            ))}
+          </div>
+        </section>
+
+        <section className="public-modern-container public-note-row">
+          {page.operatorNotes.map((note, index) => (
+            <MotionReveal key={note.label} delayMs={index * 70} className="public-note-modern">
+              <span>{note.label}</span>
+              <p>{note.body}</p>
+            </MotionReveal>
+          ))}
+        </section>
+
+        <section className="public-modern-container public-modern-cta">
+          <MotionReveal className="public-modern-cta-inner" distancePx={18}>
             <div>
               <div className="surface-label">
                 <ShieldCheck className="h-4 w-4" />
                 Continue the journey
               </div>
-              <h2 className="mt-3 text-2xl font-semibold text-white">
-                Continue from {page.navLabel.toLowerCase()} into evaluation.
-              </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">
-                Review pricing, create an account, and complete security onboarding before live
-                access.
-              </p>
+              <h2>Continue from {page.navLabel.toLowerCase()} into evaluation.</h2>
+              <p>Review pricing, create an account, and complete security onboarding before live access.</p>
             </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
-              <Link
-                to="/pricing"
-                className="premium-button premium-button-secondary w-full justify-center px-6 py-3 text-sm font-medium sm:w-auto"
-              >
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link to="/pricing" className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium">
                 View pricing
               </Link>
-              <Link
-                to="/register"
-                className="premium-button premium-button-primary public-cta-primary w-full justify-center px-6 py-3 text-sm font-semibold text-white sm:w-auto"
-              >
+              <Link to="/register" className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white">
                 Start free evaluation
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-          </div>
-        </MotionReveal>
-      </section>
+          </MotionReveal>
+        </section>
+      </div>
     </PublicSiteShell>
   );
 };

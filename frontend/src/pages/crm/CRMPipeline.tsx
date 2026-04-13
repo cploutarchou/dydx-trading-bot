@@ -1,16 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Workflow } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import api, { type PartnerApplication } from '../../api';
 import { useToastStore } from '../../components/ErrorBoundary';
 import { PageContainer } from '../../components/PageContainer';
-
-const statusTone: Record<string, string> = {
-  pending: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
-  reviewing: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
-  approved: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
-  rejected: 'border-red-500/30 bg-red-500/10 text-red-200',
-};
+import {
+  EmptyState,
+  PlatformPageHeader,
+  StatusBadge,
+  toneForStatus,
+} from '../../components/ui/PlatformUI';
 
 const formatDateTime = (value?: string) => {
   if (!value) return '—';
@@ -84,24 +83,18 @@ export const CRMPipeline = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      {/* Header */}
-      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6">
-        <div className="premium-kicker">Application pipeline</div>
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-white">Partner application queue</h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Move requests through pending → reviewing → approved/rejected. Each action is
-              timestamped and persisted with review notes.
-            </p>
-          </div>
-          {applicationsQuery.isFetching && (
+      <PlatformPageHeader
+        kicker="Application pipeline"
+        title="Partner application queue"
+        description="Move requests through pending, reviewing, approved, and rejected states. Each action is persisted with review notes for auditability."
+        icon={Workflow}
+        meta={
+          applicationsQuery.isFetching ? (
             <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-          )}
-        </div>
-      </div>
+          ) : null
+        }
+      />
 
-      {/* Status filter tabs */}
       <div className="flex flex-wrap gap-2">
         {(['all', 'pending', 'reviewing', 'approved', 'rejected'] as const).map((s) => (
           <button
@@ -119,28 +112,26 @@ export const CRMPipeline = () => {
         ))}
       </div>
 
-      {/* Application cards */}
       {applicationsQuery.isLoading ? (
         <div className="flex items-center gap-2 text-slate-400">
-          <Loader2 className="h-5 w-5 animate-spin" /> Loading applications…
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading applications...
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-700/60 bg-slate-950/40 p-12 text-center">
-          <p className="text-sm font-medium text-slate-300">
-            {statusFilter === 'all' ? 'Queue is clear' : `No ${statusFilter} applications`}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {statusFilter === 'all'
+        <EmptyState
+          icon={Workflow}
+          title={statusFilter === 'all' ? 'Queue is clear' : `No ${statusFilter} applications`}
+          description={
+            statusFilter === 'all'
               ? 'Applications appear here as soon as users submit upgrade requests.'
-              : 'Change the filter above to see other applications.'}
-          </p>
-        </div>
+              : 'Change the filter above to see other applications.'
+          }
+        />
       ) : (
         <div className="space-y-4">
           {filtered.map((app) => (
             <div
               key={app.id}
-              className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5"
+              className="platform-panel p-5"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -153,11 +144,7 @@ export const CRMPipeline = () => {
                     <span className="uppercase">{app.requested_role}</span>
                   </p>
                 </div>
-                <span
-                  className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] ${statusTone[app.status] ?? 'border-slate-600 bg-slate-700/40 text-slate-300'}`}
-                >
-                  {app.status}
-                </span>
+                <StatusBadge tone={toneForStatus(app.status)}>{app.status}</StatusBadge>
               </div>
 
               <div className="mt-3 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
@@ -190,7 +177,7 @@ export const CRMPipeline = () => {
                     onClick={() =>
                       reviewMutation.mutate({ applicationId: app.id, status: buildNextStatus(app) })
                     }
-                    className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:opacity-60"
+                    className="platform-button platform-button-secondary text-cyan-200 disabled:opacity-60"
                   >
                     Mark reviewing
                   </button>
@@ -202,7 +189,7 @@ export const CRMPipeline = () => {
                     onClick={() =>
                       reviewMutation.mutate({ applicationId: app.id, status: 'approved' })
                     }
-                    className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-60"
+                    className="platform-button platform-button-secondary text-emerald-200 disabled:opacity-60"
                   >
                     Approve
                   </button>
@@ -214,7 +201,7 @@ export const CRMPipeline = () => {
                     onClick={() =>
                       reviewMutation.mutate({ applicationId: app.id, status: 'rejected' })
                     }
-                    className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-200 transition hover:bg-red-500/20 disabled:opacity-60"
+                    className="platform-button platform-button-secondary text-red-200 disabled:opacity-60"
                   >
                     Reject
                   </button>

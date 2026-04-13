@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Clock3,
   GitBranch,
-  Loader2,
   Network,
   Shield,
   Users,
@@ -15,6 +14,12 @@ import {
 import { Link } from 'react-router-dom';
 import api from '../../api';
 import { PageContainer } from '../../components/PageContainer';
+import {
+  PlatformPageHeader,
+  PlatformPanel,
+  PlatformStatCard,
+  StatusBadge,
+} from '../../components/ui/PlatformUI';
 import { crmPath } from './paths';
 
 const formatCurrency = (value?: number) => {
@@ -103,18 +108,16 @@ export const CRMDashboard = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      {/* Header */}
-      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6">
-        <div className="premium-kicker">CRM Backoffice</div>
-        <h1 className="mt-2 text-2xl font-semibold text-white">Client relationship dashboard</h1>
-        <p className="mt-2 text-sm text-slate-400">
-          Overview of active users, partner onboarding, sponsor networks, and commission data.
-        </p>
-      </div>
+      <PlatformPageHeader
+        kicker="CRM Backoffice"
+        title="Client relationship dashboard"
+        description="Monitor active users, partner onboarding, sponsor networks, commissions, and security posture in one operating view."
+        icon={Users}
+        actions={[{ label: 'Review pipeline', to: crmPath('pipeline') }]}
+      />
 
-      {/* Pending alert */}
       {isPending && (
-        <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+        <div className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
           <AlertCircle className="h-5 w-5 shrink-0 text-amber-300" />
           <div className="flex-1">
             <p className="text-sm font-medium text-amber-200">
@@ -127,67 +130,65 @@ export const CRMDashboard = () => {
           </div>
           <Link
             to={crmPath('pipeline')}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-500/20"
+            className="platform-button platform-button-secondary shrink-0 text-amber-200"
           >
             Review now <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
       )}
 
-      {/* Stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-        {statCards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <div
-              key={card.label}
-              className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4"
-            >
-              <div className="flex items-center gap-2 text-sm text-slate-400">
-                <Icon className={`h-4 w-4 ${card.color}`} />
-                {card.label}
-              </div>
-              <p className="mt-3 text-2xl font-semibold text-white">
-                {summaryQuery.isLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-slate-500" />
-                ) : (
-                  card.value
-                )}
-              </p>
-            </div>
-          );
-        })}
+        {statCards.map((card) => (
+          <PlatformStatCard
+            key={card.label}
+            label={card.label}
+            value={card.value}
+            icon={card.icon}
+            loading={summaryQuery.isLoading}
+            tone={
+              card.label === 'Net commissions'
+                ? 'warning'
+                : card.label === 'IBs' || card.label === 'Sub-IBs'
+                  ? 'success'
+                  : card.label === 'Hierarchy edges'
+                    ? 'violet'
+                    : 'accent'
+            }
+          />
+        ))}
       </div>
 
-      {/* Quick links */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {quickLinks.map((link) => {
-          const Icon = link.icon;
-          return (
-            <Link
-              key={link.to}
-              to={link.to}
-              className={`group flex items-start gap-4 rounded-2xl border p-5 transition ${link.color}`}
-            >
-              <div className="mt-0.5 shrink-0">
-                <Icon className={`h-5 w-5 ${link.color.split(' ')[0]}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-white">{link.label}</p>
-                  {'badge' in link && link.badge > 0 && (
-                    <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">
-                      {link.badge}
-                    </span>
-                  )}
+      <PlatformPanel
+        title="Backoffice workflows"
+        description="High-traffic CRM paths grouped by the decisions operators need to make."
+      >
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {quickLinks.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Link
+                key={link.to}
+                to={link.to}
+                className={`group flex items-start gap-4 rounded-lg border p-5 transition ${link.color}`}
+              >
+                <div className="mt-0.5 shrink-0">
+                  <Icon className={`h-5 w-5 ${link.color.split(' ')[0]}`} />
                 </div>
-                <p className="mt-1 text-xs text-slate-400">{link.description}</p>
-              </div>
-              <ArrowRight className="h-4 w-4 shrink-0 translate-x-0 text-slate-600 transition-transform group-hover:translate-x-1" />
-            </Link>
-          );
-        })}
-      </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-white">{link.label}</p>
+                    {'badge' in link && link.badge > 0 && (
+                      <StatusBadge tone="warning">{link.badge}</StatusBadge>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">{link.description}</p>
+                </div>
+                <ArrowRight className="h-4 w-4 shrink-0 translate-x-0 text-slate-600 transition-transform group-hover:translate-x-1" />
+              </Link>
+            );
+          })}
+        </div>
+      </PlatformPanel>
     </PageContainer>
   );
 };

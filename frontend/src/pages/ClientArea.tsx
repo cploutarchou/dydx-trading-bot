@@ -5,19 +5,20 @@ import api from '../api';
 import { getUserWorkspaceRole } from '../auth/roles';
 import { useToastStore } from '../components/ErrorBoundary';
 import { PageContainer } from '../components/PageContainer';
+import {
+  EmptyState,
+  PlatformPageHeader,
+  PlatformPanel,
+  PlatformStatCard,
+  StatusBadge,
+  toneForStatus,
+} from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 
 const formatDateTime = (value?: string) => {
   if (!value) return '—';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString();
-};
-
-const statusTone: Record<string, string> = {
-  pending: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
-  reviewing: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
-  approved: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
-  rejected: 'border-red-500/30 bg-red-500/10 text-red-200',
 };
 
 export const ClientAreaPage = () => {
@@ -81,60 +82,58 @@ export const ClientAreaPage = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-6">
-        <div className="premium-kicker">Client Area</div>
-        <h1 className="mt-2 text-2xl font-semibold text-white">
-          Account progression and partner onboarding
-        </h1>
-        <p className="mt-2 text-sm text-slate-400">
-          Track your current workspace access, submit upgrade requests, and monitor every review
-          without chasing support tickets into the void.
-        </p>
-      </div>
+      <PlatformPageHeader
+        kicker="Client Area"
+        title="Account progression and partner onboarding"
+        description="Track workspace access, request partner upgrades, and keep every review step visible without support-ticket guesswork."
+        icon={ShieldCheck}
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4">
-          <div className="flex items-center gap-2 text-slate-300">
-            <ShieldCheck className="h-4 w-4 text-cyan-300" /> Current Role
-          </div>
-          <p className="mt-3 text-2xl font-semibold uppercase tracking-[0.14em] text-white">
-            {overview?.role || role}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4">
-          <div className="flex items-center gap-2 text-slate-300">
-            <ArrowUpRight className="h-4 w-4 text-emerald-300" /> Pending Requests
-          </div>
-          <p className="mt-3 text-2xl font-semibold text-white">
-            {
-              applications.filter(
-                (item) => item.status === 'pending' || item.status === 'reviewing'
-              ).length
-            }
-          </p>
-        </div>
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4">
-          <div className="flex items-center gap-2 text-slate-300">
-            <Building2 className="h-4 w-4 text-violet-300" /> Available Modules
-          </div>
-          <p className="mt-3 text-2xl font-semibold text-white">{overview?.modules?.length ?? 0}</p>
-        </div>
+        <PlatformStatCard
+          label="Current role"
+          value={<span className="uppercase">{overview?.role || role}</span>}
+          icon={ShieldCheck}
+          tone="accent"
+          loading={overviewQuery.isLoading}
+          detail="Access profile currently active for this account."
+        />
+        <PlatformStatCard
+          label="Pending requests"
+          value={
+            applications.filter(
+              (item) => item.status === 'pending' || item.status === 'reviewing'
+            ).length
+          }
+          icon={ArrowUpRight}
+          tone="success"
+          loading={applicationsQuery.isLoading}
+          detail="Applications waiting for backoffice action."
+        />
+        <PlatformStatCard
+          label="Available modules"
+          value={overview?.modules?.length ?? 0}
+          icon={Building2}
+          tone="violet"
+          loading={overviewQuery.isLoading}
+          detail="Workspace surfaces available to this role."
+        />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
-        <section className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
-          <h2 className="text-lg font-semibold text-white">Promotion / partner application</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Apply for role upgrades with business context and, if relevant, a sponsor chain.
-          </p>
-
+        <PlatformPanel
+          title="Promotion / partner application"
+          description="Submit role upgrades with business context and, when relevant, a sponsor chain."
+        >
           {applicationOptions.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-950/60 p-4 text-sm text-slate-400">
-              Your current role already has the highest client-side access available in this portal.
-            </div>
+            <EmptyState
+              icon={ShieldCheck}
+              title="No upgrade request needed"
+              description="Your current role already has the highest client-side access available in this portal."
+            />
           ) : (
             <>
-              <div className="mt-4 space-y-3">
+              <div className="space-y-3">
                 <select
                   value={requestedRole}
                   onChange={(event) => setRequestedRole(event.target.value as 'ib' | 'sub_ib')}
@@ -171,7 +170,7 @@ export const ClientAreaPage = () => {
                 type="button"
                 onClick={() => submitMutation.mutate()}
                 disabled={submitMutation.isPending}
-                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+                className="platform-button platform-button-primary mt-5 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -182,28 +181,28 @@ export const ClientAreaPage = () => {
               </button>
             </>
           )}
-        </section>
+        </PlatformPanel>
 
-        <section className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
-          <h2 className="text-lg font-semibold text-white">Application timeline</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Every role request, review note, and status change in one neat audit trail.
-          </p>
-
+        <PlatformPanel
+          title="Application timeline"
+          description="Every role request, review note, and status change in one audit trail."
+        >
           {applicationsQuery.isLoading ? (
-            <div className="mt-4 flex items-center gap-2 text-slate-300">
+            <div className="flex items-center gap-2 text-slate-300">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading applications...
             </div>
           ) : applications.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-950/60 p-4 text-sm text-slate-400">
-              No applications submitted yet.
-            </div>
+            <EmptyState
+              icon={Send}
+              title="No applications submitted"
+              description="Submitted upgrade requests will appear here with review state and backoffice notes."
+            />
           ) : (
-            <div className="mt-4 space-y-3">
+            <div className="space-y-3">
               {applications.map((application) => (
                 <div
                   key={application.id}
-                  className="rounded-xl border border-slate-700/60 bg-slate-950/60 p-4"
+                  className="rounded-lg border border-slate-700/60 bg-slate-950/60 p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -214,11 +213,9 @@ export const ClientAreaPage = () => {
                         Requested role: {application.requested_role}
                       </p>
                     </div>
-                    <span
-                      className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] ${statusTone[application.status] || 'border-slate-600 bg-slate-700/40 text-slate-300'}`}
-                    >
+                    <StatusBadge tone={toneForStatus(application.status)}>
                       {application.status}
-                    </span>
+                    </StatusBadge>
                   </div>
                   <p className="mt-3 text-sm text-slate-300">
                     {application.notes || 'No application notes provided.'}
@@ -247,7 +244,7 @@ export const ClientAreaPage = () => {
               ))}
             </div>
           )}
-        </section>
+        </PlatformPanel>
       </div>
     </PageContainer>
   );

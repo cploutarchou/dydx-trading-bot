@@ -127,7 +127,6 @@ export const App: React.FC = () => {
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
   const toastWarning = useToastStore((state) => state.warning);
-  const theme = useUIPreferencesStore((state) => state.theme);
   const language = useUIPreferencesStore((state) => state.language);
 
   useEffect(() => {
@@ -135,9 +134,9 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-theme', 'dark');
     document.documentElement.setAttribute('lang', language === 'el' ? 'el' : 'en');
-  }, [theme, language]);
+  }, [language]);
 
   useEffect(() => {
     let cancelled = false;

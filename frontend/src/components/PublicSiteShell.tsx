@@ -1,8 +1,7 @@
-import { Activity, ArrowRight, Menu, Moon, ShieldCheck, Sun, Waypoints, X } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, ArrowRight, Menu, ShieldCheck, Waypoints, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getPrimaryCta, publicNavItems } from '../content/publicSite';
-import { useUIPreferencesStore } from '../store/uiPreferences';
 
 interface PublicSiteShellProps {
   children: React.ReactNode;
@@ -10,18 +9,16 @@ interface PublicSiteShellProps {
 }
 
 const trustIndicators = [
-  { icon: Activity, label: 'Realtime operator telemetry' },
+  { icon: Activity, label: 'Realtime arbitrage telemetry' },
   { icon: ShieldCheck, label: 'Security-first onboarding' },
   { icon: Waypoints, label: 'Research-to-runtime workflow' },
 ];
 
 const conversionTrustRows = [
-  ['Free start', 'Evaluate the workflow before any live commercial step'],
+  ['Evidence first', 'Evaluate strategy quality before live commercial commitment'],
   ['Secure onboarding', 'Account readiness and 2FA posture before runtime controls'],
   ['Operator clarity', 'Research, pricing, and runtime path explained in one flow'],
 ] as const;
-
-const PUBLIC_THEME_KEY = 'ui.publicTheme';
 
 export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
   children,
@@ -29,30 +26,6 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const theme = useUIPreferencesStore((state) => state.theme);
-  const setTheme = useUIPreferencesStore((state) => state.setTheme);
-  const toggleTheme = useUIPreferencesStore((state) => state.toggleTheme);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const storedPublicTheme = window.localStorage.getItem(PUBLIC_THEME_KEY);
-    if (storedPublicTheme !== 'dark' && storedPublicTheme !== 'light') {
-      setTheme('dark');
-      window.localStorage.setItem(PUBLIC_THEME_KEY, 'dark');
-      return;
-    }
-    if (storedPublicTheme !== theme) {
-      setTheme(storedPublicTheme);
-    }
-  }, [setTheme, theme]);
-
-  const handleToggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(PUBLIC_THEME_KEY, nextTheme);
-    }
-    toggleTheme();
-  };
 
   const primaryCta = useMemo(() => getPrimaryCta(location.pathname), [location.pathname]);
 
@@ -65,12 +38,12 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
         <div className="public-shell-container flex min-h-14 items-center justify-between gap-2.5 py-2 sm:min-h-16 sm:gap-3 sm:py-2.5">
           <Link to="/" className="group flex items-center gap-2.5 sm:gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/12 text-sm font-semibold text-teal-100 transition duration-300 group-hover:border-teal-200/50 sm:h-10 sm:w-10">
-              dY
+              DA
             </div>
             <div>
-              <p className="text-[13px] font-semibold text-white sm:text-sm">dYdX Arbitrage OS</p>
+              <p className="text-[13px] font-semibold text-white sm:text-sm">DefiArbitrage</p>
               <p className="text-[10px] uppercase text-slate-500 sm:text-[11px]">
-                DeFi operator platform
+                Crypto intelligence platform
               </p>
             </div>
           </Link>
@@ -95,15 +68,6 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
           </nav>
 
           <div className="hidden items-center gap-2.5 lg:flex">
-            <button
-              type="button"
-              onClick={handleToggleTheme}
-              className="premium-button premium-button-secondary px-3 py-2 text-sm"
-              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            >
-              {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              {theme === 'dark' ? 'Dark' : 'Light'}
-            </button>
             <div className="workspace-chip border-emerald-400/20 text-emerald-200">
               <span className="pulse-ring relative flex h-2.5 w-2.5 items-center justify-center">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
@@ -165,17 +129,10 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleToggleTheme}
-                  className="rounded-lg border border-stone-800 bg-stone-950 px-4 py-3 text-center text-sm text-slate-200"
-                >
-                  {theme === 'dark' ? 'Dark mode' : 'Light mode'}
-                </button>
                 <Link
                   to="/login"
                   onClick={closeMobile}
-                  className="rounded-lg border border-stone-800 bg-stone-950 px-4 py-3 text-center text-sm text-slate-200"
+                  className="col-span-2 rounded-lg border border-stone-800 bg-stone-950 px-4 py-3 text-center text-sm text-slate-200"
                 >
                   Sign in
                 </Link>
@@ -202,7 +159,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
                 Why teams convert
               </p>
               <p className="mt-2 text-xl font-semibold text-white">
-                Trust first. Live access later.
+                Trust first. Live access when the desk is ready.
               </p>
             </div>
 
@@ -232,12 +189,12 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
             <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-teal-300/25 bg-teal-400/10 text-xs font-semibold text-teal-100">
-                  dY
+                  DA
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-white">dYdX Arbitrage OS</p>
+                  <p className="text-sm font-semibold text-white">DefiArbitrage</p>
                   <p className="text-xs text-slate-500">
-                    Research, runtime, market intel, and onboarding.
+                    Research, runtime, market intelligence, and onboarding.
                   </p>
                 </div>
               </div>
@@ -273,7 +230,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
             </div>
 
             <div className="mt-5 flex flex-col gap-3 border-t border-stone-800 pt-4 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
-              <p>Start free. Prove fit. Move to live access with confidence.</p>
+              <p>Start with evidence. Prove fit. Move to live access with confidence.</p>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <Link to="/services/security" className="transition hover:text-slate-300">
                   Security onboarding

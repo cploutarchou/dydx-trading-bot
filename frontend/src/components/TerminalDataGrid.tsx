@@ -145,7 +145,7 @@ export function TerminalDataGrid<T>({
   };
 
   return (
-    <div className="rounded-[24px] border border-slate-800 bg-slate-900/80 shadow-[0_16px_60px_rgba(2,6,23,0.3)]">
+    <div className="rounded-lg border border-slate-800 bg-slate-900/80 shadow-[0_16px_60px_rgba(2,6,23,0.3)]">
       <div className="border-b border-slate-800 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -167,7 +167,7 @@ export function TerminalDataGrid<T>({
                   });
                 }}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500/40 focus:ring-2 focus:ring-cyan-500/10"
+                className="w-full rounded-lg border border-slate-800 bg-slate-950/80 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500/40 focus:ring-2 focus:ring-cyan-500/10"
               />
             </label>
             {toolbarExtras}
@@ -178,7 +178,7 @@ export function TerminalDataGrid<T>({
       {metrics.length > 0 && (
         <div className="grid grid-cols-2 gap-3 border-b border-slate-800 px-4 py-4 sm:grid-cols-4 sm:px-5">
           {metrics.map((metric) => (
-            <div key={metric.label} className="rounded-2xl border border-slate-800 bg-slate-950/70 p-3">
+            <div key={metric.label} className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
               <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{metric.label}</p>
               <p className={`mt-2 text-lg font-semibold ${toneClasses[metric.tone || 'default']}`}>
                 {metric.value}
@@ -272,7 +272,7 @@ export function TerminalDataGrid<T>({
                       setPageSize(Number(event.target.value));
                     });
                   }}
-                  className="rounded-xl border border-slate-800 bg-slate-950 px-2 py-1 text-slate-200 outline-none"
+                  className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-slate-200 outline-none"
                 >
                   {[10, 20, 50, 100].map((value) => (
                     <option key={value} value={value}>
@@ -287,19 +287,19 @@ export function TerminalDataGrid<T>({
                 type="button"
                 onClick={() => setPage((current) => Math.max(1, current - 1))}
                 disabled={safePage === 1}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-300 transition hover:border-slate-700 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-300 transition hover:border-slate-700 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Prev
               </button>
-              <span className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-300">
+              <span className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-300">
                 Page {safePage} / {pageCount}
               </span>
               <button
                 type="button"
                 onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
                 disabled={safePage >= pageCount}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-300 transition hover:border-slate-700 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-300 transition hover:border-slate-700 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next
                 <ChevronRight className="h-4 w-4" />

@@ -24,7 +24,7 @@ export const servicePages: ServicePageData[] = [
     path: '/services/research',
     navLabel: 'Research',
     kicker: 'Research Desk',
-    title: 'Validate dYdX strategies before they reach live operation.',
+    title: 'Validate arbitrage strategies before they reach live operation.',
     summary: 'Backtests, rankings, and comparative analysis for disciplined operator decisions.',
     heroIntro:
       'Rank strategy candidates, inspect risk-adjusted performance, and decide what deserves operator attention before capital is exposed.',
@@ -68,7 +68,7 @@ export const servicePages: ServicePageData[] = [
     path: '/services/runtime',
     navLabel: 'Runtime',
     kicker: 'Runtime Control',
-    title: 'Control live bots with clear state, health, and recovery context.',
+    title: 'Control live arbitrage bots with clear state, health, and recovery context.',
     summary:
       'Bot control, state visibility, and action flows designed for live operating conditions.',
     heroIntro:
@@ -158,7 +158,7 @@ export const servicePages: ServicePageData[] = [
     path: '/services/security',
     navLabel: 'Security',
     kicker: 'Security Onboarding',
-    title: 'Move through account entry with clear security and access state.',
+    title: 'Move through premium account entry with clear security and access state.',
     summary: 'Security-aware entry, clearer account flow, and premium onboarding semantics.',
     heroIntro:
       'Sign-in, registration, and account readiness stay connected to the same operating journey, with clear routes back to the product overview.',

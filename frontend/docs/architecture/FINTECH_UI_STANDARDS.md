@@ -70,11 +70,22 @@ Use this document as the frontend quality bar for production-grade DeFi surfaces
 
 ## Shared components to prefer
 
+- `PlatformPageHeader`, `PlatformPanel`, `PlatformStatCard`, `StatusBadge`, `EmptyState`, and `PortalSubnav` from `src/components/ui/PlatformUI.tsx` for unified page structure, portal navigation, status semantics, and operational panels across public, client, CRM, admin, and IB surfaces.
 - `BacktestLightweightChart` for live financial charting
 - `CumulativePnlChart` for dashboard-level equity and cumulative-PnL trend views
 - `createTradingChart` from `src/components/charts/lightweightTheme.ts` for consistent chart styling across surfaces
 - `TerminalDataGrid` for dense searchable fintech tables
 - websocket-managed hooks in `src/api/hooks.ts` for live state
+
+## Platform design-system direction
+
+- Use DefiArbitrage as the product identity across public, client, CRM, admin, and IB portals.
+- Keep page headers consistent: kicker, concise title, operational description, and only high-value actions.
+- Prefer 8px radii for cards, buttons, tabs, panels, badges, and inputs.
+- Use cyan for live/action context, emerald for positive/approved, amber for pending/review, rose for destructive or failed, violet for backoffice/admin segmentation, and slate for neutral states.
+- Place secondary portal navigation in `PortalSubnav` so CRM and IB tabs share active states, overflow behavior, and subdomain affordances.
+- Use `TerminalDataGrid` for high-density directories and audit tables before creating one-off table markup.
+- Dangerous operational actions must include clear consequence copy and confirmation before mutation.
 
 ## Anti-patterns
 

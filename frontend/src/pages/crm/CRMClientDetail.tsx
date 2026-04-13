@@ -295,8 +295,15 @@ export const CRMClientDetail = () => {
                 <button
                   type="button"
                   disabled={resetMFAMutation.isPending}
-                  onClick={() => resetMFAMutation.mutate()}
-                  className="flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-500/20 disabled:opacity-50"
+                  onClick={() => {
+                    const confirmed = window.confirm(
+                      `Reset MFA for ${user.username}? This removes the current TOTP credential and forces re-enrollment.`
+                    );
+                    if (confirmed) {
+                      resetMFAMutation.mutate();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-500/20 disabled:opacity-50"
                 >
                   {resetMFAMutation.isPending ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />

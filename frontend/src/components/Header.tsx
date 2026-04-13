@@ -3,10 +3,8 @@ import {
   Command,
   Languages,
   Menu,
-  Moon,
   Search,
   ShieldCheck,
-  Sun,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -26,23 +24,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const { language, locale, t, tr } = useI18n();
-  const theme = useUIPreferencesStore((state) => state.theme);
-  const toggleTheme = useUIPreferencesStore((state) => state.toggleTheme);
   const setLanguage = useUIPreferencesStore((state) => state.setLanguage);
-  const isLight = theme === 'light';
-  const controlCls = isLight
-    ? 'border-slate-300 bg-white/90 text-slate-700 hover:border-slate-400 hover:text-slate-900'
-    : 'border-stone-700/70 bg-stone-950/65 text-stone-300 hover:border-stone-600 hover:text-white';
+  const controlCls =
+    'border-stone-700/70 bg-stone-950/65 text-stone-300 hover:border-stone-600 hover:text-white';
   const environmentLabel = import.meta.env.DEV
     ? t('Development', 'Ανάπτυξη')
     : t('Production', 'Παραγωγή');
-  const environmentTone = import.meta.env.DEV
-    ? isLight
-      ? 'text-amber-600'
-      : 'text-amber-300'
-    : isLight
-      ? 'text-emerald-700'
-      : 'text-emerald-300';
+  const environmentTone = import.meta.env.DEV ? 'text-amber-300' : 'text-emerald-300';
   const [now, setNow] = useState(() => new Date());
   const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
 
@@ -130,23 +118,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
             <Search className="h-4 w-4 opacity-60" />
             <span className="hidden lg:inline">{t('Jump anywhere', 'Μεταπήδηση παντού')}</span>
             <span
-              className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] uppercase ${isLight ? 'border-slate-300 bg-slate-100 text-slate-500' : 'border-stone-700 bg-stone-950 text-stone-500'}`}
+              className="inline-flex items-center gap-1 rounded-lg border border-stone-700 bg-stone-950 px-2 py-1 text-[10px] uppercase text-stone-500"
             >
               <Command className="h-3 w-3" />K
             </span>
           </button>
 
           <div className="hidden items-center gap-2 lg:flex">
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs transition ${controlCls}`}
-              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            >
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              {theme === 'dark' ? 'Light' : 'Dark'}
-            </button>
-
             <label
               className={`inline-flex items-center gap-2 rounded-lg border px-2 py-2 text-xs ${controlCls}`}
             >
@@ -154,19 +132,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
               <select
                 value={language}
                 onChange={(event) => setLanguage(event.target.value === 'el' ? 'el' : 'en')}
-                className={`bg-transparent text-xs outline-none ${isLight ? 'text-slate-700' : 'text-stone-200'}`}
+                className="bg-transparent text-xs text-stone-200 outline-none"
                 aria-label="Language"
               >
-                <option
-                  value="en"
-                  className={isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}
-                >
+                <option value="en" className="bg-slate-900 text-slate-100">
                   EN
                 </option>
-                <option
-                  value="el"
-                  className={isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}
-                >
+                <option value="el" className="bg-slate-900 text-slate-100">
                   EL
                 </option>
               </select>
@@ -184,13 +156,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
               <p className="text-[10px] uppercase text-slate-500">{t('Network', 'Δίκτυο')}</p>
               <p
                 className={`mt-1 inline-flex items-center gap-1 text-sm font-medium ${
-                  isOnline
-                    ? isLight
-                      ? 'text-cyan-700'
-                      : 'text-cyan-300'
-                    : isLight
-                      ? 'text-amber-600'
-                      : 'text-amber-300'
+                  isOnline ? 'text-cyan-300' : 'text-amber-300'
                 }`}
               >
                 {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
@@ -202,7 +168,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
                 {t('Local time', 'Τοπική ώρα')}
               </p>
               <p
-                className={`mt-1 text-sm font-medium ${isLight ? 'text-cyan-700' : 'text-cyan-300'}`}
+                className="mt-1 text-sm font-medium text-cyan-300"
               >
                 {now.toLocaleTimeString(locale, {
                   hour: '2-digit',
@@ -214,7 +180,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
             <div className="workspace-card min-w-0 px-3 py-2.5">
               <p className="text-[10px] uppercase text-slate-500">{t('Operator', 'Χειριστής')}</p>
               <p
-                className={`mt-1 max-w-28 truncate text-sm font-medium ${isLight ? 'text-slate-800' : 'text-white'}`}
+                className="mt-1 max-w-28 truncate text-sm font-medium text-white"
               >
                 {user?.full_name || user?.username || t('Trader', 'Trader')}
               </p>

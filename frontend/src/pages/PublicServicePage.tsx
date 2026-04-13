@@ -113,7 +113,9 @@ export const PublicServicePage: React.FC = () => {
             {page.kicker}
           </div>
           <h1 className="mt-3 text-2xl font-semibold text-white sm:text-4xl">{page.title}</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400 sm:leading-7">{page.heroIntro}</p>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400 sm:leading-7">
+            {page.heroIntro}
+          </p>
 
           <div className="public-actions-row mt-6 flex flex-col gap-3 sm:flex-row">
             <Link

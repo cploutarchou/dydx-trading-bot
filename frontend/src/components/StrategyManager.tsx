@@ -12,6 +12,7 @@
 
 import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
@@ -1191,764 +1192,783 @@ export default function StrategyManager() {
         )}
       </div>
 
-      {startDialogStrategy && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
-            <div className="flex items-center justify-between border-b border-slate-800 px-6 py-5">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Live Launch</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">
-                  Start {startDialogStrategy.name}
-                </h2>
-              </div>
-              <button
-                onClick={() => closeStartDialog()}
-                className="rounded-full border border-slate-700 px-3 py-1 text-slate-300 transition hover:border-slate-500 hover:text-white"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="space-y-6 px-6 py-6">
-              <div className="grid gap-4 md:grid-cols-2">
+      {startDialogStrategy &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
+              <div className="flex items-center justify-between border-b border-slate-800 px-6 py-5">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-200">
-                    Environment
-                  </label>
-                  <select
-                    value={startDialogNetwork}
-                    onChange={(event) =>
-                      setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet')
-                    }
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
-                  >
-                    <option value="testnet">dYdX Testnet</option>
-                    <option value="mainnet">dYdX Production</option>
-                  </select>
+                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Live Launch</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">
+                    Start {startDialogStrategy.name}
+                  </h2>
                 </div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                    Configured subaccount
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-white">
-                    #
-                    {startDialogReadiness?.selected_subaccount ??
-                      startDialogStrategy.runtime_subaccount ??
-                      0}
-                  </p>
-                </div>
-              </div>
-
-              {startDialogNetwork === 'mainnet' ? (
-                <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                  <p className="font-semibold text-red-200">Mainnet risk notice</p>
-                  <p className="mt-1">
-                    You are about to launch on production capital. Confirm key ownership,
-                    subaccount, collateral, and trade sizing before continuing.
-                  </p>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
-                  <p className="font-semibold text-cyan-200">Testnet mode</p>
-                  <p className="mt-1">
-                    Testnet launch is recommended for strategy shakeout and credential verification
-                    before production deployment.
-                  </p>
-                </div>
-              )}
-
-              {startDialogError && (
-                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                  {startDialogError}
-                </div>
-              )}
-
-              {startDialogLoading && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-5 text-sm text-slate-300">
-                  Checking dYdX key, subaccount, and collateral readiness...
-                </div>
-              )}
-
-              {!startDialogLoading && startDialogReadiness && (
-                <>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                        Key Present
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-white">
-                        {startDialogReadiness.key_exists ? 'Yes' : 'Missing'}
-                      </p>
-                      {startDialogReadiness.key_chain_address && (
-                        <p className="mt-2 text-xs text-slate-400">
-                          {startDialogReadiness.key_chain_address}
-                        </p>
-                      )}
-                    </div>
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                        Free Collateral
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-white">
-                        ${startDialogReadiness.available_collateral.toFixed(2)}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                        Trade Size
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-white">
-                        ${startDialogReadiness.usd_per_trade.toFixed(2)}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Ready</p>
-                      <p
-                        className={`mt-2 text-lg font-semibold ${
-                          startDialogReadiness.ready ? 'text-emerald-400' : 'text-amber-300'
-                        }`}
-                      >
-                        {startDialogReadiness.ready ? 'Ready to launch' : 'Not ready'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                        Readiness checks
-                      </p>
-                      <div className="mt-4 space-y-3 text-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-300">Wallet derivation</span>
-                          <span
-                            className={
-                              startDialogReadiness.wallet_ready
-                                ? 'text-emerald-400'
-                                : 'text-amber-300'
-                            }
-                          >
-                            {startDialogReadiness.wallet_ready ? 'OK' : 'Blocked'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-300">Subaccount exists</span>
-                          <span
-                            className={
-                              startDialogReadiness.account_exists
-                                ? 'text-emerald-400'
-                                : 'text-amber-300'
-                            }
-                          >
-                            {startDialogReadiness.account_exists ? 'Yes' : 'No'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-300">Trade size vs collateral</span>
-                          <span
-                            className={
-                              startDialogReadiness.sufficient_for_trade_size
-                                ? 'text-emerald-400'
-                                : 'text-amber-300'
-                            }
-                          >
-                            {startDialogReadiness.sufficient_for_trade_size ? 'OK' : 'Too low'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-300">Minimum collateral guard</span>
-                          <span
-                            className={
-                              startDialogReadiness.sufficient_for_min_collateral
-                                ? 'text-emerald-400'
-                                : 'text-amber-300'
-                            }
-                          >
-                            {startDialogReadiness.sufficient_for_min_collateral ? 'OK' : 'Too low'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                        Deployment context
-                      </p>
-                      <div className="mt-4 space-y-3 text-sm text-slate-300">
-                        <div className="flex items-center justify-between">
-                          <span>Selected environment</span>
-                          <span className="font-medium capitalize text-white">
-                            {startDialogReadiness.selected_runtime_network}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Subaccount</span>
-                          <span className="font-medium text-white">
-                            #{startDialogReadiness.selected_subaccount}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Capital allocation target</span>
-                          <span className="font-medium text-white">
-                            ${startDialogReadiness.capital_allocation_usd.toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Min collateral guard</span>
-                          <span className="font-medium text-white">
-                            ${startDialogReadiness.usd_min_collateral.toFixed(2)}
-                          </span>
-                        </div>
-                        {startDialogReadiness.trade_size_to_collateral_ratio !== null &&
-                          startDialogReadiness.trade_size_to_collateral_ratio !== undefined && (
-                            <div className="flex items-center justify-between">
-                              <span>Trade size / free collateral</span>
-                              <span className="font-medium text-white">
-                                {(
-                                  startDialogReadiness.trade_size_to_collateral_ratio * 100
-                                ).toFixed(2)}
-                                %
-                              </span>
-                            </div>
-                          )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {startDialogReadiness.blockers.length > 0 && (
-                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                      <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
-                      <ul className="mt-3 space-y-2 text-sm text-amber-100">
-                        {startDialogReadiness.blockers.map((blocker) => (
-                          <li key={blocker}>• {blocker}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {startDialogReadiness.warnings.length > 0 && (
-                    <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
-                      <p className="text-sm font-semibold text-cyan-100">Warnings</p>
-                      <ul className="mt-3 space-y-2 text-sm text-cyan-50">
-                        {startDialogReadiness.warnings.map((warning) => (
-                          <li key={warning}>• {warning}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between gap-3 border-t border-slate-800 px-6 py-5">
-              <p className="text-sm text-slate-400">
-                Frontend launch is gated by backend readiness. The frontend never connects to dYdX
-                directly.
-              </p>
-              <div className="flex gap-3">
                 <button
                   onClick={() => closeStartDialog()}
-                  className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+                  className="rounded-full border border-slate-700 px-3 py-1 text-slate-300 transition hover:border-slate-500 hover:text-white"
                 >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => void handleConfirmStrategyStart()}
-                  disabled={
-                    startDialogSubmitting ||
-                    startDialogLoading ||
-                    !startDialogReadiness ||
-                    !startDialogReadiness.ready
-                  }
-                  className="rounded-2xl bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-                >
-                  {startDialogSubmitting ? 'Launching...' : 'Launch Runtime'}
+                  Close
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Strategy Config Modal */}
-      {showConfigModal && editingConfig && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-slate-800 border-b border-slate-700 p-6 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-white">⚙️ Configure Strategy</h2>
-              <button
-                onClick={() => {
-                  setShowConfigModal(false);
-                  setEditingConfig(null);
-                  setConfigErrors({});
-                }}
-                className="text-gray-400 hover:text-white text-2xl"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 space-y-6">
-              <section className="space-y-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Identity</p>
-                  <h3 className="mt-2 text-lg font-semibold text-white">Strategy profile</h3>
-                </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-6 px-6 py-6">
+                <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-white font-medium">Name</label>
-                    <input
-                      type="text"
-                      value={editingConfig.name || ''}
-                      onChange={(e) => updateEditingConfig({ name: e.target.value })}
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Category</label>
-                    <input
-                      type="text"
-                      value={editingConfig.category || ''}
-                      onChange={(e) => updateEditingConfig({ category: e.target.value })}
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="mb-2 block text-white font-medium">Description</label>
-                    <textarea
-                      value={editingConfig.description || ''}
-                      onChange={(e) => updateEditingConfig({ description: e.target.value })}
-                      rows={3}
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-4 border-t border-slate-700 pt-6">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Runtime</p>
-                  <h3 className="mt-2 text-lg font-semibold text-white">Live bot parameters</h3>
-                </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Runtime strategy</label>
+                    <label className="mb-2 block text-sm font-medium text-slate-200">
+                      Environment
+                    </label>
                     <select
-                      value={editingConfig.runtime_strategy || 'cointegration'}
-                      onChange={(e) => updateEditingConfig({ runtime_strategy: e.target.value })}
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    >
-                      {RUNTIME_STRATEGY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Runtime network</label>
-                    <select
-                      value={editingConfig.runtime_network ?? 'testnet'}
-                      onChange={(e) =>
-                        updateEditingConfig({
-                          runtime_network: e.target.value as Strategy['runtime_network'],
-                        })
+                      value={startDialogNetwork}
+                      onChange={(event) =>
+                        setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet')
                       }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
                     >
                       <option value="testnet">dYdX Testnet</option>
-                      <option value="mainnet">dYdX Mainnet</option>
+                      <option value="mainnet">dYdX Production</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Runtime subaccount</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={editingConfig.runtime_subaccount ?? 0}
-                      onChange={(e) =>
-                        updateEditingConfig({
-                          runtime_subaccount: parseInt(e.target.value, 10) || 0,
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="mt-2 text-xs text-slate-400">
-                      Separate dYdX subaccounts are the safest way to isolate live margin per
-                      strategy.
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                      Configured subaccount
+                    </p>
+                    <p className="mt-2 text-xl font-semibold text-white">
+                      #
+                      {startDialogReadiness?.selected_subaccount ??
+                        startDialogStrategy.runtime_subaccount ??
+                        0}
                     </p>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Resolution</label>
-                    <select
-                      value={editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'}
-                      onChange={(e) =>
-                        updateEditingConfig({
-                          resolution: e.target.value,
-                          candle_resolution: e.target.value,
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    >
-                      {RESOLUTION_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      Z-Score threshold
-                      {configErrors.zscore_threshold && (
-                        <span className="ml-2 text-sm text-red-400">
-                          • {configErrors.zscore_threshold}
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      max="5"
-                      value={editingConfig.zscore_threshold ?? 1.5}
-                      onChange={(e) =>
-                        updateEditingConfig({ zscore_threshold: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Stats window</label>
-                    <input
-                      type="number"
-                      min="5"
-                      max="365"
-                      value={editingConfig.stats_window ?? 21}
-                      onChange={(e) =>
-                        updateEditingConfig({ stats_window: parseInt(e.target.value, 10) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Max half-life</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={editingConfig.max_half_life ?? 24}
-                      onChange={(e) =>
-                        updateEditingConfig({ max_half_life: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      USD per trade
-                      {configErrors.usd_per_trade && (
-                        <span className="ml-2 text-sm text-red-400">
-                          • {configErrors.usd_per_trade}
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      min="1"
-                      value={editingConfig.usd_per_trade ?? 10}
-                      onChange={(e) =>
-                        updateEditingConfig({ usd_per_trade: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">USD min collateral</label>
-                    <input
-                      type="number"
-                      step="1"
-                      min="0"
-                      value={editingConfig.usd_min_collateral ?? 100}
-                      onChange={(e) =>
-                        updateEditingConfig({ usd_min_collateral: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="md:col-span-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {[
-                      ['place_trades', 'Place trades'],
-                      ['manage_exits', 'Manage exits'],
-                      ['abort_all_positions', 'Abort all positions on start'],
-                      ['find_cointegrated_pairs', 'Find cointegrated pairs'],
-                      ['close_at_zscore_cross', 'Close at Z-score cross'],
-                    ].map(([field, label]) => (
-                      <label
-                        key={field}
-                        className="flex items-center gap-3 rounded-2xl border border-slate-700/70 bg-slate-950/35 px-4 py-3 text-sm text-slate-200"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={Boolean(editingConfig[field as keyof Strategy])}
-                          onChange={(e) =>
-                            updateEditingConfig({
-                              [field]: e.target.checked,
-                            } as Partial<Strategy>)
-                          }
-                          className="h-4 w-4 rounded border-slate-500 bg-slate-800"
-                        />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </div>
                 </div>
-              </section>
 
-              <section className="space-y-4 border-t border-slate-700 pt-6">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Risk</p>
-                  <h3 className="mt-2 text-lg font-semibold text-white">Execution guardrails</h3>
-                </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Max positions</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={editingConfig.max_positions ?? 5}
-                      onChange={(e) =>
-                        updateEditingConfig({ max_positions: parseInt(e.target.value, 10) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
+                {startDialogNetwork === 'mainnet' ? (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                    <p className="font-semibold text-red-200">Mainnet risk notice</p>
+                    <p className="mt-1">
+                      You are about to launch on production capital. Confirm key ownership,
+                      subaccount, collateral, and trade sizing before continuing.
+                    </p>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      Max drawdown %
-                      {configErrors.max_drawdown_pct && (
-                        <span className="ml-2 text-sm text-red-400">
-                          • {configErrors.max_drawdown_pct}
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      value={editingConfig.max_drawdown_pct ?? 15}
-                      onChange={(e) =>
-                        updateEditingConfig({ max_drawdown_pct: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
+                ) : (
+                  <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+                    <p className="font-semibold text-cyan-200">Testnet mode</p>
+                    <p className="mt-1">
+                      Testnet launch is recommended for strategy shakeout and credential
+                      verification before production deployment.
+                    </p>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Stop loss %</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={editingConfig.stop_loss_pct ?? 2}
-                      onChange={(e) =>
-                        updateEditingConfig({ stop_loss_pct: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Take profit %</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={editingConfig.take_profit_pct ?? 5}
-                      onChange={(e) =>
-                        updateEditingConfig({ take_profit_pct: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Trailing stop %</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={editingConfig.trailing_stop_pct ?? 1}
-                      onChange={(e) =>
-                        updateEditingConfig({ trailing_stop_pct: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      Rebalance interval (hours)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={editingConfig.rebalance_interval_hours ?? 24}
-                      onChange={(e) =>
-                        updateEditingConfig({
-                          rebalance_interval_hours: parseInt(e.target.value, 10),
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      Position timeout (hours)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={editingConfig.position_timeout_hours ?? 72}
-                      onChange={(e) =>
-                        updateEditingConfig({
-                          position_timeout_hours: parseInt(e.target.value, 10),
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              </section>
+                )}
 
-              <section className="space-y-4 border-t border-slate-700 pt-6">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Backtesting</p>
-                  <h3 className="mt-2 text-lg font-semibold text-white">Simulation defaults</h3>
-                </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      Starting balance
-                      {configErrors.starting_balance && (
-                        <span className="ml-2 text-sm text-red-400">
-                          • {configErrors.starting_balance}
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      step="100"
-                      min="100"
-                      value={editingConfig.starting_balance ?? editingConfig.initial_amount ?? 1000}
-                      onChange={(e) =>
-                        updateEditingConfig({
-                          starting_balance: parseFloat(e.target.value),
-                          initial_amount: parseFloat(e.target.value),
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
+                {startDialogError && (
+                  <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                    {startDialogError}
                   </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      Transaction fee
-                      {configErrors.transaction_fee && (
-                        <span className="ml-2 text-sm text-red-400">
-                          • {configErrors.transaction_fee}
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      min="0"
-                      value={editingConfig.transaction_fee ?? 0.0005}
-                      onChange={(e) =>
-                        updateEditingConfig({ transaction_fee: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">
-                      Slippage
-                      {configErrors.slippage && (
-                        <span className="ml-2 text-sm text-red-400">• {configErrors.slippage}</span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      min="0"
-                      value={editingConfig.slippage ?? 0.001}
-                      onChange={(e) =>
-                        updateEditingConfig({ slippage: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Max history days</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="3650"
-                      value={editingConfig.max_history_days ?? 90}
-                      onChange={(e) =>
-                        updateEditingConfig({ max_history_days: parseInt(e.target.value, 10) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Benchmark symbol</label>
-                    <input
-                      type="text"
-                      value={editingConfig.benchmark_symbol ?? 'BTC-USD'}
-                      onChange={(e) => updateEditingConfig({ benchmark_symbol: e.target.value })}
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-white font-medium">Risk-free rate</label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      value={editingConfig.risk_free_rate ?? 0.02}
-                      onChange={(e) =>
-                        updateEditingConfig({ risk_free_rate: parseFloat(e.target.value) })
-                      }
-                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              </section>
+                )}
 
-              {/* Buttons */}
-              <div className="flex gap-3 pt-4 border-t border-slate-700">
-                <button
-                  onClick={handleSaveConfig}
-                  className="flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
-                >
-                  ✅ Save Configuration
-                </button>
+                {startDialogLoading && (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-5 text-sm text-slate-300">
+                    Checking dYdX key, subaccount, and collateral readiness...
+                  </div>
+                )}
+
+                {!startDialogLoading && startDialogReadiness && (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          Key Present
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-white">
+                          {startDialogReadiness.key_exists ? 'Yes' : 'Missing'}
+                        </p>
+                        {startDialogReadiness.key_chain_address && (
+                          <p className="mt-2 text-xs text-slate-400">
+                            {startDialogReadiness.key_chain_address}
+                          </p>
+                        )}
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          Free Collateral
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-white">
+                          ${startDialogReadiness.available_collateral.toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          Trade Size
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-white">
+                          ${startDialogReadiness.usd_per_trade.toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Ready</p>
+                        <p
+                          className={`mt-2 text-lg font-semibold ${
+                            startDialogReadiness.ready ? 'text-emerald-400' : 'text-amber-300'
+                          }`}
+                        >
+                          {startDialogReadiness.ready ? 'Ready to launch' : 'Not ready'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          Readiness checks
+                        </p>
+                        <div className="mt-4 space-y-3 text-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300">Wallet derivation</span>
+                            <span
+                              className={
+                                startDialogReadiness.wallet_ready
+                                  ? 'text-emerald-400'
+                                  : 'text-amber-300'
+                              }
+                            >
+                              {startDialogReadiness.wallet_ready ? 'OK' : 'Blocked'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300">Subaccount exists</span>
+                            <span
+                              className={
+                                startDialogReadiness.account_exists
+                                  ? 'text-emerald-400'
+                                  : 'text-amber-300'
+                              }
+                            >
+                              {startDialogReadiness.account_exists ? 'Yes' : 'No'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300">Trade size vs collateral</span>
+                            <span
+                              className={
+                                startDialogReadiness.sufficient_for_trade_size
+                                  ? 'text-emerald-400'
+                                  : 'text-amber-300'
+                              }
+                            >
+                              {startDialogReadiness.sufficient_for_trade_size ? 'OK' : 'Too low'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300">Minimum collateral guard</span>
+                            <span
+                              className={
+                                startDialogReadiness.sufficient_for_min_collateral
+                                  ? 'text-emerald-400'
+                                  : 'text-amber-300'
+                              }
+                            >
+                              {startDialogReadiness.sufficient_for_min_collateral
+                                ? 'OK'
+                                : 'Too low'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                          Deployment context
+                        </p>
+                        <div className="mt-4 space-y-3 text-sm text-slate-300">
+                          <div className="flex items-center justify-between">
+                            <span>Selected environment</span>
+                            <span className="font-medium capitalize text-white">
+                              {startDialogReadiness.selected_runtime_network}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Subaccount</span>
+                            <span className="font-medium text-white">
+                              #{startDialogReadiness.selected_subaccount}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Capital allocation target</span>
+                            <span className="font-medium text-white">
+                              ${startDialogReadiness.capital_allocation_usd.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Min collateral guard</span>
+                            <span className="font-medium text-white">
+                              ${startDialogReadiness.usd_min_collateral.toFixed(2)}
+                            </span>
+                          </div>
+                          {startDialogReadiness.trade_size_to_collateral_ratio !== null &&
+                            startDialogReadiness.trade_size_to_collateral_ratio !== undefined && (
+                              <div className="flex items-center justify-between">
+                                <span>Trade size / free collateral</span>
+                                <span className="font-medium text-white">
+                                  {(
+                                    startDialogReadiness.trade_size_to_collateral_ratio * 100
+                                  ).toFixed(2)}
+                                  %
+                                </span>
+                              </div>
+                            )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {startDialogReadiness.blockers.length > 0 && (
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                        <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
+                        <ul className="mt-3 space-y-2 text-sm text-amber-100">
+                          {startDialogReadiness.blockers.map((blocker) => (
+                            <li key={blocker}>• {blocker}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {startDialogReadiness.warnings.length > 0 && (
+                      <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+                        <p className="text-sm font-semibold text-cyan-100">Warnings</p>
+                        <ul className="mt-3 space-y-2 text-sm text-cyan-50">
+                          {startDialogReadiness.warnings.map((warning) => (
+                            <li key={warning}>• {warning}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-slate-800 px-6 py-5">
+                <p className="text-sm text-slate-400">
+                  Frontend launch is gated by backend readiness. The frontend never connects to dYdX
+                  directly.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => closeStartDialog()}
+                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void handleConfirmStrategyStart()}
+                    disabled={
+                      startDialogSubmitting ||
+                      startDialogLoading ||
+                      !startDialogReadiness ||
+                      !startDialogReadiness.ready
+                    }
+                    className="rounded-2xl bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                  >
+                    {startDialogSubmitting ? 'Launching...' : 'Launch Runtime'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Strategy Config Modal */}
+      {showConfigModal &&
+        editingConfig &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              {/* Modal Header */}
+              <div className="sticky top-0 bg-slate-800 border-b border-slate-700 p-6 flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">⚙️ Configure Strategy</h2>
                 <button
                   onClick={() => {
                     setShowConfigModal(false);
                     setEditingConfig(null);
                     setConfigErrors({});
                   }}
-                  className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+                  className="text-gray-400 hover:text-white text-2xl"
                 >
-                  Cancel
+                  ✕
                 </button>
               </div>
+
+              {/* Modal Content */}
+              <div className="p-6 space-y-6">
+                <section className="space-y-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Identity</p>
+                    <h3 className="mt-2 text-lg font-semibold text-white">Strategy profile</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Name</label>
+                      <input
+                        type="text"
+                        value={editingConfig.name || ''}
+                        onChange={(e) => updateEditingConfig({ name: e.target.value })}
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Category</label>
+                      <input
+                        type="text"
+                        value={editingConfig.category || ''}
+                        onChange={(e) => updateEditingConfig({ category: e.target.value })}
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="mb-2 block text-white font-medium">Description</label>
+                      <textarea
+                        value={editingConfig.description || ''}
+                        onChange={(e) => updateEditingConfig({ description: e.target.value })}
+                        rows={3}
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="space-y-4 border-t border-slate-700 pt-6">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Runtime</p>
+                    <h3 className="mt-2 text-lg font-semibold text-white">Live bot parameters</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Runtime strategy</label>
+                      <select
+                        value={editingConfig.runtime_strategy || 'cointegration'}
+                        onChange={(e) => updateEditingConfig({ runtime_strategy: e.target.value })}
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      >
+                        {RUNTIME_STRATEGY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Runtime network</label>
+                      <select
+                        value={editingConfig.runtime_network ?? 'testnet'}
+                        onChange={(e) =>
+                          updateEditingConfig({
+                            runtime_network: e.target.value as Strategy['runtime_network'],
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="testnet">dYdX Testnet</option>
+                        <option value="mainnet">dYdX Mainnet</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Runtime subaccount
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={editingConfig.runtime_subaccount ?? 0}
+                        onChange={(e) =>
+                          updateEditingConfig({
+                            runtime_subaccount: parseInt(e.target.value, 10) || 0,
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="mt-2 text-xs text-slate-400">
+                        Separate dYdX subaccounts are the safest way to isolate live margin per
+                        strategy.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Resolution</label>
+                      <select
+                        value={
+                          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+                        }
+                        onChange={(e) =>
+                          updateEditingConfig({
+                            resolution: e.target.value,
+                            candle_resolution: e.target.value,
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      >
+                        {RESOLUTION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Z-Score threshold
+                        {configErrors.zscore_threshold && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.zscore_threshold}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        max="5"
+                        value={editingConfig.zscore_threshold ?? 1.5}
+                        onChange={(e) =>
+                          updateEditingConfig({ zscore_threshold: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Stats window</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="365"
+                        value={editingConfig.stats_window ?? 21}
+                        onChange={(e) =>
+                          updateEditingConfig({ stats_window: parseInt(e.target.value, 10) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Max half-life</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={editingConfig.max_half_life ?? 24}
+                        onChange={(e) =>
+                          updateEditingConfig({ max_half_life: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        USD per trade
+                        {configErrors.usd_per_trade && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.usd_per_trade}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        value={editingConfig.usd_per_trade ?? 10}
+                        onChange={(e) =>
+                          updateEditingConfig({ usd_per_trade: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        USD min collateral
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={editingConfig.usd_min_collateral ?? 100}
+                        onChange={(e) =>
+                          updateEditingConfig({ usd_min_collateral: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="md:col-span-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {[
+                        ['place_trades', 'Place trades'],
+                        ['manage_exits', 'Manage exits'],
+                        ['abort_all_positions', 'Abort all positions on start'],
+                        ['find_cointegrated_pairs', 'Find cointegrated pairs'],
+                        ['close_at_zscore_cross', 'Close at Z-score cross'],
+                      ].map(([field, label]) => (
+                        <label
+                          key={field}
+                          className="flex items-center gap-3 rounded-2xl border border-slate-700/70 bg-slate-950/35 px-4 py-3 text-sm text-slate-200"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(editingConfig[field as keyof Strategy])}
+                            onChange={(e) =>
+                              updateEditingConfig({
+                                [field]: e.target.checked,
+                              } as Partial<Strategy>)
+                            }
+                            className="h-4 w-4 rounded border-slate-500 bg-slate-800"
+                          />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="space-y-4 border-t border-slate-700 pt-6">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Risk</p>
+                    <h3 className="mt-2 text-lg font-semibold text-white">Execution guardrails</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Max positions</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={editingConfig.max_positions ?? 5}
+                        onChange={(e) =>
+                          updateEditingConfig({ max_positions: parseInt(e.target.value, 10) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Max drawdown %
+                        {configErrors.max_drawdown_pct && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.max_drawdown_pct}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        value={editingConfig.max_drawdown_pct ?? 15}
+                        onChange={(e) =>
+                          updateEditingConfig({ max_drawdown_pct: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Stop loss %</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={editingConfig.stop_loss_pct ?? 2}
+                        onChange={(e) =>
+                          updateEditingConfig({ stop_loss_pct: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Take profit %</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={editingConfig.take_profit_pct ?? 5}
+                        onChange={(e) =>
+                          updateEditingConfig({ take_profit_pct: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Trailing stop %</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={editingConfig.trailing_stop_pct ?? 1}
+                        onChange={(e) =>
+                          updateEditingConfig({ trailing_stop_pct: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Rebalance interval (hours)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={editingConfig.rebalance_interval_hours ?? 24}
+                        onChange={(e) =>
+                          updateEditingConfig({
+                            rebalance_interval_hours: parseInt(e.target.value, 10),
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Position timeout (hours)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={editingConfig.position_timeout_hours ?? 72}
+                        onChange={(e) =>
+                          updateEditingConfig({
+                            position_timeout_hours: parseInt(e.target.value, 10),
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="space-y-4 border-t border-slate-700 pt-6">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Backtesting</p>
+                    <h3 className="mt-2 text-lg font-semibold text-white">Simulation defaults</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Starting balance
+                        {configErrors.starting_balance && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.starting_balance}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        step="100"
+                        min="100"
+                        value={
+                          editingConfig.starting_balance ?? editingConfig.initial_amount ?? 1000
+                        }
+                        onChange={(e) =>
+                          updateEditingConfig({
+                            starting_balance: parseFloat(e.target.value),
+                            initial_amount: parseFloat(e.target.value),
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Transaction fee
+                        {configErrors.transaction_fee && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.transaction_fee}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={editingConfig.transaction_fee ?? 0.0005}
+                        onChange={(e) =>
+                          updateEditingConfig({ transaction_fee: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">
+                        Slippage
+                        {configErrors.slippage && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.slippage}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={editingConfig.slippage ?? 0.001}
+                        onChange={(e) =>
+                          updateEditingConfig({ slippage: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Max history days</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="3650"
+                        value={editingConfig.max_history_days ?? 90}
+                        onChange={(e) =>
+                          updateEditingConfig({ max_history_days: parseInt(e.target.value, 10) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Benchmark symbol</label>
+                      <input
+                        type="text"
+                        value={editingConfig.benchmark_symbol ?? 'BTC-USD'}
+                        onChange={(e) => updateEditingConfig({ benchmark_symbol: e.target.value })}
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-white font-medium">Risk-free rate</label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={editingConfig.risk_free_rate ?? 0.02}
+                        onChange={(e) =>
+                          updateEditingConfig({ risk_free_rate: parseFloat(e.target.value) })
+                        }
+                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                {/* Buttons */}
+                <div className="flex gap-3 pt-4 border-t border-slate-700">
+                  <button
+                    onClick={handleSaveConfig}
+                    className="flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    ✅ Save Configuration
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowConfigModal(false);
+                      setEditingConfig(null);
+                      setConfigErrors({});
+                    }}
+                    className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </PageContainer>
   );
 }

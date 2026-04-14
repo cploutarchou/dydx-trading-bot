@@ -1,0 +1,30 @@
+# ── Build stage ──────────────────────────────────────────────────────────────
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /build
+
+# Download dependencies first (layer caching)
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+# Build binary
+COPY backend/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/server ./cmd/server
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+COPY --from=builder /app/server .
+
+# Migration files are loaded at runtime from the filesystem
+COPY backend/migrations/ ./migrations/
+
+ENV API_PORT=8888
+
+EXPOSE 8888
+
+CMD ["./server"]

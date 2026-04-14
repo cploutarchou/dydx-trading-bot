@@ -21,7 +21,7 @@ apps:
       BOT_API_WORKERS: "1"
       LOG_LEVEL: "INFO"
       BOT_DB_TYPE: "postgresql"
-      BOT_DB_CUTOVER_MODE: "dedicated"
+      BOT_DB_CUTOVER_MODE: "shared"
       BOT_DB_HOST: "postgres.service.consul"
       BOT_DB_PORT: "5432"
       BOT_DB_NAME: "dydx_bot"
@@ -99,7 +99,7 @@ apps:
       BOT_DB_HOST: "postgres.service.consul"
       BOT_DB_PORT: "5432"
       BOT_DB_NAME: "dydx_bot"
-      BOT_DB_CUTOVER_MODE: "dedicated"
+      BOT_DB_CUTOVER_MODE: "shared"
       # Redis
       REDIS_ENABLED: "true"
       REDIS_HOST: "redis.service.consul"
@@ -137,7 +137,7 @@ apps:
     env:
       LOG_LEVEL: "INFO"
       BOT_DB_TYPE: "postgresql"
-      BOT_DB_CUTOVER_MODE: "dedicated"
+      BOT_DB_CUTOVER_MODE: "shared"
       BOT_DB_HOST: "postgres.service.consul"
       BOT_DB_PORT: "5432"
       BOT_DB_NAME: "dydx_bot"

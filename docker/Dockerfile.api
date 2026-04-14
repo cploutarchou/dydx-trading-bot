@@ -4,10 +4,9 @@ WORKDIR /app
 
 # System deps for psycopg2-binary, scipy, numpy, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc \
-        libpq-dev \
-        libatlas-base-dev \
-    && rm -rf /var/lib/apt/lists/*
+	gcc \
+	libpq-dev \
+	&& rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies first (layer caching)
 COPY bot/requirements.txt ./requirements.txt

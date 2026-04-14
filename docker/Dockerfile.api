@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# System deps for psycopg2-binary, scipy, numpy, etc.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libpq-dev \
+        libatlas-base-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies first (layer caching)
+COPY bot/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy bot source
+COPY bot/ .
+
+# Stub so env_loader.find_repo_root() succeeds.
+# All real config comes from environment variables injected by Nomad Variables.
+RUN echo '{}' > /app/run.json
+
+ENV BOT_API_HOST=0.0.0.0
+ENV BOT_API_PORT=8889
+ENV BOT_API_RELOAD=false
+
+EXPOSE 8889
+
+CMD ["python", "-m", "uvicorn", "src.api.server:app", "--host", "0.0.0.0", "--port", "8889"]

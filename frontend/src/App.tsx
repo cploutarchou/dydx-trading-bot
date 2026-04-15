@@ -15,6 +15,7 @@ import {
   useToastStore,
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
+import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
 import StrategyBuilder from './components/StrategyBuilder';
 import StrategyLibrary from './components/StrategyLibrary';
 import StrategyManager from './components/StrategyManager';
@@ -208,6 +209,7 @@ export const App: React.FC = () => {
       <EnhancedErrorBoundary>
         <Router>
           <ToastContainer />
+          <RegistrationDisabledLoginGate />
           <Routes>
             <Route
               path="/"

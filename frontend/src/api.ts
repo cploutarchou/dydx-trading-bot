@@ -107,6 +107,7 @@ interface Token extends Record<string, unknown> {
 interface LoginRequest {
   username: string;
   password: string;
+  cf_turnstile_response?: string;
 }
 
 interface RegisterRequest {
@@ -114,6 +115,7 @@ interface RegisterRequest {
   email: string;
   password: string;
   invitation_code?: string;
+  cf_turnstile_response?: string;
 }
 
 export interface RegistrationStatusResponse extends Record<string, unknown> {

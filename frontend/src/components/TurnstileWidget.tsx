@@ -14,7 +14,7 @@ interface TurnstileRenderOptions {
   sitekey: string;
   action: string;
   theme: 'auto' | 'dark' | 'light';
-  size: 'normal' | 'compact' | 'flexible';
+  size: 'normal' | 'compact';
   callback: (token: string) => void;
   'error-callback': (errorCode: string) => boolean;
   'expired-callback': () => void;
@@ -34,7 +34,7 @@ declare global {
 }
 
 interface TurnstileWidgetProps {
-  action: 'login' | 'register';
+  action: 'register';
   onTokenChange: (token: string) => void;
   resetSignal?: number;
   className?: string;
@@ -169,7 +169,7 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
           sitekey: TURNSTILE_SITE_KEY,
           action,
           theme: 'dark',
-          size: 'flexible',
+          size: 'normal',
           callback: (token: string) => {
             onTokenChange(token);
             setErrorCode(null);

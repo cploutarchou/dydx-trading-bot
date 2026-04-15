@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, CheckCircle, Loader, ShieldCheck, Sparkles } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import AuthExperienceShell from '../components/AuthExperienceShell';
+import { TurnstileWidget } from '../components/TurnstileWidget';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -28,6 +29,8 @@ export const RegisterPage: React.FC = () => {
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong'>('weak');
   const [formError, setFormError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const emailInputRef = useRef<HTMLInputElement | null>(null);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
@@ -103,6 +106,13 @@ export const RegisterPage: React.FC = () => {
     return 'strong';
   };
 
+  const handleTurnstileTokenChange = useCallback((token: string) => {
+    setTurnstileToken(token);
+    if (token) {
+      setFormError(null);
+    }
+  }, []);
+
   const handlePasswordChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const password = event.target.value;
     setFormData({ ...formData, password });
@@ -142,6 +152,11 @@ export const RegisterPage: React.FC = () => {
       return;
     }
 
+    if (!turnstileToken) {
+      setFormError('Complete the browser verification before creating an account.');
+      return;
+    }
+
     try {
       await register(
         formData.username,
@@ -149,11 +164,14 @@ export const RegisterPage: React.FC = () => {
         formData.password,
         registrationStatusQuery.data?.invitation_required
           ? formData.invitationCode.trim()
-          : undefined
+          : undefined,
+        turnstileToken
       );
       navigate('/2fa-setup');
     } catch (err) {
       console.error('Registration failed:', err);
+      setTurnstileToken('');
+      setTurnstileResetKey((current) => current + 1);
     }
   };
 
@@ -419,6 +437,12 @@ export const RegisterPage: React.FC = () => {
             </label>
           </div>
         </div>
+
+        <TurnstileWidget
+          action="register"
+          onTokenChange={handleTurnstileTokenChange}
+          resetSignal={turnstileResetKey}
+        />
 
         <button
           type="submit"

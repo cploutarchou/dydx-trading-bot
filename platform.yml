@@ -44,7 +44,7 @@ apps:
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
       LOKI_LABELS: '{"app":"dydx-api","env":"prod"}'
-      IS_TESTNET: "false"
+      IS_TESTNET: "true"
       APP_ENV: "prod"
       ENVIRONMENT: "prod"
       JWT_ALGORITHM: "HS256"
@@ -161,7 +161,8 @@ apps:
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
       LOKI_LABELS: '{"app":"dydx-worker","env":"prod"}'
-      IS_TESTNET: "false"
+      IS_TESTNET: "true"
+      DYDX_TESTNET_NODE_URL: "test-dydx-grpc.kingnodes.com"
       APP_ENV: "prod"
       ENVIRONMENT: "prod"
     secrets:

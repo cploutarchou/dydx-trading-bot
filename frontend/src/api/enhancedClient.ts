@@ -149,16 +149,27 @@ class EnhancedAPIClient {
   setToken = this.baseClient.setToken.bind(this.baseClient);
   refreshAccessToken = this.baseClient.refreshAccessToken.bind(this.baseClient);
 
-  async login(username: string, password: string) {
-    return this.baseClient.login({ username, password });
+  async login(username: string, password: string, turnstileToken?: string) {
+    return this.baseClient.login({
+      username,
+      password,
+      ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
+    });
   }
 
-  async register(username: string, email: string, password: string, invitationCode?: string) {
+  async register(
+    username: string,
+    email: string,
+    password: string,
+    invitationCode?: string,
+    turnstileToken?: string
+  ) {
     return this.baseClient.register({
       username,
       email,
       password,
       ...(invitationCode ? { invitation_code: invitationCode } : {}),
+      ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
     });
   }
 

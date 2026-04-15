@@ -123,6 +123,7 @@ apps:
       REDIS_PASSWORD: ""
       JWT_SECRET_KEY: ""
       SECRET_KEY: ""
+      ENCRYPTION_KEY: ""
       BOT_API_TOKEN: ""
 
   # ── Python worker (background trading engine) ────────────────────────────

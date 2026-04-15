@@ -3,6 +3,9 @@ import React, { useEffect, useRef, useState } from 'react';
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_SITE_KEY =
   import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || '0x4AAAAAAC-COw-JrfsjGsrp';
+const TURNSTILE_DISABLE_VALUES = new Set(['1', 'true', 'yes', 'on']);
+const TURNSTILE_ENABLE_VALUES = new Set(['0', 'false', 'no', 'off']);
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
 
 type TurnstileStatus = 'loading' | 'ready' | 'verified' | 'expired' | 'error';
 type TurnstileWidgetId = string;
@@ -38,6 +41,22 @@ interface TurnstileWidgetProps {
 }
 
 let turnstileScriptPromise: Promise<void> | null = null;
+
+export const isTurnstileVerificationDisabled = (): boolean => {
+  const override = import.meta.env.VITE_DISABLE_TURNSTILE?.trim().toLowerCase();
+  if (override && TURNSTILE_DISABLE_VALUES.has(override)) {
+    return true;
+  }
+  if (override && TURNSTILE_ENABLE_VALUES.has(override)) {
+    return false;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return LOCAL_HOSTNAMES.has(window.location.hostname.toLowerCase());
+};
 
 const loadTurnstileScript = (): Promise<void> => {
   if (typeof window === 'undefined') {
@@ -120,6 +139,7 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
   resetSignal,
   className = '',
 }) => {
+  const verificationDisabled = isTurnstileVerificationDisabled();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<TurnstileWidgetId | null>(null);
   const lastResetSignalRef = useRef(resetSignal);
@@ -128,6 +148,13 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
 
   useEffect(() => {
     let cancelled = false;
+
+    if (verificationDisabled) {
+      onTokenChange('');
+      return () => {
+        cancelled = true;
+      };
+    }
 
     setStatus('loading');
     setErrorCode(null);
@@ -181,9 +208,14 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
         widgetIdRef.current = null;
       }
     };
-  }, [action, onTokenChange]);
+  }, [action, onTokenChange, verificationDisabled]);
 
   useEffect(() => {
+    if (verificationDisabled) {
+      onTokenChange('');
+      return;
+    }
+
     if (lastResetSignalRef.current === resetSignal) {
       return;
     }
@@ -196,7 +228,11 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
       setErrorCode(null);
       setStatus('ready');
     }
-  }, [onTokenChange, resetSignal]);
+  }, [onTokenChange, resetSignal, verificationDisabled]);
+
+  if (verificationDisabled) {
+    return null;
+  }
 
   return (
     <div className={className}>

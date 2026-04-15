@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import AuthExperienceShell from '../components/AuthExperienceShell';
-import { TurnstileWidget } from '../components/TurnstileWidget';
+import { isTurnstileVerificationDisabled, TurnstileWidget } from '../components/TurnstileWidget';
 import { useAuthStore } from '../store/auth';
 
 interface ValidationErrors {
@@ -39,6 +39,7 @@ export const RegisterPage: React.FC = () => {
   const termsCheckboxRef = useRef<HTMLInputElement | null>(null);
   const apiErrorAlertRef = useRef<HTMLDivElement | null>(null);
   const formErrorAlertRef = useRef<HTMLDivElement | null>(null);
+  const turnstileDisabled = isTurnstileVerificationDisabled();
   const registrationStatusQuery = useQuery({
     queryKey: ['auth', 'registration-status'],
     queryFn: async () => {
@@ -152,7 +153,7 @@ export const RegisterPage: React.FC = () => {
       return;
     }
 
-    if (!turnstileToken) {
+    if (!turnstileDisabled && !turnstileToken) {
       setFormError('Complete the browser verification before creating an account.');
       return;
     }
@@ -165,7 +166,7 @@ export const RegisterPage: React.FC = () => {
         registrationStatusQuery.data?.invitation_required
           ? formData.invitationCode.trim()
           : undefined,
-        turnstileToken
+        turnstileDisabled ? undefined : turnstileToken
       );
       navigate('/2fa-setup');
     } catch (err) {

@@ -18,6 +18,10 @@ interface AuthExperienceShellProps {
   sideLabel?: string;
   sideTitle?: string;
   sideDescription?: string;
+  loginOnlyLock?: {
+    enabled: boolean;
+    reason?: string;
+  };
 }
 
 const highlights = [
@@ -89,11 +93,19 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
   sideLabel = 'Operator entry',
   sideTitle = 'Enter a trading workspace with clear context, account state, and routes back.',
   sideDescription = 'Review pricing, return to the product overview, or continue into onboarding without losing your place.',
+  loginOnlyLock,
 }) => {
+  const lockEnabled = loginOnlyLock?.enabled === true;
+
   return (
     <PublicSiteShell hideFooter>
-      <div className="auth-modern-stage">
-        <div className="auth-modern-grid">
+      <div className="relative auth-modern-stage">
+        <div
+          className={`auth-modern-grid transition duration-200 ${
+            lockEnabled ? 'pointer-events-none select-none blur-sm opacity-35' : ''
+          }`}
+          aria-hidden={lockEnabled}
+        >
           <section className="auth-modern-story">
             <div className="surface-label">
               <LockKeyhole className="h-3.5 w-3.5" />
@@ -195,6 +207,24 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
             </div>
           </section>
         </div>
+
+        {lockEnabled && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center px-4">
+            <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 p-6 text-center shadow-2xl shadow-black/40 backdrop-blur-sm">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-cyan-500/50 bg-cyan-500/10 text-cyan-300">
+                <LockKeyhole className="h-5 w-5" />
+              </div>
+              <h3 className="text-xl font-semibold text-white">Login required</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {loginOnlyLock.reason ||
+                  'Registration is currently disabled. Sign in with an existing account to continue.'}
+              </p>
+              <Link to="/login" className="premium-button premium-button-primary mt-5 inline-flex px-5 py-2.5">
+                Go to login
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
     </PublicSiteShell>
   );

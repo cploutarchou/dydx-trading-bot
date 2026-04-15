@@ -84,12 +84,13 @@ interface AuthStore {
   twoFASecret?: string;
   twoFAQRCode?: string;
   backupCodes?: string[];
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, turnstileToken?: string) => Promise<void>;
   register: (
     username: string,
     email: string,
     password: string,
-    invitationCode?: string
+    invitationCode?: string,
+    turnstileToken?: string
   ) => Promise<void>;
   setup2FA: () => Promise<void>;
   verify2FA: (token: string) => Promise<void>;
@@ -111,10 +112,14 @@ export const useAuthStore = create<AuthStore>()(
       twoFAQRCode: undefined,
       backupCodes: undefined,
 
-      login: async (username: string, password: string) => {
+      login: async (username: string, password: string, turnstileToken?: string) => {
         set({ loading: true, error: null });
         try {
-          const loginResult = await api.login({ username, password });
+          const loginResult = await api.login({
+            username,
+            password,
+            ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
+          });
           const accessToken = requireAccessToken(loginResult?.access_token);
 
           // Ensure token is set in api client (api.login already does this but be explicit)
@@ -141,7 +146,8 @@ export const useAuthStore = create<AuthStore>()(
         username: string,
         email: string,
         password: string,
-        invitationCode?: string
+        invitationCode?: string,
+        turnstileToken?: string
       ) => {
         set({ loading: true, error: null });
         try {
@@ -150,6 +156,7 @@ export const useAuthStore = create<AuthStore>()(
             email,
             password,
             ...(invitationCode ? { invitation_code: invitationCode } : {}),
+            ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
           });
 
           // Registration successful, now try to auto-login

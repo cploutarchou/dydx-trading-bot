@@ -44,6 +44,7 @@ export const RegisterPage: React.FC = () => {
     },
     staleTime: 60_000,
   });
+  const isRegistrationDisabled = registrationStatusQuery.data?.enabled === false;
 
   useEffect(() => {
     usernameInputRef.current?.focus();
@@ -112,9 +113,9 @@ export const RegisterPage: React.FC = () => {
     event.preventDefault();
     setFormError(null);
 
-    if (registrationStatusQuery.data?.enabled === false) {
+    if (isRegistrationDisabled) {
       setFormError(
-        registrationStatusQuery.data.reason || 'Public registration is currently disabled.'
+        registrationStatusQuery.data?.reason || 'Public registration is currently disabled.'
       );
       return;
     }
@@ -161,6 +162,12 @@ export const RegisterPage: React.FC = () => {
       kicker="Create operator access"
       title="Start a premium evaluation account"
       description="The registration flow now reads more like fintech onboarding: clearer access state, cleaner password guidance, and stronger security framing before the workspace opens."
+      loginOnlyLock={{
+        enabled: isRegistrationDisabled,
+        reason:
+          registrationStatusQuery.data?.reason ||
+          'Public registration is disabled. Sign in with your existing credentials.',
+      }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="metric-tile px-4 py-4">
@@ -181,13 +188,13 @@ export const RegisterPage: React.FC = () => {
         </div>
       </div>
 
-      {registrationStatusQuery.data?.enabled === false && (
+      {isRegistrationDisabled && (
         <div
           role="alert"
           aria-live="polite"
           className="mt-5 rounded-lg border border-amber-600/50 bg-amber-950/30 p-4 text-sm text-amber-200"
         >
-          {registrationStatusQuery.data.reason}
+          {registrationStatusQuery.data?.reason || 'Public registration is currently disabled.'}
         </div>
       )}
 
@@ -415,7 +422,7 @@ export const RegisterPage: React.FC = () => {
 
         <button
           type="submit"
-          disabled={loading || registrationStatusQuery.data?.enabled === false}
+          disabled={loading || isRegistrationDisabled}
           className="premium-button premium-button-primary mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading && <Loader className="h-4 w-4 animate-spin" />}

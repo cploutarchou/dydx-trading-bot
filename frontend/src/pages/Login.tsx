@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Loader, ShieldCheck, Sparkles } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import AuthExperienceShell from '../components/AuthExperienceShell';
-import { isTurnstileVerificationDisabled, TurnstileWidget } from '../components/TurnstileWidget';
 import { useAuthStore } from '../store/auth';
 
 export const LoginPage: React.FC = () => {
@@ -12,13 +11,8 @@ export const LoginPage: React.FC = () => {
   const { login, loading, error } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [turnstileToken, setTurnstileToken] = useState('');
-  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
-  const [verificationError, setVerificationError] = useState<string | null>(null);
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const errorAlertRef = useRef<HTMLDivElement | null>(null);
-  const verificationAlertRef = useRef<HTMLDivElement | null>(null);
-  const turnstileDisabled = isTurnstileVerificationDisabled();
   const registrationStatusQuery = useQuery({
     queryKey: ['auth', 'registration-status'],
     queryFn: async () => {
@@ -35,36 +29,17 @@ export const LoginPage: React.FC = () => {
   useEffect(() => {
     if (error) {
       errorAlertRef.current?.focus();
-      return;
     }
-    if (verificationError) {
-      verificationAlertRef.current?.focus();
-    }
-  }, [error, verificationError]);
-
-  const handleTurnstileTokenChange = useCallback((token: string) => {
-    setTurnstileToken(token);
-    if (token) {
-      setVerificationError(null);
-    }
-  }, []);
+  }, [error]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setVerificationError(null);
-
-    if (!turnstileDisabled && !turnstileToken) {
-      setVerificationError('Complete the browser verification before signing in.');
-      return;
-    }
 
     try {
-      await login(username, password, turnstileDisabled ? undefined : turnstileToken);
+      await login(username, password);
       navigate('/dashboard');
     } catch (err) {
       console.error('Login failed:', err);
-      setTurnstileToken('');
-      setTurnstileResetKey((current) => current + 1);
     }
   };
 
@@ -90,18 +65,6 @@ export const LoginPage: React.FC = () => {
           className="mb-5 rounded-lg border border-red-700 bg-red-950/55 p-4 text-red-200"
         >
           {error}
-        </div>
-      )}
-
-      {verificationError && (
-        <div
-          ref={verificationAlertRef}
-          tabIndex={-1}
-          role="alert"
-          aria-live="assertive"
-          className="mb-5 rounded-lg border border-red-700 bg-red-950/55 p-4 text-red-200"
-        >
-          {verificationError}
         </div>
       )}
 
@@ -158,12 +121,6 @@ export const LoginPage: React.FC = () => {
             Operators move through account checks before reaching the workspace.
           </p>
         </div>
-
-        <TurnstileWidget
-          action="login"
-          onTokenChange={handleTurnstileTokenChange}
-          resetSignal={turnstileResetKey}
-        />
 
         <button
           type="submit"

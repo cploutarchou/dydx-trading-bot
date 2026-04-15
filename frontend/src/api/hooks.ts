@@ -213,8 +213,15 @@ export function useLogin() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ username, password }: { username: string; password: string }) =>
-      apiClient.login(username, password),
+    mutationFn: ({
+      username,
+      password,
+      turnstileToken,
+    }: {
+      username: string;
+      password: string;
+      turnstileToken?: string;
+    }) => apiClient.login(username, password, turnstileToken),
     onSuccess: () => {
       // Invalidate user queries after successful login
       queryClient.invalidateQueries({ queryKey: ['auth'] });
@@ -245,12 +252,14 @@ export function useRegister() {
       email,
       password,
       invitationCode,
+      turnstileToken,
     }: {
       username: string;
       email: string;
       password: string;
       invitationCode?: string;
-    }) => apiClient.register(username, email, password, invitationCode),
+      turnstileToken?: string;
+    }) => apiClient.register(username, email, password, invitationCode, turnstileToken),
   });
 }
 

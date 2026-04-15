@@ -541,6 +541,7 @@ export interface BacktestProgressMessage extends WebSocketMessage {
 export interface LoginRequest {
   username: string;
   password: string;
+  cf_turnstile_response?: string;
 }
 
 export interface RegisterRequest {
@@ -549,6 +550,7 @@ export interface RegisterRequest {
   password: string;
   invitation_code?: string;
   full_name?: string;
+  cf_turnstile_response?: string;
 }
 
 export interface CreateBotRequest {

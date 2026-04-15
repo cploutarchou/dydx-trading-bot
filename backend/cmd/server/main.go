@@ -19,6 +19,7 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
+	"github.com/dydx-trading-bot/backend-go/internal/startup"
 	"github.com/gin-gonic/gin"
 )
 
@@ -133,7 +134,7 @@ func main() {
 
 	config.LoadConfig()
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
-	if err := validateDatabaseOwnership(config.ConfigInstance); err != nil {
+	if err := startup.ValidateDatabaseOwnership(config.ConfigInstance); err != nil {
 		log.Fatalf("Invalid database ownership configuration: %v", err)
 	}
 	if err := services.ValidateEncryptionKeyConfiguration(); err != nil {
@@ -210,7 +211,7 @@ func main() {
 
 	// Health check endpoint (liveness with dependency visibility).
 	router.GET("/health", func(c *gin.Context) {
-		dbOwnership := buildDatabaseOwnershipDiagnostics(config.ConfigInstance)
+		dbOwnership := startup.BuildDatabaseOwnershipDiagnostics(config.ConfigInstance)
 		dbHealthy := true
 		dbError := ""
 		if err := database.Health(); err != nil {
@@ -260,7 +261,7 @@ func main() {
 
 	// Readiness check endpoint (strict dependency validation for deploy gates).
 	router.GET("/ready", func(c *gin.Context) {
-		dbOwnership := buildDatabaseOwnershipDiagnostics(config.ConfigInstance)
+		dbOwnership := startup.BuildDatabaseOwnershipDiagnostics(config.ConfigInstance)
 		if dbOwnership.BlockingViolation {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status":             "not_ready",

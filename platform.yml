@@ -78,8 +78,6 @@ apps:
     memory: 256
     expose: public
     host: api.cydevcloud.com
-    allow_cidrs:
-      - "212.32.18.42/32"
     path: backend
     env:
       API_PORT: "8888"
@@ -189,8 +187,6 @@ apps:
     memory: 128
     expose: public
     host: app.cydevcloud.com
-    allow_cidrs:
-      - "212.32.18.42/32"
     path: frontend
     env:
       VITE_API_URL: "https://api.cydevcloud.com"

@@ -6,6 +6,7 @@ import api from '../api';
 import { useStrategyStore } from '../store/strategies';
 
 interface TradingParameters {
+  [key: string]: unknown;
   zscore_threshold?: number;
   stats_window?: number;
   max_half_life?: number;
@@ -33,6 +34,7 @@ interface TradingParameters {
 }
 
 interface BacktestRunRequest {
+  [key: string]: unknown;
   start_date: string;
   end_date: string;
   name?: string;
@@ -70,6 +72,7 @@ const extractRunId = (result: unknown): string | null => {
 export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   onBacktestComplete,
 }) => {
+  type ApiBacktestRequest = Parameters<typeof api.runBacktest>[0];
   const navigate = useNavigate();
   const { strategies, fetchStrategies } = useStrategyStore();
   const [useStrategy, setUseStrategy] = useState(false);
@@ -99,12 +102,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const [error, setError] = useState<string | null>(null);
 
   const runBacktestMutation = useMutation({
-    mutationFn: (payload: BacktestRunRequest) => api.runBacktest(payload),
+    mutationFn: (payload: ApiBacktestRequest) => api.runBacktest(payload),
   });
 
   // Fetch strategies on mount
   useEffect(() => {
-    fetchStrategies();
+    void fetchStrategies();
   }, [fetchStrategies]);
 
   const TRADING_PARAM_FIELDS = new Set([
@@ -291,7 +294,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
       } satisfies BacktestRunRequest;
       setLoading(true);
-      const result = await runBacktestMutation.mutateAsync(cleanedData);
+      const result = await runBacktestMutation.mutateAsync(cleanedData as ApiBacktestRequest);
       const runId = extractRunId(result);
 
       if (onBacktestComplete) {

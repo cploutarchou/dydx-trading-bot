@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import AuthExperienceShell from '../components/AuthExperienceShell';
-import { TurnstileWidget } from '../components/TurnstileWidget';
+import { isTurnstileVerificationDisabled, TurnstileWidget } from '../components/TurnstileWidget';
 import { useAuthStore } from '../store/auth';
 
 export const LoginPage: React.FC = () => {
@@ -18,6 +18,7 @@ export const LoginPage: React.FC = () => {
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const errorAlertRef = useRef<HTMLDivElement | null>(null);
   const verificationAlertRef = useRef<HTMLDivElement | null>(null);
+  const turnstileDisabled = isTurnstileVerificationDisabled();
   const registrationStatusQuery = useQuery({
     queryKey: ['auth', 'registration-status'],
     queryFn: async () => {
@@ -52,13 +53,13 @@ export const LoginPage: React.FC = () => {
     event.preventDefault();
     setVerificationError(null);
 
-    if (!turnstileToken) {
+    if (!turnstileDisabled && !turnstileToken) {
       setVerificationError('Complete the browser verification before signing in.');
       return;
     }
 
     try {
-      await login(username, password, turnstileToken);
+      await login(username, password, turnstileDisabled ? undefined : turnstileToken);
       navigate('/dashboard');
     } catch (err) {
       console.error('Login failed:', err);

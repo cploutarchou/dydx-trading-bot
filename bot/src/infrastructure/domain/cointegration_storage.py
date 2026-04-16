@@ -8,7 +8,7 @@ cointegration analysis results, including enhanced metrics and confidence scorin
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -44,7 +44,9 @@ class CointegrationResult:
     z_score_std: float
     analysis_timestamp: str
     confidence_score: float
-    creation_timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    creation_timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     @property
     def is_high_confidence(self) -> bool:
@@ -67,11 +69,11 @@ class CointegrationResult:
 
 
 def calculate_confidence_score(
-    p_value: float,
-    half_life: float,
-    zero_crossings: int,
-    max_half_life: float = 14.0,
-    min_zero_crossings: int = 5,
+        p_value: float,
+        half_life: float,
+        zero_crossings: int,
+        max_half_life: float = 14.0,
+        min_zero_crossings: int = 5,
 ) -> float:
     """
     Calculate a confidence score for a cointegrated pair.
@@ -159,7 +161,7 @@ class PairStorage:
 
             # Add metadata
             storage_data = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "total_pairs": len(pairs),
                 "high_confidence_pairs": len([p for p in pairs if p.is_high_confidence]),
                 "pairs": pairs_data,

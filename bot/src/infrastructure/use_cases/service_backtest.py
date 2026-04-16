@@ -98,11 +98,8 @@ class BacktestService:
             session if isinstance(session, BacktestRepository) else BacktestRepository(session)
         )
         self.session = getattr(self.repository, "session", session)
-        self._reconcile_interrupted_runs()
-
-    def _reconcile_interrupted_runs(self) -> None:
-        """Mark orphaned created/running runs as failed after API reload or restart."""
-        self.reconcile_interrupted_runs(dry_run=False)
+        # Reconciliation is explicit via API ops endpoints to avoid false-positive
+        # failures when requests are served by different API worker processes.
 
     @staticmethod
     def _to_ops_row(run: Dict[str, Any]) -> Dict[str, Any]:
@@ -118,7 +115,7 @@ class BacktestService:
         }
 
     def _find_orphaned_in_progress_runs(
-        self, runs: Optional[List[Dict[str, Any]]] = None
+            self, runs: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
         source = runs if runs is not None else self.repository.list_runs(limit=None, offset=0)
         candidates: List[Dict[str, Any]] = []
@@ -151,7 +148,7 @@ class BacktestService:
             dict(run)
             for run in runs
             if str(run.get("status") or "").strip().lower() == "failed"
-            and str(run.get("error") or "").strip() == self._INTERRUPTION_ERROR
+               and str(run.get("error") or "").strip() == self._INTERRUPTION_ERROR
         ]
 
         safe_limit = max(1, int(limit or 50))
@@ -243,7 +240,7 @@ class BacktestService:
     def _build_metrics(cls, request: Any) -> Dict[str, Any]:
         payload = cls._extract_request_payload(request)
         params = (
-            payload.get("trading_parameters") or payload.get("strategy_params") or {}
+                payload.get("trading_parameters") or payload.get("strategy_params") or {}
         )
 
         zscore_threshold = float(params.get("zscore_threshold", 1.5) or 1.5)
@@ -350,12 +347,12 @@ class BacktestService:
         return utc.isoformat().replace("+00:00", "Z")
 
     async def _fetch_market_history(
-        self,
-        client: Any,
-        market: str,
-        start_dt: datetime,
-        end_dt: datetime,
-        resolution: str,
+            self,
+            client: Any,
+            market: str,
+            start_dt: datetime,
+            end_dt: datetime,
+            resolution: str,
     ) -> Dict[str, float]:
         step_minutes = self._resolution_to_minutes(resolution)
         max_candles = 100
@@ -389,8 +386,8 @@ class BacktestService:
 
     @staticmethod
     def _align_series(
-        market_1: Dict[str, float],
-        market_2: Dict[str, float],
+            market_1: Dict[str, float],
+            market_2: Dict[str, float],
     ) -> tuple[list[str], np.ndarray, np.ndarray]:
         common = sorted(set(market_1.keys()) & set(market_2.keys()))
         p1 = np.array([market_1[k] for k in common], dtype=np.float64)
@@ -411,7 +408,7 @@ class BacktestService:
 
     @staticmethod
     def _compute_max_drawdown_pct(
-        daily_pnl: List[float], initial_balance: float
+            daily_pnl: List[float], initial_balance: float
     ) -> float:
         equity = initial_balance
         peak = equity
@@ -426,9 +423,9 @@ class BacktestService:
 
     @staticmethod
     def _build_daily_pnl_rows(
-        daily_pnl_agg: Dict[str, float],
-        all_trades: List[Dict[str, Any]],
-        resolution: str,
+            daily_pnl_agg: Dict[str, float],
+            all_trades: List[Dict[str, Any]],
+            resolution: str,
     ) -> List[Dict[str, Any]]:
         return [
             {
@@ -514,9 +511,9 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs_by_liquidity(
-        cls,
-        pair_markets: List[tuple[str, str]],
-        market_map: Dict[str, Any],
+            cls,
+            pair_markets: List[tuple[str, str]],
+            market_map: Dict[str, Any],
     ) -> List[tuple[str, str]]:
         """Sort pairs by combined market liquidity descending, preserving stable order for ties."""
         if not pair_markets or not market_map:
@@ -547,9 +544,9 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs_by_volatility(
-        cls,
-        pair_markets: List[tuple[str, str]],
-        history_by_market: Dict[str, Dict[str, float]],
+            cls,
+            pair_markets: List[tuple[str, str]],
+            history_by_market: Dict[str, Dict[str, float]],
     ) -> List[tuple[str, str]]:
         if not pair_markets or not history_by_market:
             return pair_markets
@@ -567,10 +564,10 @@ class BacktestService:
 
     @classmethod
     def _pair_cointegration_score(
-        cls,
-        market_a: str,
-        market_b: str,
-        history_by_market: Dict[str, Dict[str, float]],
+            cls,
+            market_a: str,
+            market_b: str,
+            history_by_market: Dict[str, Dict[str, float]],
     ) -> float:
         h1 = history_by_market.get(market_a, {})
         h2 = history_by_market.get(market_b, {})
@@ -663,9 +660,9 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs_by_cointegration(
-        cls,
-        pair_markets: List[tuple[str, str]],
-        history_by_market: Dict[str, Dict[str, float]],
+            cls,
+            pair_markets: List[tuple[str, str]],
+            history_by_market: Dict[str, Dict[str, float]],
     ) -> List[tuple[str, str]]:
         if not pair_markets or not history_by_market:
             return pair_markets
@@ -677,11 +674,11 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs(
-        cls,
-        pair_markets: List[tuple[str, str]],
-        mode: str,
-        market_map: Dict[str, Any],
-        history_by_market: Dict[str, Dict[str, float]],
+            cls,
+            pair_markets: List[tuple[str, str]],
+            mode: str,
+            market_map: Dict[str, Any],
+            history_by_market: Dict[str, Dict[str, float]],
     ) -> List[tuple[str, str]]:
         normalized_mode = cls._normalize_pair_selection_mode(mode)
         if normalized_mode == "input":
@@ -695,15 +692,15 @@ class BacktestService:
         return cls._prioritize_pairs_by_liquidity(pair_markets, market_map)
 
     def _simulate_pair(
-        self,
-        run_id: str,
-        market_a: str,
-        market_b: str,
-        timestamps: List[str],
-        prices_a: np.ndarray,
-        prices_b: np.ndarray,
-        params: Dict[str, Any],
-        trade_index_offset: int,
+            self,
+            run_id: str,
+            market_a: str,
+            market_b: str,
+            timestamps: List[str],
+            prices_a: np.ndarray,
+            prices_b: np.ndarray,
+            params: Dict[str, Any],
+            trade_index_offset: int,
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, float]]:
         stats_window = max(5, int(params.get("stats_window", 21) or 21))
         entry_z = float(params.get("zscore_threshold", 1.5) or 1.5)
@@ -730,7 +727,7 @@ class BacktestService:
         open_pos: Optional[Dict[str, Any]] = None
 
         for idx in range(stats_window, len(spread)):
-            window = spread[idx - stats_window : idx]
+            window = spread[idx - stats_window: idx]
             mean = float(np.mean(window))
             std = float(np.std(window))
             if std <= 1e-12:
@@ -841,10 +838,10 @@ class BacktestService:
         return trades, snapshots, daily_pnl
 
     async def _execute_backtest(
-        self,
-        run_id: str,
-        request_payload: Dict[str, Any],
-        progress_callback: Any,
+            self,
+            run_id: str,
+            request_payload: Dict[str, Any],
+            progress_callback: Any,
     ) -> None:
         run_data = self._load_run_data(run_id)
         if not run_data:
@@ -984,8 +981,7 @@ class BacktestService:
                     market_history_cache[m2] = candles_2
 
                 timestamps, p1, p2 = self._align_series(candles_1, candles_2)
-                trades, snapshots, daily_pnl = await asyncio.to_thread(
-                    self._simulate_pair,
+                trades, snapshots, daily_pnl = self._simulate_pair(
                     run_id=run_id,
                     market_a=m1,
                     market_b=m2,
@@ -1133,9 +1129,9 @@ class BacktestService:
                     pass
 
     async def create_and_run_backtest(
-        self,
-        request: Any,
-        progress_callback: Any = None,
+            self,
+            request: Any,
+            progress_callback: Any = None,
     ) -> _BacktestRunDetails:
         """Create a backtest run and execute asynchronously using historical market data."""
         now = datetime.now(timezone.utc).isoformat()
@@ -1149,9 +1145,9 @@ class BacktestService:
             "end_date", ""
         )
         name = (
-            getattr(request, "name", None)
-            or request_payload.get("name")
-            or "unnamed-backtest"
+                getattr(request, "name", None)
+                or request_payload.get("name")
+                or "unnamed-backtest"
         )
 
         run_data: Dict[str, Any] = {
@@ -1196,11 +1192,11 @@ class BacktestService:
         return _BacktestRunDetails(**run_data)
 
     def list_backtest_runs(
-        self,
-        limit: int = 50,
-        offset: int = 0,
-        status_filter: Optional[str] = None,
-        days_filter: Optional[int] = None,
+            self,
+            limit: int = 50,
+            offset: int = 0,
+            status_filter: Optional[str] = None,
+            days_filter: Optional[int] = None,
     ) -> _BacktestRunList:
         runs = self.repository.list_runs(
             limit=limit,
@@ -1248,11 +1244,11 @@ class BacktestService:
         )
 
     def get_backtest_trades(
-        self,
-        run_id: str,
-        limit: int = 100,
-        offset: int = 0,
-        winning_only: bool = False,
+            self,
+            run_id: str,
+            limit: int = 100,
+            offset: int = 0,
+            winning_only: bool = False,
     ) -> List[_BacktestTrade]:
         """Return trades captured during backtest execution."""
         data = self._load_run_data(run_id)
@@ -1268,7 +1264,7 @@ class BacktestService:
                     continue
             if winning_only:
                 converted = [t for t in converted if t.win]
-            return converted[offset : offset + limit]
+            return converted[offset: offset + limit]
 
         # Backward-compatible fallback for legacy in-memory runs
         total_trades = max(1, int(data.get("total_trades", 0)))
@@ -1318,7 +1314,7 @@ class BacktestService:
                     market_2=pair[1],
                     entry_timestamp=entry_day.isoformat() + "T00:00:00Z",
                     exit_timestamp=(entry_day + timedelta(hours=dur)).isoformat()
-                    + "T06:00:00Z",
+                                   + "T06:00:00Z",
                     entry_zscore=round(rng.uniform(1.5, 2.5), 3),
                     exit_zscore=round(rng.uniform(-0.5, 0.5), 3),
                     entry_price_m1=round(ep1, 2),
@@ -1334,7 +1330,7 @@ class BacktestService:
             )
         if winning_only:
             trades = [t for t in trades if t.win]
-        return trades[offset : offset + limit]
+        return trades[offset: offset + limit]
 
     def cancel_backtest(self, run_id: str) -> bool:
         data = self._load_run_data(run_id)
@@ -1363,8 +1359,8 @@ class BacktestService:
             "total_runs": len(runs),
             "completed_runs": len(completed),
             "avg_sharpe": (
-                sum(float(r.get("sharpe_ratio", 0.0)) for r in completed)
-                / max(1, len(completed))
+                    sum(float(r.get("sharpe_ratio", 0.0)) for r in completed)
+                    / max(1, len(completed))
             ),
         }
 
@@ -1393,9 +1389,9 @@ class BacktestService:
         }
 
     def get_advanced_performance_metrics(
-        self,
-        run_id: str,
-        benchmark: str = "BTC-USD",
+            self,
+            run_id: str,
+            benchmark: str = "BTC-USD",
     ) -> Optional[Dict[str, Any]]:
         data = self._load_run_data(run_id)
         if not data:
@@ -1426,9 +1422,9 @@ class BacktestService:
         }
 
     def compare_backtests(
-        self,
-        run_ids: List[str],
-        metrics: Optional[List[str]] = None,
+            self,
+            run_ids: List[str],
+            metrics: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Compare selected backtest runs across requested metrics."""
         metric_keys = metrics or [
@@ -1586,11 +1582,11 @@ class BacktestService:
         }
 
     def get_position_snapshots(
-        self,
-        run_id: str,
-        limit: int = 100,
-        offset: int = 0,
-        market_pair: Optional[str] = None,
+            self,
+            run_id: str,
+            limit: int = 100,
+            offset: int = 0,
+            market_pair: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return position snapshots captured during the run."""
         data = self._load_run_data(run_id)
@@ -1608,7 +1604,7 @@ class BacktestService:
                         for p in s.get("positions", [])
                     )
                 ]
-            return snapshots[offset : offset + limit]
+            return snapshots[offset: offset + limit]
 
         # Backward-compatible fallback for legacy in-memory runs
         total_trades = max(1, int(data.get("total_trades", 0)))
@@ -1671,4 +1667,4 @@ class BacktestService:
                     ],
                 }
             )
-        return snapshots[offset : offset + limit]
+        return snapshots[offset: offset + limit]

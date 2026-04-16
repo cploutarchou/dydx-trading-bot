@@ -20,16 +20,17 @@ from datetime import date, timedelta
 from itertools import product
 from typing import Any, Dict, List, Optional, Tuple
 
+
 # ---------------------------------------------------------------------------
 # HTTP helpers (no external deps)
 # ---------------------------------------------------------------------------
 
 
 def _request_json(
-    url: str,
-    method: str = "GET",
-    data: Optional[dict] = None,
-    token: Optional[str] = None,
+        url: str,
+        method: str = "GET",
+        data: Optional[dict] = None,
+        token: Optional[str] = None,
 ) -> Tuple[int, dict]:
     payload = None
     headers = {"Content-Type": "application/json"}
@@ -102,12 +103,12 @@ def create_run(base_url: str, token: Optional[str], cfg: dict) -> str:
 
 
 def poll_until_done(
-    base_url: str,
-    token: Optional[str],
-    run_id: str,
-    label: str,
-    timeout: int = 600,
-    poll: int = 8,
+        base_url: str,
+        token: Optional[str],
+        run_id: str,
+        label: str,
+        timeout: int = 600,
+        poll: int = 8,
 ) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -157,9 +158,9 @@ def build_configs(start: str, end: str, max_pairs: int) -> List[Tuple[str, dict,
     pairs = PAIR_UNIVERSE[: max(1, max_pairs)]
     configs = []
     for z, w, u in product(
-        PARAM_GRID["zscore_threshold"],
-        PARAM_GRID["stats_window"],
-        PARAM_GRID["usd_per_trade"],
+            PARAM_GRID["zscore_threshold"],
+            PARAM_GRID["stats_window"],
+            PARAM_GRID["usd_per_trade"],
     ):
         label = f"Z={z} W={w} U=${u}"
         params = {**BASE_PARAMS, "zscore_threshold": z, "stats_window": w, "usd_per_trade": u}
@@ -195,7 +196,7 @@ def print_table(results: List[SweepResult]) -> None:
     print("  ".join(h.ljust(w) for h, w in zip(headers, col_w)))
     print(sep)
     for r in ok:
-        wr = f"{(r.win_rate or 0)*100:.1f}" if r.win_rate is not None else "—"
+        wr = f"{(r.win_rate or 0) * 100:.1f}" if r.win_rate is not None else "—"
         row = [
             r.label,
             f"{r.sharpe_ratio:.3f}" if r.sharpe_ratio is not None else "—",
@@ -281,7 +282,7 @@ def main() -> int:
 
     # Submit in batches of --concurrency, then poll each batch
     batch_size = args.concurrency
-    batches = [configs[i : i + batch_size] for i in range(0, total, batch_size)]
+    batches = [configs[i: i + batch_size] for i in range(0, total, batch_size)]
 
     for batch_idx, batch in enumerate(batches):
         print(f"--- Batch {batch_idx + 1}/{len(batches)} ({len(batch)} runs) ---")

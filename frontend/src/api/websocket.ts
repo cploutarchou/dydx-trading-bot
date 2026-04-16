@@ -117,9 +117,7 @@ export class WebSocketManager {
       this.log('Connecting to', this.config.url);
 
       try {
-        // Add authentication token to connection
-        const token = localStorage.getItem('access_token') || undefined;
-        const urlWithAuth = resolveBackendWebSocketUrl(this.config.url, token);
+        const urlWithAuth = resolveBackendWebSocketUrl(this.config.url);
 
         this.ws = new WebSocket(urlWithAuth, this.config.protocols);
 

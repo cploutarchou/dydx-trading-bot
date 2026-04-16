@@ -30,6 +30,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
+
 from src.shared.env_loader import load_repo_env
 
 # Load structured config BEFORE importing project modules that initialize config/database.
@@ -270,8 +271,8 @@ class InMemoryStrategyStore:
 
     @classmethod
     def create(
-        cls,
-        payload: Dict[str, Any],
+            cls,
+            payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         session = db.get_session()
         try:
@@ -282,9 +283,9 @@ class InMemoryStrategyStore:
 
     @classmethod
     def update(
-        cls,
-        strategy_id: int,
-        payload: Dict[str, Any],
+            cls,
+            strategy_id: int,
+            payload: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         session = db.get_session()
         try:
@@ -313,9 +314,9 @@ class InMemoryStrategyStore:
 
     @classmethod
     def revert(
-        cls,
-        strategy_id: int,
-        version_id: int,
+            cls,
+            strategy_id: int,
+            version_id: int,
     ) -> Optional[Dict[str, Any]]:
         session = db.get_session()
         try:
@@ -377,8 +378,8 @@ def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
 
 
 async def _resolve_backtest_markets(
-    explicit_pairs: Optional[List[str]],
-    max_pairs: Any,
+        explicit_pairs: Optional[List[str]],
+        max_pairs: Any,
 ) -> List[str]:
     """Resolve market universe for a backtest request.
 
@@ -436,9 +437,9 @@ async def _resolve_backtest_markets(
 
 
 def _strategy_to_backtest_request(
-    strategy: Dict[str, Any],
-    request: BacktestRunRequestCompat,
-    pairs: List[str],
+        strategy: Dict[str, Any],
+        request: BacktestRunRequestCompat,
+        pairs: List[str],
 ) -> BacktestConfigRequest:
     trading_parameters = dict(request.trading_parameters or {})
     selected_mode = str(
@@ -534,8 +535,8 @@ def custom_openapi():
             if method.lower() in ["get", "post", "put", "delete", "patch"]:
                 # Skip auth endpoints from requiring authentication
                 if not any(
-                    skip_path in path
-                    for skip_path in ["/auth/", "/docs", "/redoc", "/openapi.json"]
+                        skip_path in path
+                        for skip_path in ["/auth/", "/docs", "/redoc", "/openapi.json"]
                 ):
                     openapi_schema["paths"][path][method]["security"] = [
                         {"BearerAuth": []}
@@ -567,9 +568,9 @@ def custom_openapi():
             if isinstance(schema, dict):
                 all_of = schema.get("allOf")
                 if isinstance(all_of, list) and any(
-                    isinstance(item, dict)
-                    and item.get("$ref") == "#/components/schemas/StandardApiResponse"
-                    for item in all_of
+                        isinstance(item, dict)
+                        and item.get("$ref") == "#/components/schemas/StandardApiResponse"
+                        for item in all_of
                 ):
                     continue
 
@@ -667,6 +668,7 @@ app.include_router(
     tags=["Authentication"],
 )
 
+
 # ============================================================================
 # API RESPONSE WRAPPER
 # ============================================================================
@@ -694,8 +696,8 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
 
 @app.post("/api/v1/runtime/preflight")
 async def runtime_preflight(
-    request: RuntimePreflightRequest,
-    current_user: User = Depends(get_current_active_user),
+        request: RuntimePreflightRequest,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Evaluate whether a live runtime is ready to start on the selected environment."""
     environment = (
@@ -748,7 +750,7 @@ async def runtime_preflight(
         # Recommended minimum buffer: 25% above required minimums to prevent accidental liquidation
         COLLATERAL_SAFETY_BUFFER_RATIO = 1.25
         required_collateral_with_buffer = max(usd_per_trade, usd_min_collateral) * COLLATERAL_SAFETY_BUFFER_RATIO
-        
+
         if account_exists and available_collateral < usd_per_trade:
             blockers.append(
                 f"Free collateral ${available_collateral:.2f} is below per-trade size ${usd_per_trade:.2f}."
@@ -758,20 +760,20 @@ async def runtime_preflight(
                 f"Free collateral ${available_collateral:.2f} is below minimum collateral ${usd_min_collateral:.2f}."
             )
         if (
-            account_exists
-            and capital_allocation_usd > 0
-            and available_collateral < capital_allocation_usd
+                account_exists
+                and capital_allocation_usd > 0
+                and available_collateral < capital_allocation_usd
         ):
             warnings.append(
                 f"Configured capital allocation ${capital_allocation_usd:.2f} exceeds current free collateral ${available_collateral:.2f}."
             )
-        
+
         # P1.6: Warn if available collateral is below safety buffer
         if account_exists and available_collateral < required_collateral_with_buffer:
             warnings.append(
                 f"Available collateral ${available_collateral:.2f} is below recommended buffer (25% above minimum). Consider funding before production deployment."
             )
-        
+
         # P1.6: Warn if trade size is aggressive relative to collateral (>10% per trade)
         if account_exists and usd_per_trade > 0:
             trade_size_ratio = usd_per_trade / available_collateral if available_collateral > 0 else 1.0
@@ -779,7 +781,7 @@ async def runtime_preflight(
                 warnings.append(
                     f"Trade size ${usd_per_trade:.2f} is {(trade_size_ratio * 100):.1f}% of available collateral. Higher risk if multiple positions open simultaneously."
                 )
-        
+
         # P1.6: Note subaccount isolation for operator awareness
         if subaccount_number > 0:
             warnings.append(
@@ -850,10 +852,10 @@ def _resolve_operator_name(current_user: Optional[User]) -> str:
     if current_user is None:
         return "system"
     return (
-        str(getattr(current_user, "full_name", "") or "").strip()
-        or str(getattr(current_user, "username", "") or "").strip()
-        or str(getattr(current_user, "email", "") or "").strip()
-        or "system"
+            str(getattr(current_user, "full_name", "") or "").strip()
+            or str(getattr(current_user, "username", "") or "").strip()
+            or str(getattr(current_user, "email", "") or "").strip()
+            or "system"
     )
 
 
@@ -863,12 +865,12 @@ def _resolve_action_details(message: Optional[str], fallback: str) -> str:
 
 
 def _build_bot_lifecycle_context(
-    instance_id: str,
-    config_payload: Optional[Dict[str, Any]],
-    current_user: Optional[User],
-    *,
-    details: str = "",
-    reason: str = "",
+        instance_id: str,
+        config_payload: Optional[Dict[str, Any]],
+        current_user: Optional[User],
+        *,
+        details: str = "",
+        reason: str = "",
 ) -> Dict[str, Any]:
     payload = config_payload or {}
     trading_params = payload.get("trading_params") or {}
@@ -887,14 +889,14 @@ def _build_bot_lifecycle_context(
 
 
 def _send_bot_lifecycle_notification(
-    action: str,
-    instance_id: str,
-    config_payload: Optional[Dict[str, Any]],
-    current_user: Optional[User],
-    *,
-    success: bool = True,
-    details: str = "",
-    reason: str = "",
+        action: str,
+        instance_id: str,
+        config_payload: Optional[Dict[str, Any]],
+        current_user: Optional[User],
+        *,
+        success: bool = True,
+        details: str = "",
+        reason: str = "",
 ) -> bool:
     payload = config_payload or {}
     telegram = payload.get("telegram") or {}
@@ -918,14 +920,14 @@ def _send_bot_lifecycle_notification(
 
 
 def _persist_bot_status_and_event(
-    instance_id: str,
-    *,
-    status: Optional[BotStatusEnum] = None,
-    process_id: Optional[int] = None,
-    event_type: Optional[str] = None,
-    severity: str = "info",
-    message: str = "",
-    details: Optional[Dict[str, Any]] = None,
+        instance_id: str,
+        *,
+        status: Optional[BotStatusEnum] = None,
+        process_id: Optional[int] = None,
+        event_type: Optional[str] = None,
+        severity: str = "info",
+        message: str = "",
+        details: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Persist lifecycle status/event updates and return the current bot config payload."""
     session = None
@@ -1037,10 +1039,10 @@ def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) 
     if status_code != 404 or request.method != "GET":
         return False
     return (
-        re.fullmatch(
-            r"/api/v1/bots/strategy-\d+-\d+(?:/stats)?", request.url.path or ""
-        )
-        is not None
+            re.fullmatch(
+                r"/api/v1/bots/strategy-\d+-\d+(?:/stats)?", request.url.path or ""
+            )
+            is not None
     )
 
 
@@ -1051,7 +1053,7 @@ def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) 
 
 @app.post("/api/v1/bots", response_model=BotOperationResult)
 async def create_bot_instance(
-    config: BotInstanceConfig, current_user: User = Depends(get_current_active_user)
+        config: BotInstanceConfig, current_user: User = Depends(get_current_active_user)
 ):
     """Create a new bot instance"""
     try:
@@ -1167,7 +1169,7 @@ async def list_bot_instances(current_user: User = Depends(get_current_active_use
 
 @app.get("/api/v1/bots/{instance_id}", response_model=BotInstanceStatus)
 async def get_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
+        instance_id: str, current_user: User = Depends(get_current_active_user)
 ):
     """Get specific bot instance status"""
     try:
@@ -1197,7 +1199,7 @@ async def get_bot_instance(
 
 @app.delete("/api/v1/bots/{instance_id}")
 async def delete_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
+        instance_id: str, current_user: User = Depends(get_current_active_user)
 ):
     """Delete bot instance"""
     try:
@@ -1271,9 +1273,9 @@ async def delete_bot_instance(
 
 @app.post("/api/v1/bots/{instance_id}/start")
 async def start_bot_instance(
-    instance_id: str,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user),
+        instance_id: str,
+        background_tasks: BackgroundTasks,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Start bot instance"""
     try:
@@ -1341,9 +1343,9 @@ async def start_bot_instance(
 
 @app.post("/api/v1/bots/{instance_id}/stop")
 async def stop_bot_instance(
-    instance_id: str,
-    force: bool = False,
-    current_user: User = Depends(get_current_active_user),
+        instance_id: str,
+        force: bool = False,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Stop bot instance"""
     try:
@@ -1413,7 +1415,7 @@ async def stop_bot_instance(
 
 @app.post("/api/v1/bots/{instance_id}/restart")
 async def restart_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
+        instance_id: str, current_user: User = Depends(get_current_active_user)
 ):
     """Restart bot instance"""
     try:
@@ -1530,9 +1532,9 @@ async def restart_bot_instance(
 
 @app.get("/api/v1/bots/{instance_id}/history")
 async def get_bot_history(
-    instance_id: str,
-    days: int = 7,
-    current_user: User = Depends(get_current_active_user),
+        instance_id: str,
+        days: int = 7,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Get bot event history"""
     try:
@@ -1582,9 +1584,9 @@ async def get_bot_history(
 
 @app.get("/api/v1/bots/{instance_id}/jobs")
 async def get_bot_jobs(
-    instance_id: str,
-    days: int = 7,
-    current_user: User = Depends(get_current_active_user),
+        instance_id: str,
+        days: int = 7,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Get bot job history"""
     try:
@@ -1655,9 +1657,9 @@ async def get_bot_jobs(
 
 @app.get("/api/v1/bots/{instance_id}/trades")
 async def get_bot_trades(
-    instance_id: str,
-    status: Optional[str] = None,
-    current_user: User = Depends(get_current_active_user),
+        instance_id: str,
+        status: Optional[str] = None,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Get bot trades"""
     try:
@@ -1731,7 +1733,7 @@ async def get_bot_trades(
 
 @app.get("/api/v1/bots/{instance_id}/stats")
 async def get_bot_stats(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
+        instance_id: str, current_user: User = Depends(get_current_active_user)
 ):
     """Get bot statistics"""
     try:
@@ -1800,11 +1802,11 @@ async def get_bot_stats(
 
 @app.post("/api/v1/bots/quick-deploy")
 async def quick_deploy_bot(
-    instance_name: str,
-    credentials: BotCredentials,
-    trading_params: TradingParameters,
-    auto_start: bool = True,
-    current_user: User = Depends(get_current_active_user),
+        instance_name: str,
+        credentials: BotCredentials,
+        trading_params: TradingParameters,
+        auto_start: bool = True,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Quick deploy and optionally start a new bot instance"""
     try:
@@ -1814,7 +1816,7 @@ async def quick_deploy_bot(
         import re
 
         instance_id = re.sub(r"[^a-zA-Z0-9_-]", "-", instance_name.lower())
-        instance_id = f"{instance_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        instance_id = f"{instance_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
         # Create configuration
         config = BotInstanceConfig(
@@ -2011,7 +2013,7 @@ async def runtime_db_config(current_user: User = Depends(get_admin_user)):
 
 @app.get("/api/v1/users/me")
 async def get_current_user_profile(
-    current_user: User = Depends(get_current_active_user),
+        current_user: User = Depends(get_current_active_user),
 ):
     """Frontend-compatible current user endpoint used after login."""
     return api_response(
@@ -2029,7 +2031,7 @@ async def get_current_user_profile(
                 )
             ),
             "created_at": (
-                getattr(current_user, "created_at", datetime.now())
+                getattr(current_user, "created_at", datetime.now(timezone.utc))
             ).isoformat(),
         },
         message="Current user profile retrieved",
@@ -2084,7 +2086,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                 "system_resources": {
                     "cpu_usage_percent": cpu_usage,
                     "memory_usage_percent": memory.percent,
-                    "memory_available_gb": round(memory.available / (1024**3), 2),
+                    "memory_available_gb": round(memory.available / (1024 ** 3), 2),
                 },
                 "api_info": {
                     "version": "1.0.0",
@@ -2110,7 +2112,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
 
 @app.get("/api/v1/bots/{bot_instance_id}/positions/current")
 async def get_current_positions(
-    bot_instance_id: str, current_user: User = Depends(get_current_active_user)
+        bot_instance_id: str, current_user: User = Depends(get_current_active_user)
 ):
     """Get all currently open positions for a bot"""
     try:
@@ -2147,9 +2149,9 @@ async def get_current_positions(
 
 @app.get("/api/v1/bots/{bot_instance_id}/positions/{position_id}")
 async def get_position(
-    bot_instance_id: int,
-    position_id: str,
-    current_user: User = Depends(get_current_active_user)
+        bot_instance_id: int,
+        position_id: str,
+        current_user: User = Depends(get_current_active_user)
 ):
     """Get specific position details"""
     try:
@@ -2219,8 +2221,8 @@ async def get_position(
 
 @app.get("/api/v1/bots/{bot_instance_id}/market-data")
 async def get_market_data(
-    bot_instance_id: int,
-    current_user: User = Depends(get_current_active_user)
+        bot_instance_id: int,
+        current_user: User = Depends(get_current_active_user)
 ):
     """Get latest market data for all symbols tracked by bot"""
     try:
@@ -2270,8 +2272,8 @@ async def get_market_data(
 
 @app.get("/api/v1/bots/{bot_instance_id}/realtime-stats")
 async def get_realtime_stats(
-    bot_instance_id: int,
-    current_user: User = Depends(get_current_active_user)
+        bot_instance_id: int,
+        current_user: User = Depends(get_current_active_user)
 ):
     """Get real-time bot statistics"""
     try:
@@ -2354,9 +2356,9 @@ async def get_realtime_stats(
 
 @app.get("/api/v1/bots/{bot_instance_id}/alerts")
 async def get_alerts(
-    bot_instance_id: int,
-    limit: int = 50,
-    current_user: User = Depends(get_current_active_user)
+        bot_instance_id: int,
+        limit: int = 50,
+        current_user: User = Depends(get_current_active_user)
 ):
     """Get recent alerts for a bot"""
     try:
@@ -2403,10 +2405,10 @@ async def get_alerts(
 
 @app.get("/api/v1/bots/{bot_instance_id}/position-history/{position_id}")
 async def get_position_history(
-    bot_instance_id: int,
-    position_id: str,
-    hours: int = 24,
-    current_user: User = Depends(get_current_active_user)
+        bot_instance_id: int,
+        position_id: str,
+        hours: int = 24,
+        current_user: User = Depends(get_current_active_user)
 ):
     """Get historical P&L snapshots for a position"""
     try:
@@ -2628,7 +2630,7 @@ def backtest_service_scope():
 
 @app.post("/api/v1/backtests", response_model=BacktestResponse)
 async def create_backtest(
-    request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
+        request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
 ):
     """Create and start a new backtest"""
     try:
@@ -2667,13 +2669,13 @@ async def create_backtest(
                         initial_balance=request.initial_balance,
                         trading_parameters={
                             **(
-                                request.trading_parameters
-                                or {
-                                    "zscore_threshold": 1.5,
-                                    "stats_window": 21,
-                                    "usd_per_trade": 10.0,
-                                    "close_at_zscore_cross": True,
-                                }
+                                    request.trading_parameters
+                                    or {
+                                        "zscore_threshold": 1.5,
+                                        "stats_window": 21,
+                                        "usd_per_trade": 10.0,
+                                        "close_at_zscore_cross": True,
+                                    }
                             ),
                             "pair_selection_mode": request.pair_selection_mode,
                             "max_pairs": int(request.max_pairs),
@@ -2689,13 +2691,13 @@ async def create_backtest(
                     initial_balance=request.initial_balance,
                     trading_parameters={
                         **(
-                            request.trading_parameters
-                            or {
-                                "zscore_threshold": 1.5,
-                                "stats_window": 21,
-                                "usd_per_trade": 10.0,
-                                "close_at_zscore_cross": True,
-                            }
+                                request.trading_parameters
+                                or {
+                                    "zscore_threshold": 1.5,
+                                    "stats_window": 21,
+                                    "usd_per_trade": 10.0,
+                                    "close_at_zscore_cross": True,
+                                }
                         ),
                         "pair_selection_mode": request.pair_selection_mode,
                         "max_pairs": int(request.max_pairs),
@@ -2707,7 +2709,7 @@ async def create_backtest(
 
         # Create WebSocket progress callback (if needed)
         async def progress_callback(
-            run_id: str, progress: float, current_pair: str, eta: int
+                run_id: str, progress: float, current_pair: str, eta: int
         ):
             progress_message = {
                 "type": "backtest_progress",
@@ -2758,7 +2760,7 @@ async def create_backtest(
 
 @app.post("/api/v1/backtests/run")
 async def run_backtest_compat(
-    request: BacktestRunRequestCompat,
+        request: BacktestRunRequestCompat,
 ):
     """Frontend-compatible backtest execution route."""
     try:
@@ -2797,13 +2799,13 @@ async def run_backtest_compat(
                     initial_balance=request.initial_balance,
                     trading_parameters={
                         **(
-                            request.trading_parameters
-                            or {
-                                "zscore_threshold": 1.5,
-                                "stats_window": 21,
-                                "usd_per_trade": 10.0,
-                                "close_at_zscore_cross": True,
-                            }
+                                request.trading_parameters
+                                or {
+                                    "zscore_threshold": 1.5,
+                                    "stats_window": 21,
+                                    "usd_per_trade": 10.0,
+                                    "close_at_zscore_cross": True,
+                                }
                         ),
                         "pair_selection_mode": request.pair_selection_mode,
                         "max_pairs": int(request.max_pairs),
@@ -2819,13 +2821,13 @@ async def run_backtest_compat(
                 initial_balance=request.initial_balance,
                 trading_parameters={
                     **(
-                        request.trading_parameters
-                        or {
-                            "zscore_threshold": 1.5,
-                            "stats_window": 21,
-                            "usd_per_trade": 10.0,
-                            "close_at_zscore_cross": True,
-                        }
+                            request.trading_parameters
+                            or {
+                                "zscore_threshold": 1.5,
+                                "stats_window": 21,
+                                "usd_per_trade": 10.0,
+                                "close_at_zscore_cross": True,
+                            }
                     ),
                     "pair_selection_mode": request.pair_selection_mode,
                     "max_pairs": int(request.max_pairs),
@@ -2854,10 +2856,10 @@ async def run_backtest_compat(
 
 @app.get("/api/v1/backtests", response_model=BacktestListResponse)
 async def list_backtests(
-    limit: int = 50,
-    offset: int = 0,
-    status: Optional[str] = None,
-    days: Optional[int] = None,
+        limit: int = 50,
+        offset: int = 0,
+        status: Optional[str] = None,
+        days: Optional[int] = None,
 ):
     """List backtest runs with filtering"""
     try:
@@ -2884,7 +2886,7 @@ async def list_backtests(
 
 @app.get("/api/v1/backtests/interrupted")
 async def list_interrupted_backtests(
-    limit: int = 50,
+        limit: int = 50,
 ):
     """Ops visibility for interrupted/orphaned persisted backtest runs."""
     return _list_interrupted_backtests_response(limit=limit)
@@ -2912,7 +2914,7 @@ def _list_interrupted_backtests_response(limit: int):
 
 @app.post("/api/v1/backtests/interrupted/reconcile")
 async def reconcile_interrupted_backtests(
-    dry_run: bool = True,
+        dry_run: bool = True,
 ):
     """Explicitly reconcile persisted orphaned in-progress runs."""
     return _reconcile_interrupted_backtests_response(dry_run=dry_run)
@@ -2943,8 +2945,8 @@ def _reconcile_interrupted_backtests_response(dry_run: bool):
 
 @app.get("/api/v1/admin/backtests/interrupted")
 async def list_interrupted_backtests_admin(
-    limit: int = 50,
-    current_user: User = Depends(get_admin_user),
+        limit: int = 50,
+        current_user: User = Depends(get_admin_user),
 ):
     """Admin-scoped alias for interrupted/orphaned persisted backtest visibility."""
     _ = current_user
@@ -2953,8 +2955,8 @@ async def list_interrupted_backtests_admin(
 
 @app.post("/api/v1/admin/backtests/interrupted/reconcile")
 async def reconcile_interrupted_backtests_admin(
-    dry_run: bool = True,
-    current_user: User = Depends(get_admin_user),
+        dry_run: bool = True,
+        current_user: User = Depends(get_admin_user),
 ):
     """Admin-scoped alias for explicit interrupted backtest reconciliation."""
     _ = current_user
@@ -2963,7 +2965,7 @@ async def reconcile_interrupted_backtests_admin(
 
 @app.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
 async def get_backtest_details(
-    run_id: str,
+        run_id: str,
 ):
     """Get detailed backtest results"""
     try:
@@ -2991,7 +2993,7 @@ async def get_backtest_details(
 
 @app.get("/api/v1/backtests/{run_id}/status")
 async def get_backtest_status(
-    run_id: str,
+        run_id: str,
 ):
     """Get current backtest status and progress"""
     try:
@@ -3023,8 +3025,8 @@ async def get_backtest_status(
 
 @app.post("/api/v1/backtests/{run_id}/create-strategy")
 async def create_strategy_from_backtest(
-    run_id: str,
-    request: BacktestCreateStrategyRequest,
+        run_id: str,
+        request: BacktestCreateStrategyRequest,
 ):
     """Create a strategy snapshot from an existing backtest."""
     with backtest_service_scope() as service:
@@ -3055,10 +3057,10 @@ async def create_strategy_from_backtest(
 
 @app.get("/api/v1/backtests/{run_id}/trades")
 async def get_backtest_trades(
-    run_id: str,
-    limit: int = 100,
-    offset: int = 0,
-    winning_only: bool = False,
+        run_id: str,
+        limit: int = 100,
+        offset: int = 0,
+        winning_only: bool = False,
 ):
     """Get trades for specific backtest run"""
     try:
@@ -3087,7 +3089,7 @@ async def get_backtest_trades(
 
 @app.post("/api/v1/backtests/{run_id}/cancel")
 async def cancel_backtest(
-    run_id: str,
+        run_id: str,
 ):
     """Cancel running backtest"""
     try:
@@ -3113,7 +3115,7 @@ async def cancel_backtest(
 
 @app.delete("/api/v1/backtests/{run_id}")
 async def delete_backtest(
-    run_id: str,
+        run_id: str,
 ):
     """Delete backtest run and all associated data"""
     try:
@@ -3137,7 +3139,7 @@ async def delete_backtest(
 
 @app.get("/api/v1/backtests/stats/summary")
 async def get_backtest_summary_stats(
-    days: int = 30,
+        days: int = 30,
 ):
     """Get backtest system summary statistics"""
     try:
@@ -3159,7 +3161,7 @@ async def get_backtest_summary_stats(
 
 @app.get("/api/v1/backtests/{run_id}/analytics")
 async def get_backtest_analytics(
-    run_id: str,
+        run_id: str,
 ):
     """Get comprehensive analytics for a backtest run"""
     try:
@@ -3187,10 +3189,10 @@ async def get_backtest_analytics(
 
 @app.get("/api/v1/backtests/{run_id}/position-snapshots")
 async def get_position_snapshots(
-    run_id: str,
-    limit: int = 100,
-    offset: int = 0,
-    market_pair: Optional[str] = None,
+        run_id: str,
+        limit: int = 100,
+        offset: int = 0,
+        market_pair: Optional[str] = None,
 ):
     """Get position snapshots for real-time backtest tracking"""
     try:
@@ -3220,7 +3222,7 @@ async def get_position_snapshots(
 
 @app.post("/api/v1/backtests/compare")
 async def compare_backtests(
-    request: dict,  # BacktestComparisonRequest - simplified for now
+        request: dict,  # BacktestComparisonRequest - simplified for now
 ):
     """Compare multiple backtest runs with advanced analytics"""
     try:
@@ -3275,7 +3277,7 @@ async def backtest_sync_health():
 
 @app.get("/api/v1/backtests/{run_id}/dydx-validation")
 async def validate_against_dydx_data(
-    run_id: str,
+        run_id: str,
 ):
     """Validate backtest results against real dYdX market data"""
     try:
@@ -3303,8 +3305,8 @@ async def validate_against_dydx_data(
 
 @app.get("/api/v1/backtests/{run_id}/performance-metrics")
 async def get_advanced_performance_metrics(
-    run_id: str,
-    benchmark: str = "BTC-USD",
+        run_id: str,
+        benchmark: str = "BTC-USD",
 ):
     """Get advanced performance metrics with market benchmarking"""
     try:
@@ -3332,7 +3334,7 @@ async def get_advanced_performance_metrics(
 
 @app.get("/api/v1/backtests/{run_id}/live-progress")
 async def get_live_progress(
-    run_id: str,
+        run_id: str,
 ):
     """Get real-time backtest progress with current positions"""
     try:
@@ -3388,9 +3390,9 @@ async def _bot_manager_monitor_loop():
 
 @app.get("/api/v1/strategies")
 async def list_strategies(
-    skip: int = 0,
-    limit: int = 50,
-    current_user: User = Depends(get_current_active_user),
+        skip: int = 0,
+        limit: int = 50,
+        current_user: User = Depends(get_current_active_user),
 ):
     """List stored strategies for the UI."""
     del current_user
@@ -3415,8 +3417,8 @@ async def list_public_strategies():
 
 @app.post("/api/v1/strategies")
 async def create_strategy(
-    request: StrategyRequest,
-    current_user: User = Depends(get_current_active_user),
+        request: StrategyRequest,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Create a strategy."""
     del current_user
@@ -3430,8 +3432,8 @@ async def create_strategy(
 
 @app.get("/api/v1/strategies/{strategy_id}")
 async def get_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
+        strategy_id: int,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Get one strategy."""
     del current_user
@@ -3447,9 +3449,9 @@ async def get_strategy(
 
 @app.put("/api/v1/strategies/{strategy_id}")
 async def update_strategy(
-    strategy_id: int,
-    request: StrategyRequest,
-    current_user: User = Depends(get_current_active_user),
+        strategy_id: int,
+        request: StrategyRequest,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Update one strategy."""
     del current_user
@@ -3465,8 +3467,8 @@ async def update_strategy(
 
 @app.delete("/api/v1/strategies/{strategy_id}")
 async def delete_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
+        strategy_id: int,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Delete one strategy."""
     del current_user
@@ -3481,8 +3483,8 @@ async def delete_strategy(
 
 @app.get("/api/v1/strategies/{strategy_id}/versions")
 async def get_strategy_versions(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
+        strategy_id: int,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Get in-memory version history for a strategy."""
     del current_user
@@ -3495,10 +3497,10 @@ async def get_strategy_versions(
 
 @app.post("/api/v1/strategies/{strategy_id}/versions/{version_id}/revert")
 async def revert_strategy_version(
-    strategy_id: int,
-    version_id: int,
-    request: StrategyVersionRevertRequest,
-    current_user: User = Depends(get_current_active_user),
+        strategy_id: int,
+        version_id: int,
+        request: StrategyVersionRevertRequest,
+        current_user: User = Depends(get_current_active_user),
 ):
     """Revert a strategy to a prior stored version."""
     del request, current_user

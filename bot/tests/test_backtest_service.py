@@ -35,12 +35,12 @@ def _request(**trading_parameters):
 
 class _FakeMarkets:
     async def get_perpetual_market_candles(
-        self,
-        market,
-        resolution,
-        from_iso=None,
-        to_iso=None,
-        limit=100,
+            self,
+            market,
+            resolution,
+            from_iso=None,
+            to_iso=None,
+            limit=100,
     ):
         del resolution, limit
         start = datetime.fromisoformat(str(from_iso).replace("Z", "+00:00"))
@@ -193,9 +193,9 @@ def test_parameter_changes_produce_distinct_real_results(monkeypatch):
         assert a is not None and c is not None
 
         assert (
-            a.total_pnl != c.total_pnl
-            or a.total_trades != c.total_trades
-            or a.sharpe_ratio != c.sharpe_ratio
+                a.total_pnl != c.total_pnl
+                or a.total_trades != c.total_trades
+                or a.sharpe_ratio != c.sharpe_ratio
         )
 
     asyncio.run(_run())
@@ -264,6 +264,7 @@ def test_failed_backtest_exposes_error_fields(monkeypatch):
         assert progress["error_message"] == "historical data fetch failed"
 
     asyncio.run(_run())
+
 
 def test_build_market_pairs_uses_all_unique_combinations():
     _, service_module = _load_modules()
@@ -512,6 +513,36 @@ def test_backtest_status_survives_service_recreation_with_db_repository(monkeypa
         assert status.error == "historical data fetch failed"
 
     asyncio.run(_run())
+
+
+def test_service_init_does_not_auto_reconcile_running_runs():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-still-running",
+            "name": "still-running",
+            "status": "running",
+            "progress_pct": 50.0,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+    recreated = BacktestService(session=None)
+    persisted = recreated.repository.get_run("run-still-running")
+    assert persisted is not None
+    assert persisted["status"] == "running"
+    assert persisted.get("error") in {None, ""}
 
 
 def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():

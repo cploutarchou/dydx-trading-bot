@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="dYdX trading bot">
+  <rect width="64" height="64" rx="12" fill="#020617" />
+  <path d="M14 41h36" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" />
+  <path d="M18 38 29 26l8 7 9-13" fill="none" stroke="#34d399" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="18" cy="38" r="3" fill="#e2e8f0" />
+  <circle cx="29" cy="26" r="3" fill="#e2e8f0" />
+  <circle cx="37" cy="33" r="3" fill="#e2e8f0" />
+  <circle cx="46" cy="20" r="3" fill="#e2e8f0" />
+</svg>

@@ -3,13 +3,13 @@
 import html
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import requests
 from loguru import logger
-from src.constants import DYDX_ADDRESS, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 
+from src.constants import DYDX_ADDRESS, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 
 
 class TelegramMessenger:
@@ -19,11 +19,11 @@ class TelegramMessenger:
     _recent_messages: Dict[str, float] = {}
 
     def __init__(
-        self,
-        bot_token: Optional[str] = None,
-        chat_id: Optional[str] = None,
-        instance_id: Optional[str] = None,
-        environment: Optional[str] = None,
+            self,
+            bot_token: Optional[str] = None,
+            chat_id: Optional[str] = None,
+            instance_id: Optional[str] = None,
+            environment: Optional[str] = None,
     ):
         self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or TELEGRAM_TOKEN)
         self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "").strip() or TELEGRAM_CHAT_ID)
@@ -38,7 +38,7 @@ class TelegramMessenger:
 
     def _format_timestamp(self) -> str:
         """Format current timestamp for messages."""
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     def _escape_html(self, value: Any) -> str:
         """Escape dynamic values to keep Telegram HTML parse mode safe."""
@@ -52,7 +52,7 @@ class TelegramMessenger:
 
     def _environment_prefix(self) -> str:
         environment = (
-            self.environment or os.getenv("ENVIRONMENT", "development")
+                self.environment or os.getenv("ENVIRONMENT", "development")
         ).strip().lower()
         return f"🌍 <b>Env:</b> {self._escape_html(environment)}\n"
 
@@ -104,9 +104,9 @@ class TelegramMessenger:
         return compact or "general"
 
     def _resolve_error_dedupe_window_seconds(
-        self,
-        category: str,
-        is_critical: bool,
+            self,
+            category: str,
+            is_critical: bool,
     ) -> int:
         if is_critical:
             return self._safe_env_int("TELEGRAM_ERROR_DEDUPE_SECONDS_CRITICAL", 0)
@@ -141,8 +141,8 @@ class TelegramMessenger:
                     return True
 
                 if (
-                    response.status_code == 403
-                    and "bots can't send messages to bots" in response.text.lower()
+                        response.status_code == 403
+                        and "bots can't send messages to bots" in response.text.lower()
                 ):
                     logger.error(
                         "Telegram delivery blocked: TELEGRAM_CHAT_ID '{}' appears to belong to a bot account. "
@@ -191,11 +191,11 @@ class TelegramMessenger:
         return False
 
     def send_message(
-        self,
-        text: str,
-        parse_mode: str = "HTML",
-        dedupe_key: Optional[str] = None,
-        dedupe_window_seconds: Optional[int] = None,
+            self,
+            text: str,
+            parse_mode: str = "HTML",
+            dedupe_key: Optional[str] = None,
+            dedupe_window_seconds: Optional[int] = None,
     ) -> bool:
         """Send a formatted message to Telegram."""
         if not self.enabled:
@@ -257,11 +257,11 @@ class TelegramMessenger:
         return self.send_message(message)
 
     def send_lifecycle_message(
-        self,
-        action: str,
-        lifecycle_info: Dict[str, Any],
-        *,
-        success: bool = True,
+            self,
+            action: str,
+            lifecycle_info: Dict[str, Any],
+            *,
+            success: bool = True,
     ) -> bool:
         """Send operator lifecycle notifications for runtime actions."""
         normalized_action = str(action or "updated").strip().lower()
@@ -327,11 +327,11 @@ class TelegramMessenger:
         return self.send_message("\n".join(lines), dedupe_key=dedupe_key, dedupe_window_seconds=0)
 
     def send_error_message(
-        self,
-        error_type: str,
-        error_details: str,
-        is_critical: bool = False,
-        category: Optional[str] = None,
+            self,
+            error_type: str,
+            error_details: str,
+            is_critical: bool = False,
+            category: Optional[str] = None,
     ) -> bool:
         """Send formatted error notification."""
         emoji = "🚨" if is_critical else "⚠️"
@@ -396,7 +396,7 @@ class TelegramMessenger:
         return self.send_message(message)
 
     def send_trade_closed_message(
-        self, trade_info: Dict[str, Any], reason: str = "Z-score reversion"
+            self, trade_info: Dict[str, Any], reason: str = "Z-score reversion"
     ) -> bool:
         """Send notification when trade is closed."""
         market_1 = trade_info.get("market_1", "Unknown")
@@ -425,7 +425,7 @@ class TelegramMessenger:
         return self.send_message(message)
 
     def send_cointegration_results(
-        self, pairs_found: int, analysis_time: float, high_confidence_pairs: int = 0
+            self, pairs_found: int, analysis_time: float, high_confidence_pairs: int = 0
     ) -> bool:
         """Send enhanced cointegration analysis results."""
         confidence_ratio = (high_confidence_pairs / pairs_found * 100) if pairs_found > 0 else 0
@@ -486,7 +486,7 @@ class TelegramMessenger:
 📉 <b>Trades Closed:</b> {trades_closed}
 ⚡ <b>Active Positions:</b> {active_positions}
 
-⏰ <b>Report Date:</b> {datetime.now().strftime("%Y-%m-%d")}
+⏰ <b>Report Date:</b> {datetime.now(timezone.utc).strftime("%Y-%m-%d")}
 
 <i>Bot continues monitoring for opportunities.</i>
         """.strip()
@@ -528,10 +528,10 @@ def send_startup_notification(config_info: Dict[str, Any]) -> bool:
 
 
 def send_error_notification(
-    error_type: str,
-    error_details: str,
-    is_critical: bool = False,
-    category: Optional[str] = None,
+        error_type: str,
+        error_details: str,
+        is_critical: bool = False,
+        category: Optional[str] = None,
 ) -> bool:
     """Send formatted error notification."""
     return _messenger.send_error_message(
@@ -568,7 +568,7 @@ def send_daily_summary(summary_info: Dict[str, Any]) -> bool:
 
 
 def send_lifecycle_notification(
-    action: str, lifecycle_info: Dict[str, Any], success: bool = True
+        action: str, lifecycle_info: Dict[str, Any], success: bool = True
 ) -> bool:
     """Send lifecycle action notification."""
     return _messenger.send_lifecycle_message(action, lifecycle_info, success=success)

@@ -44,9 +44,9 @@ def _build_token_response(username: str) -> dict:
 
 
 def _authenticate_user(
-    username: str,
-    password: str,
-    session: Session,
+        username: str,
+        password: str,
+        session: Session,
 ) -> dict:
     if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
         return _build_token_response(username)
@@ -63,8 +63,8 @@ def _authenticate_user(
 
 @router.post("/token")
 async def token_login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    session: Session = Depends(db.get_session),
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        session: Session = Depends(db.get_session),
 ):
     """Login endpoint"""
     return _authenticate_user(form_data.username, form_data.password, session)
@@ -72,8 +72,8 @@ async def token_login(
 
 @router.post("/login")
 async def login(
-    payload: LoginRequest,
-    session: Session = Depends(db.get_session),
+        payload: LoginRequest,
+        session: Session = Depends(db.get_session),
 ):
     """Frontend-compatible JSON login endpoint."""
     return _authenticate_user(payload.username, payload.password, session)
@@ -81,8 +81,8 @@ async def login(
 
 @router.post("/register")
 async def register(
-    payload: RegisterRequest,
-    session: Session = Depends(db.get_session),
+        payload: RegisterRequest,
+        session: Session = Depends(db.get_session),
 ):
     """Register endpoint."""
     username = SecurityUtils.sanitize_input(payload.username, max_length=50)

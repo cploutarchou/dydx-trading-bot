@@ -1,6 +1,6 @@
 """Pydantic models for bot API operations and manager state."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -140,7 +140,11 @@ class BotInstanceState(BaseModel):
         uptime_seconds: Optional[int] = None
         started_at = self.process_info.get("started_at")
         if isinstance(started_at, datetime):
-            uptime_seconds = int((datetime.now() - started_at).total_seconds())
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            uptime_seconds = int(
+                (datetime.now(timezone.utc) - started_at).total_seconds()
+            )
 
         return BotInstanceStatus(
             instance_id=self.instance_id,

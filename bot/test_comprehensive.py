@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Full functionality test"""
 
-import sys
 import os
+import sys
+
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 from fastapi.testclient import TestClient
 from src.api.server import app
@@ -110,4 +111,3 @@ print('  [OK] All realtime endpoints enforce authentication')
 print('  [OK] Database session cleanup is properly implemented')
 print('  [OK] Repository methods are all available')
 print('  [OK] OpenAPI schema is valid')
-

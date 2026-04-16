@@ -31,7 +31,8 @@ def test_startup_message_prefers_instance_account_address(monkeypatch):
     )
 
     assert sent is True
-    assert "https://www.mintscan.io/dydx-testnet/account/dydx16shv8n0j28djnjrcg0jxusmkf46umtzrepslsp" in captured["text"]
+    assert "https://www.mintscan.io/dydx-testnet/account/dydx16shv8n0j28djnjrcg0jxusmkf46umtzrepslsp" in captured[
+        "text"]
     assert "dydx16sh..." in captured["text"]
 
 

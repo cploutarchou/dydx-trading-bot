@@ -515,6 +515,36 @@ def test_backtest_status_survives_service_recreation_with_db_repository(monkeypa
     asyncio.run(_run())
 
 
+def test_service_init_does_not_auto_reconcile_running_runs():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-still-running",
+            "name": "still-running",
+            "status": "running",
+            "progress_pct": 50.0,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+    recreated = BacktestService(session=None)
+    persisted = recreated.repository.get_run("run-still-running")
+    assert persisted is not None
+    assert persisted["status"] == "running"
+    assert persisted.get("error") in {None, ""}
+
+
 def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService

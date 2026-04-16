@@ -183,7 +183,7 @@ class BotInstanceManager:
                             process_info={},
                             trading_stats=instance_data.get("trading_stats", {}),
                             created_at=datetime.fromisoformat(instance_data["created_at"]),
-                            last_update=datetime.now(),
+                            last_update=datetime.now(timezone.utc),
                         )
                 self.recovery_diagnostics["loaded"] = len(self.instances)
                 logger.info("Loaded {} existing bot instances from disk snapshot", len(self.instances))
@@ -386,7 +386,7 @@ class BotInstanceManager:
                     }
                     for state in self.instances.values()
                 ],
-                "last_saved": datetime.now().isoformat(),
+                "last_saved": datetime.now(timezone.utc).isoformat(),
             }
             with open(state_file, "w") as f:
                 json.dump(data, f, indent=2)
@@ -576,8 +576,8 @@ class BotInstanceManager:
 
         status_changed = instance.status != BotStatus.ERROR
         instance.status = BotStatus.ERROR
-        instance.last_update = datetime.now()
-        instance.process_info["stopped_at"] = datetime.now()
+        instance.last_update = datetime.now(timezone.utc)
+        instance.process_info["stopped_at"] = datetime.now(timezone.utc)
         if exit_code is not None:
             instance.process_info["exit_code"] = exit_code
         if message:
@@ -753,8 +753,8 @@ class BotInstanceManager:
                 status=BotStatus.STOPPED,
                 process_info={},
                 trading_stats={},
-                created_at=datetime.now(),
-                last_update=datetime.now(),
+                created_at=datetime.now(timezone.utc),
+                last_update=datetime.now(timezone.utc),
             )
 
             # Create instance-specific configuration file
@@ -813,7 +813,7 @@ class BotInstanceManager:
 
             # Update status
             instance.status = BotStatus.STARTING
-            instance.last_update = datetime.now()
+            instance.last_update = datetime.now(timezone.utc)
             instance.process_info.pop("last_error", None)
             await self._publish_strategy_status(instance_id, event="starting")
 
@@ -895,11 +895,11 @@ class BotInstanceManager:
             instance.status = BotStatus.RUNNING
             instance.process_info = {
                 "pid": process.pid,
-                "started_at": datetime.now(),
+                "started_at": datetime.now(timezone.utc),
                 "cmd": " ".join(cmd),
                 "log_path": str(files["log"]),
             }
-            instance.last_update = datetime.now()
+            instance.last_update = datetime.now(timezone.utc)
 
             self._save_instances_state()
 
@@ -953,7 +953,7 @@ class BotInstanceManager:
 
             # Update status
             instance.status = BotStatus.STOPPING
-            instance.last_update = datetime.now()
+            instance.last_update = datetime.now(timezone.utc)
             await self._publish_strategy_status(instance_id, event="stopping")
 
             # Stop process if running
@@ -1013,10 +1013,10 @@ class BotInstanceManager:
 
             # Update instance state
             instance.status = BotStatus.STOPPED
-            instance.process_info["stopped_at"] = datetime.now()
+            instance.process_info["stopped_at"] = datetime.now(timezone.utc)
             instance.process_info.pop("pid", None)
             instance.process_info.pop("last_error", None)
-            instance.last_update = datetime.now()
+            instance.last_update = datetime.now(timezone.utc)
             self._close_instance_log(instance_id)
 
             self._save_instances_state()
@@ -1156,7 +1156,7 @@ class BotInstanceManager:
         # Update trading stats from state files
         self._update_instance_trading_stats(instance_id)
 
-        instance.last_update = datetime.now()
+        instance.last_update = datetime.now(timezone.utc)
         return instance.to_api_status()
 
     def _update_instance_trading_stats(self, instance_id: str):

@@ -30,14 +30,6 @@ const withTimeout = async <T>(
   }
 };
 
-const requireAccessToken = (accessToken?: string): string => {
-  if (accessToken) {
-    return accessToken;
-  }
-
-  throw new Error('Login did not return an access token');
-};
-
 const getVerifiedTwoFAMessage = (response: {
   success: boolean;
   message?: string;
@@ -120,16 +112,8 @@ export const useAuthStore = create<AuthStore>()(
             password,
             ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
           });
-          const accessToken = requireAccessToken(loginResult?.access_token);
-
-          // Ensure token is set in api client (api.login already does this but be explicit)
-          api.setToken(accessToken, true);
-          if (loginResult.refresh_token) {
-            try {
-              localStorage.setItem('refresh_token', loginResult.refresh_token);
-            } catch (e) {
-              console.warn('❌ auth.ts: Failed to persist refresh_token', e);
-            }
+          if (loginResult?.access_token) {
+            api.setToken(loginResult.access_token, true);
           }
 
           await get().getCurrentUser();

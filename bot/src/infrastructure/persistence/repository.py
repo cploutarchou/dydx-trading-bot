@@ -4,7 +4,9 @@ Repository classes for core bot operations
 
 from datetime import timedelta
 from typing import List, Optional
+
 from sqlalchemy.orm import Session
+
 from internal.domain.models import (
     Bot,
     Event,
@@ -46,7 +48,7 @@ class BotRepository:
         return self.session.query(Bot).all()
 
     def update_status(
-        self, instance_id: str, status: BotStatusEnum, process_id: Optional[int] = None
+            self, instance_id: str, status: BotStatusEnum, process_id: Optional[int] = None
     ):
         """Update bot status"""
         bot = self.get_by_instance_id(instance_id)
@@ -94,7 +96,7 @@ class JobRepository:
         self.session = session
 
     def create_job(
-        self, job_id: str, bot_id: int, job_type: str, parameters: Optional[dict] = None
+            self, job_id: str, bot_id: int, job_type: str, parameters: Optional[dict] = None
     ) -> Job:
         """Create a new job"""
         job = Job(
@@ -131,10 +133,10 @@ class JobRepository:
             self.session.commit()
 
     def complete_job(
-        self,
-        job_id: str,
-        result: Optional[dict] = None,
-        execution_time_ms: Optional[int] = None,
+            self,
+            job_id: str,
+            result: Optional[dict] = None,
+            execution_time_ms: Optional[int] = None,
     ):
         """Complete a job"""
         job = self.get_by_job_id(job_id)
@@ -164,11 +166,11 @@ class JobRepository:
         )
 
     def update_status(
-        self,
-        job_id: int,
-        status: JobStatusEnum,
-        result: Optional[dict] = None,
-        error_message: Optional[str] = None,
+            self,
+            job_id: int,
+            status: JobStatusEnum,
+            result: Optional[dict] = None,
+            error_message: Optional[str] = None,
     ):
         """Update job status"""
         job = self.get_by_id(job_id)
@@ -196,17 +198,17 @@ class TradeRepository:
         self.session = session
 
     def create_trade(
-        self,
-        trade_id: str,
-        bot_id: int,
-        pair1: str,
-        pair2: str,
-        entry_price1: float,
-        entry_price2: float,
-        entry_size1: float,
-        entry_size2: float,
-        side1: str = "BUY",
-        side2: str = "SELL",
+            self,
+            trade_id: str,
+            bot_id: int,
+            pair1: str,
+            pair2: str,
+            entry_price1: float,
+            entry_price2: float,
+            entry_size1: float,
+            entry_size2: float,
+            side1: str = "BUY",
+            side2: str = "SELL",
     ) -> Trade:
         """Create a new trade"""
         trade = Trade(
@@ -238,12 +240,12 @@ class TradeRepository:
         return self.get_by_bot_id(bot_id)
 
     def close_trade(
-        self,
-        trade_id: str,
-        exit_price1: Optional[float] = None,
-        exit_price2: Optional[float] = None,
-        exit_size1: Optional[float] = None,
-        exit_size2: Optional[float] = None,
+            self,
+            trade_id: str,
+            exit_price1: Optional[float] = None,
+            exit_price2: Optional[float] = None,
+            exit_size1: Optional[float] = None,
+            exit_size2: Optional[float] = None,
     ):
         """Close a trade"""
         trade = self.get_by_position_id(trade_id)
@@ -263,12 +265,12 @@ class TradeRepository:
                 pnl2 = (trade.entry_price2 - exit_price2) * trade.entry_size2
                 trade.profit_loss = pnl1 + pnl2
                 trade.profit_loss_percentage = (
-                    trade.profit_loss
-                    / (
-                        trade.entry_price1 * trade.entry_size1
-                        + trade.entry_price2 * trade.entry_size2
-                    )
-                ) * 100
+                                                       trade.profit_loss
+                                                       / (
+                                                               trade.entry_price1 * trade.entry_size1
+                                                               + trade.entry_price2 * trade.entry_size2
+                                                       )
+                                               ) * 100
             trade.status = TradeStatusEnum.CLOSED
             trade.closed_at = utc_now()
             self.session.commit()
@@ -297,14 +299,14 @@ class TradeRepository:
         }
 
     def update_trade_exit(
-        self,
-        position_id: str,
-        exit_price1: Optional[float] = None,
-        exit_price2: Optional[float] = None,
-        exit_size1: Optional[float] = None,
-        exit_size2: Optional[float] = None,
-        realized_pnl: float = 0.0,
-        realized_pnl_pct: float = 0.0,
+            self,
+            position_id: str,
+            exit_price1: Optional[float] = None,
+            exit_price2: Optional[float] = None,
+            exit_size1: Optional[float] = None,
+            exit_size2: Optional[float] = None,
+            realized_pnl: float = 0.0,
+            realized_pnl_pct: float = 0.0,
     ):
         """Update trade exit information"""
         trade = self.get_by_position_id(position_id)
@@ -331,15 +333,15 @@ class EventRepository:
         self.session = session
 
     def log_event(
-        self,
-        bot_instance_id: int,
-        event_type: str,
-        severity: str,
-        message: str,
-        details: Optional[dict] = None,
-        user_id: Optional[str] = None,
-        related_job_id: Optional[str] = None,
-        related_trade_id: Optional[str] = None,
+            self,
+            bot_instance_id: int,
+            event_type: str,
+            severity: str,
+            message: str,
+            details: Optional[dict] = None,
+            user_id: Optional[str] = None,
+            related_job_id: Optional[str] = None,
+            related_trade_id: Optional[str] = None,
     ) -> Event:
         """Log an event"""
         event = Event(
@@ -521,7 +523,7 @@ class StrategyRepository:
         return self._to_dict(strategy)
 
     def update(
-        self, strategy_id: int, payload: dict, note: str = "Updated strategy"
+            self, strategy_id: int, payload: dict, note: str = "Updated strategy"
     ) -> Optional[dict]:
         strategy = (
             self.session.query(Strategy)

@@ -3,7 +3,6 @@
 import asyncio
 import importlib
 
-
 AUTH_TOKEN_KEYS = {"access_token", "refresh_token", "token_type", "expires_in"}
 
 
@@ -37,4 +36,3 @@ def test_login_bypass_returns_only_token_contract_fields(monkeypatch):
 
     assert set(payload.keys()) == AUTH_TOKEN_KEYS
     assert payload["token_type"] == "bearer"
-

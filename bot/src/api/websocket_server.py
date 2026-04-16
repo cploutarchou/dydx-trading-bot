@@ -8,15 +8,14 @@ from typing import Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
+
+from internal.repository.repository_realtime import UnitOfWorkRealtime
 from src.api.realtime_serializers import (serialize_market_core,
                                           serialize_realtime_position,
                                           serialize_stats_risk_fields)
-
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.shared.time_utils import utc_now_iso
-from internal.repository.repository_realtime import UnitOfWorkRealtime
-
 
 
 class ConnectionManager:
@@ -333,8 +332,8 @@ class WebSocketServer:
             )
 
         elif (
-            message_type == "request_status"
-            and WebSocketServer._is_backtest_channel(bot_instance_id)
+                message_type == "request_status"
+                and WebSocketServer._is_backtest_channel(bot_instance_id)
         ):
             await WebSocketServer.send_backtest_status(
                 websocket, WebSocketServer._backtest_run_id(bot_instance_id)

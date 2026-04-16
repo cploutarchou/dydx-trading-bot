@@ -260,7 +260,7 @@ def example_2_strategy_comparison():
 
     while backtest_runs:
         for i, run in enumerate(
-            backtest_runs[:]
+                backtest_runs[:]
         ):  # Copy list to avoid modification issues
             status = client.get_backtest_status(run["run_id"])
             if not status:
@@ -297,7 +297,7 @@ def example_2_strategy_comparison():
         print("-" * 80)
 
         for result in sorted(
-            completed_results, key=lambda x: x["total_pnl"], reverse=True
+                completed_results, key=lambda x: x["total_pnl"], reverse=True
         ):
             print(
                 f"{result['name']:<30} "

@@ -5,7 +5,8 @@ name: "Improvement Output Standard"
 
 # Improvement Output Standard
 
-Use this when doing project-improvement work (for example via improvement, hardening, optimization, API enhancement, or migration-review prompts).
+Use this when doing project-improvement work (for example via improvement, hardening, optimization, API enhancement, or
+migration-review prompts).
 
 ## Response structure (required)
 

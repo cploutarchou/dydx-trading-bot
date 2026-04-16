@@ -22,9 +22,9 @@ def find_repo_root(anchor: PathLike) -> Path:
 
     for candidate in (search_from, *search_from.parents):
         if (
-            (candidate / ".github").exists()
-            and (candidate / "AGENTS.md").exists()
-            and _is_structured_config_root(candidate)
+                (candidate / ".github").exists()
+                and (candidate / "AGENTS.md").exists()
+                and _is_structured_config_root(candidate)
         ):
             return candidate
 

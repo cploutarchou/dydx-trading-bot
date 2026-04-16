@@ -38,7 +38,7 @@ def _load_environment() -> None:
 
 
 def _http_probe(
-    base_url: str, paths: List[str], timeout: int = 10
+        base_url: str, paths: List[str], timeout: int = 10
 ) -> tuple[bool, str]:
     for path in paths:
         url = f"{base_url.rstrip('/')}{path}"
@@ -65,10 +65,10 @@ def _is_placeholder(value: str) -> bool:
         return True
     lowered = value.lower()
     return (
-        "your_" in lowered
-        or value.startswith("${")
-        or value.endswith("_here")
-        or lowered in {"changeme", "todo", "none"}
+            "your_" in lowered
+            or value.startswith("${")
+            or value.endswith("_here")
+            or lowered in {"changeme", "todo", "none"}
     )
 
 
@@ -156,7 +156,7 @@ def run_preflight(simulate_production: bool, strict: bool) -> int:
         )
     else:
         results.append(CheckResult("PASS", "Trade safety flags",
-                       "Entry/exit flags look coherent"))
+                                   "Entry/exit flags look coherent"))
 
     abort_all_positions = os.getenv(
         "BOT_ABORT_ALL_POSITIONS", "false").lower() == "true"

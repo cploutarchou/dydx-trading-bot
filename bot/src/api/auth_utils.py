@@ -73,7 +73,7 @@ class JWTUtils:
 
     @staticmethod
     def create_access_token(
-        data_: Dict[str, Any], expires_delta: Optional[timedelta] = None
+            data_: Dict[str, Any], expires_delta: Optional[timedelta] = None
     ) -> str:
         """Create a JWT access token"""
         to_encode = data_.copy()
@@ -97,7 +97,7 @@ class JWTUtils:
 
     @staticmethod
     def create_refresh_token(
-        data: Dict[str, Any], expires_delta: Optional[timedelta] = None
+            data: Dict[str, Any], expires_delta: Optional[timedelta] = None
     ) -> str:
         """Create a JWT refresh token"""
         to_encode = data.copy()
@@ -230,7 +230,7 @@ class TwoFactorUtils:
 
     @staticmethod
     def generate_totp_uri(
-        secret: str, username: str, issuer: str = "dYdX Trading Bot"
+            secret: str, username: str, issuer: str = "dYdX Trading Bot"
     ) -> str:
         """Generate a TOTP URI for QR code generation"""
         totp = pyotp.TOTP(secret)
@@ -238,7 +238,7 @@ class TwoFactorUtils:
 
     @staticmethod
     def generate_qr_code(
-        secret: str, username: str, issuer: str = "dYdX Trading Bot"
+            secret: str, username: str, issuer: str = "dYdX Trading Bot"
     ) -> str:
         """Generate a QR code for TOTP setup as base64 string"""
         uri = TwoFactorUtils.generate_totp_uri(secret, username, issuer)
@@ -361,7 +361,7 @@ class EmailVerificationUtils:
 
     @staticmethod
     def is_verification_expired(
-        created_at: datetime, expires_in_minutes: int = 15
+            created_at: datetime, expires_in_minutes: int = 15
     ) -> bool:
         """Check if verification has expired"""
         expiry_time = created_at + timedelta(minutes=expires_in_minutes)

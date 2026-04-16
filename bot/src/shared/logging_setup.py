@@ -69,12 +69,12 @@ def _configure_standard_logging_bridge(level: int) -> None:
     logging.root.setLevel(level)
 
     for name in (
-        "uvicorn",
-        "uvicorn.error",
-        "uvicorn.access",
-        "fastapi",
-        "sqlalchemy",
-        "alembic",
+            "uvicorn",
+            "uvicorn.error",
+            "uvicorn.access",
+            "fastapi",
+            "sqlalchemy",
+            "alembic",
     ):
         std_logger = logging.getLogger(name)
         std_logger.handlers = [intercept]
@@ -114,12 +114,12 @@ def _configure_console_sink(level: str) -> None:
 
 
 def send_to_loki_directly(
-    message: str,
-    level: str,
-    labels: Dict[str, str],
-    url: str,
-    username: str,
-    password: str,
+        message: str,
+        level: str,
+        labels: Dict[str, str],
+        url: str,
+        username: str,
+        password: str,
 ) -> bool:
     """Send one record to Loki via HTTP API."""
 

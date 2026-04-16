@@ -79,11 +79,11 @@ class BotSettings:
                 os.getenv("BOT_CAPITAL_ALLOCATION_USD", "0.0")
             ),
             abortAllPositions=os.getenv("BOT_ABORT_ALL_POSITIONS", "false").lower()
-            == "true",
+                              == "true",
             findCointegratedPairs=os.getenv(
                 "BOT_FIND_COINTEGRATED_PAIRS", "false"
             ).lower()
-            == "true",
+                                  == "true",
             manageExits=os.getenv("BOT_MANAGE_EXITS", "false").lower() == "true",
             placeTrades=os.getenv("BOT_PLACE_TRADES", "false").lower() == "true",
             resolutionTimeframe=os.getenv("BOT_RESOLUTION_TIMEFRAME", "1HOUR"),
@@ -94,7 +94,7 @@ class BotSettings:
             usdPerTrade=float(os.getenv("BOT_USD_PER_TRADE", "10.0")),
             usdMinCollateral=float(os.getenv("BOT_USD_MIN_COLLATERAL", "100.0")),
             closeAtZscoreCross=os.getenv("BOT_CLOSE_AT_ZSCORE_CROSS", "true").lower()
-            == "true",
+                               == "true",
             maxPositions=int(os.getenv("BOT_MAX_POSITIONS", "5")),
             maxDrawdownPct=float(os.getenv("BOT_MAX_DRAWDOWN_PCT", "15.0")),
             stopLossPct=float(os.getenv("BOT_STOP_LOSS_PCT", "2.0")),

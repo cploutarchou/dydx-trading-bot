@@ -23,9 +23,9 @@ Always include:
 
 - Do **not** add a non-nullable column to populated tables in a single step unless proven safe.
 - Prefer phased rollout:
-  1. add nullable column,
-  2. backfill in batches,
-  3. enforce non-null constraint in a follow-up migration.
+    1. add nullable column,
+    2. backfill in batches,
+    3. enforce non-null constraint in a follow-up migration.
 - Avoid long-lived server defaults unless they are intentional and documented.
 
 ## Destructive change rules

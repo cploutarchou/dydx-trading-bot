@@ -21,7 +21,7 @@ class BacktestRun:
 
 
 def _request_json(
-    url: str, method: str = "GET", data: Optional[dict] = None, token: Optional[str] = None
+        url: str, method: str = "GET", data: Optional[dict] = None, token: Optional[str] = None
 ) -> Tuple[int, dict]:
     payload = None
     headers = {"Content-Type": "application/json"}
@@ -63,9 +63,9 @@ def login(base_url: str, username: str, password: str) -> str:
 
 
 def create_backtest(
-    base_url: str,
-    token: Optional[str],
-    config: dict,
+        base_url: str,
+        token: Optional[str],
+        config: dict,
 ) -> BacktestRun:
     status, body = _request_json(
         f"{base_url}/api/v1/backtests",
@@ -85,11 +85,11 @@ def create_backtest(
 
 
 def wait_for_completion(
-    base_url: str,
-    token: Optional[str],
-    run: BacktestRun,
-    timeout_seconds: int,
-    poll_seconds: int,
+        base_url: str,
+        token: Optional[str],
+        run: BacktestRun,
+        timeout_seconds: int,
+        poll_seconds: int,
 ) -> dict:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:

@@ -4,12 +4,14 @@ import asyncio
 from datetime import datetime
 
 from loguru import logger
+
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
     cancel_order,
     check_order_status,
     place_market_order,
 )
+
 
 class BotAgent:
     """
@@ -20,20 +22,20 @@ class BotAgent:
 
     # Initialize class
     def __init__(
-        self,
-        client,
-        market_1,
-        market_2,
-        base_side,
-        base_size,
-        base_price,
-        quote_side,
-        quote_size,
-        quote_price,
-        accept_failsafe_base_price,
-        z_score,
-        half_life,
-        hedge_ratio,
+            self,
+            client,
+            market_1,
+            market_2,
+            base_side,
+            base_size,
+            base_price,
+            quote_side,
+            quote_size,
+            quote_price,
+            accept_failsafe_base_price,
+            z_score,
+            half_life,
+            hedge_ratio,
     ):
         """Initialize bot agent with trade parameters."""
         # Initialize class variables

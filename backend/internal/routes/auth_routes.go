@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/auth"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
@@ -26,6 +27,7 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		authRoutes.GET("/registration-status", registrationStatusHandler(database))
 		authRoutes.POST("/login", loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
+		authRoutes.POST("/logout", logoutHandler())
 		authRoutes.POST("/2fa/setup", middleware.RequireAuth(), setup2FAHandler(database))
 		authRoutes.POST("/2fa/verify", middleware.RequireAuth(), verify2FAHandler(database))
 		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
@@ -60,10 +62,11 @@ type LoginRequest struct {
 }
 
 type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
+	AccessToken      string `json:"access_token,omitempty"`
+	RefreshToken     string `json:"refresh_token,omitempty"`
+	TokenType        string `json:"token_type"`
+	ExpiresIn        int    `json:"expires_in"`
+	SessionExpiresAt string `json:"session_expires_at,omitempty"`
 }
 
 type UserResponse struct {
@@ -87,6 +90,80 @@ type RegistrationStatusResponse struct {
 	Reason             string `json:"reason"`
 	Mode               string `json:"mode"`
 	InvitationRequired bool   `json:"invitation_required"`
+}
+
+const sessionTTL = 7 * 24 * time.Hour
+
+func shouldReturnLegacyAuthTokens() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("AUTH_RETURN_LEGACY_TOKENS")))
+	if value == "true" || value == "1" || value == "yes" {
+		return true
+	}
+	return strings.EqualFold(os.Getenv("APP_ENV"), "test")
+}
+
+func authCookieSecure() bool {
+	return strings.EqualFold(os.Getenv("APP_ENV"), "production")
+}
+
+func setSessionCookie(c *gin.Context, token string, maxAge int) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   authCookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearAuthCookies(c *gin.Context) {
+	for _, name := range []string{auth.SessionCookieName, "access_token", "refresh_token", "token", "jwt"} {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   authCookieSecure(),
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+}
+
+func requestSessionToken(c *gin.Context) string {
+	if cookieVal, err := c.Cookie(auth.SessionCookieName); err == nil && strings.TrimSpace(cookieVal) != "" {
+		return strings.TrimSpace(cookieVal)
+	}
+
+	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[0]), "Bearer") {
+		return strings.TrimSpace(parts[1])
+	}
+	return ""
+}
+
+func createSessionForUser(c *gin.Context, user *models.User, role string) (string, auth.SessionData, error) {
+	store := middleware.AuthSessionStore()
+	if store == nil {
+		return "", auth.SessionData{}, nil
+	}
+
+	sessionToken, sessionData, err := store.Create(c.Request.Context(), auth.SessionData{
+		UserID:   user.ID,
+		Username: user.Username,
+		Email:    user.Email,
+		Role:     role,
+		IsAdmin:  user.IsAdmin,
+	}, sessionTTL)
+	if err != nil {
+		return "", auth.SessionData{}, err
+	}
+
+	setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
+	return sessionToken, sessionData, nil
 }
 
 type registrationMode string
@@ -639,24 +716,13 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Generate tokens
 		role := models.NormalizeUserRole(user.Role, user.IsAdmin)
-		accessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		sessionToken, sessionData, err := createSessionForUser(c, user, role)
 		if err != nil {
-			log.Printf("Failed to generate access token: %v", err)
+			log.Printf("Failed to create auth session: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
-				"error":   "Failed to generate token",
-			})
-			return
-		}
-
-		refreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
-		if err != nil {
-			log.Printf("Failed to generate refresh token: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"error":   "Failed to generate refresh token",
+				"error":   "Failed to create auth session",
 			})
 			return
 		}
@@ -666,23 +732,44 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		resetFailedLogin(database, user.ID)
 		logSecurityLoginEvent(database, &user.ID, user.Username, "login", "success", "authenticated", requestIP, userAgent)
 
-		// Set access token as HttpOnly cookie (for browser clients)
-		// Cookie expiry matches access token lifetime (30 minutes)
-		cookieMaxAge := 30 * 60 // seconds
-		refreshCookieMaxAge := 7 * 24 * 60 * 60
-		secure := false
-		if os.Getenv("APP_ENV") == "production" {
-			secure = true
+		clearAuthCookies(c)
+		if sessionToken != "" {
+			setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
 		}
-		c.SetCookie("access_token", accessToken, cookieMaxAge, "/", "", secure, true)
-		c.SetCookie("refresh_token", refreshToken, refreshCookieMaxAge, "/", "", secure, true)
 
-		c.JSON(http.StatusOK, TokenResponse{
-			AccessToken:  accessToken,
-			RefreshToken: refreshToken,
-			TokenType:    "bearer",
-			ExpiresIn:    1800, // 30 minutes
-		})
+		response := TokenResponse{
+			TokenType:        "session",
+			ExpiresIn:        int(sessionTTL.Seconds()),
+			SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
+		}
+
+		if shouldReturnLegacyAuthTokens() {
+			accessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+			if err != nil {
+				log.Printf("Failed to generate access token: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to generate token",
+				})
+				return
+			}
+
+			refreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+			if err != nil {
+				log.Printf("Failed to generate refresh token: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to generate refresh token",
+				})
+				return
+			}
+			response.AccessToken = accessToken
+			response.RefreshToken = refreshToken
+			response.TokenType = "bearer"
+			response.ExpiresIn = 1800
+		}
+
+		c.JSON(http.StatusOK, response)
 	}
 }
 
@@ -799,6 +886,32 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			_ = c.ShouldBindJSON(&req)
 		}
 
+		if req.RefreshToken == "" {
+			sessionToken := requestSessionToken(c)
+			if sessionToken != "" {
+				store := middleware.AuthSessionStore()
+				if store != nil {
+					sessionData, err := store.Refresh(c.Request.Context(), sessionToken, sessionTTL)
+					if err == nil && sessionData != nil {
+						setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
+						c.JSON(http.StatusOK, TokenResponse{
+							TokenType:        "session",
+							ExpiresIn:        int(sessionTTL.Seconds()),
+							SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
+						})
+						return
+					}
+					if err != nil && err != auth.ErrSessionNotFound {
+						c.JSON(http.StatusUnauthorized, gin.H{
+							"success": false,
+							"error":   "invalid session",
+						})
+						return
+					}
+				}
+			}
+		}
+
 		refreshToken := req.RefreshToken
 		if refreshToken == "" {
 			if cookieVal, err := c.Cookie("refresh_token"); err == nil {
@@ -851,36 +964,68 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		role := models.NormalizeUserRole(user.Role, user.IsAdmin)
-		newAccessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		sessionToken, sessionData, err := createSessionForUser(c, user, role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
-				"error":   "failed to generate access token",
+				"error":   "failed to create auth session",
 			})
 			return
 		}
 
-		newRefreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"error":   "failed to generate refresh token",
-			})
-			return
+		clearAuthCookies(c)
+		if sessionToken != "" {
+			setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
 		}
 
-		secure := false
-		if os.Getenv("APP_ENV") == "production" {
-			secure = true
+		response := TokenResponse{
+			TokenType:        "session",
+			ExpiresIn:        int(sessionTTL.Seconds()),
+			SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
 		}
-		c.SetCookie("access_token", newAccessToken, 30*60, "/", "", secure, true)
-		c.SetCookie("refresh_token", newRefreshToken, 7*24*60*60, "/", "", secure, true)
 
-		c.JSON(http.StatusOK, TokenResponse{
-			AccessToken:  newAccessToken,
-			RefreshToken: newRefreshToken,
-			TokenType:    "bearer",
-			ExpiresIn:    1800,
+		if shouldReturnLegacyAuthTokens() {
+			newAccessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "failed to generate access token",
+				})
+				return
+			}
+
+			newRefreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "failed to generate refresh token",
+				})
+				return
+			}
+			response.AccessToken = newAccessToken
+			response.RefreshToken = newRefreshToken
+			response.TokenType = "bearer"
+			response.ExpiresIn = 1800
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+func logoutHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if sessionToken := requestSessionToken(c); sessionToken != "" {
+			if store := middleware.AuthSessionStore(); store != nil {
+				if err := store.Delete(c.Request.Context(), sessionToken); err != nil {
+					log.Printf("Failed to delete auth session: %v", err)
+				}
+			}
+		}
+
+		clearAuthCookies(c)
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Logged out",
 		})
 	}
 }

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,53 @@ func TestRequireAuth_AllowsValidBearerAndSetsClaims(t *testing.T) {
 	}
 	if body["email"] != "alice@example.com" {
 		t.Fatalf("expected email alice@example.com, got %v", body["email"])
+	}
+	if body["is_admin"] != true {
+		t.Fatalf("expected is_admin=true, got %v", body["is_admin"])
+	}
+}
+
+func TestRequireAuth_AllowsOpaqueSessionCookie(t *testing.T) {
+	const secret = "auth-mw-test-secret-32-characters"
+	InitAuthMiddleware(&config.Config{
+		Redis: config.RedisSettings{Enabled: false},
+		Auth:  config.AuthSettings{JWTSecretKey: secret, AccessTokenExpireMinutes: 30, RefreshTokenExpireDays: 7},
+	})
+
+	token, _, err := AuthSessionStore().Create(
+		context.Background(),
+		auth.SessionData{
+			UserID:   42,
+			Username: "session-user",
+			Email:    "session@example.com",
+			Role:     "admin",
+			IsAdmin:  true,
+		},
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	router := authTestRouter(RequireAuth())
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["username"] != "session-user" {
+		t.Fatalf("expected session-user, got %v", body["username"])
+	}
+	if body["email"] != "session@example.com" {
+		t.Fatalf("expected session@example.com, got %v", body["email"])
 	}
 	if body["is_admin"] != true {
 		t.Fatalf("expected is_admin=true, got %v", body["is_admin"])

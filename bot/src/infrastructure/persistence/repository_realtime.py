@@ -3,7 +3,9 @@ Repository classes for realtime data operations
 """
 
 from typing import List, Optional
+
 from sqlalchemy.orm import Session
+
 from internal.domain.models_realtime import Position, MarketData, BotStats, Alert, PositionStatusEnum
 from src.shared.time_utils import utc_now
 
@@ -28,8 +30,8 @@ class PositionRepository:
         ).first()
 
     def create_position(self, bot_instance_id: int, position_id: str, pair1: str, pair2: str,
-                       side1: str, side2: str, entry_price1: float, entry_price2: float,
-                       entry_size1: float, entry_size2: float) -> Position:
+                        side1: str, side2: str, entry_price1: float, entry_price2: float,
+                        entry_size1: float, entry_size2: float) -> Position:
         """Create a new position"""
         position = Position(
             bot_instance_id=bot_instance_id,
@@ -88,11 +90,11 @@ class MarketDataRepository:
         ).all()
 
     def upsert_market_data(self, bot_instance_id: int, symbol: str, current_price: float,
-                          bid_price: Optional[float] = None, ask_price: Optional[float] = None,
-                          volume_24h: Optional[float] = None, volatility_24h: Optional[float] = None,
-                          rsi: Optional[float] = None, macd: Optional[float] = None,
-                          moving_avg_20: Optional[float] = None, moving_avg_50: Optional[float] = None,
-                          funding_rate: Optional[float] = None):
+                           bid_price: Optional[float] = None, ask_price: Optional[float] = None,
+                           volume_24h: Optional[float] = None, volatility_24h: Optional[float] = None,
+                           rsi: Optional[float] = None, macd: Optional[float] = None,
+                           moving_avg_20: Optional[float] = None, moving_avg_50: Optional[float] = None,
+                           funding_rate: Optional[float] = None):
         """Insert or update market data"""
         market_data = self.get_market_data(bot_instance_id, symbol)
         if market_data:
@@ -174,7 +176,7 @@ class AlertRepository:
         self.session = session
 
     def create_alert(self, bot_instance_id: int, alert_type: str, severity: str,
-                    message: str, details: Optional[dict] = None):
+                     message: str, details: Optional[dict] = None):
         """Create a new alert"""
         alert = Alert(
             bot_instance_id=bot_instance_id,
@@ -215,7 +217,6 @@ class PositionSnapshotsRepository:
 
     def get_position_history(self, position_id: str, hours: int = 24) -> List[dict]:
         """Get historical P&L snapshots for a position"""
-        from datetime import datetime, timedelta
         # Placeholder: fetch snapshots from a dedicated table if it exists
         # For now, return empty list as the schema may not have a dedicated snapshots table
         return []

@@ -14,7 +14,8 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 ## Entry Points
 
 - API server: [src/api/server.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/server.py)
-- instance manager: [src/bot_instance_manager.py](/home/chris/workspace/dydx-trading-bot/bot/src/bot_instance_manager.py)
+- instance
+  manager: [src/bot_instance_manager.py](/home/chris/workspace/dydx-trading-bot/bot/src/bot_instance_manager.py)
 - worker runtime: [src/main_instance.py](/home/chris/workspace/dydx-trading-bot/bot/src/main_instance.py)
 - local launcher: [start_api.py](/home/chris/workspace/dydx-trading-bot/bot/start_api.py)
 
@@ -36,7 +37,8 @@ make preflight-testnet
 
 ## Runtime Model
 
-The bot manager owns process lifecycle. Bot instances run as isolated subprocesses and write state/log artifacts under `bot_states/`.
+The bot manager owns process lifecycle. Bot instances run as isolated subprocesses and write state/log artifacts under
+`bot_states/`.
 
 The bot service is not a public frontend integration surface. The supported product path is:
 

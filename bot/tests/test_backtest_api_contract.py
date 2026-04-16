@@ -330,5 +330,3 @@ def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
     assert payload["data"]["password_configured"] is True
     assert payload["data"]["max_connections"] == 10
     assert payload["data"]["count"] == 1
-
-

@@ -9,4 +9,3 @@ print("Verified payload:", payload)
 
 # test invalid token
 print("Verifying invalid token...", JWTUtils.verify_token(access + "x"))
-

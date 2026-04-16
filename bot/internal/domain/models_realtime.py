@@ -3,11 +3,12 @@ Realtime database models for live trading data
 """
 
 import enum
+
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, Boolean,
-    ForeignKey, Enum, JSON
+    Enum, JSON
 )
-from sqlalchemy.orm import relationship
+
 from internal.domain import Base
 from src.shared.time_utils import utc_now
 

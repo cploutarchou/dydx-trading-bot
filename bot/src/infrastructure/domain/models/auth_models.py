@@ -6,9 +6,10 @@ SQLAlchemy models for user authentication, JWT tokens, and related data.
 
 from __future__ import annotations
 
-from internal.domain import Base
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
+
+from internal.domain import Base
 from src.shared.time_utils import utc_now
 
 

@@ -13,12 +13,12 @@ def test_open_trades_returns_error_dict_after_second_leg_failure(monkeypatch):
             return None
 
     async def fake_place_market_order(
-        client,
-        market,
-        side,
-        size,
-        price,
-        reduce_only,
+            client,
+            market,
+            side,
+            size,
+            price,
+            reduce_only,
     ):
         calls.append(
             {

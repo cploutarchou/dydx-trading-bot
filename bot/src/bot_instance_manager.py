@@ -62,8 +62,8 @@ class BotInstanceManager:
         self._load_existing_instances()
 
     def set_status_event_publisher(
-        self,
-        publisher: Optional[Callable[[Dict[str, object]], Awaitable[None]]],
+            self,
+            publisher: Optional[Callable[[Dict[str, object]], Awaitable[None]]],
     ):
         """Register async publisher for strategy runtime status events."""
         self.status_event_publisher = publisher
@@ -113,15 +113,14 @@ class BotInstanceManager:
             rows = session.execute(
                 text(
                     """
-                    SELECT
-                        instance_id,
-                        network,
-                        strategy,
-                        config,
-                        process_id,
-                        created_at,
-                        updated_at,
-                        CAST(status AS TEXT) AS status
+                    SELECT instance_id,
+                           network,
+                           strategy,
+                           config,
+                           process_id,
+                           created_at,
+                           updated_at,
+                           CAST(status AS TEXT) AS status
                     FROM bot_instances
                     """
                 )
@@ -270,12 +269,12 @@ class BotInstanceManager:
         return BotStatusEnum[instance.status.name]
 
     def _record_runtime_event(
-        self,
-        instance_id: str,
-        event_type: str,
-        severity: str,
-        message: str,
-        details: Optional[dict] = None,
+            self,
+            instance_id: str,
+            event_type: str,
+            severity: str,
+            message: str,
+            details: Optional[dict] = None,
     ):
         """Persist runtime events so failures survive process restarts."""
         session = None
@@ -402,10 +401,10 @@ class BotInstanceManager:
         return None
 
     def _build_strategy_status_payload(
-        self,
-        instance_id: str,
-        event: str = "status",
-        last_error: Optional[str] = None,
+            self,
+            instance_id: str,
+            event: str = "status",
+            last_error: Optional[str] = None,
     ) -> Optional[Dict[str, object]]:
         """Build websocket/frontend-compatible strategy runtime payload."""
         instance = self.instances.get(instance_id)
@@ -445,11 +444,11 @@ class BotInstanceManager:
         return payload
 
     async def _publish_strategy_status(
-        self,
-        instance_id: str,
-        event: str = "status",
-        last_error: Optional[str] = None,
-        message: Optional[str] = None,
+            self,
+            instance_id: str,
+            event: str = "status",
+            last_error: Optional[str] = None,
+            message: Optional[str] = None,
     ):
         """Publish status update for strategy-managed instances when configured."""
         # P1.7: Update heartbeat on any status update (alive signal)
@@ -459,7 +458,7 @@ class BotInstanceManager:
             if event == "running" and self.instances[instance_id].recovery_state == "degraded":
                 self.instances[instance_id].recovery_state = None
                 self.instances[instance_id].recovery_reason = None
-        
+
         if self.status_event_publisher is None:
             return
 
@@ -530,7 +529,7 @@ class BotInstanceManager:
             return ""
 
     def _resolve_external_runtime_process(
-        self, instance_id: str
+            self, instance_id: str
     ) -> tuple[Optional[psutil.Process], Optional[str]]:
         """Probe a persisted runtime PID when the local subprocess handle was lost."""
         instance = self.instances.get(instance_id)
@@ -565,10 +564,10 @@ class BotInstanceManager:
         return process, None
 
     def _mark_instance_error(
-        self,
-        instance_id: str,
-        message: str,
-        exit_code: Optional[int] = None,
+            self,
+            instance_id: str,
+            message: str,
+            exit_code: Optional[int] = None,
     ) -> bool:
         """Transition an instance into ERROR state and capture failure details."""
         instance = self.instances.get(instance_id)
@@ -1052,8 +1051,8 @@ class BotInstanceManager:
         try:
             # Stop instance first if running
             if (
-                instance_id in self.instances
-                and self.instances[instance_id].status == BotStatus.RUNNING
+                    instance_id in self.instances
+                    and self.instances[instance_id].status == BotStatus.RUNNING
             ):
                 stop_result = await self.stop_instance(instance_id, force=True)
                 if not stop_result.success:
@@ -1208,7 +1207,7 @@ class BotInstanceManager:
                     )
 
         self._save_instances_state()
-        
+
         # P1.7: Check for stale heartbeats and mark as degraded
         await self._check_liveness_and_degrade()
 
@@ -1218,7 +1217,7 @@ class BotInstanceManager:
         for instance_id, instance in list(self.instances.items()):
             if instance.status != BotStatus.RUNNING:
                 continue
-            
+
             # Check if heartbeat is stale
             if instance.last_heartbeat is not None:
                 time_since_heartbeat = (now - instance.last_heartbeat).total_seconds()

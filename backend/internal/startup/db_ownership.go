@@ -9,6 +9,11 @@ import (
 	"github.com/dydx-trading-bot/backend-go/config"
 )
 
+const (
+	_dedicated                  = "dedicated"
+	dedicatedwithsharedfallback = "dedicated_with_shared_fallback"
+)
+
 type DatabaseTarget struct {
 	Host   string `json:"host"`
 	Port   string `json:"port"`
@@ -29,7 +34,7 @@ func normalizeCutoverMode(raw string) string {
 	normalized := strings.ToLower(strings.TrimSpace(raw))
 	normalized = strings.ReplaceAll(normalized, "-", "_")
 	switch normalized {
-	case "dedicated", "dedicated_with_shared_fallback", "shared":
+	case _dedicated, dedicatedwithsharedfallback, "shared":
 		return normalized
 	default:
 		return "shared"
@@ -127,7 +132,7 @@ func resolveBotDBTargetFromEnv(mode string) (*DatabaseTarget, bool) {
 		return &target, true
 	}
 
-	if mode == "shared" || mode == "dedicated_with_shared_fallback" {
+	if mode == "shared" || mode == dedicatedwithsharedfallback {
 		if sharedTarget, ok := resolveSharedDBTargetFromEnv(); ok {
 			return sharedTarget, true
 		}
@@ -170,7 +175,7 @@ func BuildDatabaseOwnershipDiagnostics(cfg *config.Config) DatabaseOwnershipDiag
 	botTarget, hasBotTarget := resolveBotDBTargetFromEnv(mode)
 	if !hasBotTarget || botTarget == nil {
 		diagnostics.Notes = append(diagnostics.Notes, "bot runtime DB target unavailable from env")
-		if mode == "dedicated" {
+		if mode == _dedicated {
 			diagnostics.Notes = append(diagnostics.Notes, "dedicated mode requires BOT_DATABASE_URL or BOT_DB_* in bot runtime")
 		}
 		return diagnostics
@@ -181,7 +186,7 @@ func BuildDatabaseOwnershipDiagnostics(cfg *config.Config) DatabaseOwnershipDiag
 	diagnostics.Separated = !sharedDetected
 	if sharedDetected {
 		diagnostics.Notes = append(diagnostics.Notes, "backend and bot DB targets resolve to the same host/port/name")
-		if mode == "dedicated" {
+		if mode == _dedicated {
 			diagnostics.BlockingViolation = true
 		}
 	} else {
@@ -191,7 +196,7 @@ func BuildDatabaseOwnershipDiagnostics(cfg *config.Config) DatabaseOwnershipDiag
 	if mode == "shared" {
 		diagnostics.Notes = append(diagnostics.Notes, "cutover mode shared allows shared DB targets")
 	}
-	if mode == "dedicated_with_shared_fallback" {
+	if mode == dedicatedwithsharedfallback {
 		diagnostics.Notes = append(diagnostics.Notes, "cutover mode dedicated_with_shared_fallback may use shared target if bot overrides are absent")
 	}
 

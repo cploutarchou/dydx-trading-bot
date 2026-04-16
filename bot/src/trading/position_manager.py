@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 from loguru import logger
+
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
     USD_MIN_COLLATERAL,
@@ -185,7 +186,7 @@ async def open_positions(client):
                                 USD_MIN_COLLATERAL,
                             )
                             break
-                        
+
                         # P1.6: Guard 2 - Ensure buffer above trade size (fail-safe for subsequent trades)
                         # Keep at least 1.25x min collateral remaining after this trade
                         COLLATERAL_BUFFER_RATIO = 1.25
@@ -231,8 +232,8 @@ async def open_positions(client):
 
                         # Handle success in opening trades
                         if (
-                            isinstance(bot_open_dict, dict)
-                            and bot_open_dict.get("pair_status") == "LIVE"
+                                isinstance(bot_open_dict, dict)
+                                and bot_open_dict.get("pair_status") == "LIVE"
                         ):
                             # Send trade opened notification before deleting bot_open_dict
                             trade_info = {
@@ -348,14 +349,14 @@ async def manage_trade_exits(client):
 
         # Perform matching checks
         check_m1 = (
-            position_market_m1 == order_market_m1
-            and position_size_m1 == order_size_m1
-            and position_side_m1 == order_side_m1
+                position_market_m1 == order_market_m1
+                and position_size_m1 == order_size_m1
+                and position_side_m1 == order_side_m1
         )
         check_m2 = (
-            position_market_m2 == order_market_m2
-            and position_size_m2 == order_size_m2
-            and position_side_m2 == order_side_m2
+                position_market_m2 == order_market_m2
+                and position_size_m2 == order_size_m2
+                and position_side_m2 == order_side_m2
         )
         check_live = position_market_m1 in markets_live and position_market_m2 in markets_live
 
@@ -399,7 +400,7 @@ async def manage_trade_exits(client):
             # Determine trigger
             z_score_level_check = abs(z_score_current) >= abs(z_score_traded)
             z_score_cross_check = (z_score_current < 0 < z_score_traded) or (
-                z_score_current > 0 > z_score_traded
+                    z_score_current > 0 > z_score_traded
             )
 
             # Close trade

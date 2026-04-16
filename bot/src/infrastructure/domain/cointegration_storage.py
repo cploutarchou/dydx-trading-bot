@@ -67,11 +67,11 @@ class CointegrationResult:
 
 
 def calculate_confidence_score(
-    p_value: float,
-    half_life: float,
-    zero_crossings: int,
-    max_half_life: float = 14.0,
-    min_zero_crossings: int = 5,
+        p_value: float,
+        half_life: float,
+        zero_crossings: int,
+        max_half_life: float = 14.0,
+        min_zero_crossings: int = 5,
 ) -> float:
     """
     Calculate a confidence score for a cointegrated pair.

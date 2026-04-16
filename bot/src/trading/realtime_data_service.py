@@ -7,13 +7,13 @@ import asyncio
 from typing import Dict
 
 from loguru import logger
+
+from internal.repository.repository_realtime import UnitOfWorkRealtime
 from src.api.realtime_serializers import serialize_stats_risk_fields
 from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
     broadcast_alert, broadcast_position_opened, broadcast_position_closed
 from src.infrastructure.database import db
 from src.shared.time_utils import utc_now_iso
-from internal.repository.repository_realtime import UnitOfWorkRealtime
-
 
 
 class RealTimeDataService:

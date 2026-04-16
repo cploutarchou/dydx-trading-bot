@@ -35,12 +35,12 @@ def _request(**trading_parameters):
 
 class _FakeMarkets:
     async def get_perpetual_market_candles(
-        self,
-        market,
-        resolution,
-        from_iso=None,
-        to_iso=None,
-        limit=100,
+            self,
+            market,
+            resolution,
+            from_iso=None,
+            to_iso=None,
+            limit=100,
     ):
         del resolution, limit
         start = datetime.fromisoformat(str(from_iso).replace("Z", "+00:00"))
@@ -193,9 +193,9 @@ def test_parameter_changes_produce_distinct_real_results(monkeypatch):
         assert a is not None and c is not None
 
         assert (
-            a.total_pnl != c.total_pnl
-            or a.total_trades != c.total_trades
-            or a.sharpe_ratio != c.sharpe_ratio
+                a.total_pnl != c.total_pnl
+                or a.total_trades != c.total_trades
+                or a.sharpe_ratio != c.sharpe_ratio
         )
 
     asyncio.run(_run())
@@ -264,6 +264,7 @@ def test_failed_backtest_exposes_error_fields(monkeypatch):
         assert progress["error_message"] == "historical data fetch failed"
 
     asyncio.run(_run())
+
 
 def test_build_market_pairs_uses_all_unique_combinations():
     _, service_module = _load_modules()

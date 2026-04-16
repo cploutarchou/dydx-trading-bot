@@ -27,7 +27,7 @@ class BacktestConfigRequest(BaseModel):
     end_date: str = Field(..., description="End date (YYYY-MM-DD)")
     initial_balance: float = Field(10000.0, description="Initial balance")
     trading_parameters: Dict[str,
-                             Any] = Field(..., description="Trading parameters")
+    Any] = Field(..., description="Trading parameters")
     pairs: List[str] = Field(..., description="Trading pairs to test")
 
 

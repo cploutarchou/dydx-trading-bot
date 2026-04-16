@@ -14,7 +14,7 @@ func ResolveRequestAuthHeader(c *gin.Context) (string, string) {
 		return authHeader, "authorization"
 	}
 
-	cookieNames := []string{"access_token", "token", "jwt"}
+	cookieNames := []string{"dydx_session", "access_token", "token", "jwt"}
 	for _, name := range cookieNames {
 		if cookieVal, err := c.Cookie(name); err == nil && strings.TrimSpace(cookieVal) != "" {
 			return "Bearer " + strings.TrimSpace(cookieVal), "cookie:" + name

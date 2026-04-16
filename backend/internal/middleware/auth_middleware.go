@@ -3,6 +3,7 @@ package middleware
 import (
 	"log"
 	"strings"
+	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/auth"
@@ -10,6 +11,7 @@ import (
 )
 
 var jwtManager *auth.Manager
+var sessionStore *auth.SessionStore
 
 func InitAuthMiddleware(cfg *config.Config) {
 	if cfg != nil {
@@ -26,6 +28,11 @@ func InitAuthMiddleware(cfg *config.Config) {
 		ExpiryHours:       expiryHours,
 		RefreshExpiryDays: cfg.Auth.RefreshTokenExpireDays,
 	})
+	sessionStore = auth.NewSessionStore(cfg)
+}
+
+func AuthSessionStore() *auth.SessionStore {
+	return sessionStore
 }
 
 func RequireAuth() gin.HandlerFunc {
@@ -62,6 +69,27 @@ func RequireAuth() gin.HandlerFunc {
 		}
 
 		tokenString := strings.TrimSpace(parts[1])
+		if sessionStore != nil {
+			ctx := c.Request.Context()
+			sessionData, err := sessionStore.Get(ctx, tokenString)
+			if err == nil && sessionData != nil {
+				c.Set("user_id", sessionData.UserID)
+				c.Set("username", sessionData.Username)
+				c.Set("email", sessionData.Email)
+				c.Set("is_admin", sessionData.IsAdmin)
+				c.Set("role", sessionData.Role)
+				c.Set("session_expires_at", sessionData.ExpiresAt.Format(time.RFC3339))
+				c.Next()
+				return
+			}
+			if err != nil && err != auth.ErrSessionNotFound {
+				log.Printf("RequireAuth: session lookup failed: %v", err)
+				c.JSON(401, gin.H{"error": "invalid session"})
+				c.Abort()
+				return
+			}
+		}
+
 		claims, err := jwtManager.VerifyToken(tokenString, "access")
 		if err != nil {
 			// Log underlying verification error as well

@@ -98,11 +98,8 @@ class BacktestService:
             session if isinstance(session, BacktestRepository) else BacktestRepository(session)
         )
         self.session = getattr(self.repository, "session", session)
-        self._reconcile_interrupted_runs()
-
-    def _reconcile_interrupted_runs(self) -> None:
-        """Mark orphaned created/running runs as failed after API reload or restart."""
-        self.reconcile_interrupted_runs(dry_run=False)
+        # Reconciliation is explicit via API ops endpoints to avoid false-positive
+        # failures when requests are served by different API worker processes.
 
     @staticmethod
     def _to_ops_row(run: Dict[str, Any]) -> Dict[str, Any]:

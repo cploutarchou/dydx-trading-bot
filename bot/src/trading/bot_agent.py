@@ -1,7 +1,7 @@
 """Bot agent for managing trade execution and monitoring."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from loguru import logger
 
@@ -76,6 +76,50 @@ class BotAgent:
             "comments": "",
         }
 
+    @staticmethod
+    def _opposite_side(side):
+        normalized = str(side).upper()
+        if normalized == "BUY":
+            return "SELL"
+        if normalized == "SELL":
+            return "BUY"
+        raise ValueError(f"Unsupported order side: {side}")
+
+    async def _emergency_close_first_leg(self):
+        close_side = self._opposite_side(self.base_side)
+        (close_order, order_id) = await place_market_order(
+            self.client,
+            market=self.market_1,
+            side=close_side,
+            size=self.base_size,
+            price=self.accept_failsafe_base_price,
+            reduce_only=True,
+        )
+        _ = close_order
+
+        await asyncio.sleep(2)
+        order_status_close_order = await check_order_status(self.client, order_id)
+        if order_status_close_order != "FILLED":
+            logger.critical("ABORT PROGRAM - Failed to close hedged position")
+            logger.critical(
+                "Unexpected error closing {} -> status {}",
+                self.market_1,
+                order_status_close_order,
+            )
+
+            self.messenger.send_error_message(
+                "CRITICAL: Position Closure Failed",
+                f"Failed to close hedged position for {self.market_1}. Status: {order_status_close_order}. Emergency intervention required!",
+                is_critical=True,
+                category="execution_emergency_cleanup",
+            )
+
+            raise RuntimeError(
+                f"Failed emergency closure for {self.market_1}; status={order_status_close_order}"
+            )
+
+        return order_id
+
     async def check_order_status_by_id(self, order_id):
         """Check order status by order ID with retry logic."""
         # Allow time to process
@@ -144,7 +188,7 @@ class BotAgent:
 
             # Store the order id
             self.order_dict["order_id_m1"] = order_id
-            self.order_dict["order_time_m1"] = datetime.now().isoformat()
+            self.order_dict["order_time_m1"] = datetime.now(timezone.utc).isoformat()
             logger.info("First order for {} sent", self.market_1)
         except Exception as e:
             logger.exception("Error placing first order for {}", self.market_1)
@@ -185,12 +229,22 @@ class BotAgent:
 
             # Store the order id
             self.order_dict["order_id_m2"] = order_id
-            self.order_dict["order_time_m2"] = datetime.now().isoformat()
+            self.order_dict["order_time_m2"] = datetime.now(timezone.utc).isoformat()
             logger.info("Second order for {} sent (id={})", self.market_2, order_id)
         except Exception as e:
             logger.exception("Error placing second order for {}", self.market_2)
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"Market 2 {self.market_2}: , {e}"
+            try:
+                await self._emergency_close_first_leg()
+            except Exception as close_error:
+                self.order_dict["comments"] = (
+                    f"Market 2 {self.market_2}: {e}; "
+                    f"Close Market 1 {self.market_1}: {close_error}"
+                )
+                raise RuntimeError(
+                    f"Unexpected emergency closure error for {self.market_1}"
+                ) from close_error
             return self.order_dict
 
         # Ensure order is live before processing
@@ -204,37 +258,7 @@ class BotAgent:
 
             # Close order 1:
             try:
-                (close_order, order_id) = await place_market_order(
-                    self.client,
-                    market=self.market_1,
-                    side=self.quote_side,
-                    size=self.base_size,
-                    price=self.accept_failsafe_base_price,
-                    reduce_only=True,
-                )
-
-                # Ensure order is live before proceeding
-                await asyncio.sleep(2)
-                order_status_close_order = await check_order_status(self.client, order_id)
-                if order_status_close_order != "FILLED":
-                    logger.critical("ABORT PROGRAM - Failed to close hedged position")
-                    logger.critical(
-                        "Unexpected error closing {} -> status {}",
-                        self.market_1,
-                        order_status_close_order,
-                    )
-
-                    # Send Message
-                    self.messenger.send_error_message(
-                        "CRITICAL: Position Closure Failed",
-                        f"Failed to close hedged position for {self.market_1}. Status: {order_status_close_order}. Emergency intervention required!",
-                        is_critical=True,
-                        category="execution_emergency_cleanup",
-                    )
-
-                    raise RuntimeError(
-                        f"Failed emergency closure for {self.market_1}; status={order_status_close_order}"
-                    )
+                await self._emergency_close_first_leg()
             except Exception as e:
                 self.order_dict["pair_status"] = "ERROR"
                 self.order_dict["comments"] = f"Close Market 1 {self.market_1}: , {e}"

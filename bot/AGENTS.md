@@ -19,7 +19,8 @@ Repository-level guidance for coding agents working on this project.
 
 1. **Environment load order**
     - Entry points must call `load_repo_env(__file__)` before importing config/constants (see `src/api/server.py`,
-      `src/api/start_api.py`, `app.py`, `start_api.py`, `src/main_instance.py`).
+      `src/api/start_api.py`, `app.py`, `start_api.py`, `main.py`, `src/main_instance.py`,
+      `src/bot_instance_manager.py`).
     - Runtime config is structured (`run.json` or `config/profiles/*`), not `bot/.env`.
 2. **No direct process management outside manager layer**
     - Manage worker lifecycle through `src/bot_instance_manager.py`.
@@ -43,6 +44,7 @@ Repository-level guidance for coding agents working on this project.
     - Preserve request trace propagation (`trace_id` + `X-Trace-Id`) and strict `/ready` semantics (`200` only when bot
       manager is available, otherwise `503`).
 10. **Service-token rotation support**
+
 - Keep overlap support for `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, and `BOT_API_TOKENS`; if changed, update
   `tests/test_auth_middleware_service_token.py`.
 
@@ -59,8 +61,11 @@ Repository-level guidance for coding agents working on this project.
   lifecycle updates after runtime state changes.
 - Verify per-instance subprocess logs still write to `bot_states/bot_<instance_id>.log` and dead-process cleanup remains
   active when touching `src/bot_instance_manager.py`.
+- Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety paths.
 - Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for
   runtime/safety-impacting edits.
+- When touching database runtime selection/cutover logic, run `tests/test_database_config_runtime.py` and verify
+  `BOT_DB_CUTOVER_MODE=dedicated` behavior remains valid.
 - Document failure-mode impact and rollback plan.
 
 ## Key documentation map

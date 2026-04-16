@@ -92,11 +92,7 @@ class EnhancedAPIClient {
   private baseClient = apiClient;
 
   private getAccessToken(): string | null {
-    const token = localStorage.getItem('access_token');
-    if (!token || token === 'null' || token === 'undefined') {
-      return null;
-    }
-    return token;
+    return null;
   }
 
   private buildAuthHeaders(existingHeaders?: unknown): Headers {
@@ -198,7 +194,6 @@ class EnhancedAPIClient {
         `/api/v1/bots${queryString.toString() ? `?${queryString}` : ''}`,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
             'Content-Type': 'application/json',
           },
         }
@@ -220,7 +215,6 @@ class EnhancedAPIClient {
     try {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -241,7 +235,6 @@ class EnhancedAPIClient {
     try {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/stats`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -271,7 +264,6 @@ class EnhancedAPIClient {
         `/api/v1/bots/${instanceId}/trades${queryString.toString() ? `?${queryString}` : ''}`,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
             'Content-Type': 'application/json',
           },
         }
@@ -294,7 +286,6 @@ class EnhancedAPIClient {
       const response = await this.fetchWithAuth('/api/v1/bots', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(config),
@@ -317,7 +308,6 @@ class EnhancedAPIClient {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}`, {
         method: 'PUT',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(updates),
@@ -340,7 +330,6 @@ class EnhancedAPIClient {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/start`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(config || {}),
@@ -363,7 +352,6 @@ class EnhancedAPIClient {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/stop`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -385,7 +373,6 @@ class EnhancedAPIClient {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/restart`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -407,7 +394,6 @@ class EnhancedAPIClient {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}`, {
         method: 'DELETE',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -427,7 +413,6 @@ class EnhancedAPIClient {
     try {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/positions/current`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -446,7 +431,6 @@ class EnhancedAPIClient {
         `/api/v1/bots/${instanceId}/positions/${positionId}`,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
             'Content-Type': 'application/json',
           },
         }
@@ -473,7 +457,6 @@ class EnhancedAPIClient {
     try {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/realtime-stats`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -490,7 +473,6 @@ class EnhancedAPIClient {
     try {
       const response = await this.fetchWithAuth(`/api/v1/bots/${instanceId}/market-data`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -516,7 +498,6 @@ class EnhancedAPIClient {
         `/api/v1/bots/${instanceId}/alerts${queryString.toString() ? `?${queryString}` : ''}`,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
             'Content-Type': 'application/json',
           },
         }
@@ -566,7 +547,6 @@ class EnhancedAPIClient {
 
     const response = await this.fetchWithAuth(`/api/v1/backtests?${query.toString()}`, {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem('access_token')}`,
         'Content-Type': 'application/json',
       },
     });
@@ -761,7 +741,6 @@ class EnhancedAPIClient {
     try {
       const response = await this.fetchWithAuth('/api/v1/system/status', {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
         },
       });

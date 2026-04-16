@@ -30,10 +30,11 @@ export interface PaginatedResponse<T> {
 // ==================== Authentication Types ====================
 
 export interface AuthResponse {
-  access_token: string;
-  refresh_token: string;
-  token_type: 'Bearer';
+  access_token?: string;
+  refresh_token?: string;
+  token_type: 'Bearer' | 'bearer' | 'session';
   expires_in: number;
+  session_expires_at?: string;
 }
 
 export interface User {

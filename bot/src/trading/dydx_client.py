@@ -3,15 +3,14 @@
 import os
 from datetime import datetime, timedelta, timezone
 
-from loguru import logger
 from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
-from dydx_v4_client.network import TESTNET, make_mainnet, make_testnet
+from dydx_v4_client.network import make_mainnet, make_testnet
 from dydx_v4_client.node.client import NodeClient
 from dydx_v4_client.wallet import Wallet
+from loguru import logger
 
 from src.constants import (
     DYDX_ADDRESS,
-    INDEXER_ACCOUNT_ENDPOINT,
     INDEXER_ENDPOINT_TESTNET,
     INDEXER_ENDPOINT_MAINNET,
     MARKET_DATA_MODE,

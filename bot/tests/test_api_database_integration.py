@@ -7,11 +7,11 @@ import uuid
 
 import pytest
 from loguru import logger
-from internal.domain import BotStatusEnum
 from sqlalchemy.exc import OperationalError
+
+from internal.domain import BotStatusEnum
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
-
 
 
 def test_api_database_integration():

@@ -6,12 +6,11 @@ Creates authentication tables and default admin user
 from datetime import datetime
 from typing import Type, Union
 
-from loguru import logger
 from auth_utils import PasswordUtils
 from database import db, init_db
 from internal.domain.models.auth_models import User
+from loguru import logger
 from sqlalchemy.orm import Session
-
 
 
 def create_admin_user(session: Session) -> Union[Type[User], User]:

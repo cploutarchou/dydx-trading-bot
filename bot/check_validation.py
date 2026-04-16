@@ -2,8 +2,9 @@
 """Comprehensive validation check"""
 
 import inspect
-from src.infrastructure.database import get_session
+
 from src.api.server import app
+from src.infrastructure.database import get_session
 
 print('=== DATABASE SESSION DEPENDENCY VALIDATION ===\n')
 
@@ -66,4 +67,3 @@ for route in app.routes:
             print(f'{route.name:25} {status_str}')
 
 print('\n=== SESSION VALIDATION COMPLETE ===')
-

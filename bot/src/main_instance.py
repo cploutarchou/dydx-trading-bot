@@ -83,7 +83,9 @@ class BotInstance:
                     config_data = yaml.safe_load(f)
                     if config_data:
                         # Config loaded from file; build minimal DydxConfig from YAML
-                        from config.config import DydxConfig, BotSettings, TelegramSettings, DYDXTestnetSettings, DYDXMainnetSettings, LoggingSettings, BacktestSettings, DatabaseSettings, RedisSettings, LokiSettings
+                        from config.config import DydxConfig, BotSettings, TelegramSettings, DYDXTestnetSettings, \
+                            DYDXMainnetSettings, LoggingSettings, BacktestSettings, DatabaseSettings, RedisSettings, \
+                            LokiSettings
 
                         self.config = DydxConfig(
                             is_testnet=config_data.get("is_testnet", True),
@@ -95,26 +97,32 @@ class BotInstance:
                             botSettings=BotSettings(
                                 is_testnet=config_data.get("is_testnet", True),
                                 subaccountNumber=int(config_data.get("botSettings", {}).get("subaccountNumber", 0)),
-                                capitalAllocationUsd=float(config_data.get("botSettings", {}).get("capitalAllocationUsd", 0.0)),
+                                capitalAllocationUsd=float(
+                                    config_data.get("botSettings", {}).get("capitalAllocationUsd", 0.0)),
                                 abortAllPositions=config_data.get("botSettings", {}).get("abortAllPositions", False),
-                                findCointegratedPairs=config_data.get("botSettings", {}).get("findCointegratedPairs", False),
+                                findCointegratedPairs=config_data.get("botSettings", {}).get("findCointegratedPairs",
+                                                                                             False),
                                 manageExits=config_data.get("botSettings", {}).get("manageExits", False),
                                 placeTrades=config_data.get("botSettings", {}).get("placeTrades", False),
-                                resolutionTimeframe=config_data.get("botSettings", {}).get("resolutionTimeframe", "1HOUR"),
+                                resolutionTimeframe=config_data.get("botSettings", {}).get("resolutionTimeframe",
+                                                                                           "1HOUR"),
                                 strategy=config_data.get("botSettings", {}).get("strategy", "cointegration"),
                                 statsWindow=int(config_data.get("botSettings", {}).get("statsWindow", 21)),
                                 maxHalfLife=int(config_data.get("botSettings", {}).get("maxHalfLife", 24)),
                                 ZScoreThreshold=float(config_data.get("botSettings", {}).get("ZScoreThreshold", 1.5)),
                                 usdPerTrade=float(config_data.get("botSettings", {}).get("usdPerTrade", 10.0)),
-                                usdMinCollateral=float(config_data.get("botSettings", {}).get("usdMinCollateral", 100.0)),
+                                usdMinCollateral=float(
+                                    config_data.get("botSettings", {}).get("usdMinCollateral", 100.0)),
                                 closeAtZscoreCross=config_data.get("botSettings", {}).get("closeAtZscoreCross", True),
                                 maxPositions=int(config_data.get("botSettings", {}).get("maxPositions", 5)),
                                 maxDrawdownPct=float(config_data.get("botSettings", {}).get("maxDrawdownPct", 15.0)),
                                 stopLossPct=float(config_data.get("botSettings", {}).get("stopLossPct", 2.0)),
                                 takeProfitPct=float(config_data.get("botSettings", {}).get("takeProfitPct", 5.0)),
                                 trailingStopPct=float(config_data.get("botSettings", {}).get("trailingStopPct", 1.0)),
-                                rebalanceIntervalHours=int(config_data.get("botSettings", {}).get("rebalanceIntervalHours", 24)),
-                                positionTimeoutHours=int(config_data.get("botSettings", {}).get("positionTimeoutHours", 72)),
+                                rebalanceIntervalHours=int(
+                                    config_data.get("botSettings", {}).get("rebalanceIntervalHours", 24)),
+                                positionTimeoutHours=int(
+                                    config_data.get("botSettings", {}).get("positionTimeoutHours", 72)),
                             ),
                             dydx_testnet=DYDXTestnetSettings(
                                 dydx_chain_address=config_data.get("dydx_testnet", {}).get("dydx_chain_address", ""),
@@ -137,7 +145,8 @@ class BotInstance:
                             backtesting=BacktestSettings(
                                 candleResolution=config_data.get("backtesting", {}).get("candleResolution", "1HOUR"),
                                 maxHistoryDays=int(config_data.get("backtesting", {}).get("maxHistoryDays", 90)),
-                                startingBalance=float(config_data.get("backtesting", {}).get("startingBalance", 1000.0)),
+                                startingBalance=float(
+                                    config_data.get("backtesting", {}).get("startingBalance", 1000.0)),
                                 transactionFee=float(config_data.get("backtesting", {}).get("transactionFee", 0.0005)),
                                 slippage=float(config_data.get("backtesting", {}).get("slippage", 0.001)),
                                 benchmarkSymbol=config_data.get("backtesting", {}).get("benchmarkSymbol", "BTC-USD"),

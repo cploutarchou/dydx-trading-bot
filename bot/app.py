@@ -7,8 +7,6 @@ from src.shared.env_loader import load_repo_env
 # Keep dotenv load before importing the canonical app entrypoint.
 load_repo_env(__file__)
 
-from src.api.server import app as app  # re-exported compatibility symbol
-
 if __name__ == "__main__":
     import uvicorn
 

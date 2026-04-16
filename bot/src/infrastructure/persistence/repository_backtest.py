@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from internal.domain.models import BacktestRun
 from sqlalchemy.orm import Session, defer
+
+from internal.domain.models import BacktestRun
 
 
 class BacktestRepository:
@@ -175,11 +176,11 @@ class BacktestRepository:
         return self._record_to_dict(record) if record else None
 
     def list_runs(
-        self,
-        limit: Optional[int] = None,
-        offset: int = 0,
-        status_filter: Optional[str] = None,
-        days_filter: Optional[int] = None,
+            self,
+            limit: Optional[int] = None,
+            offset: int = 0,
+            status_filter: Optional[str] = None,
+            days_filter: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         if self.session is None:
             runs = list(BacktestRepository._memory_runs.values())
@@ -195,7 +196,7 @@ class BacktestRepository:
             runs = sorted(runs, key=lambda row: str(row.get("updated_at", "")), reverse=True)
             if limit is None:
                 return [dict(row) for row in runs[offset:]]
-            return [dict(row) for row in runs[offset : offset + limit]]
+            return [dict(row) for row in runs[offset: offset + limit]]
 
         query = (
             self.session.query(BacktestRun)
@@ -236,10 +237,10 @@ class BacktestRepository:
         return True
 
     def count_runs(
-        self,
-        *,
-        statuses: Optional[Sequence[str]] = None,
-        days_filter: Optional[int] = None,
+            self,
+            *,
+            statuses: Optional[Sequence[str]] = None,
+            days_filter: Optional[int] = None,
     ) -> int:
         if self.session is None:
             runs = self.list_runs(limit=None, offset=0, days_filter=days_filter)

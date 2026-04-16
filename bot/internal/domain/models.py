@@ -3,7 +3,7 @@ Core database models for the trading bot system
 """
 
 import enum
-from src.shared.time_utils import utc_now
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -17,6 +17,8 @@ from sqlalchemy import (
     JSON,
 )
 from sqlalchemy.orm import relationship
+
+from src.shared.time_utils import utc_now
 from . import Base
 
 
@@ -233,4 +235,3 @@ class BacktestRun(Base):
     cancel_requested = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False, index=True)
-

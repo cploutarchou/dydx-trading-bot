@@ -67,4 +67,3 @@ def get_ISO_times():
 
     # Return result
     return times_dict
-

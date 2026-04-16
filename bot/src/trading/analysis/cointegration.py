@@ -6,13 +6,15 @@ from typing import Tuple, cast
 import numpy as np
 import pandas as pd
 from loguru import logger
+
 from src.constants import MAX_HALF_LIFE, WINDOW
-from src.shared.notifications import TelegramMessenger
 from src.infrastructure.domain.cointegration_storage import (
     calculate_confidence_score,
     CointegrationResult,
     pair_storage,
 )
+from src.shared.notifications import TelegramMessenger
+
 
 class SmartError(Exception):
     """Custom exception for statistical analysis errors."""
@@ -271,4 +273,3 @@ def store_cointegration_results(df_market_prices):
     )
 
     return result
-

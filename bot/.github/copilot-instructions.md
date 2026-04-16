@@ -4,7 +4,8 @@ Preferred service agent: `.github/agents/senior-python-defi-runtime.agent.md`
 
 ## System Architecture Overview
 
-This repository is a **multi-instance API-controlled trading bot** with process-isolated workers, shared persistence, and operational safety controls.
+This repository is a **multi-instance API-controlled trading bot** with process-isolated workers, shared persistence,
+and operational safety controls.
 
 ### Core Components (current)
 

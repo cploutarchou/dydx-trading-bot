@@ -57,7 +57,6 @@ type DYDXKey struct {
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
 }
 
-
 type ExternalAPICredential struct {
 	ID              int       `db:"id" json:"id"`
 	UserID          int       `db:"user_id" json:"user_id"`
@@ -325,7 +324,6 @@ type BacktestPosition struct {
 
 // ==================== ADDITIONAL MODELS ====================
 
-
 type AuditLog struct {
 	ID           int         `db:"id" json:"id"`
 	UserID       *int        `db:"user_id" json:"user_id"`
@@ -470,7 +468,6 @@ type RedisSetting struct {
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
-
 type StrategyExecutionState struct {
 	ID         int            `db:"id" json:"id"`
 	StrategyID int            `db:"strategy_id" json:"strategy_id"`
@@ -492,7 +489,6 @@ type StrategyVersionHistory struct {
 	CreatedAt       time.Time      `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
 }
-
 
 // ==================== BOT INSTANCE MODELS ====================
 
@@ -581,4 +577,3 @@ type BotPosition struct {
 	CreatedAt        time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt        time.Time  `db:"updated_at" json:"updated_at"`
 }
-

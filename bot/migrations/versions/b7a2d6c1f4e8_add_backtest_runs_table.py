@@ -87,23 +87,22 @@ def upgrade() -> None:
         sa.text(
             """
             UPDATE backtest_runtime_runs
-            SET
-                name = COALESCE(NULLIF(TRIM(name), ''), run_id),
-                status = COALESCE(NULLIF(TRIM(status), ''), 'created'),
-                progress_pct = COALESCE(progress_pct, 0),
-                total_pnl = COALESCE(total_pnl, 0),
-                win_rate = COALESCE(win_rate, 0),
-                sharpe_ratio = COALESCE(sharpe_ratio, 0),
-                max_drawdown_pct = COALESCE(max_drawdown_pct, 0),
-                total_trades = COALESCE(total_trades, 0),
-                profit_factor = COALESCE(profit_factor, 0),
-                request_json = COALESCE(request_json, '{}'::json),
-                trades_json = COALESCE(trades_json, '[]'::json),
+            SET name                    = COALESCE(NULLIF(TRIM(name), ''), run_id),
+                status                  = COALESCE(NULLIF(TRIM(status), ''), 'created'),
+                progress_pct            = COALESCE(progress_pct, 0),
+                total_pnl               = COALESCE(total_pnl, 0),
+                win_rate                = COALESCE(win_rate, 0),
+                sharpe_ratio            = COALESCE(sharpe_ratio, 0),
+                max_drawdown_pct        = COALESCE(max_drawdown_pct, 0),
+                total_trades            = COALESCE(total_trades, 0),
+                profit_factor           = COALESCE(profit_factor, 0),
+                request_json            = COALESCE(request_json, '{}'::json),
+                trades_json             = COALESCE(trades_json, '[]'::json),
                 position_snapshots_json = COALESCE(position_snapshots_json, '[]'::json),
-                daily_pnl_json = COALESCE(daily_pnl_json, '[]'::json),
-                cancel_requested = COALESCE(cancel_requested, false),
-                created_at = COALESCE(created_at, NOW()),
-                updated_at = COALESCE(updated_at, NOW())
+                daily_pnl_json          = COALESCE(daily_pnl_json, '[]'::json),
+                cancel_requested        = COALESCE(cancel_requested, false),
+                created_at              = COALESCE(created_at, NOW()),
+                updated_at              = COALESCE(updated_at, NOW())
             """
         )
     )
@@ -165,4 +164,3 @@ def downgrade() -> None:
     op.drop_index("ix_backtest_runtime_runs_status", table_name=table_name)
     op.drop_index(op.f("ix_backtest_runtime_runs_run_id"), table_name=table_name)
     op.drop_table(table_name)
-

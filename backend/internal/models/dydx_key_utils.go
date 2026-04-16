@@ -70,4 +70,3 @@ func (d *DYDXKey) FromJSON(data []byte) error {
 	d.FromDict(dict)
 	return nil
 }
-

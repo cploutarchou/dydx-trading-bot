@@ -188,6 +188,9 @@ apps:
     expose: public
     host: app.cydevcloud.com
     path: frontend
+    auth:
+      basic:
+        users_env: FRONTEND_BASIC_AUTH
     env:
       VITE_API_URL: "https://api.cydevcloud.com"
       VITE_FORCE_MOCK_DATA: "false"

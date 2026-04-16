@@ -1,4 +1,5 @@
 import pytest
+
 from src.infrastructure.database import DatabaseConfig
 
 
@@ -54,7 +55,7 @@ def test_database_config_shared_mode_ignores_bot_values(monkeypatch):
 
 
 def test_database_config_dedicated_with_shared_fallback_uses_shared_when_bot_unset(
-    monkeypatch,
+        monkeypatch,
 ):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
     monkeypatch.delenv("BOT_DATABASE_URL", raising=False)
@@ -155,8 +156,8 @@ def test_database_config_dedicated_blocks_shared_target_regression(monkeypatch):
     )
 
     with pytest.raises(
-        ValueError,
-        match="cannot target the same database as the shared DB configuration",
+            ValueError,
+            match="cannot target the same database as the shared DB configuration",
     ):
         DatabaseConfig()
 
@@ -174,5 +175,3 @@ def test_database_config_dedicated_with_fallback_reports_shared_target_match(mon
     assert payload["shared_target_detected"] is True
     assert payload["shared_target_matches_runtime"] is False
     assert payload["ownership_guardrail"] == "advisory"
-
-

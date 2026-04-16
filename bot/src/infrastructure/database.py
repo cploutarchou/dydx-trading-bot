@@ -105,9 +105,9 @@ class DatabaseConfig:
         if lowered.startswith("postgresql+psycopg2://"):
             return candidate
         if lowered.startswith("postgresql://"):
-            return "postgresql+psycopg2://" + candidate[len("postgresql://") :]
+            return "postgresql+psycopg2://" + candidate[len("postgresql://"):]
         if lowered.startswith("postgres://"):
-            return "postgresql+psycopg2://" + candidate[len("postgres://") :]
+            return "postgresql+psycopg2://" + candidate[len("postgres://"):]
         raise ValueError(
             "Unsupported database URL scheme. Only PostgreSQL URLs are supported."
         )
@@ -226,7 +226,7 @@ class DatabaseConfig:
 
     @staticmethod
     def _normalized_target_fields(
-        fields: tuple[str, str, str, str, str] | None,
+            fields: tuple[str, str, str, str, str] | None,
     ) -> tuple[str, str, str] | None:
         if fields is None:
             return None
@@ -391,8 +391,7 @@ class DatabaseManager:
                         SELECT c.udt_name
                         FROM information_schema.columns c
                         WHERE c.table_name = 'bot_instances'
-                          AND c.column_name = 'status'
-                        LIMIT 1
+                          AND c.column_name = 'status' LIMIT 1
                         """
                     )
                 ).scalar()
@@ -403,10 +402,10 @@ class DatabaseManager:
                             """
                             UPDATE bot_instances
                             SET status = CASE UPPER(CAST(status AS TEXT))
-                                WHEN 'FAILED' THEN 'ERROR'::botstatusenum
-                                WHEN 'PAUSED' THEN 'STOPPED'::botstatusenum
-                                ELSE UPPER(CAST(status AS TEXT))::botstatusenum
-                            END
+                                             WHEN 'FAILED' THEN 'ERROR'::botstatusenum
+                                             WHEN 'PAUSED' THEN 'STOPPED'::botstatusenum
+                                             ELSE UPPER(CAST(status AS TEXT))::botstatusenum
+                                END
                             WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
                                OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
                             """
@@ -418,10 +417,10 @@ class DatabaseManager:
                             """
                             UPDATE bot_instances
                             SET status = CASE UPPER(CAST(status AS TEXT))
-                                WHEN 'FAILED' THEN 'ERROR'
-                                WHEN 'PAUSED' THEN 'STOPPED'
-                                ELSE UPPER(CAST(status AS TEXT))
-                            END
+                                             WHEN 'FAILED' THEN 'ERROR'
+                                             WHEN 'PAUSED' THEN 'STOPPED'
+                                             ELSE UPPER(CAST(status AS TEXT))
+                                END
                             WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
                                OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
                             """
@@ -446,7 +445,6 @@ class DatabaseManager:
                     logger.info(
                         "Compatibility fix applied: backtest_strategies.pair_selection_mode"
                     )
-
 
     def _build_alembic_config(self) -> Optional[Config]:
         config = DatabaseConfig()

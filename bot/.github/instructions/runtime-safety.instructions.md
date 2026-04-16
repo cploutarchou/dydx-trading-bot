@@ -11,22 +11,22 @@ Apply these rules for runtime and lifecycle changes.
 ## Mandatory rules
 
 1. **Async safety first**
-   - Do not introduce `time.sleep(...)` in async call paths.
-   - Use async-friendly delays and avoid blocking the event loop.
+    - Do not introduce `time.sleep(...)` in async call paths.
+    - Use async-friendly delays and avoid blocking the event loop.
 
 2. **Exception-first internals**
-   - Do not add `exit(1)` to service/helper modules.
-   - Raise explicit exceptions; keep process exits in entrypoints only.
+    - Do not add `exit(1)` to service/helper modules.
+    - Raise explicit exceptions; keep process exits in entrypoints only.
 
 3. **Lifecycle ownership**
-   - Keep process orchestration inside `BotInstanceManager`.
-   - Do not add unmanaged subprocess patterns in routes/services.
+    - Keep process orchestration inside `BotInstanceManager`.
+    - Do not add unmanaged subprocess patterns in routes/services.
 
 4. **Interpreter consistency**
-   - Ensure launch/test paths use project `.venv` interpreter.
+    - Ensure launch/test paths use project `.venv` interpreter.
 
 5. **State and reconciliation safety**
-   - For changes touching `bot_states/*` or position tracking, include restart/recovery notes and mismatch handling.
+    - For changes touching `bot_states/*` or position tracking, include restart/recovery notes and mismatch handling.
 
 ## Required co-changes
 

@@ -1,6 +1,6 @@
 """Cointegration analysis module for pairs trading strategy."""
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Tuple, cast
 
 import numpy as np
@@ -227,7 +227,7 @@ def store_cointegration_results(df_market_prices):
                         p_value=0.01,
                         z_score_mean=float(z_scores.mean()),
                         z_score_std=float(z_scores.std()),
-                        analysis_timestamp=datetime.now().isoformat(),
+                        analysis_timestamp=datetime.now(timezone.utc).isoformat(),
                         confidence_score=confidence
                     )
 
@@ -247,7 +247,7 @@ def store_cointegration_results(df_market_prices):
                         p_value=0.01,
                         z_score_mean=0.0,
                         z_score_std=1.0,
-                        analysis_timestamp=datetime.now().isoformat(),
+                        analysis_timestamp=datetime.now(timezone.utc).isoformat(),
                         confidence_score=0.5
                     )
                     criteria_met_pairs.append(basic_result)

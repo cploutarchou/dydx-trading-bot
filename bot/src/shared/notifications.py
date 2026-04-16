@@ -3,7 +3,7 @@
 import html
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import requests
@@ -38,7 +38,7 @@ class TelegramMessenger:
 
     def _format_timestamp(self) -> str:
         """Format current timestamp for messages."""
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     def _escape_html(self, value: Any) -> str:
         """Escape dynamic values to keep Telegram HTML parse mode safe."""
@@ -486,7 +486,7 @@ class TelegramMessenger:
 📉 <b>Trades Closed:</b> {trades_closed}
 ⚡ <b>Active Positions:</b> {active_positions}
 
-⏰ <b>Report Date:</b> {datetime.now().strftime("%Y-%m-%d")}
+⏰ <b>Report Date:</b> {datetime.now(timezone.utc).strftime("%Y-%m-%d")}
 
 <i>Bot continues monitoring for opportunities.</i>
         """.strip()

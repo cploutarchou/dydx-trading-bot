@@ -1,5 +1,5 @@
 """Utility functions for trading bot."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def format_number(curr_num, match_num):
@@ -39,7 +39,7 @@ def get_ISO_times():
         Dictionary with time ranges for historical data retrieval
     """
     # Get timestamps
-    date_start_0 = datetime.now()
+    date_start_0 = datetime.now(timezone.utc)
     date_start_1 = date_start_0 - timedelta(hours=100)
     date_start_2 = date_start_1 - timedelta(hours=100)
     date_start_3 = date_start_2 - timedelta(hours=100)

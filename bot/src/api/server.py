@@ -1816,7 +1816,7 @@ async def quick_deploy_bot(
         import re
 
         instance_id = re.sub(r"[^a-zA-Z0-9_-]", "-", instance_name.lower())
-        instance_id = f"{instance_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        instance_id = f"{instance_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
         # Create configuration
         config = BotInstanceConfig(
@@ -2031,7 +2031,7 @@ async def get_current_user_profile(
                 )
             ),
             "created_at": (
-                getattr(current_user, "created_at", datetime.now())
+                getattr(current_user, "created_at", datetime.now(timezone.utc))
             ).isoformat(),
         },
         message="Current user profile retrieved",

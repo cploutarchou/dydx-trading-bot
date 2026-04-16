@@ -43,6 +43,53 @@ const getErrorMessage = (error: unknown): string => {
   return String(error);
 };
 
+const AUTH_COOKIE_NAMES = ['access_token', 'refresh_token'] as const;
+
+const getCookieDomainVariants = (hostname: string): Array<string | null> => {
+  const variants = new Set<string | null>([null]);
+  const normalizedHost = hostname.trim().toLowerCase();
+
+  if (!normalizedHost || normalizedHost === 'localhost' || normalizedHost.includes(':')) {
+    return Array.from(variants);
+  }
+
+  const hostParts = normalizedHost.split('.').filter(Boolean);
+  if (hostParts.length < 2) {
+    return Array.from(variants);
+  }
+
+  variants.add(normalizedHost);
+  variants.add(`.${normalizedHost}`);
+
+  if (hostParts.length > 2) {
+    const baseDomain = hostParts.slice(-2).join('.');
+    variants.add(baseDomain);
+    variants.add(`.${baseDomain}`);
+  }
+
+  return Array.from(variants);
+};
+
+const expireCookie = (name: string, domain: string | null, secure: boolean): void => {
+  const segments = [
+    `${name}=`,
+    'path=/',
+    'expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    'max-age=0',
+    'samesite=lax',
+  ];
+
+  if (domain) {
+    segments.push(`domain=${domain}`);
+  }
+
+  if (secure) {
+    segments.push('secure');
+  }
+
+  document.cookie = segments.join('; ');
+};
+
 type ApiFailureKind = 'transport' | 'business' | 'unknown';
 
 export interface ApiFailureInfo {
@@ -1231,11 +1278,21 @@ class ApiClient {
     this.accessToken = null;
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
-    // Remove cookie
+
+    // Best-effort cleanup for auth cookies across common domain/secure variants.
     try {
       if (typeof document !== 'undefined') {
-        document.cookie = 'access_token=; path=/; max-age=0';
-        document.cookie = 'refresh_token=; path=/; max-age=0';
+        const domains = getCookieDomainVariants(window.location.hostname);
+        const useSecure = window.location.protocol === 'https:';
+
+        AUTH_COOKIE_NAMES.forEach((cookieName) => {
+          domains.forEach((domain) => {
+            expireCookie(cookieName, domain, false);
+            if (useSecure) {
+              expireCookie(cookieName, domain, true);
+            }
+          });
+        });
       }
     } catch (e) {
       console.warn('❌ api.ts: failed to remove cookie', e);

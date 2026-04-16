@@ -947,19 +947,13 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		backtestGroup.GET("", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			limit := 50
-			offset := 0
+			offset := parseBacktestListOffset(c)
 			var status, days *string
 
 			if l := c.Query("limit"); l != "" {
 				var i int
 				if _, err := parseIntQuery(l, &i); err == nil && i > 0 {
 					limit = i
-				}
-			}
-			if o := c.Query("offset"); o != "" {
-				var i int
-				if _, err := parseIntQuery(o, &i); err == nil && i >= 0 {
-					offset = i
 				}
 			}
 			if s := c.Query("status"); s != "" {
@@ -1760,6 +1754,23 @@ func parseIntPtr(s *string) *int {
 		return &i
 	}
 	return nil
+}
+
+func parseBacktestListOffset(c *gin.Context) int {
+	offset := 0
+	if skip := c.Query("skip"); skip != "" {
+		var i int
+		if _, err := parseIntQuery(skip, &i); err == nil && i >= 0 {
+			offset = i
+		}
+	}
+	if rawOffset := c.Query("offset"); rawOffset != "" {
+		var i int
+		if _, err := parseIntQuery(rawOffset, &i); err == nil && i >= 0 {
+			offset = i
+		}
+	}
+	return offset
 }
 
 func normalizeRealtimeBotInstanceID(instanceID string) (string, error) {

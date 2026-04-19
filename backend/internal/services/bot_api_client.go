@@ -509,6 +509,30 @@ func (c *BotAPIClient) CancelBacktest(runID string) (map[string]interface{}, err
 	return c.makeRequest("POST", endpoint, nil)
 }
 
+// PauseBacktest requests a cooperative pause for a running backtest
+func (c *BotAPIClient) PauseBacktest(runID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/pause", runID)
+	return c.makeRequest("POST", endpoint, nil)
+}
+
+// ResumeBacktest resumes a paused backtest
+func (c *BotAPIClient) ResumeBacktest(runID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/resume", runID)
+	return c.makeRequest("POST", endpoint, nil)
+}
+
+// RestartBacktest starts a fresh run from the same backtest request
+func (c *BotAPIClient) RestartBacktest(runID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/restart", runID)
+	return c.makeRequest("POST", endpoint, nil)
+}
+
+// RetryBacktest starts a fresh run from the same backtest request
+func (c *BotAPIClient) RetryBacktest(runID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/retry", runID)
+	return c.makeRequest("POST", endpoint, nil)
+}
+
 // DeleteBacktest deletes a backtest
 func (c *BotAPIClient) DeleteBacktest(runID string) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/backtests/%s", runID)

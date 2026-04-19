@@ -803,6 +803,11 @@ export function useBacktestProgress(runId: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
   const [lastSocketEvent, setLastSocketEvent] = useState<Record<string, unknown> | null>(null);
+  const isTerminalStatus = useCallback((status: unknown): boolean => {
+    return ['COMPLETED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'STALLED'].includes(
+      normalizeStatus(status)
+    );
+  }, []);
 
   const normalizeProgressPercent = useCallback((data: unknown): number => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
@@ -1038,6 +1043,52 @@ export function useBacktestProgress(runId: string) {
     }, [mergeProgressData, runId]),
   });
 
+  useEffect(() => {
+    if (!runId || isTerminalStatus(data?.status)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollStatus = async () => {
+      try {
+        const result = await apiClient.getBacktestStatus(runId);
+        if (cancelled || !result || typeof result !== 'object') {
+          return;
+        }
+
+        setData((current) =>
+          mergeProgressData(current, {
+            ...(result as Record<string, unknown>),
+            progress_source: isConnected ? 'polling' : 'polling_recovery',
+            checked_at:
+              typeof result.checked_at === 'string' && result.checked_at.length > 0
+                ? result.checked_at
+                : new Date().toISOString(),
+            updated_at:
+              typeof result.updated_at === 'string' && result.updated_at.length > 0
+                ? result.updated_at
+                : new Date().toISOString(),
+          })
+        );
+        setBootstrapError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setBootstrapError(
+            error instanceof Error ? error : new Error('Failed to refresh backtest progress')
+          );
+        }
+      }
+    };
+
+    void pollStatus();
+    const timerId = window.setInterval(pollStatus, isConnected ? 10000 : 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [data?.status, isConnected, isTerminalStatus, mergeProgressData, runId]);
+
   const resolvedData = data;
   const combinedError = socketError ?? bootstrapError;
 
@@ -1051,6 +1102,8 @@ export function useBacktestProgress(runId: string) {
     lastSocketEvent,
     isComplete: normalizeStatus(resolvedData?.status) === 'COMPLETED',
     isFailed: normalizeStatus(resolvedData?.status) === 'FAILED',
+    isTimedOut: normalizeStatus(resolvedData?.status) === 'TIMED_OUT',
+    isStalled: normalizeStatus(resolvedData?.status) === 'STALLED',
     isCancelled: normalizeStatus(resolvedData?.status) === 'CANCELLED',
     isRunning: normalizeStatus(resolvedData?.status) === 'RUNNING',
     progressPercent: normalizeProgressPercent(resolvedData),

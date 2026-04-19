@@ -13,6 +13,8 @@ Use this file when the task is primarily inside the Go backend service.
 
 - `.github/agents/senior-go-defi-backend.agent.md`
   Use for most backend feature, bug, auth, contract, websocket, repository, and migration work.
+- `../.github/agents/senior-prod-backtest-defi-auditor.agent.md`
+  Use when backend work is part of a production-readiness audit, delegated backtest timeout/cancellation investigation, or DeFi trading-risk review.
 
 ## Instructions
 

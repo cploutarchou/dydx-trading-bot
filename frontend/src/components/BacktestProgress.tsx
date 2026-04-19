@@ -44,9 +44,24 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
       onComplete?.();
     }
 
-    if ((progressQuery.isFailed || progressQuery.isCancelled) && !failureHandledRef.current) {
+    if (
+      (progressQuery.isFailed ||
+        progressQuery.isTimedOut ||
+        progressQuery.isStalled ||
+        progressQuery.isCancelled) &&
+      !failureHandledRef.current
+    ) {
       failureHandledRef.current = true;
-      onError?.(message || (progressQuery.isCancelled ? 'Backtest cancelled' : 'Backtest failed'));
+      onError?.(
+        message ||
+          (progressQuery.isCancelled
+            ? 'Backtest cancelled'
+            : progressQuery.isTimedOut
+              ? 'Backtest timed out'
+              : progressQuery.isStalled
+                ? 'Backtest stalled'
+              : 'Backtest failed')
+      );
     }
   }, [
     message,
@@ -55,6 +70,8 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
     progressQuery.isCancelled,
     progressQuery.isComplete,
     progressQuery.isFailed,
+    progressQuery.isStalled,
+    progressQuery.isTimedOut,
   ]);
 
   const getStatusColor = (status: string) => {
@@ -68,6 +85,10 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
         return 'bg-green-900 text-green-300';
       case 'cancelled':
         return 'bg-slate-700 text-slate-300';
+      case 'timed_out':
+        return 'bg-orange-900 text-orange-300';
+      case 'stalled':
+        return 'bg-amber-900 text-amber-300';
       case 'failed':
         return 'bg-red-900 text-red-300';
       default:
@@ -85,6 +106,10 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
         return 'bg-blue-500';
       case 'cancelled':
         return 'bg-slate-500';
+      case 'timed_out':
+        return 'bg-orange-500';
+      case 'stalled':
+        return 'bg-amber-500';
       default:
         return 'bg-gray-500';
     }

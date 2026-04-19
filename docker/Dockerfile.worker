@@ -22,4 +22,4 @@ RUN echo '{}' > /app/run.json
 ENV APP_ENV=prod
 ENV ENVIRONMENT=prod
 
-CMD ["python", "main.py"]
+CMD ["python", "worker_entrypoint.py"]

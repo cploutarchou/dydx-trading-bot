@@ -15,6 +15,7 @@ class BacktestStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
 
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import random
+import time
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Dict, List, Optional
 from uuid import uuid4
 
 import numpy as np
@@ -22,12 +24,22 @@ except Exception:  # pragma: no cover
 from src.trading.dydx_client import connect_dydx
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 
+logger = logging.getLogger(__name__)
+
 
 class _BacktestRunStatus(BaseModel):
     run_id: str
     status: str
     progress_pct: float
     updated_at: str
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    deadline_at: Optional[str] = None
+    timeout_seconds: Optional[float] = None
+    last_heartbeat_at: Optional[str] = None
+    heartbeat_age_seconds: Optional[float] = None
+    cancellable: bool = False
     current_pair: Optional[str] = None
     current_task: Optional[str] = None
     error: Optional[str] = None
@@ -68,6 +80,13 @@ class _BacktestRunDetails(BaseModel):
     start_date: str = ""
     end_date: str = ""
     progress_pct: float = 0.0
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    deadline_at: Optional[str] = None
+    timeout_seconds: Optional[float] = None
+    last_heartbeat_at: Optional[str] = None
+    heartbeat_age_seconds: Optional[float] = None
+    cancellable: bool = False
     current_pair: Optional[str] = None
     current_task: Optional[str] = None
     error: Optional[str] = None
@@ -84,6 +103,11 @@ class BacktestService:
 
     _runs: Dict[str, Dict[str, Any]] = {}
     _tasks: Dict[str, asyncio.Task] = {}
+    _DEFAULT_TIMEOUT_SECONDS = 24 * 60 * 60
+    _MIN_TIMEOUT_SECONDS = 1.0
+    _MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
+    _PROGRESS_CALLBACK_TIMEOUT_SECONDS = 5.0
+    _TERMINAL_STATUSES = {"completed", "failed", "timed_out", "cancelled"}
     _BASELINE_METRICS: Dict[str, float] = {
         "total_pnl": 48.2,
         "win_rate": 0.59,
@@ -204,6 +228,14 @@ class BacktestService:
 
     def _persist_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         persisted = self.repository.save_run(run_data)
+        for key in (
+                "started_at",
+                "finished_at",
+                "deadline_at",
+                "timeout_seconds",
+        ):
+            if key in run_data and key not in persisted:
+                persisted[key] = run_data[key]
         self._runs[str(persisted["run_id"])] = dict(persisted)
         return dict(persisted)
 
@@ -219,6 +251,70 @@ class BacktestService:
     @staticmethod
     def _clamp(value: float, minimum: float, maximum: float) -> float:
         return max(minimum, min(maximum, value))
+
+    @staticmethod
+    def _parse_dt(value: Any) -> Optional[datetime]:
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            try:
+                dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    @classmethod
+    def _heartbeat_age_seconds(cls, run_data: Dict[str, Any]) -> Optional[float]:
+        heartbeat_at = cls._parse_dt(run_data.get("updated_at"))
+        if heartbeat_at is None:
+            return None
+        return round(
+            max(0.0, (datetime.now(timezone.utc) - heartbeat_at).total_seconds()), 3
+        )
+
+    @classmethod
+    def _with_status_observability(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(run_data)
+        status = str(payload.get("status") or "").lower()
+        payload["last_heartbeat_at"] = payload.get("updated_at")
+        payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
+        payload["cancellable"] = status not in cls._TERMINAL_STATUSES
+        return payload
+
+    @classmethod
+    def _parse_timeout_seconds(cls, request_payload: Dict[str, Any]) -> float:
+        params = request_payload.get("trading_parameters") or {}
+        raw = request_payload.get("timeout_seconds", params.get("timeout_seconds"))
+        if raw is None:
+            return float(cls._DEFAULT_TIMEOUT_SECONDS)
+        try:
+            parsed = float(raw)
+        except (TypeError, ValueError):
+            return float(cls._DEFAULT_TIMEOUT_SECONDS)
+        return cls._clamp(parsed, cls._MIN_TIMEOUT_SECONDS, cls._MAX_TIMEOUT_SECONDS)
+
+    @staticmethod
+    def _remaining_seconds(deadline_monotonic: float) -> float:
+        return max(0.0, deadline_monotonic - time.monotonic())
+
+    @classmethod
+    async def _await_with_deadline(
+            cls,
+            awaitable: Awaitable[Any],
+            deadline_monotonic: float,
+            phase: str,
+    ) -> Any:
+        remaining = cls._remaining_seconds(deadline_monotonic)
+        if remaining <= 0:
+            raise TimeoutError(f"Backtest timed out during {phase}")
+        try:
+            return await asyncio.wait_for(awaitable, timeout=remaining)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(f"Backtest timed out during {phase}") from exc
 
     @staticmethod
     def _extract_request_payload(request: Any) -> Dict[str, Any]:
@@ -849,8 +945,18 @@ class BacktestService:
 
         client = None
         try:
+            timeout_seconds = float(
+                run_data.get("timeout_seconds")
+                or self._parse_timeout_seconds(request_payload)
+            )
+            deadline_monotonic = time.monotonic() + timeout_seconds
+            started_at = datetime.now(timezone.utc)
+            deadline_at = started_at + timedelta(seconds=timeout_seconds)
             run_data["status"] = "running"
-            run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            run_data["started_at"] = run_data.get("started_at") or started_at.isoformat()
+            run_data["deadline_at"] = deadline_at.isoformat()
+            run_data["timeout_seconds"] = timeout_seconds
+            run_data["updated_at"] = started_at.isoformat()
             run_data = self._persist_run_data(run_data)
 
             params = request_payload.get("trading_parameters") or {}
@@ -896,7 +1002,11 @@ class BacktestService:
             if not pair_markets:
                 raise ValueError("No valid market pairs available from request")
 
-            client = await connect_dydx()
+            client = await self._await_with_deadline(
+                connect_dydx(),
+                deadline_monotonic,
+                "connecting to dYdX",
+            )
 
             unique_markets = sorted({m for pair in pair_markets for m in pair})
             market_history_cache: Dict[str, Dict[str, float]] = {}
@@ -904,12 +1014,18 @@ class BacktestService:
             # Pull market metadata for liquidity ranking when available.
             market_map: Dict[str, Any] = {}
             try:
-                markets_payload = await client.indexer.markets.get_perpetual_markets()
+                markets_payload = await self._await_with_deadline(
+                    client.indexer.markets.get_perpetual_markets(),
+                    deadline_monotonic,
+                    "loading market metadata",
+                )
                 market_map = (
                     markets_payload.get("markets", {})
                     if isinstance(markets_payload, dict)
                     else {}
                 )
+            except TimeoutError:
+                raise
             except Exception:
                 market_map = {}
 
@@ -917,13 +1033,19 @@ class BacktestService:
             if pair_selection_mode in {"volatility", "cointegration"}:
                 for market in unique_markets:
                     try:
-                        market_history_cache[market] = await self._fetch_market_history(
-                            client=client,
-                            market=market,
-                            start_dt=start_dt,
-                            end_dt=end_dt,
-                            resolution=resolution,
+                        market_history_cache[market] = await self._await_with_deadline(
+                            self._fetch_market_history(
+                                client=client,
+                                market=market,
+                                start_dt=start_dt,
+                                end_dt=end_dt,
+                                resolution=resolution,
+                            ),
+                            deadline_monotonic,
+                            f"loading history for {market}",
                         )
+                    except TimeoutError:
+                        raise
                     except Exception:
                         market_history_cache[market] = {}
 
@@ -943,6 +1065,8 @@ class BacktestService:
             daily_pnl_agg: Dict[str, float] = {}
 
             for idx, (m1, m2) in enumerate(pair_markets):
+                if self._remaining_seconds(deadline_monotonic) <= 0:
+                    raise TimeoutError("Backtest timed out while processing pairs")
                 if run_data.get("cancel_requested"):
                     raise asyncio.CancelledError()
 
@@ -954,29 +1078,50 @@ class BacktestService:
                 run_data = self._persist_run_data(run_data)
 
                 if progress_callback is not None:
-                    await progress_callback(run_id, progress, f"{m1}/{m2}", 0)
+                    try:
+                        await asyncio.wait_for(
+                            progress_callback(run_id, progress, f"{m1}/{m2}", 0),
+                            timeout=min(
+                                self._PROGRESS_CALLBACK_TIMEOUT_SECONDS,
+                                max(0.001, self._remaining_seconds(deadline_monotonic)),
+                            ),
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Backtest progress callback timed out for run %s at %.2f%%",
+                            run_id,
+                            progress,
+                        )
 
                 if m1 in market_history_cache:
                     candles_1 = market_history_cache[m1]
                 else:
-                    candles_1 = await self._fetch_market_history(
-                        client=client,
-                        market=m1,
-                        start_dt=start_dt,
-                        end_dt=end_dt,
-                        resolution=resolution,
+                    candles_1 = await self._await_with_deadline(
+                        self._fetch_market_history(
+                            client=client,
+                            market=m1,
+                            start_dt=start_dt,
+                            end_dt=end_dt,
+                            resolution=resolution,
+                        ),
+                        deadline_monotonic,
+                        f"loading history for {m1}",
                     )
                     market_history_cache[m1] = candles_1
 
                 if m2 in market_history_cache:
                     candles_2 = market_history_cache[m2]
                 else:
-                    candles_2 = await self._fetch_market_history(
-                        client=client,
-                        market=m2,
-                        start_dt=start_dt,
-                        end_dt=end_dt,
-                        resolution=resolution,
+                    candles_2 = await self._await_with_deadline(
+                        self._fetch_market_history(
+                            client=client,
+                            market=m2,
+                            start_dt=start_dt,
+                            end_dt=end_dt,
+                            resolution=resolution,
+                        ),
+                        deadline_monotonic,
+                        f"loading history for {m2}",
                     )
                     market_history_cache[m2] = candles_2
 
@@ -1087,13 +1232,22 @@ class BacktestService:
                     ),
                     "error": None,
                     "error_message": None,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             run_data = self._persist_run_data(run_data)
 
             if progress_callback is not None:
-                await progress_callback(run_id, 100.0, "complete", 0)
+                try:
+                    await asyncio.wait_for(
+                        progress_callback(run_id, 100.0, "complete", 0),
+                        timeout=self._PROGRESS_CALLBACK_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Backtest final progress callback timed out for run %s", run_id
+                    )
 
         except asyncio.CancelledError:
             run_data.update(
@@ -1104,6 +1258,20 @@ class BacktestService:
                     "current_task": "cancelled",
                     "error": "Backtest cancelled",
                     "error_message": "Backtest cancelled",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            run_data = self._persist_run_data(run_data)
+        except TimeoutError as exc:
+            error_message = str(exc) or "Backtest timed out"
+            run_data.update(
+                {
+                    "status": "timed_out",
+                    "current_task": "timed_out",
+                    "error": error_message,
+                    "error_message": error_message,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -1116,6 +1284,7 @@ class BacktestService:
                     "current_task": "failed",
                     "error": error_message,
                     "error_message": error_message,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -1166,6 +1335,13 @@ class BacktestService:
             "end_date": str(end_date) if end_date else "",
             "profit_factor": 0.0,
             "created_at": now,
+            "started_at": None,
+            "finished_at": None,
+            "deadline_at": (
+                datetime.now(timezone.utc)
+                + timedelta(seconds=self._parse_timeout_seconds(request_payload))
+            ).isoformat(),
+            "timeout_seconds": self._parse_timeout_seconds(request_payload),
             "updated_at": now,
             "error": None,
             "error_message": None,
@@ -1185,11 +1361,31 @@ class BacktestService:
             )
         )
         self._tasks[run_id] = task
+        task.add_done_callback(
+            lambda completed_task, completed_run_id=run_id: self._handle_task_done(
+                completed_run_id, completed_task
+            )
+        )
         run_data["status"] = "running"
         run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
         run_data = self._persist_run_data(run_data)
 
         return _BacktestRunDetails(**run_data)
+
+    def _handle_task_done(self, run_id: str, task: asyncio.Task) -> None:
+        self._tasks.pop(run_id, None)
+        if task.cancelled():
+            return
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            logger.error(
+                "Backtest task %s exited with unhandled exception",
+                run_id,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
 
     def list_backtest_runs(
             self,
@@ -1214,17 +1410,54 @@ class BacktestService:
         data = self._load_run_data(run_id)
         if not data:
             return None
-        return _BacktestRunDetails(**data)
+        return _BacktestRunDetails(**self._with_status_observability(data))
 
     def get_backtest_status(self, run_id: str) -> Optional[_BacktestRunStatus]:
         data = self._load_run_data(run_id)
         if not data:
             return None
+        data = self._with_status_observability(data)
         return _BacktestRunStatus(
             run_id=run_id,
             status=str(data.get("status", "unknown")),
             progress_pct=float(data.get("progress_pct", 0.0)),
             updated_at=str(data.get("updated_at")),
+            created_at=(
+                str(data.get("created_at"))
+                if data.get("created_at") is not None
+                else None
+            ),
+            started_at=(
+                str(data.get("started_at"))
+                if data.get("started_at") is not None
+                else None
+            ),
+            finished_at=(
+                str(data.get("finished_at"))
+                if data.get("finished_at") is not None
+                else None
+            ),
+            deadline_at=(
+                str(data.get("deadline_at"))
+                if data.get("deadline_at") is not None
+                else None
+            ),
+            timeout_seconds=(
+                float(data.get("timeout_seconds"))
+                if data.get("timeout_seconds") is not None
+                else None
+            ),
+            last_heartbeat_at=(
+                str(data.get("last_heartbeat_at"))
+                if data.get("last_heartbeat_at") is not None
+                else None
+            ),
+            heartbeat_age_seconds=(
+                float(data.get("heartbeat_age_seconds"))
+                if data.get("heartbeat_age_seconds") is not None
+                else None
+            ),
+            cancellable=bool(data.get("cancellable", False)),
             current_pair=(
                 str(data.get("current_pair"))
                 if data.get("current_pair") is not None
@@ -1409,12 +1642,21 @@ class BacktestService:
         data = self._load_run_data(run_id)
         if not data:
             return None
+        data = self._with_status_observability(data)
         progress = float(data.get("progress_pct", 0.0))
         return {
             "run_id": run_id,
             "status": data.get("status"),
             "progress": progress,
             "progress_pct": progress,
+            "created_at": data.get("created_at"),
+            "started_at": data.get("started_at"),
+            "finished_at": data.get("finished_at"),
+            "deadline_at": data.get("deadline_at"),
+            "timeout_seconds": data.get("timeout_seconds"),
+            "last_heartbeat_at": data.get("last_heartbeat_at"),
+            "heartbeat_age_seconds": data.get("heartbeat_age_seconds"),
+            "cancellable": data.get("cancellable"),
             "current_pair": data.get("current_pair"),
             "current_task": data.get("current_task"),
             "error": data.get("error"),

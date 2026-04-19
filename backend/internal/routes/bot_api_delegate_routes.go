@@ -754,7 +754,9 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	}
 
 	withRequestScopedBotClient := func(c *gin.Context) {
-		requestClient := apiClient.WithTraceID(middleware.GetTraceID(c))
+		requestClient := apiClient.
+			WithTraceID(middleware.GetTraceID(c)).
+			WithRequestContext(c.Request.Context())
 
 		if services.UseConfiguredBotAPIServiceToken() {
 			// Service-token model: keep configured BOT_API_TOKEN and do not

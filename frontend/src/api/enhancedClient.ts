@@ -569,7 +569,9 @@ class EnhancedAPIClient {
     progress_percent: number;
     current_pair?: string;
     estimated_completion_seconds?: number;
-    progress_source?: 'details' | 'list_fallback' | 'default';
+    updated_at?: string;
+    checked_at?: string;
+    progress_source?: 'status' | 'details' | 'list_fallback' | 'default';
   }> {
     const parseProgress = (value: unknown): number | null => {
       if (typeof value !== 'number' && typeof value !== 'string') {
@@ -589,6 +591,7 @@ class EnhancedAPIClient {
       progress?: number;
       currentPair?: string;
       etaSeconds?: number;
+      updatedAt?: string;
     } => {
       const status = typeof run.status === 'string' ? run.status.toUpperCase() : undefined;
       const progress =
@@ -607,25 +610,59 @@ class EnhancedAPIClient {
       const etaParsed =
         typeof etaRaw === 'number' || typeof etaRaw === 'string' ? Number(etaRaw) : Number.NaN;
       const etaSeconds = Number.isFinite(etaParsed) && etaParsed >= 0 ? etaParsed : undefined;
+      const updatedAt =
+        typeof run.updated_at === 'string' && run.updated_at.trim().length > 0
+          ? run.updated_at
+          : typeof run.last_heartbeat_at === 'string' && run.last_heartbeat_at.trim().length > 0
+            ? run.last_heartbeat_at
+            : undefined;
 
       return {
         status,
         progress: progress ?? undefined,
         currentPair,
         etaSeconds,
+        updatedAt,
       };
     };
 
-    const detailsResult = await this.baseClient.getBacktest(runId);
-    const detailsData = (detailsResult.data ?? {}) as Record<string, unknown>;
-    const detailsStatusProgress = extractFromRunRecord(detailsData);
+    const checkedAt = new Date().toISOString();
+    let status = 'PENDING';
+    let progress: number | undefined;
+    let currentPair: string | undefined;
+    let etaSeconds: number | undefined;
+    let updatedAt: string | undefined;
+    let progressSource: 'status' | 'details' | 'list_fallback' | 'default' = 'default';
 
-    let status = detailsStatusProgress.status ?? 'PENDING';
-    let progress = detailsStatusProgress.progress;
-    let currentPair = detailsStatusProgress.currentPair;
-    let etaSeconds = detailsStatusProgress.etaSeconds;
-    let progressSource: 'details' | 'list_fallback' | 'default' =
-      detailsStatusProgress.progress !== undefined ? 'details' : 'default';
+    try {
+      const statusResult = await this.baseClient.getBacktestStatus(runId);
+      const statusData = (statusResult.data ?? {}) as Record<string, unknown>;
+      const statusProgress = extractFromRunRecord(statusData);
+      status = statusProgress.status ?? status;
+      progress = statusProgress.progress;
+      currentPair = statusProgress.currentPair;
+      etaSeconds = statusProgress.etaSeconds;
+      updatedAt = statusProgress.updatedAt;
+      if (statusProgress.progress !== undefined || statusProgress.status !== undefined) {
+        progressSource = 'status';
+      }
+    } catch (error) {
+      console.warn('📊 enhancedClient.ts: failed to fetch backtest status endpoint', error);
+    }
+
+    if (progress === undefined || progressSource === 'default') {
+      const detailsResult = await this.baseClient.getBacktest(runId);
+      const detailsData = (detailsResult.data ?? {}) as Record<string, unknown>;
+      const detailsStatusProgress = extractFromRunRecord(detailsData);
+      status = detailsStatusProgress.status ?? status;
+      progress = detailsStatusProgress.progress ?? progress;
+      currentPair = detailsStatusProgress.currentPair ?? currentPair;
+      etaSeconds = detailsStatusProgress.etaSeconds ?? etaSeconds;
+      updatedAt = detailsStatusProgress.updatedAt ?? updatedAt;
+      if (detailsStatusProgress.progress !== undefined) {
+        progressSource = 'details';
+      }
+    }
 
     // Fallback: list endpoint carries live progress_pct in this backend integration.
     if (
@@ -651,6 +688,7 @@ class EnhancedAPIClient {
           }
           currentPair = fallbackStatusProgress.currentPair ?? currentPair;
           etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
+          updatedAt = fallbackStatusProgress.updatedAt ?? updatedAt;
         }
       } catch (error) {
         console.warn(
@@ -668,6 +706,8 @@ class EnhancedAPIClient {
       progress_percent: computedProgress,
       current_pair: currentPair,
       estimated_completion_seconds: etaSeconds,
+      updated_at: updatedAt,
+      checked_at: checkedAt,
       progress_source: progressSource,
     };
   }

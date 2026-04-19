@@ -24,6 +24,7 @@ type BotAPIClient struct {
 	token         string
 	fallbackToken string
 	traceID       string
+	requestCtx    context.Context
 	httpClient    *http.Client
 }
 
@@ -156,6 +157,7 @@ func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 		baseURL:       baseURL,
 		token:         token,
 		fallbackToken: token,
+		requestCtx:    context.Background(),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -231,6 +233,7 @@ func (c *BotAPIClient) WithHTTPClient(httpClient *http.Client) *BotAPIClient {
 		token:         c.token,
 		fallbackToken: c.fallbackToken,
 		traceID:       c.traceID,
+		requestCtx:    c.requestCtx,
 		httpClient:    httpClient,
 	}
 }
@@ -252,6 +255,7 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 		token:         token,
 		fallbackToken: c.fallbackToken,
 		traceID:       c.traceID,
+		requestCtx:    c.requestCtx,
 		httpClient:    c.httpClient,
 	}
 }
@@ -264,6 +268,23 @@ func (c *BotAPIClient) WithTraceID(traceID string) *BotAPIClient {
 		token:         c.token,
 		fallbackToken: c.fallbackToken,
 		traceID:       strings.TrimSpace(traceID),
+		requestCtx:    c.requestCtx,
+		httpClient:    c.httpClient,
+	}
+}
+
+// WithRequestContext returns a new client instance that cancels upstream bot API
+// requests when the owning HTTP request is cancelled.
+func (c *BotAPIClient) WithRequestContext(ctx context.Context) *BotAPIClient {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &BotAPIClient{
+		baseURL:       c.baseURL,
+		token:         c.token,
+		fallbackToken: c.fallbackToken,
+		traceID:       c.traceID,
+		requestCtx:    ctx,
 		httpClient:    c.httpClient,
 	}
 }
@@ -324,7 +345,11 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	parentCtx := c.requestCtx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, requestBody)

@@ -28,6 +28,9 @@ For each new task, review:
 - `.github/agents/senior-defi-dev.agent.md`  
   Agent mode for trading strategy, DeFi execution, quant/stat-arb, and full-stack bot changes.
 
+- `.github/agents/senior-prod-backtest-defi-auditor.agent.md`
+  Agent mode for production-readiness audits, Python/Go service hardening, long-running backtest hangs, and DeFi bot-instance risk reviews.
+
 - `backend/.github/agents/senior-go-defi-backend.agent.md`
   Service-specific backend expert for Go APIs, PostgreSQL, delegated bot integration, auth, and websocket proxying.
 

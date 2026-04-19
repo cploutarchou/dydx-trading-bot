@@ -304,6 +304,12 @@ const classifyFailureDiagnostic = (message?: string | null) => {
       hint: 'Try a shorter backtest window or fewer pairs and watch progress cadence.',
     };
   }
+  if (/heartbeat|stale|stalled|worker task|interrupted|restarted/.test(normalized)) {
+    return {
+      category: 'runtime',
+      hint: 'Cancel or delete this stale run, restart the bot API if needed, then launch a fresh backtest.',
+    };
+  }
   if (/network|connection|unreachable|socket|dns|refused/.test(normalized)) {
     return {
       category: 'network',
@@ -428,7 +434,10 @@ export const BacktestDetailsV2: React.FC = () => {
         : `${progressQuery.progressPercent.toFixed(2)}`;
   const liveStatusForDetailSync = normalizeStatus(progressQuery.data?.status || backtest?.status);
   const isLiveDetailRun =
-    liveStatusForDetailSync === 'running' || liveStatusForDetailSync === 'pending';
+    liveStatusForDetailSync === 'running' ||
+    liveStatusForDetailSync === 'pending' ||
+    liveStatusForDetailSync === 'queued' ||
+    liveStatusForDetailSync === 'created';
   const detailSyncCursor = isLiveDetailRun ? liveDetailCursor : 'settled';
 
   // Fetch analytics and map it to chart-friendly candle-like series
@@ -730,7 +739,13 @@ export const BacktestDetailsV2: React.FC = () => {
     if (!runId) return;
 
     const liveStatus = normalizeStatus(progressQuery.data?.status);
-    if (liveStatus !== 'completed' && liveStatus !== 'failed' && liveStatus !== 'cancelled') {
+    if (
+      liveStatus !== 'completed' &&
+      liveStatus !== 'failed' &&
+      liveStatus !== 'timed_out' &&
+      liveStatus !== 'stalled' &&
+      liveStatus !== 'cancelled'
+    ) {
       return;
     }
     if (liveStatus === normalizeStatus(backtest?.status)) {
@@ -925,9 +940,17 @@ export const BacktestDetailsV2: React.FC = () => {
 
   const liveStatusNorm = normalizeStatus(progressQuery.data?.status);
   const statusNorm = normalizeStatus(liveBacktest.status) || liveStatusNorm || backtestStatus;
-  const isRunning = statusNorm === 'running' || statusNorm === 'pending';
+  const isRunning =
+    statusNorm === 'running' ||
+    statusNorm === 'pending' ||
+    statusNorm === 'queued' ||
+    statusNorm === 'created';
   const isCompleted = statusNorm === 'completed';
-  const isFailed = statusNorm === 'failed' || statusNorm === 'cancelled';
+  const isFailed =
+    statusNorm === 'failed' ||
+    statusNorm === 'timed_out' ||
+    statusNorm === 'stalled' ||
+    statusNorm === 'cancelled';
   const metadataProgress = firstFiniteNumber(
     liveBacktest.progress_percent,
     liveBacktest.progress_pct,
@@ -940,7 +963,10 @@ export const BacktestDetailsV2: React.FC = () => {
       : metadataProgress !== null && metadataProgress > 0
         ? metadataProgress
         : liveProgress;
-  const progressPercent = isRunning ? Math.min(100, Math.max(0, baseProgress)) : 0;
+  const rawProgressPercent = Math.min(100, Math.max(0, baseProgress));
+  const isProgressVisible =
+    isRunning || (!isCompleted && !isFailed && rawProgressPercent > 0 && rawProgressPercent < 100);
+  const progressPercent = isCompleted ? 100 : rawProgressPercent;
   const currentPair = progressQuery.currentPair;
   const explicitScanningLine = liveLogs.find((log) =>
     /(^|\b)scanning\s*:/i.test(log.message)
@@ -953,25 +979,35 @@ export const BacktestDetailsV2: React.FC = () => {
     typeof progressQuery.etaSeconds === 'number'
       ? formatDurationFromSeconds(progressQuery.etaSeconds)
       : null;
-  const progressSourceLabel =
-    progressQuery.progressSource === 'websocket'
-      ? 'websocket'
-      : progressQuery.progressSource === 'list_fallback'
-        ? 'list fallback'
-        : progressQuery.progressSource === 'details'
-          ? 'details status'
-          : 'default';
+  const progressSourceLabels: Record<string, string> = {
+    status: 'status endpoint',
+    websocket: 'websocket',
+    polling_recovery: 'polling recovery',
+    polling: 'polling',
+    list_fallback: 'list fallback',
+    details: 'details status',
+  };
+  const progressSourceLabel = progressSourceLabels[progressQuery.progressSource] || 'default';
   const totalPnl = liveBacktest.total_pnl_usd ?? liveBacktest.total_pnl ?? 0;
   const maxDrawdown = liveBacktest.max_drawdown ?? liveBacktest.max_drawdown_pct ?? 0;
   const winRatePercent = normalizePercentValue(liveBacktest.win_rate);
   const failureReason = firstMeaningfulString(liveBacktest.error_message, liveBacktest.error);
   const failureDiagnostic = classifyFailureDiagnostic(failureReason);
-  const latestProgressTimestamp =
+  const latestCheckTimestamp =
+    (typeof progressQuery.data?.checked_at === 'string' ? progressQuery.data.checked_at : null) ||
+    (typeof progressQuery.lastSocketEvent?.timestamp === 'string'
+      ? progressQuery.lastSocketEvent.timestamp
+      : null);
+  const latestRunUpdateTimestamp =
     (typeof progressQuery.data?.updated_at === 'string' ? progressQuery.data.updated_at : null) ||
+    liveBacktest.updated_at ||
+    null;
+  const latestProgressTimestamp =
+    latestCheckTimestamp ||
+    latestRunUpdateTimestamp ||
     (typeof progressQuery.lastSocketEvent?.timestamp === 'string'
       ? progressQuery.lastSocketEvent.timestamp
       : null) ||
-    liveBacktest.updated_at ||
     null;
   const filteredChartStart = filteredChartPoints[0];
   const filteredChartEnd = filteredChartPoints[filteredChartPoints.length - 1];
@@ -1127,7 +1163,10 @@ export const BacktestDetailsV2: React.FC = () => {
                       ? 'bg-emerald-500/15 text-emerald-200'
                       : statusNorm === 'running'
                         ? 'bg-blue-500/15 text-blue-200'
-                        : statusNorm === 'failed' || statusNorm === 'cancelled'
+                        : statusNorm === 'failed' ||
+                            statusNorm === 'timed_out' ||
+                            statusNorm === 'stalled' ||
+                            statusNorm === 'cancelled'
                           ? 'bg-rose-500/15 text-rose-200'
                           : 'bg-amber-500/15 text-amber-200'
                   }`}
@@ -1199,7 +1238,7 @@ export const BacktestDetailsV2: React.FC = () => {
             </div>
           </div>
 
-          {isRunning && (
+          {isProgressVisible && (
             <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4 sm:p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex items-start gap-3">
@@ -1267,7 +1306,7 @@ export const BacktestDetailsV2: React.FC = () => {
                     </span>
                   )}
                   <span className="text-slate-400">
-                    Updated:{' '}
+                    Checked:{' '}
                     <span className="font-medium text-slate-200">
                       {formatTimeAgo(latestProgressTimestamp)}
                     </span>

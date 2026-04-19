@@ -1319,6 +1319,54 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest cancelled successfully", result)
 		})
 
+		// Pause backtest
+		backtestGroup.POST("/:run_id/pause", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			result, err := requestClient.PauseBacktest(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest pause requested successfully", result)
+		})
+
+		// Resume backtest
+		backtestGroup.POST("/:run_id/resume", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			result, err := requestClient.ResumeBacktest(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest resume requested successfully", result)
+		})
+
+		// Restart backtest
+		backtestGroup.POST("/:run_id/restart", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			result, err := requestClient.RestartBacktest(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest restarted successfully", result)
+		})
+
+		// Retry backtest
+		backtestGroup.POST("/:run_id/retry", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			result, err := requestClient.RetryBacktest(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest retried successfully", result)
+		})
+
 		// Get backtest analytics
 		backtestGroup.GET("/:run_id/analytics", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)

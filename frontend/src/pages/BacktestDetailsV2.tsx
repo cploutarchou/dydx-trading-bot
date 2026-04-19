@@ -13,13 +13,17 @@ import {
   Clock3,
   Gauge,
   Loader,
+  Pause,
+  Play,
   Radar,
+  RotateCcw,
+  Square,
   TrendingDown,
   TrendingUp,
   Waves,
 } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { useBacktestProgress } from '../api/hooks';
 import BacktestLightweightChart, {
@@ -100,6 +104,14 @@ interface BacktestResponse {
   total_trades?: number;
   error?: string;
   error_message?: string;
+  cancellable?: boolean;
+  pausable?: boolean;
+  resumable?: boolean;
+  restartable?: boolean;
+  control_status?: string;
+  control_action?: string;
+  worker_backend?: string;
+  request?: Record<string, unknown>;
 }
 
 interface BacktestLogEntry {
@@ -343,6 +355,7 @@ const classifyFailureDiagnostic = (message?: string | null) => {
 
 export const BacktestDetailsV2: React.FC = () => {
   const { runId } = useParams<{ runId: string }>();
+  const navigate = useNavigate();
   const progressQuery = useBacktestProgress(runId || '');
 
   // Main backtest data
@@ -373,14 +386,17 @@ export const BacktestDetailsV2: React.FC = () => {
     'summary' | 'candles' | 'positions' | 'trades' | 'results'
   >('summary');
   const [liveLogs, setLiveLogs] = useState<BacktestLogEntry[]>([]);
+  const [controlAction, setControlAction] = useState<string | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
   const liveLogCounterRef = useRef(0);
 
   const backtestStatus = normalizeStatus(backtest?.status);
 
-  // Fetch backtest metadata
-  useEffect(() => {
-    const fetchBacktestMetadata = async () => {
-      setLoading(true);
+  const fetchBacktestMetadata = useCallback(
+    async (showLoading: boolean = true) => {
+      if (showLoading) {
+        setLoading(true);
+      }
       setError(null);
 
       try {
@@ -398,12 +414,18 @@ export const BacktestDetailsV2: React.FC = () => {
         setError(msg);
         setBacktest(null);
       } finally {
-        setLoading(false);
+        if (showLoading) {
+          setLoading(false);
+        }
       }
-    };
+    },
+    [runId]
+  );
 
+  // Fetch backtest metadata
+  useEffect(() => {
     fetchBacktestMetadata();
-  }, [runId]);
+  }, [fetchBacktestMetadata]);
 
   useEffect(() => {
     setCandles([]);
@@ -936,10 +958,25 @@ export const BacktestDetailsV2: React.FC = () => {
       firstMeaningfulString(liveRecord?.error_message, backtest.error_message) ??
       backtest.error_message ??
       undefined,
+    cancellable: Boolean(liveRecord?.cancellable ?? backtest.cancellable),
+    pausable: Boolean(liveRecord?.pausable ?? backtest.pausable),
+    resumable: Boolean(liveRecord?.resumable ?? backtest.resumable),
+    restartable: Boolean(liveRecord?.restartable ?? backtest.restartable ?? true),
+    control_status:
+      firstMeaningfulString(liveRecord?.control_status, backtest.control_status) ??
+      backtest.control_status,
+    control_action:
+      firstMeaningfulString(liveRecord?.control_action, backtest.control_action) ??
+      backtest.control_action,
+    worker_backend:
+      firstMeaningfulString(liveRecord?.worker_backend, backtest.worker_backend) ??
+      backtest.worker_backend,
+    request: asRecord(liveRecord?.request) || backtest.request,
   };
 
   const liveStatusNorm = normalizeStatus(progressQuery.data?.status);
   const statusNorm = normalizeStatus(liveBacktest.status) || liveStatusNorm || backtestStatus;
+  const isPaused = statusNorm === 'paused';
   const isRunning =
     statusNorm === 'running' ||
     statusNorm === 'pending' ||
@@ -1136,6 +1173,96 @@ export const BacktestDetailsV2: React.FC = () => {
     },
   ];
 
+  const runControlStatus = normalizeStatus(liveBacktest.control_status);
+  const controlBusy = controlAction !== null;
+  const canPause =
+    Boolean(runId) &&
+    !controlBusy &&
+    (liveBacktest.pausable || isRunning) &&
+    runControlStatus !== 'pause_requested';
+  const canResume =
+    Boolean(runId) &&
+    !controlBusy &&
+    (liveBacktest.resumable || isPaused || runControlStatus === 'pause_requested');
+  const canCancel =
+    Boolean(runId) &&
+    !controlBusy &&
+    !isCompleted &&
+    !isFailed &&
+    (liveBacktest.cancellable || isRunning || isPaused);
+  const canRestart = Boolean(runId) && !controlBusy;
+  const canRetry = Boolean(runId) && !controlBusy && isFailed;
+
+  const handleBacktestControl = async (
+    action: 'pause' | 'resume' | 'cancel' | 'restart' | 'retry'
+  ) => {
+    if (!runId) return;
+
+    setControlAction(action);
+    setControlError(null);
+
+    const runFromPersistedRequest = async () => {
+      const requestPayload = asRecord(liveBacktest.request);
+      if (!requestPayload) {
+        throw new Error('Original backtest request is unavailable');
+      }
+      const cleanRequest = { ...requestPayload };
+      delete cleanRequest._runtime_control;
+      const response = await api.runBacktest(
+        cleanRequest as { start_date: string; end_date: string } & Record<string, unknown>
+      );
+      const payload = asRecord(response?.data || response);
+      const newRunId = toStringValue(payload?.run_id);
+      if (!newRunId) {
+        throw new Error('Retry started but did not return a run id');
+      }
+      navigate(`/backtests/${newRunId}`);
+    };
+
+    try {
+      const response =
+        action === 'pause'
+          ? await api.pauseBacktest(runId)
+          : action === 'resume'
+            ? await api.resumeBacktest(runId)
+            : action === 'cancel'
+              ? await api.cancelBacktest(runId)
+              : action === 'restart'
+                ? await api.restartBacktest(runId)
+                : await api.retryBacktest(runId);
+
+      const payload = asRecord(response?.data || response);
+      const newRunId = toStringValue(payload?.new_run_id);
+      if ((action === 'restart' || action === 'retry') && newRunId) {
+        navigate(`/backtests/${newRunId}`);
+        return;
+      }
+
+      await fetchBacktestMetadata(false);
+    } catch (err: unknown) {
+      const response = asRecord(asRecord(err)?.response);
+      const statusCode = toNumber(response?.status, 0);
+      if ((action === 'restart' || action === 'retry') && statusCode === 404) {
+        try {
+          await runFromPersistedRequest();
+          return;
+        } catch (fallbackErr: unknown) {
+          const fallbackMsg =
+            fallbackErr instanceof Error
+              ? fallbackErr.message
+              : `Failed to ${action} from saved request`;
+          setControlError(fallbackMsg);
+          return;
+        }
+      }
+      const msg =
+        err instanceof Error ? err.message : `Failed to ${action} backtest ${runId}`;
+      setControlError(msg);
+    } finally {
+      setControlAction(null);
+    }
+  };
+
   const renderDeferredTabHint = (label: string): React.ReactNode => (
     <div className="flex flex-col items-center justify-center py-16 gap-2">
       <p className="text-slate-300 font-medium">{label} are loaded on demand</p>
@@ -1201,6 +1328,61 @@ export const BacktestDetailsV2: React.FC = () => {
                   />
                   Source {progressSourceLabel}
                 </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <span className="rounded-full border border-slate-700 bg-slate-950/70 px-3 py-1 text-xs text-slate-400">
+                  Worker {liveBacktest.worker_backend || 'asyncio'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleBacktestControl('pause')}
+                  disabled={!canPause}
+                  className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Pause className="h-4 w-4" />
+                  {controlAction === 'pause' ? 'Pausing' : 'Pause'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBacktestControl('resume')}
+                  disabled={!canResume}
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-100 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Play className="h-4 w-4" />
+                  {controlAction === 'resume' ? 'Resuming' : 'Resume'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBacktestControl('cancel')}
+                  disabled={!canCancel}
+                  className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Square className="h-4 w-4" />
+                  {controlAction === 'cancel' ? 'Stopping' : 'Stop'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBacktestControl('restart')}
+                  disabled={!canRestart}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-100 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  {controlAction === 'restart' ? 'Restarting' : 'Restart'}
+                </button>
+                {canRetry && (
+                  <button
+                    type="button"
+                    onClick={() => handleBacktestControl('retry')}
+                    disabled={controlBusy}
+                    className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    {controlAction === 'retry' ? 'Retrying' : 'Retry'}
+                  </button>
+                )}
+                {controlError && (
+                  <span className="text-xs font-medium text-rose-300">{controlError}</span>
+                )}
               </div>
             </div>
 

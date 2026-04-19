@@ -15,6 +15,9 @@ The frontend is the React application for the public website, authentication flo
 - framework: React 19 + TypeScript + Vite
 - default dev port: `5173`
 - API target: backend on `8888`
+- registration verification: set `VITE_TURNSTILE_SITE_KEY` to a Cloudflare Turnstile
+  Managed widget site key. Widget mode is configured in Cloudflare; the frontend
+  render options only control client presentation such as size and theme.
 
 ## Integration Rule
 

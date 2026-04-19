@@ -347,8 +347,8 @@ async def open_positions(client):
                     quote_side = "BUY" if z_score > 0 else "SELL"
 
                     # Get acceptable price in string format with correct number of decimals
-                    base_price = series_1[-1]
-                    quote_price = series_2[-1]
+                    base_price = series_1.iloc[-1]
+                    quote_price = series_2.iloc[-1]
                     accept_base_price = (
                         float(base_price) * 1.01 if z_score < 0 else float(base_price) * 0.99
                     )
@@ -668,8 +668,8 @@ async def manage_trade_exits(client):
                 side_m2 = "BUY"
 
             # Get and format Price
-            price_m1 = float(series_1[-1])
-            price_m2 = float(series_2[-1])
+            price_m1 = float(series_1.iloc[-1])
+            price_m2 = float(series_2.iloc[-1])
             accept_price_m1 = price_m1 * 1.05 if side_m1 == "BUY" else price_m1 * 0.95
             accept_price_m2 = price_m2 * 1.05 if side_m2 == "BUY" else price_m2 * 0.95
             tick_size_m1 = markets["markets"][position_market_m1]["tickSize"]

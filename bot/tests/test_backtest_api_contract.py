@@ -89,13 +89,18 @@ class _RunResult:
 
 
 class _RunStubService:
-    async def create_and_run_backtest(self, request):
+    def __init__(self):
+        self.progress_callback = None
+
+    async def create_and_run_backtest(self, request, progress_callback=None):
+        self.progress_callback = progress_callback
         return _RunResult(
             {
                 "run_id": "fallback-run",
                 "name": request.name,
                 "status": "queued",
                 "progress_pct": 0.0,
+                "timeout_seconds": getattr(request, "timeout_seconds", None),
             }
         )
 
@@ -256,7 +261,8 @@ def test_capabilities_endpoint_lists_http_and_websocket_scopes():
 
 def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
     server = _load_server_module()
-    monkeypatch.setattr(server, "get_backtest_service", lambda: _RunStubService())
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
 
     async def _stub_markets(_pairs, _max):
         return ["BTC-USD", "ETH-USD"]
@@ -272,6 +278,7 @@ def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
         start_date="2026-03-01",
         end_date="2026-03-31",
         strategy_id=1,
+        timeout_seconds=120,
     )
 
     response = asyncio.run(_call(server.run_backtest_compat(request)))
@@ -280,6 +287,8 @@ def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
     assert payload["success"] is True
     assert payload["data"]["run_id"] == "fallback-run"
     assert payload["data"]["progress"] == 0.0
+    assert payload["data"]["timeout_seconds"] == 120
+    assert stub_service.progress_callback == server._broadcast_backtest_progress
 
 
 def test_api_response_sanitizes_internal_error_details():

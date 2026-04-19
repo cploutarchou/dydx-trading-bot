@@ -12,11 +12,14 @@ from pydantic import BaseModel, Field
 class BacktestStatus(str, Enum):
     """Backtest status enumeration"""
     CREATED = "created"
+    QUEUED = "queued"
     RUNNING = "running"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
+    STALLED = "stalled"
 
 
 class BacktestConfigRequest(BaseModel):
@@ -30,6 +33,9 @@ class BacktestConfigRequest(BaseModel):
     trading_parameters: Dict[str,
     Any] = Field(..., description="Trading parameters")
     pairs: List[str] = Field(..., description="Trading pairs to test")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Maximum wall-clock runtime for the backtest"
+    )
 
 
 class BacktestResponse(BaseModel):

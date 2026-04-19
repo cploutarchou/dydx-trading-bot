@@ -128,6 +128,7 @@ INTERNAL_ERROR_MESSAGE = "Internal server error"
 bot_manager_monitor_task: Optional[asyncio.Task] = None
 
 DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
+MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
 
 class StrategyRequest(BaseModel):
@@ -224,6 +225,7 @@ class BacktestRunRequestCompat(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     initial_balance: float = 1000.0
+    timeout_seconds: Optional[float] = None
     # 0 means "all available markets" (no cap)
     max_pairs: int = 0
     pair_selection_mode: str = "liquidity"
@@ -409,8 +411,14 @@ async def _resolve_backtest_markets(
     markets: List[str] = []
     client = None
     try:
-        client = await connect_dydx()
-        payload = await client.indexer.markets.get_perpetual_markets()
+        client = await asyncio.wait_for(
+            connect_dydx(),
+            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+        )
+        payload = await asyncio.wait_for(
+            client.indexer.markets.get_perpetual_markets(),
+            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+        )
         raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
         if isinstance(raw_map, dict):
             # Preserve deterministic ordering for repeatable runs.
@@ -485,6 +493,37 @@ def _strategy_to_backtest_request(
         ),
         trading_parameters=trading_parameters,
         pairs=pairs,
+        timeout_seconds=request.timeout_seconds,
+    )
+
+
+async def _broadcast_backtest_progress(
+        run_id: str, progress: float, current_pair: str, eta: int
+) -> None:
+    progress_message = {
+        "type": "backtest_progress",
+        "timestamp": utc_now_iso(),
+        "run_id": run_id,
+        "progress_pct": progress,
+        "progress": progress,
+        "current_pair": current_pair,
+        "eta_seconds": eta,
+    }
+    log_message = {
+        "type": "backtest_log",
+        "timestamp": utc_now_iso(),
+        "run_id": run_id,
+        "level": "info",
+        "message": (
+            "Backtest completed" if current_pair == "complete" else f"Scanning: {current_pair}"
+        ),
+        "current_pair": current_pair,
+        "current_task": "complete" if current_pair == "complete" else "running",
+    }
+    await manager.broadcast_to_bot(f"backtest-{run_id}", progress_message)
+    await manager.broadcast_to_bot(f"backtest-{run_id}", log_message)
+    logger.debug(
+        f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
     )
 
 
@@ -2667,6 +2706,7 @@ async def create_backtest(
                         start_date=request.start_date,
                         end_date=request.end_date,
                         initial_balance=request.initial_balance,
+                        timeout_seconds=request.timeout_seconds,
                         trading_parameters={
                             **(
                                     request.trading_parameters
@@ -2689,6 +2729,7 @@ async def create_backtest(
                     start_date=request.start_date,
                     end_date=request.end_date,
                     initial_balance=request.initial_balance,
+                    timeout_seconds=request.timeout_seconds,
                     trading_parameters={
                         **(
                                 request.trading_parameters
@@ -2707,38 +2748,9 @@ async def create_backtest(
         else:
             normalized_request = request
 
-        # Create WebSocket progress callback (if needed)
-        async def progress_callback(
-                run_id: str, progress: float, current_pair: str, eta: int
-        ):
-            progress_message = {
-                "type": "backtest_progress",
-                "timestamp": utc_now_iso(),
-                "run_id": run_id,
-                "progress_pct": progress,
-                "current_pair": current_pair,
-                "eta_seconds": eta,
-            }
-            log_message = {
-                "type": "backtest_log",
-                "timestamp": utc_now_iso(),
-                "run_id": run_id,
-                "level": "info",
-                "message": (
-                    "Backtest completed" if current_pair == "complete" else f"Scanning: {current_pair}"
-                ),
-                "current_pair": current_pair,
-                "current_task": "complete" if current_pair == "complete" else "running",
-            }
-            await manager.broadcast_to_bot(f"backtest-{run_id}", progress_message)
-            await manager.broadcast_to_bot(f"backtest-{run_id}", log_message)
-            logger.debug(
-                f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
-            )
-
         with backtest_service_scope() as service:
             result = await service.create_and_run_backtest(
-                normalized_request, progress_callback
+                normalized_request, _broadcast_backtest_progress
             )
 
         return api_response(
@@ -2797,6 +2809,7 @@ async def run_backtest_compat(
                     start_date=request.start_date,
                     end_date=request.end_date,
                     initial_balance=request.initial_balance,
+                    timeout_seconds=request.timeout_seconds,
                     trading_parameters={
                         **(
                                 request.trading_parameters
@@ -2819,6 +2832,7 @@ async def run_backtest_compat(
                 start_date=request.start_date,
                 end_date=request.end_date,
                 initial_balance=request.initial_balance,
+                timeout_seconds=request.timeout_seconds,
                 trading_parameters={
                     **(
                             request.trading_parameters
@@ -2836,7 +2850,9 @@ async def run_backtest_compat(
             )
 
         with backtest_service_scope() as service:
-            result = await service.create_and_run_backtest(backtest_request)
+            result = await service.create_and_run_backtest(
+                backtest_request, _broadcast_backtest_progress
+            )
         payload = result.model_dump()
         payload["progress"] = float(payload.get("progress_pct", 0.0))
         payload["count"] = 1
@@ -3108,6 +3124,118 @@ async def cancel_backtest(
 
     except Exception as e:
         logger.error(f"Error cancelling backtest: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/pause")
+async def pause_backtest(
+        run_id: str,
+):
+    """Request a cooperative pause for a running backtest."""
+    try:
+        with backtest_service_scope() as service:
+            result = service.pause_backtest(run_id)
+        if not result:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found or cannot be paused",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result,
+            message=f"Backtest '{run_id}' pause requested",
+        )
+
+    except Exception as e:
+        logger.error(f"Error pausing backtest: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/resume")
+async def resume_backtest(
+        run_id: str,
+):
+    """Resume a paused backtest."""
+    try:
+        with backtest_service_scope() as service:
+            result = service.resume_backtest(run_id)
+        if not result:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found or cannot be resumed",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result,
+            message=f"Backtest '{run_id}' resume requested",
+        )
+
+    except Exception as e:
+        logger.error(f"Error resuming backtest: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/restart")
+async def restart_backtest(
+        run_id: str,
+):
+    """Cancel the current run if needed and start a fresh run from the same request."""
+    try:
+        with backtest_service_scope() as service:
+            result = await service.restart_backtest(run_id, _broadcast_backtest_progress)
+        if not result:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found or cannot be restarted",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result,
+            message=f"Backtest '{run_id}' restarted as '{result['new_run_id']}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error restarting backtest: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/retry")
+async def retry_backtest(
+        run_id: str,
+):
+    """Start a fresh run from the same request payload."""
+    try:
+        with backtest_service_scope() as service:
+            result = await service.retry_backtest(run_id, _broadcast_backtest_progress)
+        if not result:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found or cannot be retried",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result,
+            message=f"Backtest '{run_id}' retried as '{result['new_run_id']}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error retrying backtest: {e}")
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )

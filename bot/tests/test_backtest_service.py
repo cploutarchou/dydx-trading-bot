@@ -101,12 +101,29 @@ class _FakeClient:
         self.node = _FakeNode()
 
 
+class _SlowMarkets(_FakeMarkets):
+    async def get_perpetual_markets(self):
+        await asyncio.sleep(10)
+        return await super().get_perpetual_markets()
+
+
+class _SlowIndexer:
+    def __init__(self):
+        self.markets = _SlowMarkets()
+
+
+class _SlowClient:
+    def __init__(self):
+        self.indexer = _SlowIndexer()
+        self.node = _FakeNode()
+
+
 async def _wait_for_terminal_status(service, run_id, timeout_seconds=2.0):
     end = asyncio.get_event_loop().time() + timeout_seconds
     while asyncio.get_event_loop().time() < end:
         status = service.get_backtest_status(run_id)
         assert status is not None
-        if status.status in {"completed", "failed", "cancelled"}:
+        if status.status in {"completed", "failed", "timed_out", "cancelled"}:
             return status.status
         await asyncio.sleep(0.02)
     raise TimeoutError("backtest did not reach terminal status in time")
@@ -262,6 +279,48 @@ def test_failed_backtest_exposes_error_fields(monkeypatch):
         assert progress is not None
         assert progress["error"] == "historical data fetch failed"
         assert progress["error_message"] == "historical data fetch failed"
+
+    asyncio.run(_run())
+
+
+def test_backtest_times_out_and_exposes_heartbeat_fields(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _slow_connect():
+        return _SlowClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _slow_connect)
+    monkeypatch.setattr(BacktestService, "_MIN_TIMEOUT_SECONDS", 0.01)
+
+    service = BacktestService(session=None)
+
+    async def _run():
+        payload = _request().model_dump()
+        payload["timeout_seconds"] = 0.05
+        created = await service.create_and_run_backtest(payload)
+
+        terminal = await _wait_for_terminal_status(
+            service,
+            created.run_id,
+            timeout_seconds=1.0,
+        )
+        assert terminal == "timed_out"
+
+        status = service.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "timed_out"
+        assert status.deadline_at is not None
+        assert status.last_heartbeat_at == status.updated_at
+        assert status.heartbeat_age_seconds is not None
+        assert status.cancellable is False
+        assert "timed out" in str(status.error_message).lower()
+
+        progress = service.get_live_progress(created.run_id)
+        assert progress is not None
+        assert progress["status"] == "timed_out"
+        assert progress["last_heartbeat_at"] == status.updated_at
+        assert progress["cancellable"] is False
 
     asyncio.run(_run())
 

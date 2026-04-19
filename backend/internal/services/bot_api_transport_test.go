@@ -219,6 +219,54 @@ func TestMakeRequest_PropagatesTraceHeader(t *testing.T) {
 	}
 }
 
+func TestMakeRequest_UsesRequestContextCancellation(t *testing.T) {
+	upstreamStarted := make(chan struct{}, 1)
+	upstreamCancelled := make(chan struct{}, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamStarted <- struct{}{}
+		<-r.Context().Done()
+		upstreamCancelled <- struct{}{}
+	}))
+	t.Cleanup(upstream.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client := NewBotAPIClient(upstream.URL, "").
+		WithHTTPClient(&http.Client{Timeout: 5 * time.Second}).
+		WithRequestContext(ctx)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := client.HealthCheck()
+		errCh <- err
+	}()
+
+	select {
+	case <-upstreamStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request to start")
+	}
+
+	cancel()
+
+	select {
+	case <-upstreamCancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request context cancellation")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected cancellation error, got nil")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled in error chain, got %T: %v", err, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for bot API request to return after cancellation")
+	}
+}
+
 func TestMakeRequest_401RetriesWithConfiguredServiceToken(t *testing.T) {
 	authHeaders := make(chan string, 2)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

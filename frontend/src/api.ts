@@ -1821,6 +1821,42 @@ class ApiClient {
     return response.data;
   }
 
+  async pauseBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/${runId}/pause`,
+      {}
+    );
+    return response.data;
+  }
+
+  async resumeBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/${runId}/resume`,
+      {}
+    );
+    return response.data;
+  }
+
+  async restartBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/${runId}/restart`,
+      {}
+    );
+    return response.data;
+  }
+
+  async retryBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/backtests/${runId}/retry`,
+      {}
+    );
+    return response.data;
+  }
+
   async deleteBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(

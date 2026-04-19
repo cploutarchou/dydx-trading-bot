@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-const TURNSTILE_SITE_KEY =
-  import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || '0x4AAAAAAC-COw-JrfsjGsrp';
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? '';
 const TURNSTILE_DISABLE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const TURNSTILE_ENABLE_VALUES = new Set(['0', 'false', 'no', 'off']);
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
@@ -158,6 +157,15 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
 
     setStatus('loading');
     setErrorCode(null);
+
+    if (!TURNSTILE_SITE_KEY) {
+      onTokenChange('');
+      setErrorCode('missing-site-key');
+      setStatus('error');
+      return () => {
+        cancelled = true;
+      };
+    }
 
     loadTurnstileScript()
       .then(() => {

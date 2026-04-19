@@ -41,6 +41,7 @@ apps:
       REDIS_DB: "0"
       REDIS_SSL: "false"
       REDIS_TIMEOUT: "5"
+      BACKTEST_WORKER_BACKEND: "celery"
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
       LOKI_LABELS: '{"app":"dydx-api","env":"prod"}'
@@ -159,6 +160,10 @@ apps:
       REDIS_DB: "0"
       REDIS_SSL: "false"
       REDIS_TIMEOUT: "5"
+      BACKTEST_WORKER_BACKEND: "celery"
+      WORKER_MODE: "celery-backtest"
+      CELERY_CONCURRENCY: "1"
+      CELERY_QUEUES: "celery"
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
       LOKI_LABELS: '{"app":"dydx-worker","env":"prod"}'

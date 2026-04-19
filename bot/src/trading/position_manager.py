@@ -1,9 +1,13 @@
 """Position entry and exit management for pairs trading."""
 
 import asyncio
+import contextlib
 import json
 import os
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from loguru import logger
@@ -28,6 +32,11 @@ from src.trading.analysis.cointegration import calculate_zscore
 from src.trading.bot_agent import BotAgent
 from src.trading.market_data import get_candles_recent, get_markets
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None
+
 
 def _resolve_bot_agents_path() -> Path:
     """Resolve per-instance bot agents path from environment."""
@@ -41,11 +50,235 @@ def _resolve_bot_agents_path() -> Path:
 
 
 BOT_AGENTS_PATH = _resolve_bot_agents_path()
+_BOT_AGENTS_ASYNC_LOCK = asyncio.Lock()
+_BOT_AGENTS_THREAD_LOCK = threading.RLock()
 
 IGNORE_ASSETS = [
     "BTC-USD_x",
     "BTC-USD_y",
 ]  # Ignore these assets which are not trading on testnet
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _position_identity(position: Dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(position.get("order_id_m1", "")),
+        str(position.get("order_id_m2", "")),
+        str(position.get("market_1", "")),
+        str(position.get("market_2", "")),
+    )
+
+
+def _read_bot_agents_unlocked() -> List[Dict[str, Any]]:
+    try:
+        with BOT_AGENTS_PATH.open("r", encoding="utf-8") as open_positions_file:
+            loaded = json.load(open_positions_file)
+        return loaded if isinstance(loaded, list) else []
+    except Exception:
+        logger.debug("No existing {} found; starting fresh", BOT_AGENTS_PATH)
+        return []
+
+
+def _write_bot_agents_unlocked(positions: List[Dict[str, Any]]) -> None:
+    BOT_AGENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = BOT_AGENTS_PATH.with_name(f".{BOT_AGENTS_PATH.name}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(positions, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, BOT_AGENTS_PATH)
+
+
+@contextlib.contextmanager
+def _bot_agents_file_lock():
+    BOT_AGENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = BOT_AGENTS_PATH.with_name(f".{BOT_AGENTS_PATH.name}.lock")
+    with lock_path.open("a", encoding="utf-8") as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+async def _load_tracked_positions() -> List[Dict[str, Any]]:
+    async with _BOT_AGENTS_ASYNC_LOCK:
+        with _BOT_AGENTS_THREAD_LOCK:
+            with _bot_agents_file_lock():
+                return _read_bot_agents_unlocked()
+
+
+async def _append_tracked_position(position: Dict[str, Any]) -> None:
+    async with _BOT_AGENTS_ASYNC_LOCK:
+        with _BOT_AGENTS_THREAD_LOCK:
+            with _bot_agents_file_lock():
+                positions = _read_bot_agents_unlocked()
+                position_ids = {_position_identity(item) for item in positions}
+                if _position_identity(position) not in position_ids:
+                    positions.append(position)
+                _write_bot_agents_unlocked(positions)
+
+
+async def _save_processed_positions(
+        original_positions: List[Dict[str, Any]],
+        remaining_positions: List[Dict[str, Any]],
+) -> None:
+    """Atomically save processed positions while preserving concurrent appends."""
+    processed_ids = {_position_identity(item) for item in original_positions}
+    async with _BOT_AGENTS_ASYNC_LOCK:
+        with _BOT_AGENTS_THREAD_LOCK:
+            with _bot_agents_file_lock():
+                current_positions = _read_bot_agents_unlocked()
+                concurrent_additions = [
+                    item
+                    for item in current_positions
+                    if _position_identity(item) not in processed_ids
+                ]
+                _write_bot_agents_unlocked(remaining_positions + concurrent_additions)
+
+
+def _opposite_order_side(side: str) -> str:
+    normalized = str(side).upper()
+    if normalized == "BUY":
+        return "SELL"
+    if normalized == "SELL":
+        return "BUY"
+    raise ValueError(f"Unsupported order side: {side}")
+
+
+def _close_side_from_exchange_position(position: Dict[str, Any], fallback_side: str) -> str:
+    exchange_side = str(position.get("side", "")).upper()
+    if exchange_side == "LONG":
+        return "SELL"
+    if exchange_side == "SHORT":
+        return "BUY"
+    return _opposite_order_side(fallback_side)
+
+
+def _close_size_from_exchange_position(position: Dict[str, Any], fallback_size: Any) -> Any:
+    return position.get("sumOpen") or position.get("size") or fallback_size
+
+
+def _failsafe_close_price(
+        market: str,
+        side: str,
+        exchange_position: Optional[Dict[str, Any]],
+        markets: Dict[str, Any],
+        fallback_price: Any = None,
+) -> str:
+    raw_price = (
+            (exchange_position or {}).get("entryPrice")
+            or (exchange_position or {}).get("price")
+            or fallback_price
+    )
+    price = float(raw_price)
+    accept_price = price * 1.7 if side == "BUY" else price * 0.3
+    tick_size = markets["markets"][market]["tickSize"]
+    return format_number(accept_price, tick_size)
+
+
+async def _place_reduce_only_close_with_retries(
+        client,
+        *,
+        market: str,
+        side: str,
+        size: Any,
+        price: Any,
+        attempts: int = 3,
+) -> tuple[Dict[str, Any], str]:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await place_market_order(
+                client,
+                market=market,
+                side=side,
+                size=size,
+                price=price,
+                reduce_only=True,
+            )
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "Reduce-only close attempt {}/{} failed for {}: {}",
+                attempt,
+                attempts,
+                market,
+                exc,
+            )
+            if attempt < attempts:
+                await asyncio.sleep(min(2.0, 0.5 * attempt))
+    raise RuntimeError(f"Failed reduce-only close for {market}") from last_error
+
+
+async def _close_orphan_exchange_leg(
+        client,
+        *,
+        tracked_position: Dict[str, Any],
+        exchange_positions: Dict[str, Any],
+        orphan_market: str,
+        fallback_side: str,
+        fallback_size: Any,
+        messenger: TelegramMessenger,
+) -> bool:
+    markets = await get_markets(client)
+    exchange_position = exchange_positions.get(orphan_market, {})
+    close_side = _close_side_from_exchange_position(exchange_position, fallback_side)
+    close_size = _close_size_from_exchange_position(exchange_position, fallback_size)
+    close_price = _failsafe_close_price(
+        orphan_market,
+        close_side,
+        exchange_position,
+        markets,
+    )
+
+    try:
+        _, close_order_id = await _place_reduce_only_close_with_retries(
+            client,
+            market=orphan_market,
+            side=close_side,
+            size=close_size,
+            price=close_price,
+            attempts=3,
+        )
+        messenger.send_error_message(
+            "Recovered Orphaned Position Leg",
+            f"Submitted reduce-only close for orphaned {orphan_market} leg. Close order: {close_order_id}",
+            is_critical=True,
+            category="execution_orphan_recovery",
+        )
+        logger.critical(
+            "Recovered orphaned {} leg for pair {} / {} with close order {}",
+            orphan_market,
+            tracked_position.get("market_1"),
+            tracked_position.get("market_2"),
+            close_order_id,
+        )
+        return True
+    except Exception as exc:
+        tracked_position["pair_status"] = "ORPHANED_EXIT_FAILED"
+        tracked_position["orphaned_market"] = orphan_market
+        tracked_position["last_orphan_recovery_error"] = str(exc)
+        tracked_position["last_orphan_recovery_at"] = _utc_now_iso()
+        messenger.send_error_message(
+            "CRITICAL: Orphaned Position Leg",
+            f"Failed to close orphaned {orphan_market} leg for {tracked_position.get('market_1')} / {tracked_position.get('market_2')}: {exc}",
+            is_critical=True,
+            category="execution_orphan_recovery_failed",
+        )
+        logger.critical(
+            "Failed to recover orphaned {} leg for pair {} / {}: {}",
+            orphan_market,
+            tracked_position.get("market_1"),
+            tracked_position.get("market_2"),
+            exc,
+        )
+        return False
 
 
 async def open_positions(client):
@@ -72,19 +305,6 @@ async def open_positions(client):
 
     # Get markets from referencing of min order size, tick size etc
     markets = await get_markets(client)
-
-    # Initialize container for BotAgent results
-    bot_agents = []
-
-    # Opening JSON file
-    try:
-        with BOT_AGENTS_PATH.open("r", encoding="utf-8") as open_positions_file:
-            open_positions_dict = json.load(open_positions_file)
-        for p in open_positions_dict:
-            bot_agents.append(p)
-    except Exception:
-        bot_agents = []
-        logger.debug("No existing {} found; starting fresh", BOT_AGENTS_PATH)
 
     # Find ZScore triggers
     for index, row in df.iterrows():
@@ -252,13 +472,9 @@ async def open_positions(client):
                             }
                             messenger.send_trade_opened_message(trade_info)
 
-                            # Append to list of bot agents
-                            bot_agents.append(bot_open_dict)
+                            # Save trade using atomic per-instance state update.
+                            await _append_tracked_position(bot_open_dict)
                             del bot_open_dict
-
-                            # Save trade
-                            with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
-                                json.dump(bot_agents, f)
 
                             # Confirm live status in print
                             logger.info(
@@ -284,13 +500,10 @@ async def manage_trade_exits(client):
     # Initialize saving output
     save_output = []
 
-    # Opening a JSON file
-    try:
-        with BOT_AGENTS_PATH.open("r", encoding="utf-8") as open_positions_file:
-            open_positions_dict = json.load(open_positions_file)
-        logger.debug("Loaded {} tracked positions", len(open_positions_dict))
-    except Exception as e:
-        logger.info("No {} found; nothing to close ({})", BOT_AGENTS_PATH, e)
+    open_positions_dict = await _load_tracked_positions()
+    logger.debug("Loaded {} tracked positions", len(open_positions_dict))
+    if not BOT_AGENTS_PATH.exists() and len(open_positions_dict) == 0:
+        logger.info("No {} found; nothing to close", BOT_AGENTS_PATH)
         return "complete"
 
     # Guard: Exit if no open positions in file
@@ -358,10 +571,43 @@ async def manage_trade_exits(client):
                 and position_size_m2 == order_size_m2
                 and position_side_m2 == order_side_m2
         )
-        check_live = position_market_m1 in markets_live and position_market_m2 in markets_live
+        m1_live = position_market_m1 in markets_live
+        m2_live = position_market_m2 in markets_live
+        check_live = m1_live and m2_live
 
         # Guard: If not all match exit with error
         if not check_m1 or not check_m2 or not check_live:
+            if check_m1 and check_m2 and (m1_live != m2_live):
+                orphan_market = position_market_m1 if m1_live else position_market_m2
+                orphan_side = position_side_m1 if m1_live else position_side_m2
+                orphan_size = position_size_m1 if m1_live else position_size_m2
+                logger.critical(
+                    "Detected one-sided orphaned exposure for {} / {}; attempting reduce-only close on {}",
+                    position_market_m1,
+                    position_market_m2,
+                    orphan_market,
+                )
+                recovered = await _close_orphan_exchange_leg(
+                    client,
+                    tracked_position=position,
+                    exchange_positions=exchange_pos,
+                    orphan_market=orphan_market,
+                    fallback_side=orphan_side,
+                    fallback_size=orphan_size,
+                    messenger=messenger,
+                )
+                if not recovered:
+                    save_output.append(position)
+                continue
+
+            if check_m1 and check_m2 and not m1_live and not m2_live:
+                logger.warning(
+                    "Tracked pair {} / {} is no longer open on exchange; removing local state",
+                    position_market_m1,
+                    position_market_m2,
+                )
+                continue
+
             logger.error(
                 "Position mismatch for {} / {}; local state diverged from exchange",
                 position_market_m1,
@@ -432,6 +678,10 @@ async def manage_trade_exits(client):
             accept_price_m2 = format_number(accept_price_m2, tick_size_m2)
 
             # Close positions
+            close_order_m1 = None
+            close_order_m2 = None
+            close_order_m1_id = ""
+            close_order_m2_id = ""
             try:
 
                 # Close position for market 1
@@ -440,13 +690,13 @@ async def manage_trade_exits(client):
                     position_market_m1,
                 )
 
-                (close_order_m1, order_id) = await place_market_order(
+                (close_order_m1, close_order_m1_id) = await _place_reduce_only_close_with_retries(
                     client,
                     market=position_market_m1,
                     side=side_m1,
                     size=position_size_m1,
                     price=accept_price_m1,
-                    reduce_only=True,
+                    attempts=3,
                 )
 
                 logger.debug("Close order m1 id: {}", close_order_m1.get("id"))
@@ -460,13 +710,13 @@ async def manage_trade_exits(client):
                     position_market_m2,
                 )
 
-                (close_order_m2, order_id) = await place_market_order(
+                (close_order_m2, close_order_m2_id) = await _place_reduce_only_close_with_retries(
                     client,
                     market=position_market_m2,
                     side=side_m2,
                     size=position_size_m2,
                     price=accept_price_m2,
-                    reduce_only=True,
+                    attempts=3,
                 )
 
                 logger.debug("Close order m2 id: {}", close_order_m2.get("id"))
@@ -481,17 +731,66 @@ async def manage_trade_exits(client):
                     "base_size": position_size_m1,
                     "quote_size": position_size_m2,
                     "z_score": z_score_current,
-                    "close_order_m1_id": close_order_m1.get("id", "") if close_order_m1 else "",
-                    "close_order_m2_id": close_order_m2.get("id", "") if close_order_m2 else "",
+                    "close_order_m1_id": close_order_m1_id,
+                    "close_order_m2_id": close_order_m2_id,
                 }
                 messenger.send_trade_closed_message(trade_info, "Z-score reversion")
 
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "Exit failed for {} with {}",
                     position_market_m1,
                     position_market_m2,
                 )
+                if close_order_m1 is not None and close_order_m2 is None:
+                    logger.critical(
+                        "First close leg succeeded for {} / {}, second leg failed; retrying orphaned {} leg",
+                        position_market_m1,
+                        position_market_m2,
+                        position_market_m2,
+                    )
+                    try:
+                        close_order_m2, close_order_m2_id = await _place_reduce_only_close_with_retries(
+                            client,
+                            market=position_market_m2,
+                            side=side_m2,
+                            size=position_size_m2,
+                            price=accept_price_m2,
+                            attempts=3,
+                        )
+                        messenger.send_trade_closed_message(
+                            {
+                                "pair": f"{position_market_m1} / {position_market_m2}",
+                                "base_market": position_market_m1,
+                                "quote_market": position_market_m2,
+                                "base_side": side_m1,
+                                "quote_side": side_m2,
+                                "base_size": position_size_m1,
+                                "quote_size": position_size_m2,
+                                "z_score": z_score_current,
+                                "close_order_m1_id": close_order_m1_id,
+                                "close_order_m2_id": close_order_m2_id,
+                            },
+                            "Z-score reversion after orphan retry",
+                        )
+                        continue
+                    except Exception as retry_exc:
+                        position["pair_status"] = "ORPHANED_EXIT_FAILED"
+                        position["orphaned_market"] = position_market_m2
+                        position["close_order_m1_id"] = close_order_m1_id
+                        position["last_orphan_recovery_error"] = str(retry_exc)
+                        position["last_orphan_recovery_at"] = _utc_now_iso()
+                        messenger.send_error_message(
+                            "CRITICAL: Partial Close Exposure",
+                            f"Closed {position_market_m1} but failed to close {position_market_m2}: {retry_exc}",
+                            is_critical=True,
+                            category="execution_partial_close_failed",
+                        )
+                        save_output.append(position)
+                        continue
+
+                position["last_exit_error"] = str(exc)
+                position["last_exit_error_at"] = _utc_now_iso()
                 save_output.append(position)
 
         # Keep record if items and save
@@ -500,5 +799,4 @@ async def manage_trade_exits(client):
 
     # Save remaining items
     logger.info("{} items remaining; persisting {}", len(save_output), BOT_AGENTS_PATH)
-    with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
-        json.dump(save_output, f)
+    await _save_processed_positions(open_positions_dict, save_output)

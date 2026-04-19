@@ -543,6 +543,7 @@ interface BacktestRequest extends Record<string, unknown> {
   name?: string;
   description?: string;
   initial_balance?: number;
+  timeout_seconds?: number;
   max_pairs?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   pairs?: string[];

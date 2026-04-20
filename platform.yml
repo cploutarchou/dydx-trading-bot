@@ -50,7 +50,7 @@ apps:
       ENVIRONMENT: "prod"
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"
-      REFRESH_TOKEN_EXPIRE_DAYS: "7"
+      REFRESH_TOKEN_EXPIRE_DAYS: "1"
       BOT_API_USE_SERVICE_TOKEN: "true"
       API_BYPASS_AUTH: "false"
       FRONTEND_URL: "https://app.cydevcloud.com"
@@ -116,7 +116,9 @@ apps:
       # JWT / auth
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"
-      REFRESH_TOKEN_EXPIRE_DAYS: "7"
+      REFRESH_TOKEN_EXPIRE_DAYS: "1"
+      SESSION_TTL_HOURS: "24"
+      AUTH_REQUIRE_REDIS_SESSIONS: "true"
       IS_TESTNET: "false"
     secrets:
       # Pulled at runtime from Nomad Variables at nomad/jobs/backend

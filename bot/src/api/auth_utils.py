@@ -6,6 +6,8 @@ Provides secure authentication services for the trading bot API
 import base64
 import hashlib
 import io
+import logging
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -15,6 +17,8 @@ import qrcode
 from decouple import config
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+
+logger = logging.getLogger(__name__)
 
 # Configuration
 SECRET_KEY = str(config("SECRET_KEY", default=secrets.token_urlsafe(32)))
@@ -375,25 +379,92 @@ class EmailVerificationUtils:
 
 
 class TokenBlacklist:
-    """In-memory token blacklist (should be replaced with Redis in production)"""
+    """Redis-backed token blacklist with in-memory fallback.
 
-    _blacklisted_tokens: set = set()
+    JTI entries are stored in Redis with a TTL equal to the token's remaining
+    lifetime so they expire automatically.  Falls back to an in-memory set when
+    Redis is not configured or unreachable (e.g. local dev / unit tests).
+    """
+
+    _REDIS_PREFIX = "auth:blacklist:"
+    _fallback_tokens: set = set()
+    _redis_client: Any = None  # redis.Redis | None
+    _redis_initialised: bool = False
 
     @classmethod
-    def blacklist_token(cls, jti: str) -> None:
-        """Add token to blacklist"""
-        cls._blacklisted_tokens.add(jti)
+    def _get_redis(cls) -> Optional[Any]:
+        if cls._redis_initialised:
+            return cls._redis_client
+        cls._redis_initialised = True
+        if os.getenv("REDIS_ENABLED", "false").lower() not in ("true", "1", "yes"):
+            return None
+        try:
+            import redis  # type: ignore[import]
+
+            host = os.getenv("REDIS_HOST", "localhost")
+            port = int(os.getenv("REDIS_PORT", "6379"))
+            db = int(os.getenv("REDIS_DB", "0"))
+            password = os.getenv("REDIS_PASSWORD") or None
+            ssl = os.getenv("REDIS_SSL", "false").lower() in ("true", "1", "yes")
+            client = redis.Redis(
+                host=host,
+                port=port,
+                db=db,
+                password=password,
+                ssl=ssl,
+                socket_timeout=5,
+                decode_responses=True,
+            )
+            client.ping()
+            cls._redis_client = client
+            logger.info("TokenBlacklist: using Redis at %s:%s db=%s", host, port, db)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("TokenBlacklist: Redis unavailable, falling back to in-memory: %s", exc)
+        return cls._redis_client
+
+    @classmethod
+    def blacklist_token(cls, jti: str, expires_at: Optional[datetime] = None) -> None:
+        """Add a JTI to the blacklist.
+
+        *expires_at* should be the token's expiry time (UTC-aware).  When
+        provided the Redis key TTL is set to the token's remaining lifetime so
+        entries are cleaned up automatically.  Defaults to
+        ACCESS_TOKEN_EXPIRE_MINUTES from config when omitted.
+        """
+        r = cls._get_redis()
+        if r is not None:
+            try:
+                if expires_at is None:
+                    ttl_seconds = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+                else:
+                    now = datetime.now(tz=timezone.utc)
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=timezone.utc)
+                    ttl_seconds = max(int((expires_at - now).total_seconds()), 1)
+                r.setex(cls._REDIS_PREFIX + jti, ttl_seconds, "1")
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("TokenBlacklist.blacklist_token Redis error: %s", exc)
+        # Fallback
+        cls._fallback_tokens.add(jti)
 
     @classmethod
     def is_token_blacklisted(cls, jti: str) -> bool:
-        """Check if token is blacklisted"""
-        return jti in cls._blacklisted_tokens
+        """Return True if the JTI is on the blacklist."""
+        r = cls._get_redis()
+        if r is not None:
+            try:
+                return bool(r.exists(cls._REDIS_PREFIX + jti))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("TokenBlacklist.is_token_blacklisted Redis error: %s", exc)
+        return jti in cls._fallback_tokens
 
     @classmethod
     def clear_expired_tokens(cls) -> None:
-        """Clear expired tokens from blacklist (implement with actual expiry tracking)"""
-        # In production, this should be handled by Redis TTL
-        pass
+        """No-op: Redis handles expiry automatically via TTL.
+        For the in-memory fallback there is no expiry tracking; this is
+        acceptable since the fallback is only used in dev/test environments.
+        """
 
 
 if __name__ == "__main__":

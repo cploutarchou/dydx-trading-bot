@@ -92,7 +92,32 @@ type RegistrationStatusResponse struct {
 	InvitationRequired bool   `json:"invitation_required"`
 }
 
-const sessionTTL = 7 * 24 * time.Hour
+const maxSessionTTL = 24 * time.Hour
+
+// sessionTTL returns the configured session lifetime capped at maxSessionTTL (1 day).
+// It reads SESSION_TTL_HOURS first, then falls back to REFRESH_TOKEN_EXPIRE_DAYS converted
+// to hours, defaulting to 24 hours when neither is set.
+func sessionTTL() time.Duration {
+	if v := os.Getenv("SESSION_TTL_HOURS"); v != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			d := time.Duration(n) * time.Hour
+			if d > maxSessionTTL {
+				return maxSessionTTL
+			}
+			return d
+		}
+	}
+	if v := os.Getenv("REFRESH_TOKEN_EXPIRE_DAYS"); v != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			d := time.Duration(n) * 24 * time.Hour
+			if d > maxSessionTTL {
+				return maxSessionTTL
+			}
+			return d
+		}
+	}
+	return maxSessionTTL
+}
 
 func shouldReturnLegacyAuthTokens() bool {
 	value := strings.TrimSpace(strings.ToLower(os.Getenv("AUTH_RETURN_LEGACY_TOKENS")))
@@ -157,12 +182,12 @@ func createSessionForUser(c *gin.Context, user *models.User, role string) (strin
 		Email:    user.Email,
 		Role:     role,
 		IsAdmin:  user.IsAdmin,
-	}, sessionTTL)
+	}, sessionTTL())
 	if err != nil {
 		return "", auth.SessionData{}, err
 	}
 
-	setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
+	setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
 	return sessionToken, sessionData, nil
 }
 
@@ -734,12 +759,12 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		clearAuthCookies(c)
 		if sessionToken != "" {
-			setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
+			setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
 		}
 
 		response := TokenResponse{
 			TokenType:        "session",
-			ExpiresIn:        int(sessionTTL.Seconds()),
+			ExpiresIn:        int(sessionTTL().Seconds()),
 			SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
 		}
 
@@ -891,12 +916,12 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			if sessionToken != "" {
 				store := middleware.AuthSessionStore()
 				if store != nil {
-					sessionData, err := store.Refresh(c.Request.Context(), sessionToken, sessionTTL)
+					sessionData, err := store.Refresh(c.Request.Context(), sessionToken, sessionTTL())
 					if err == nil && sessionData != nil {
-						setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
+						setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
 						c.JSON(http.StatusOK, TokenResponse{
 							TokenType:        "session",
-							ExpiresIn:        int(sessionTTL.Seconds()),
+							ExpiresIn:        int(sessionTTL().Seconds()),
 							SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
 						})
 						return
@@ -975,12 +1000,12 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 
 		clearAuthCookies(c)
 		if sessionToken != "" {
-			setSessionCookie(c, sessionToken, int(sessionTTL.Seconds()))
+			setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
 		}
 
 		response := TokenResponse{
 			TokenType:        "session",
-			ExpiresIn:        int(sessionTTL.Seconds()),
+			ExpiresIn:        int(sessionTTL().Seconds()),
 			SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
 		}
 

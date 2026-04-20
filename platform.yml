@@ -44,7 +44,7 @@ apps:
       BACKTEST_WORKER_BACKEND: "celery"
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
-      LOKI_LABELS: '{"app":"dydx-api","env":"prod"}'
+      LOKI_LABELS: "{\"app\":\"dydx-api\",\"env\":\"prod\"}"
       IS_TESTNET: "true"
       APP_ENV: "prod"
       ENVIRONMENT: "prod"
@@ -112,7 +112,7 @@ apps:
       # Loki
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
-      LOKI_LABELS: '{"app":"dydx-backend","env":"prod"}'
+      LOKI_LABELS: "{\"app\":\"dydx-backend\",\"env\":\"prod\"}"
       # JWT / auth
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"
@@ -166,7 +166,7 @@ apps:
       CELERY_QUEUES: "celery"
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
-      LOKI_LABELS: '{"app":"dydx-worker","env":"prod"}'
+      LOKI_LABELS: "{\"app\":\"dydx-worker\",\"env\":\"prod\"}"
       IS_TESTNET: "true"
       DYDX_TESTNET_NODE_URL: "test-dydx-grpc.kingnodes.com"
       APP_ENV: "prod"

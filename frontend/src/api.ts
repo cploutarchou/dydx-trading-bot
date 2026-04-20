@@ -1198,6 +1198,10 @@ class ApiClient {
 
   async restoreSession(): Promise<boolean> {
     try {
+      // If we already have a valid in-memory access token, skip the refresh round-trip.
+      if (this.accessToken && this.sessionEstablished) {
+        return true;
+      }
       await this.refreshAccessToken();
       return true;
     } catch {

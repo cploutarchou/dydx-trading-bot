@@ -1,9 +1,11 @@
 import { Play } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useStrategyStore } from '../store/strategies';
+import { useToastStore } from './ErrorBoundary';
+import { InlineNotice } from './ui/PlatformUI';
 
 interface TradingParameters {
   [key: string]: unknown;
@@ -75,6 +77,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   type ApiBacktestRequest = Parameters<typeof api.runBacktest>[0];
   const navigate = useNavigate();
   const { strategies, fetchStrategies } = useStrategyStore();
+  const successToast = useToastStore((state) => state.success);
+  const errorToast = useToastStore((state) => state.error);
   const [useStrategy, setUseStrategy] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
   const [formData, setFormData] = useState<BacktestRunRequest>({
@@ -100,6 +104,26 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const presets = [
+    {
+      id: 'disciplined',
+      label: 'Disciplined',
+      description: 'Higher threshold, tighter size, safer first-pass evaluation.',
+      values: { zscore_threshold: 1.8, usd_per_trade: 8, stats_window: 30, max_pairs: 8 },
+    },
+    {
+      id: 'balanced',
+      label: 'Balanced',
+      description: 'Default desk preset for general signal review.',
+      values: { zscore_threshold: 1.5, usd_per_trade: 12, stats_window: 21, max_pairs: 12 },
+    },
+    {
+      id: 'exploratory',
+      label: 'Exploratory',
+      description: 'Broader market search for idea generation and route discovery.',
+      values: { zscore_threshold: 1.25, usd_per_trade: 15, stats_window: 14, max_pairs: 20 },
+    },
+  ] as const;
 
   const runBacktestMutation = useMutation({
     mutationFn: (payload: ApiBacktestRequest) => api.runBacktest(payload),
@@ -224,7 +248,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
     try {
       if (formData.start_date > formData.end_date) {
-        setError('Start date must be before end date');
+        const message = 'Choose a start date that comes before the end date.';
+        setError(message);
+        errorToast('Backtest dates need attention', message);
         return;
       }
 
@@ -302,16 +328,59 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
 
       if (runId) {
+        successToast(
+          'Backtest launched',
+          `${cleanedData.name || 'Research run'} is now entering the execution queue.`
+        );
         navigate(`/backtest/${runId}`);
       } else {
-        setError('Backtest started but no run ID was returned by the API');
+        const message = 'The backtest started, but the backend did not return a run ID.';
+        setError(message);
+        errorToast('Launch response incomplete', message);
       }
     } catch (err: unknown) {
       console.error('❌ BacktestRunner: Error:', err);
-      setError(getErrorMessage(err, 'Failed to start backtest'));
+      const message = getErrorMessage(err, 'Failed to start backtest');
+      setError(message);
+      errorToast('Unable to start backtest', message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const durationDays = useMemo(() => {
+    const start = new Date(formData.start_date);
+    const end = new Date(formData.end_date);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    return Math.max(0, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+  }, [formData.end_date, formData.start_date]);
+
+  const scanScopeLabel =
+    Number(formData.max_pairs) > 0 ? `${formData.max_pairs} markets` : 'All available markets';
+  const selectedMode =
+    (formData.trading_parameters.pair_selection_mode as BacktestRunRequest['pair_selection_mode']) ||
+    'liquidity';
+  const pairSelectionNotes: Record<
+    NonNullable<BacktestRunRequest['pair_selection_mode']>,
+    string
+  > = {
+    liquidity: 'Favors deeper markets and steadier execution assumptions.',
+    volatility: 'Pushes toward faster movers and wider spread behavior.',
+    cointegration: 'Prioritizes statistically ranked pairs first.',
+    input: 'Keeps your existing pair order without re-ranking.',
+  };
+
+  const applyPreset = (preset: (typeof presets)[number]) => {
+    setFormData((prev) => ({
+      ...prev,
+      max_pairs: preset.values.max_pairs,
+      trading_parameters: {
+        ...prev.trading_parameters,
+        zscore_threshold: preset.values.zscore_threshold,
+        usd_per_trade: preset.values.usd_per_trade,
+        stats_window: preset.values.stats_window,
+      },
+    }));
   };
 
   const inputClass =
@@ -332,10 +401,72 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-700 bg-red-900/35 p-4 text-sm text-red-200">
-          {error}
-        </div>
+        <InlineNotice
+          tone="danger"
+          title="Backtest launch blocked"
+          description={error}
+          className="mb-4"
+        />
       )}
+
+      <div className="mb-4 grid gap-3 lg:grid-cols-4">
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Window</p>
+          <p className="mt-2 text-sm font-semibold text-white">{durationDays} days</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {formData.start_date} to {formData.end_date}
+          </p>
+        </div>
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Scan scope</p>
+          <p className="mt-2 text-sm font-semibold text-white">{scanScopeLabel}</p>
+          <p className="mt-1 text-xs text-slate-500">{pairSelectionNotes[selectedMode]}</p>
+        </div>
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Risk size</p>
+          <p className="mt-2 text-sm font-semibold text-white">
+            ${Number(formData.trading_parameters.usd_per_trade || 0).toFixed(2)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Capital per trade attempt</p>
+        </div>
+        <div className="metric-tile px-4 py-4">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Launch mode</p>
+          <p className="mt-2 text-sm font-semibold text-white">
+            {useStrategy && selectedStrategyId ? 'Strategy-linked' : 'Manual ticket'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {useStrategy && selectedStrategyId
+              ? 'Saved defaults loaded with overrides still available.'
+              : 'Operators set assumptions directly before queueing the run.'}
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-lg border border-slate-800 bg-stone-950/55 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">
+              Operator presets
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              Start from a proven posture, then fine-tune the research ticket.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {presets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyPreset(preset)}
+                className="rounded-lg border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-200 transition hover:border-cyan-500/35 hover:text-white"
+              >
+                <span className="block font-medium">{preset.label}</span>
+                <span className="mt-1 block text-xs text-slate-500">{preset.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="rounded-lg border border-slate-800 bg-stone-950/55 p-4">
@@ -607,6 +738,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
         </div>
+
+        <InlineNotice
+          tone="warning"
+          title="Before you launch"
+          description="Check the time window, market scope, transaction fee, and slippage assumptions so the run answers the right research question."
+        />
 
         <button
           type="submit"

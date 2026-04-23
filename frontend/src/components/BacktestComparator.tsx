@@ -56,8 +56,7 @@ const normalizeRun = (raw: unknown): BacktestResult => {
     avg_trade_duration: toNumber(normalized.avg_trade_duration, 0),
     start_date: String(normalized.start_date || ''),
     end_date: String(normalized.end_date || ''),
-    created_at:
-      typeof normalized.created_at === 'string' ? normalized.created_at : undefined,
+    created_at: typeof normalized.created_at === 'string' ? normalized.created_at : undefined,
     status: typeof normalized.status === 'string' ? normalized.status : undefined,
     is_from_cache: Boolean(normalized.is_from_cache),
     cache_age_days:
@@ -84,7 +83,7 @@ export const BacktestComparator: React.FC = () => {
     const fetchBacktests = async () => {
       setLoading(true);
       try {
-        const response = await api.listBacktests(0, 500);
+        const response = await api.listBacktests(0, 50);
         const raw = toRecord(response);
         const rawData = toRecord(raw.data);
         const data = Array.isArray(raw?.backtests)

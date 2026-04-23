@@ -407,7 +407,7 @@ export const DashboardPage: React.FC = () => {
         (_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Timed out while loading dashboard stats')),
-            25000
+            45000
           );
         }
       );

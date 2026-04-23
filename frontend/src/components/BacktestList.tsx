@@ -269,7 +269,7 @@ export const BacktestList: React.FC<{
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
     // Keep this fast for dashboard rendering: fetch the newest page only.
     // If needed later, we can add cursor-based pagination without blocking initial paint.
-    const response = await api.listBacktests(0, 200);
+    const response = await api.listBacktests(0, 50);
     const raw = toRecord(response);
     const rawData = toRecord(raw.data);
 

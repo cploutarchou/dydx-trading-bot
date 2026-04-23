@@ -8,11 +8,10 @@ from dydx_v4_client.network import make_mainnet, make_testnet
 from dydx_v4_client.node.client import NodeClient
 from dydx_v4_client.wallet import Wallet
 from loguru import logger
-
 from src.constants import (
     DYDX_ADDRESS,
-    INDEXER_ENDPOINT_TESTNET,
     INDEXER_ENDPOINT_MAINNET,
+    INDEXER_ENDPOINT_TESTNET,
     MARKET_DATA_MODE,
     MNEMONIC,
 )
@@ -20,6 +19,24 @@ from src.trading.market_data import get_candles_recent
 
 _JURISDICTION_CHECK_TTL = timedelta(minutes=10)
 _jurisdiction_success_cache: dict[str, datetime] = {}
+
+
+def _sanitize_node_url(raw_url: str, env_name: str) -> str:
+    """Normalize dYdX node URL expected by upstream client (no http(s) scheme)."""
+    node_url = (raw_url or "").strip()
+    if node_url.startswith("http://"):
+        logger.warning(
+            "{} should not include 'http://'; stripping scheme for compatibility",
+            env_name,
+        )
+        return node_url[len("http://") :]
+    if node_url.startswith("https://"):
+        logger.warning(
+            "{} should not include 'https://'; stripping scheme for compatibility",
+            env_name,
+        )
+        return node_url[len("https://") :]
+    return node_url
 
 
 def _is_placeholder_value(value: str) -> bool:
@@ -53,13 +70,20 @@ class Client:
 def _resolve_runtime_network(is_testnet: bool):
     """Build the dYdX network configuration for the requested environment."""
     if is_testnet:
+        node_url = _sanitize_node_url(
+            os.getenv("DYDX_TESTNET_NODE_URL", "test-dydx-grpc.kingnodes.com"),
+            "DYDX_TESTNET_NODE_URL",
+        )
         return make_testnet(
             rest_indexer=INDEXER_ENDPOINT_TESTNET,
             websocket_indexer="wss://indexer.v4testnet.dydx.exchange/v4/ws",
-            node_url=os.getenv("DYDX_TESTNET_NODE_URL", "test-dydx-grpc.kingnodes.com"),
+            node_url=node_url,
         )
 
-    node_url = os.getenv("DYDX_MAINNET_NODE_URL", "").strip()
+    node_url = _sanitize_node_url(
+        os.getenv("DYDX_MAINNET_NODE_URL", ""),
+        "DYDX_MAINNET_NODE_URL",
+    )
     if not node_url:
         raise RuntimeError("DYDX_MAINNET_NODE_URL is required for mainnet runtime checks")
 

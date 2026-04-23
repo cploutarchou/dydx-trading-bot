@@ -341,8 +341,17 @@ class DatabaseManager:
         connection_string = config.get_connection_string()
         engine_kwargs = config.get_engine_kwargs()
 
+        def _redact_connection_string(raw: str) -> str:
+            parsed = urlparse(raw)
+            if parsed.scheme and parsed.hostname:
+                port = f":{parsed.port}" if parsed.port else ""
+                db_name = parsed.path.lstrip("/")
+                db_segment = f"/{db_name}" if db_name else ""
+                return f"{parsed.scheme}://***:***@{parsed.hostname}{port}{db_segment}"
+            return "configured (redacted)"
+
         logger.info(f"Initializing database: {config.db_type}")
-        logger.info(f"Connection string: {connection_string.split('@')[0]}@***")
+        logger.info(f"Connection string: {_redact_connection_string(connection_string)}")
 
         self._engine = create_engine(connection_string, **engine_kwargs)
 

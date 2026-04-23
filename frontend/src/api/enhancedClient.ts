@@ -92,7 +92,7 @@ class EnhancedAPIClient {
   private baseClient = apiClient;
 
   private getAccessToken(): string | null {
-    return null;
+    return this.baseClient.getAccessToken();
   }
 
   private buildAuthHeaders(existingHeaders?: unknown): Headers {
@@ -670,7 +670,7 @@ class EnhancedAPIClient {
       (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))
     ) {
       try {
-        const listResult = await this.baseClient.listBacktests(0, 200);
+        const listResult = await this.baseClient.listBacktests(0, 50);
         const listData = (listResult.data ?? {}) as { backtests?: unknown[] };
         const matchedRun = Array.isArray(listData.backtests)
           ? listData.backtests.find((item) => {

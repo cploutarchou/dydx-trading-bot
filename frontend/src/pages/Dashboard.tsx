@@ -9,23 +9,23 @@
 
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity,
-  AlertCircle,
-  ArrowRight,
-  BarChart2,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  Layers3,
-  Newspaper,
-  Play,
-  Rocket,
-  ShieldCheck,
-  Sparkles,
-  Target,
-  TrendingDown,
-  TrendingUp,
-  Zap,
+    Activity,
+    AlertCircle,
+    ArrowRight,
+    BarChart2,
+    ChevronDown,
+    ChevronUp,
+    Clock,
+    Layers3,
+    Newspaper,
+    Play,
+    Rocket,
+    ShieldCheck,
+    Sparkles,
+    Target,
+    TrendingDown,
+    TrendingUp,
+    Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -38,15 +38,15 @@ import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlCh
 import { PageContainer } from '../components/PageContainer';
 import { SyncHealthPanel } from '../components/SyncHealthPanel';
 import {
-  type BacktestRun,
-  buildIntelligence,
-  formatCurrency as formatIntelligenceCurrency,
-  formatPercent as formatIntelligencePercent,
+    type BacktestRun,
+    buildIntelligence,
+    formatCurrency as formatIntelligenceCurrency,
+    formatPercent as formatIntelligencePercent,
 } from '../features/backtests/intelligence';
 import {
-  buildCodexAssetContextRequest,
-  formatPct as formatCodexPct,
-  formatUsd as formatCodexUsd,
+    buildCodexAssetContextRequest,
+    formatPct as formatCodexPct,
+    formatUsd as formatCodexUsd,
 } from '../features/codex/marketIntel';
 import { useAuthStore } from '../store/auth';
 
@@ -402,7 +402,7 @@ export const DashboardPage: React.FC = () => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      const statsPromise = api.listBacktests(0, 500);
+      const statsPromise = api.listBacktests(0, 50);
       const timeoutPromise = new Promise<Awaited<ReturnType<typeof api.listBacktests>>>(
         (_, reject) => {
           timeoutId = setTimeout(
@@ -567,7 +567,9 @@ export const DashboardPage: React.FC = () => {
                 className="operator-status-pill"
                 data-tone={stats.running > 0 ? 'accent' : 'positive'}
               >
-                <span className={`h-2 w-2 rounded-full ${stats.running > 0 ? 'bg-cyan-300 animate-pulse' : 'bg-emerald-300'}`} />
+                <span
+                  className={`h-2 w-2 rounded-full ${stats.running > 0 ? 'bg-cyan-300 animate-pulse' : 'bg-emerald-300'}`}
+                />
                 {stats.running > 0
                   ? `${stats.running} active ${stats.running === 1 ? 'run' : 'runs'}`
                   : 'No active runs'}
@@ -610,7 +612,9 @@ export const DashboardPage: React.FC = () => {
               </div>
               <div className="operator-hero-panel px-4 py-4">
                 <p className="text-[10px] uppercase text-slate-500">Best Sharpe</p>
-                <p className="mt-2 text-xl font-semibold text-white">{stats.bestSharpe.toFixed(2)}</p>
+                <p className="mt-2 text-xl font-semibold text-white">
+                  {stats.bestSharpe.toFixed(2)}
+                </p>
                 <p className="mt-1 text-xs text-slate-500">Top risk-adjusted score</p>
               </div>
             </div>
@@ -909,7 +913,10 @@ export const DashboardPage: React.FC = () => {
       <CodexAssetIntelStrip title="Strategy Asset Context" request={spotlightIntelRequest} />
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.22fr,0.78fr]">
-        <div className="operator-section-card p-5 animate-fade-slide-up" style={{ animationDelay: '200ms' }}>
+        <div
+          className="operator-section-card p-5 animate-fade-slide-up"
+          style={{ animationDelay: '200ms' }}
+        >
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="flex items-center gap-2 text-base font-semibold text-white">
@@ -917,11 +924,14 @@ export const DashboardPage: React.FC = () => {
                 Cumulative P&amp;L curve
               </h2>
               <p className="mt-1 text-xs text-slate-400">
-                Completed backtest returns over time, kept visible as the command-center anchor chart.
+                Completed backtest returns over time, kept visible as the command-center anchor
+                chart.
               </p>
             </div>
             {pnlTimeSeries.length > 0 && (
-              <div className={`text-lg font-bold ${stats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              <div
+                className={`text-lg font-bold ${stats.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+              >
                 {fmtPnl(stats.totalPnl)}
               </div>
             )}
@@ -935,7 +945,10 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         <div className="grid gap-6">
-          <div className="operator-section-card overflow-hidden animate-fade-slide-up" style={{ animationDelay: '280ms' }}>
+          <div
+            className="operator-section-card overflow-hidden animate-fade-slide-up"
+            style={{ animationDelay: '280ms' }}
+          >
             <button
               type="button"
               onClick={() => setLauncherOpen((open) => !open)}
@@ -953,7 +966,11 @@ export const DashboardPage: React.FC = () => {
                 </div>
               </div>
               <div className="text-slate-400">
-                {launcherOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                {launcherOpen ? (
+                  <ChevronUp className="h-5 w-5" />
+                ) : (
+                  <ChevronDown className="h-5 w-5" />
+                )}
               </div>
             </button>
 
@@ -969,7 +986,10 @@ export const DashboardPage: React.FC = () => {
             )}
           </div>
 
-          <div className="operator-section-card p-5 animate-fade-slide-up" style={{ animationDelay: '340ms' }}>
+          <div
+            className="operator-section-card p-5 animate-fade-slide-up"
+            style={{ animationDelay: '340ms' }}
+          >
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
@@ -977,10 +997,15 @@ export const DashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">Active runs</p>
-                  <p className="text-xs text-slate-400">Progress stays visible without leaving the page.</p>
+                  <p className="text-xs text-slate-400">
+                    Progress stays visible without leaving the page.
+                  </p>
                 </div>
               </div>
-              <span className="operator-status-pill" data-tone={stats.running > 0 ? 'accent' : 'positive'}>
+              <span
+                className="operator-status-pill"
+                data-tone={stats.running > 0 ? 'accent' : 'positive'}
+              >
                 {stats.running > 0 ? `${stats.running} running` : 'Idle'}
               </span>
             </div>
@@ -991,7 +1016,9 @@ export const DashboardPage: React.FC = () => {
                   <Activity className="h-6 w-6 text-slate-500" />
                 </div>
                 <p className="text-sm text-slate-400">No active runs right now</p>
-                <p className="text-xs text-slate-500">Use quick launch to start a new research cycle.</p>
+                <p className="text-xs text-slate-500">
+                  Use quick launch to start a new research cycle.
+                </p>
               </div>
             ) : (
               <div className="max-h-80 space-y-3 overflow-y-auto">
@@ -1004,15 +1031,21 @@ export const DashboardPage: React.FC = () => {
             <div className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-800/70 pt-4 text-center">
               <div>
                 <p className="text-[11px] text-slate-500">Best win rate</p>
-                <p className="text-sm font-semibold text-white">{stats.bestWinRate > 0 ? fmtPct(stats.bestWinRate) : '—'}</p>
+                <p className="text-sm font-semibold text-white">
+                  {stats.bestWinRate > 0 ? fmtPct(stats.bestWinRate) : '—'}
+                </p>
               </div>
               <div>
                 <p className="text-[11px] text-slate-500">Best Sharpe</p>
-                <p className="text-sm font-semibold text-white">{stats.bestSharpe > 0 ? stats.bestSharpe.toFixed(2) : '—'}</p>
+                <p className="text-sm font-semibold text-white">
+                  {stats.bestSharpe > 0 ? stats.bestSharpe.toFixed(2) : '—'}
+                </p>
               </div>
               <div>
                 <p className="text-[11px] text-slate-500">Avg P&amp;L / run</p>
-                <p className={`text-sm font-semibold ${stats.avgPnlPerRun >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                <p
+                  className={`text-sm font-semibold ${stats.avgPnlPerRun >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                >
                   {stats.completed > 0 ? fmtPnl(stats.avgPnlPerRun) : '—'}
                 </p>
               </div>
@@ -1034,7 +1067,9 @@ export const DashboardPage: React.FC = () => {
                 <Newspaper className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-white">Market context, not just metrics</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Market context, not just metrics
+                </h2>
                 <p className="mt-1 text-sm leading-6 text-slate-400">
                   Use the newsroom and market-intel workspace together so operator decisions stay
                   tied to the broader market regime.
@@ -1042,19 +1077,13 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
             <div className="mt-5 grid grid-cols-1 gap-3">
-              <Link
-                to="/news"
-                className="operator-action-card p-4"
-              >
+              <Link to="/news" className="operator-action-card p-4">
                 <p className="text-sm font-semibold text-white">Open Market News</p>
                 <p className="mt-1 text-xs text-slate-400">
                   See the full CoinDesk-powered newsroom view.
                 </p>
               </Link>
-              <Link
-                to="/codex"
-                className="operator-action-card p-4"
-              >
+              <Link to="/codex" className="operator-action-card p-4">
                 <p className="text-sm font-semibold text-white">Open Market Intel</p>
                 <p className="mt-1 text-xs text-slate-400">
                   Inspect movers, safer tokens, and asset context in one place.
@@ -1065,11 +1094,16 @@ export const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="operator-section-card p-5 animate-fade-slide-up" style={{ animationDelay: '420ms' }}>
+      <section
+        className="operator-section-card p-5 animate-fade-slide-up"
+        style={{ animationDelay: '420ms' }}
+      >
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold text-white">Backtest activity tape</h2>
-            <p className="text-sm text-slate-400">Every run remains visible here with soft refresh behavior for active jobs.</p>
+            <p className="text-sm text-slate-400">
+              Every run remains visible here with soft refresh behavior for active jobs.
+            </p>
           </div>
           <button
             type="button"
@@ -1080,7 +1114,7 @@ export const DashboardPage: React.FC = () => {
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
-        <BacktestList refreshTrigger={refreshTrigger} />
+        <BacktestList runs={runs} loading={statsLoading} error={statsError} />
       </section>
     </PageContainer>
   );

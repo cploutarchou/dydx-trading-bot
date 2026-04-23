@@ -101,7 +101,7 @@ type Config struct {
 	Auth     AuthSettings
 }
 
-func LoadConfig() {
+func LoadConfig() error {
 	// Note: In Go, dotenv loading is typically done in main, but for compatibility, we can assume it's loaded
 	// For now, directly use os.Getenv
 
@@ -138,7 +138,7 @@ func LoadConfig() {
 
 	dbType := strings.ToLower(getEnv("DB_TYPE", "postgresql"))
 	if dbType != "postgres" && dbType != "postgresql" {
-		panic(fmt.Sprintf("unsupported DB_TYPE %q: only PostgreSQL is supported", dbType))
+		return fmt.Errorf("unsupported DB_TYPE %q: only PostgreSQL is supported", dbType)
 	}
 
 	normalizedDBType := "postgres"
@@ -186,6 +186,8 @@ func LoadConfig() {
 		Redis:    redis,
 		Auth:     auth,
 	}
+
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {

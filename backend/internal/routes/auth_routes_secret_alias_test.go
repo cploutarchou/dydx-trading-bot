@@ -26,7 +26,9 @@ func TestAuth_LoginTokenValidWhenOnlySecretKeyAliasIsSet(t *testing.T) {
 	t.Setenv("JWT_SECRET_KEY", "")
 	t.Setenv("APP_ENV", "test")
 
-	config.LoadConfig()
+	if err := config.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	middleware.InitAuthMiddleware(config.ConfigInstance)
 
 	dbConn, err := sql.Open("sqlite", ":memory:")

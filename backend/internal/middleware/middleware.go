@@ -55,6 +55,16 @@ func allowedCORSOriginsFromEnv() map[string]struct{} {
 	return allowed
 }
 
+// IsAllowedBrowserOrigin reports whether an Origin header value is allowed by
+// the backend's CORS policy. Empty origins are treated as allowed so non-browser
+// clients and same-process tests can connect without a browser Origin header.
+func IsAllowedBrowserOrigin(origin string) bool {
+	if strings.TrimSpace(origin) == "" {
+		return true
+	}
+	return isAllowedCORSOrigin(origin, allowedCORSOriginsFromEnv())
+}
+
 func isAllowedCORSOrigin(origin string, allowed map[string]struct{}) bool {
 	if len(allowed) == 0 {
 		return true

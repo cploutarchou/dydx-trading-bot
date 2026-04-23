@@ -1,6 +1,7 @@
 // Global Error Boundary and Toast System
 // Provides comprehensive error handling and user notifications
 
+import { AlertTriangle, CheckCircle2, Info, RefreshCw, X, XCircle } from 'lucide-react';
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
@@ -185,39 +186,33 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       }
 
       return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
-          <div className="max-w-md w-full bg-slate-800 rounded-lg shadow-xl p-6">
-            <div className="flex items-center mb-4">
-              <div className="shrink-0">
-                <svg
-                  className="h-8 w-8 text-red-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
-                  />
-                </svg>
+        <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
+          <div className="w-full max-w-xl rounded-lg border border-rose-500/20 bg-slate-900/95 p-6 shadow-[0_40px_120px_rgba(2,6,23,0.6)]">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg border border-rose-500/25 bg-rose-500/10 p-2 text-rose-300">
+                <AlertTriangle className="h-5 w-5" />
               </div>
-              <div className="ml-3">
-                <h3 className="text-lg font-medium text-white">Something went wrong</h3>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-300">
+                  Workspace interruption
+                </p>
+                <h3 className="mt-2 text-xl font-semibold text-white">
+                  The operator workspace hit an unexpected error.
+                </h3>
               </div>
             </div>
 
-            <div className="text-sm text-slate-300 mb-4">
-              An unexpected error occurred in the application. This has been logged and will be
-              investigated.
-            </div>
+            <p className="mb-4 mt-4 text-sm leading-6 text-slate-300">
+              We kept the failure visible instead of letting the page silently break. Reload the
+              workspace to restore session context, or try again if you were in the middle of a
+              non-destructive step.
+            </p>
 
             <details className="mb-4">
-              <summary className="cursor-pointer text-sm text-slate-400 hover:text-slate-300">
+              <summary className="cursor-pointer text-sm text-slate-400 hover:text-slate-200">
                 Technical Details
               </summary>
-              <div className="mt-2 text-xs text-slate-500 bg-slate-900 rounded p-2 overflow-auto">
+              <div className="mt-3 overflow-auto rounded-lg border border-slate-800 bg-slate-950/80 p-3 text-xs text-slate-400">
                 <div>
                   <strong>Error:</strong> {this.state.error?.message}
                 </div>
@@ -230,19 +225,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               </div>
             </details>
 
-            <div className="flex space-x-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 onClick={() => window.location.reload()}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/15 px-4 py-3 text-sm font-medium text-cyan-50 transition hover:border-cyan-400/40 hover:bg-cyan-500/20"
               >
-                Reload Page
+                <RefreshCw className="h-4 w-4" />
+                Reload Workspace
               </button>
               <button
                 onClick={() => {
                   this.setState({ hasError: false, error: null, errorInfo: null });
                 }}
-                className="flex-1 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-700/70 bg-slate-900/70 px-4 py-3 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-900"
               >
+                <RefreshCw className="h-4 w-4" />
                 Try Again
               </button>
             </div>
@@ -262,7 +259,7 @@ export function ToastContainer() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm w-full">
+    <div className="fixed right-4 top-4 z-[80] flex w-full max-w-sm flex-col gap-2">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onRemove={removeToast} />
       ))}
@@ -277,67 +274,49 @@ interface ToastItemProps {
 }
 
 function ToastItem({ toast, onRemove }: ToastItemProps) {
-  const bgColor = {
-    success: 'bg-green-600',
-    error: 'bg-red-600',
-    warning: 'bg-yellow-600',
-    info: 'bg-blue-600',
+  const toneMap = {
+    success: {
+      wrapper: 'border-emerald-500/25 bg-slate-950/96',
+      iconWrap: 'border-emerald-500/25 bg-emerald-500/12 text-emerald-300',
+      title: 'text-emerald-200',
+      icon: CheckCircle2,
+    },
+    error: {
+      wrapper: 'border-rose-500/25 bg-slate-950/96',
+      iconWrap: 'border-rose-500/25 bg-rose-500/12 text-rose-300',
+      title: 'text-rose-200',
+      icon: XCircle,
+    },
+    warning: {
+      wrapper: 'border-amber-500/25 bg-slate-950/96',
+      iconWrap: 'border-amber-500/25 bg-amber-500/12 text-amber-300',
+      title: 'text-amber-200',
+      icon: AlertTriangle,
+    },
+    info: {
+      wrapper: 'border-cyan-500/25 bg-slate-950/96',
+      iconWrap: 'border-cyan-500/25 bg-cyan-500/12 text-cyan-300',
+      title: 'text-cyan-200',
+      icon: Info,
+    },
   }[toast.type];
-
-  const icon = {
-    success: (
-      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
-    error: (
-      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
-    warning: (
-      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
-    info: (
-      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
-  }[toast.type];
+  const Icon = toneMap.icon;
 
   return (
-    <div
-      className={`${bgColor} text-white p-4 rounded-lg shadow-lg animate-in slide-in-from-right duration-200`}
-    >
-      <div className="flex items-start">
-        <div className="shrink-0">{icon}</div>
+    <div className={`rounded-lg border p-4 shadow-[0_24px_80px_rgba(2,6,23,0.45)] ${toneMap.wrapper}`}>
+      <div className="flex items-start gap-3">
+        <div className={`shrink-0 rounded-lg border p-2 ${toneMap.iconWrap}`}>
+          <Icon className="h-4 w-4" />
+        </div>
 
-        <div className="ml-3 flex-1">
-          <div className="font-medium text-sm">{toast.title}</div>
-          {toast.message && <div className="text-sm opacity-90 mt-1">{toast.message}</div>}
+        <div className="min-w-0 flex-1">
+          <div className={`text-sm font-semibold ${toneMap.title}`}>{toast.title}</div>
+          {toast.message && <div className="mt-1 text-sm leading-6 text-slate-300">{toast.message}</div>}
 
           {toast.action && (
             <button
               onClick={toast.action.onClick}
-              className="mt-2 text-sm underline hover:no-underline"
+              className="mt-2 text-sm font-medium text-white underline underline-offset-4 hover:no-underline"
             >
               {toast.action.label}
             </button>
@@ -346,16 +325,9 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
 
         <button
           onClick={() => onRemove(toast.id)}
-          className="ml-2 shrink-0 text-white/70 hover:text-white transition-colors"
+          className="shrink-0 text-slate-500 transition-colors hover:text-slate-200"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
+          <X className="h-4 w-4" />
         </button>
       </div>
     </div>

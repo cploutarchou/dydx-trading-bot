@@ -21,7 +21,7 @@
 		"tailwindcss": "^4.1.14",
 		"vite": "^7.3.2",
 		"zustand": "^5.0.8"
-    },
+	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.1",
 		"@eslint/js": "^9.38.0",
@@ -51,5 +51,11 @@
 		"qa:screenshots:plan": "node ./scripts/capture-responsive-screenshots.mjs --dry-run",
 		"qa:screenshots:capture": "node ./scripts/capture-responsive-screenshots.mjs",
 		"qa:screenshots:sync": "node ./scripts/update-responsive-screenshot-checklist.mjs"
-	}
+	},
+	"browserslist": [
+		"Firefox >= 110",
+		"Chrome >= 111",
+		"Safari >= 16.4",
+		"Edge >= 111"
+	]
 }

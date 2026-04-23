@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity,
-  ArrowRight,
-  Award,
-  BarChart3,
-  ChevronRight,
-  Layers3,
-  ShieldCheck,
-  Sparkles,
-  Target,
-  TrendingUp,
+    Activity,
+    ArrowRight,
+    Award,
+    BarChart3,
+    ChevronRight,
+    Layers3,
+    ShieldCheck,
+    Sparkles,
+    Target,
+    TrendingUp,
 } from 'lucide-react';
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
@@ -19,17 +19,17 @@ import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
 import { TerminalDataGrid, type TerminalColumn } from '../components/TerminalDataGrid';
 import {
-  type BacktestRun,
-  buildIntelligence,
-  extractBacktestRuns,
-  formatCurrency,
-  formatDateTime,
-  formatPercent,
-  isActiveBacktestRun,
-  normalizePercent,
-  safeNumber,
-  type StrategyAggregate,
-  type StrategyRef,
+    buildIntelligence,
+    extractBacktestRuns,
+    formatCurrency,
+    formatDateTime,
+    formatPercent,
+    isActiveBacktestRun,
+    normalizePercent,
+    safeNumber,
+    type BacktestRun,
+    type StrategyAggregate,
+    type StrategyRef,
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
 
@@ -111,7 +111,7 @@ export const BacktestsPage: React.FC = () => {
   const backtestsQuery = useQuery({
     queryKey: ['backtests', 'intelligence'],
     queryFn: async (): Promise<BacktestRun[]> => {
-      const response = await api.listBacktests(0, 500);
+      const response = await api.listBacktests(0, 50);
       return extractBacktestRuns(response);
     },
     staleTime: 10_000,

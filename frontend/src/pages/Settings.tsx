@@ -13,7 +13,6 @@
 import {
   AlertCircle,
   BarChart2,
-  Check,
   ChevronRight,
   KeyRound,
   Loader,
@@ -49,6 +48,7 @@ import { MailgunSettings } from '../components/MailgunSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
+import { InlineNotice, PlatformPageHeader, PlatformStatCard, StatusBadge } from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 
 type SettingValue =
@@ -625,7 +625,9 @@ export default function Settings() {
         <div className="premium-panel flex h-64 items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <Loader className="h-8 w-8 animate-spin text-cyan-400" />
-            <p className="text-sm text-slate-400">Loading settings…</p>
+            <p className="text-sm text-slate-400">
+              Loading operator settings, access controls, and integration defaults...
+            </p>
           </div>
         </div>
       </PageContainer>
@@ -635,17 +637,20 @@ export default function Settings() {
   if (!schema) {
     return (
       <PageContainer size="wide">
-        <div className="flex items-center gap-3 rounded-xl border border-red-700/60 bg-red-900/20 px-5 py-4 text-red-200">
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          <span className="text-sm">Failed to load settings. Please try again.</span>
-          <button
-            type="button"
-            onClick={fetchSettingsData}
-            className="ml-auto text-sm font-medium underline underline-offset-2 hover:text-red-100"
-          >
-            Retry
-          </button>
-        </div>
+        <InlineNotice
+          tone="danger"
+          title="Settings could not be loaded"
+          description="The control surface is unavailable right now. Retry the request and confirm the backend is healthy if the problem continues."
+          action={
+            <button
+              type="button"
+              onClick={fetchSettingsData}
+              className="rounded-lg border border-rose-500/30 bg-rose-500/15 px-4 py-2 text-sm font-medium text-rose-100 transition hover:border-rose-400/40 hover:bg-rose-500/20"
+            >
+              Retry
+            </button>
+          }
+        />
       </PageContainer>
     );
   }
@@ -661,35 +666,65 @@ export default function Settings() {
     'inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:opacity-40';
 
   return (
-    <PageContainer size="wide">
-      {/* Page Header */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <span className="premium-kicker">System</span>
-          <h1 className="mt-3 text-2xl font-bold text-white">Settings</h1>
-          <p className="mt-1 max-w-xl text-sm text-slate-400">
-            Profile, API keys, integrations and runtime configuration — all from one place.
-          </p>
-        </div>
-        <div className="shrink-0 pt-1">
-          {hasUnsavedChanges ? (
-            <span className="inline-flex items-center gap-2 rounded-full border border-amber-600/50 bg-amber-900/30 px-3 py-1.5 text-xs font-medium text-amber-200">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-              Unsaved changes
-            </span>
+    <PageContainer size="wide" className="space-y-6">
+      <PlatformPageHeader
+        kicker="System"
+        title="Settings"
+        description="Profile, access, wallet keys, integrations, and runtime defaults now live in one responsive control surface with clearer save state and validation cues."
+        icon={SlidersHorizontal}
+        meta={
+          hasUnsavedChanges ? (
+            <StatusBadge tone="warning">Unsaved changes</StatusBadge>
           ) : (
-            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1.5 text-xs font-medium text-emerald-300">
-              <Check className="h-3 w-3" />
-              All saved
-            </span>
-          )}
-        </div>
-      </div>
+            <StatusBadge tone="success">All changes saved</StatusBadge>
+          )
+        }
+      />
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <PlatformStatCard
+          label="Configured sections"
+          value={sidebarSections.length}
+          tone="default"
+          detail="Identity, integrations, and runtime controls in one workspace."
+          icon={SlidersHorizontal}
+        />
+        <PlatformStatCard
+          label="Validation"
+          value={totalFieldErrors}
+          tone={totalFieldErrors > 0 ? 'danger' : 'success'}
+          detail={
+            totalFieldErrors > 0
+              ? 'Resolve highlighted fields before saving.'
+              : 'No blocking validation issues detected.'
+          }
+          icon={AlertCircle}
+        />
+        <PlatformStatCard
+          label="Save state"
+          value={hasUnsavedChanges ? 'Draft edits' : 'Synced'}
+          tone={hasUnsavedChanges ? 'warning' : 'accent'}
+          detail={
+            hasUnsavedChanges
+              ? 'Review and save your pending changes.'
+              : 'Workspace configuration matches the backend.'
+          }
+          icon={Save}
+        />
+      </section>
+
+      {hasUnsavedChanges && (
+        <InlineNotice
+          tone="warning"
+          title="You have pending configuration edits"
+          description="Save once you are comfortable with the current values, or discard if this session was exploratory."
+        />
+      )}
 
       {/* Main Layout */}
-      <div className="flex items-start gap-5">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
         {/* Sidebar */}
-        <aside className="sticky top-20 w-60 shrink-0">
+        <aside className="w-full shrink-0 xl:sticky xl:top-20 xl:w-72">
           <div className="premium-panel overflow-hidden p-0 shadow-2xl">
             {/* Search */}
             <div className="border-b border-slate-700/60 px-3 py-3">

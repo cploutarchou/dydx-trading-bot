@@ -1350,10 +1350,10 @@ class ApiClient {
   ): Promise<ApiResponse<BacktestListResponse>> {
     this.ensureTokenLoaded();
 
-    const maxPageSize = 200;
-    const minPageSize = 50;
+    const maxPageSize = 25;
+    const minPageSize = 10;
     const safeSkip = Number.isFinite(skip) && skip >= 0 ? Math.floor(skip) : 0;
-    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
 
     const isRetryableBacktestListError = (error: unknown): boolean => {
       if (!(error instanceof AxiosError)) {

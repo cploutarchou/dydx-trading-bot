@@ -1,6 +1,5 @@
 import {
   Activity,
-  AlertCircle,
   ChevronDown,
   ChevronUp,
   Pause,
@@ -11,7 +10,7 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { classifyApiError } from '../api';
 import {
@@ -24,7 +23,9 @@ import {
   useStartBotInstance,
   useStopBotInstance,
 } from '../api/hooks';
+import { useToastStore } from './ErrorBoundary';
 import { PageContainer } from './PageContainer';
+import { ActionDialog, EmptyState, InlineNotice } from './ui/PlatformUI';
 
 interface BotInstance {
   instance_id: string;
@@ -51,6 +52,13 @@ interface BotStats {
   degraded?: boolean;
   warning?: string;
 }
+
+type PendingRuntimeAction =
+  | {
+      kind: 'stop' | 'restart' | 'delete';
+      instanceId: string;
+    }
+  | null;
 
 const normalizeStatus = (status: string | undefined): BotInstance['status'] => {
   const normalized = String(status || '').toUpperCase();
@@ -413,6 +421,10 @@ const BotManager: React.FC = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [expandedBot, setExpandedBot] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingRuntimeAction>(null);
+  const successToast = useToastStore((state) => state.success);
+  const errorToast = useToastStore((state) => state.error);
+  const infoToast = useToastStore((state) => state.info);
 
   const [createForm, setCreateForm] = useState({
     instance_id: '',
@@ -471,10 +483,50 @@ const BotManager: React.FC = () => {
     });
   };
 
+  const pendingBot = useMemo(
+    () => (pendingAction ? bots.find((bot) => bot.instance_id === pendingAction.instanceId) ?? null : null),
+    [bots, pendingAction]
+  );
+
+  const pendingActionConfig = useMemo(() => {
+    if (!pendingAction) return null;
+
+    if (pendingAction.kind === 'stop') {
+      return {
+        title: `Stop ${pendingAction.instanceId}?`,
+        description:
+          'This pauses live execution for the selected runtime. Open positions may still need operator review depending on strategy state.',
+        confirmLabel: 'Stop runtime',
+        confirmTone: 'warning' as const,
+      };
+    }
+
+    if (pendingAction.kind === 'restart') {
+      return {
+        title: `Restart ${pendingAction.instanceId}?`,
+        description:
+          'Use restart when the runtime is stale, degraded, or after a controlled config change. The desk will briefly lose live continuity.',
+        confirmLabel: 'Restart runtime',
+        confirmTone: 'accent' as const,
+      };
+    }
+
+    return {
+      title: `Delete ${pendingAction.instanceId}?`,
+      description:
+        'This permanently removes the runtime from the desk. Only continue if this instance is retired and no longer needed for monitoring or recovery.',
+      confirmLabel: 'Delete runtime',
+      confirmTone: 'danger' as const,
+    };
+  }, [pendingAction]);
+
   const handleCreateBot = async () => {
     try {
       if (!createForm.instance_id || !createForm.address || !createForm.mnemonic) {
-        setError('Please fill all required fields');
+        const message =
+          'Complete the runtime ID, wallet address, and secret phrase before creating a new bot.';
+        setError(message);
+        errorToast('Runtime details missing', message);
         return;
       }
 
@@ -504,25 +556,36 @@ const BotManager: React.FC = () => {
       setShowCreateForm(false);
       resetCreateForm();
       await refreshBots();
+      successToast(
+        'Runtime created',
+        `${createForm.instance_id} is ready for review and can be started from the desk.`
+      );
     } catch (err) {
       console.error('Failed to create bot:', err);
-      setError(toOperatorErrorMessage(err, 'Failed to create bot instance'));
+      const message = toOperatorErrorMessage(err, 'Failed to create bot instance');
+      setError(message);
+      errorToast('Unable to create runtime', message);
     }
   };
 
   const runBotAction = async (
     actionKey: string,
     action: () => Promise<unknown>,
-    fallbackMessage: string
+    fallbackMessage: string,
+    successTitle: string,
+    successMessage: string
   ) => {
     try {
       setActionLoading(actionKey);
       setError(null);
       await action();
       await refreshBots();
+      successToast(successTitle, successMessage);
     } catch (err) {
       console.error(`${actionKey} failed:`, err);
-      setError(toOperatorErrorMessage(err, fallbackMessage));
+      const message = toOperatorErrorMessage(err, fallbackMessage);
+      setError(message);
+      errorToast(successTitle, message);
     } finally {
       setActionLoading(null);
     }
@@ -532,33 +595,54 @@ const BotManager: React.FC = () => {
     runBotAction(
       `start:${instanceId}`,
       () => startBotMutation.mutateAsync({ instanceId }),
-      'Failed to start bot'
+      'Failed to start bot',
+      'Runtime start requested',
+      `${instanceId} is moving into live execution. Watch its stream status for confirmation.`
     );
 
   const handleStopBot = async (instanceId: string) =>
     runBotAction(
       `stop:${instanceId}`,
       () => stopBotMutation.mutateAsync(instanceId),
-      'Failed to stop bot'
+      'Failed to stop bot',
+      'Runtime stop requested',
+      `${instanceId} is stopping. Confirm exposure and reconnect state once the desk refreshes.`
     );
 
   const handleRestartBot = async (instanceId: string) =>
     runBotAction(
       `restart:${instanceId}`,
       () => restartBotMutation.mutateAsync(instanceId),
-      'Failed to restart bot'
+      'Failed to restart bot',
+      'Runtime restart requested',
+      `${instanceId} is restarting. Expect a brief monitoring gap while the stream reconnects.`
     );
 
   const handleDeleteBot = async (instanceId: string) => {
-    if (!window.confirm(`Are you sure you want to delete bot ${instanceId}?`)) {
-      return;
-    }
-
     await runBotAction(
       `delete:${instanceId}`,
       () => deleteBotMutation.mutateAsync(instanceId),
-      'Failed to delete bot'
+      'Failed to delete bot',
+      'Runtime deleted',
+      `${instanceId} was removed from the desk.`
     );
+  };
+
+  const confirmPendingAction = async () => {
+    if (!pendingAction) return;
+
+    const { instanceId, kind } = pendingAction;
+    setPendingAction(null);
+
+    if (kind === 'stop') {
+      await handleStopBot(instanceId);
+      return;
+    }
+    if (kind === 'restart') {
+      await handleRestartBot(instanceId);
+      return;
+    }
+    await handleDeleteBot(instanceId);
   };
 
   const isCreating = createBotMutation.isPending;
@@ -653,10 +737,11 @@ const BotManager: React.FC = () => {
       </section>
 
       {error && (
-        <div className="flex items-center gap-2 rounded-2xl border border-red-700 bg-red-950/40 px-4 py-3 text-red-100">
-          <AlertCircle size={20} />
-          {error}
-        </div>
+        <InlineNotice
+          tone="danger"
+          title="Runtime action needs attention"
+          description={error}
+        />
       )}
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr,1.05fr]">
@@ -731,10 +816,43 @@ const BotManager: React.FC = () => {
           <div>
             <h2 className="text-xl font-semibold text-white">Create new bot instance</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Configure the runtime, credentials, and basic trading parameters before the instance
-              enters the desk.
+              Walk through runtime identity, wallet credentials, and execution defaults before the
+              instance enters the desk.
             </p>
           </div>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className="metric-tile px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Identity</p>
+              <p className="mt-2 text-sm font-semibold text-white">Name the runtime clearly</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Use an ID that reflects route, market pair, or strategy owner so operators can scan
+                it instantly later.
+              </p>
+            </div>
+            <div className="metric-tile px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Wallet</p>
+              <p className="mt-2 text-sm font-semibold text-white">Attach the correct account</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Enter the wallet address and secret phrase for the intended dYdX environment before
+                the runtime is allowed to trade.
+              </p>
+            </div>
+            <div className="metric-tile px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Risk</p>
+              <p className="mt-2 text-sm font-semibold text-white">Set execution defaults</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Keep z-score, half-life, and per-trade sizing explicit so the first launch is easy
+                to review.
+              </p>
+            </div>
+          </div>
+
+          <InlineNotice
+            tone="warning"
+            title="Sensitive runtime setup"
+            description="Seed phrases are operational secrets. Double-check environment, account, and sizing before you create the runtime."
+          />
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
@@ -873,9 +991,27 @@ const BotManager: React.FC = () => {
         {isInitialLoading ? (
           <div className="operator-section-card py-10 text-center text-slate-400">Loading bots...</div>
         ) : bots.length === 0 ? (
-          <div className="operator-section-card p-8 text-center">
-            <Zap size={32} className="mx-auto mb-2 text-slate-500" />
-            <p className="text-slate-400">No bot instances yet. Create one to get started!</p>
+          <div className="operator-section-card p-8">
+            <EmptyState
+              icon={Zap}
+              title="No runtimes are active yet"
+              description="Create a bot instance to connect wallet credentials, define core execution defaults, and bring a new arbitrage runtime into the desk."
+              action={
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateForm(true);
+                    infoToast(
+                      'New runtime flow opened',
+                      'Fill in identity, wallet, and risk defaults before creating the bot.'
+                    );
+                  }}
+                  className="premium-button premium-button-primary inline-flex px-4 py-2.5 text-sm text-white"
+                >
+                  Create first runtime
+                </button>
+              }
+            />
           </div>
         ) : (
           bots.map((bot) => {
@@ -890,14 +1026,44 @@ const BotManager: React.FC = () => {
                   setExpandedBot((current) => (current === instanceId ? null : instanceId))
                 }
                 onStart={(instanceId) => void handleStartBot(instanceId)}
-                onStop={(instanceId) => void handleStopBot(instanceId)}
-                onRestart={(instanceId) => void handleRestartBot(instanceId)}
-                onDelete={(instanceId) => void handleDeleteBot(instanceId)}
+                onStop={(instanceId) => setPendingAction({ kind: 'stop', instanceId })}
+                onRestart={(instanceId) => setPendingAction({ kind: 'restart', instanceId })}
+                onDelete={(instanceId) => setPendingAction({ kind: 'delete', instanceId })}
               />
             );
           })
         )}
       </section>
+
+      {pendingActionConfig && (
+        <ActionDialog
+          open
+          title={pendingActionConfig.title}
+          description={pendingActionConfig.description}
+          confirmLabel={pendingActionConfig.confirmLabel}
+          confirmTone={pendingActionConfig.confirmTone}
+          onClose={() => setPendingAction(null)}
+          onConfirm={() => void confirmPendingAction()}
+          loading={actionLoading !== null}
+          details={
+            pendingBot && (
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Runtime context</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs text-slate-500">Instance</p>
+                    <p className="text-sm font-semibold text-white">{pendingBot.instance_id}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Status</p>
+                    <p className="text-sm font-semibold text-white">{pendingBot.status}</p>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+        />
+      )}
     </PageContainer>
   );
 };

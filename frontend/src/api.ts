@@ -1055,6 +1055,15 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
+        const isCanceledRequest =
+          axios.isCancel(error) ||
+          error.code === 'ERR_CANCELED' ||
+          error.message === 'Request aborted';
+
+        if (isCanceledRequest) {
+          return Promise.reject(error);
+        }
+
         // Log all errors for debugging
         const url = error.config?.url || '';
         const status = error.response?.status;

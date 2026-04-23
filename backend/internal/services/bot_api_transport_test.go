@@ -267,7 +267,9 @@ func TestMakeRequest_UsesRequestContextCancellation(t *testing.T) {
 	}
 }
 
-func TestMakeRequest_401RetriesWithConfiguredServiceToken(t *testing.T) {
+func TestMakeRequest_401DoesNotRetryWithServiceTokenWhenUserForwardingModeDisabled(t *testing.T) {
+	t.Setenv("BOT_API_USE_SERVICE_TOKEN", "false")
+
 	authHeaders := make(chan string, 2)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeaders <- r.Header.Get("Authorization")
@@ -284,17 +286,28 @@ func TestMakeRequest_401RetriesWithConfiguredServiceToken(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	client := NewBotAPIClient(upstream.URL, "shared-service-token").WithToken("user-jwt-token")
-	if _, err := client.HealthCheck(); err != nil {
-		t.Fatalf("expected fallback retry to succeed, got %v", err)
+	_, err := client.HealthCheck()
+	if err == nil {
+		t.Fatal("expected unauthorized error, got nil")
+	}
+
+	var apiErr *BotAPIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected BotAPIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", apiErr.StatusCode)
 	}
 
 	first := <-authHeaders
-	second := <-authHeaders
 	if first != "Bearer user-jwt-token" {
 		t.Fatalf("expected first request to use caller token, got %q", first)
 	}
-	if second != "Bearer shared-service-token" {
-		t.Fatalf("expected retry to use service token, got %q", second)
+
+	select {
+	case second := <-authHeaders:
+		t.Fatalf("expected no fallback retry, got second authorization header %q", second)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

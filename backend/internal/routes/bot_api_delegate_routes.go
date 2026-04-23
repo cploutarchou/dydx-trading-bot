@@ -16,9 +16,8 @@ import (
 )
 
 var websocketUpgrader = websocket.Upgrader{
-	CheckOrigin: func(_ *http.Request) bool {
-		// CORS/auth middleware already guards access; keep origin check permissive here.
-		return true
+	CheckOrigin: func(r *http.Request) bool {
+		return middleware.IsAllowedBrowserOrigin(r.Header.Get("Origin"))
 	},
 }
 
@@ -793,8 +792,8 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	createBacktestHandler := func(c *gin.Context) {
 		requestClient := getRequestBotAPIClient(c, apiClient)
 		var config map[string]interface{}
-		if err := c.BindJSON(&config); err != nil {
-			c.JSON(400, gin.H{"error": "Invalid request body"})
+		if err := c.ShouldBindJSON(&config); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "message": err.Error()})
 			return
 		}
 		config = normalizeBacktestRunPayload(config)
@@ -995,8 +994,8 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		backtestGroup.POST("/compare", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			var config map[string]interface{}
-			if err := c.BindJSON(&config); err != nil {
-				c.JSON(400, gin.H{"error": "Invalid request body"})
+			if err := c.ShouldBindJSON(&config); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "message": err.Error()})
 				return
 			}
 			result, err := requestClient.CompareBacktests(config)
@@ -1710,8 +1709,8 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			autoStart := c.DefaultQuery("auto_start", "true") == "true"
 
 			var config map[string]interface{}
-			if err := c.BindJSON(&config); err != nil {
-				c.JSON(400, gin.H{"error": "Invalid request body"})
+			if err := c.ShouldBindJSON(&config); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "message": err.Error()})
 				return
 			}
 

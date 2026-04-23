@@ -25,7 +25,9 @@ func setupPasswordChangeRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 
 	t.Setenv("JWT_SECRET_KEY", refreshTestJWTSecret)
 	t.Setenv("APP_ENV", "test")
-	config.LoadConfig()
+	if err := config.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	middleware.InitAuthMiddleware(config.ConfigInstance)
 
 	dbConn, err := sql.Open("sqlite", ":memory:")

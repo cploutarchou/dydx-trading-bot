@@ -27,7 +27,9 @@ func setupAuthMFATestRouter(t *testing.T) (*gin.Engine, *sql.DB, int) {
 	t.Setenv("JWT_SECRET_KEY", refreshTestJWTSecret)
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
-	config.LoadConfig()
+	if err := config.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	middleware.InitAuthMiddleware(config.ConfigInstance)
 
 	dbConn, err := sql.Open("sqlite", ":memory:")

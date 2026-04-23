@@ -26,7 +26,7 @@ func NewPairStorageHandler() *PairStorageHandler {
 func (h *PairStorageHandler) SavePairs(c *gin.Context) {
 	var pairs []services.CointegrationResult
 
-	if err := c.BindJSON(&pairs); err != nil {
+	if err := c.ShouldBindJSON(&pairs); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -201,7 +201,7 @@ func (h *PairStorageHandler) CalculateConfidence(c *gin.Context) {
 		ZeroCrossings int     `json:"zero_crossings"`
 	}
 
-	if err := c.BindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),

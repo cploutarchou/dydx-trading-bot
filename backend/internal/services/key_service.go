@@ -9,6 +9,15 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 )
 
+type DecryptedDYDXKey struct {
+	ID           int
+	Network      string
+	ChainAddress string
+	SecretPhrase string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type KeyManagementService struct {
 	repo   *repository.KeyRepository
 	secret string
@@ -90,28 +99,15 @@ func (s *KeyManagementService) CreateKey(userID int, network string, chainAddres
 	return key, nil
 }
 
-func (s *KeyManagementService) GetKeyInfo(userID int, network string) (map[string]interface{}, error) {
+func (s *KeyManagementService) GetKeyInfo(userID int, network string) (*models.DYDXKey, error) {
 	key, err := s.repo.GetKeyByUserAndNetwork(userID, network)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get key: %w", err)
 	}
-
-	if key == nil {
-		return nil, nil
-	}
-
-	return map[string]interface{}{
-		"id":            key.ID,
-		"network":       key.Network,
-		"chain_address": key.ChainAddress,
-		"secret_masked": key.SecretMasked,
-		"is_active":     key.IsActive,
-		"created_at":    key.CreatedAt.Format(time.RFC3339),
-		"updated_at":    key.UpdatedAt.Format(time.RFC3339),
-	}, nil
+	return key, nil
 }
 
-func (s *KeyManagementService) GetKey(userID int, network string) (map[string]interface{}, error) {
+func (s *KeyManagementService) GetKey(userID int, network string) (*DecryptedDYDXKey, error) {
 	key, err := s.repo.GetKeyByUserAndNetwork(userID, network)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get key: %w", err)
@@ -127,36 +123,22 @@ func (s *KeyManagementService) GetKey(userID int, network string) (map[string]in
 		return nil, fmt.Errorf("failed to decrypt secret: %w", err)
 	}
 
-	return map[string]interface{}{
-		"id":            key.ID,
-		"network":       key.Network,
-		"chain_address": key.ChainAddress,
-		"secret_phrase": decrypted,
-		"created_at":    key.CreatedAt.Format(time.RFC3339),
-		"updated_at":    key.UpdatedAt.Format(time.RFC3339),
+	return &DecryptedDYDXKey{
+		ID:           key.ID,
+		Network:      key.Network,
+		ChainAddress: key.ChainAddress,
+		SecretPhrase: decrypted,
+		CreatedAt:    key.CreatedAt,
+		UpdatedAt:    key.UpdatedAt,
 	}, nil
 }
 
-func (s *KeyManagementService) GetActiveKeys(userID int) ([]map[string]interface{}, error) {
+func (s *KeyManagementService) GetActiveKeys(userID int) ([]models.DYDXKey, error) {
 	keys, err := s.repo.GetActiveKeysByUser(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get keys: %w", err)
 	}
-
-	var result []map[string]interface{}
-	for _, key := range keys {
-		result = append(result, map[string]interface{}{
-			"id":            key.ID,
-			"network":       key.Network,
-			"chain_address": key.ChainAddress,
-			"secret_masked": key.SecretMasked,
-			"is_active":     key.IsActive,
-			"created_at":    key.CreatedAt.Format(time.RFC3339),
-			"updated_at":    key.UpdatedAt.Format(time.RFC3339),
-		})
-	}
-
-	return result, nil
+	return keys, nil
 }
 
 func (s *KeyManagementService) DeleteKey(userID int, network string) error {

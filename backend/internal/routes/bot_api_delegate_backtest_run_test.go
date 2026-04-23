@@ -177,7 +177,9 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 		t.Fatalf("insert smoke user: %v", err)
 	}
 
-	config.LoadConfig()
+	if err := config.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	middleware.InitAuthMiddleware(config.ConfigInstance)
 
 	router := gin.New()

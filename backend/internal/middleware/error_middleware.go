@@ -1,8 +1,9 @@
 package middleware
 
 import (
-	"fmt"
 	"log"
+	"net/http"
+	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,12 +14,14 @@ func ErrorHandlingMiddleware() gin.HandlerFunc {
 		defer func() {
 			if err := recover(); err != nil {
 				traceID := GetTraceID(c)
-				log.Printf("🚨 Panic recovered: trace_id=%s err=%v", traceID, err)
-				fmt.Printf("🚨 PANIC STACK TRACE: trace_id=%s err=%v\n", traceID, err)
-				c.JSON(500, gin.H{
-					"error":    "Internal server error",
-					"trace_id": traceID,
-				})
+				log.Printf("panic recovered trace_id=%s err=%v\n%s", traceID, err, debug.Stack())
+				if !c.Writer.Written() {
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+						"error":    "Internal server error",
+						"trace_id": traceID,
+					})
+					return
+				}
 				c.Abort()
 			}
 		}()

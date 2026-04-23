@@ -135,7 +135,7 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 		return response, nil
 	}
 	response["key_exists"] = true
-	response["key_chain_address"] = keyInfo["chain_address"]
+	response["key_chain_address"] = keyInfo.ChainAddress
 
 	keyPayload, err := s.keyService.GetKey(strategy.UserID, network)
 	if err != nil {
@@ -152,8 +152,8 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 		"instance_name": strategy.Name,
 		"credentials": map[string]interface{}{
 			"chain_id": chainIDForNetwork(network),
-			"address":  keyPayload["chain_address"],
-			"mnemonic": keyPayload["secret_phrase"],
+			"address":  keyPayload.ChainAddress,
+			"mnemonic": keyPayload.SecretPhrase,
 		},
 		"trading_params": s.buildTradingParams(strategy, network),
 	}
@@ -169,7 +169,7 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 	response["selected_runtime_network"] = network
 	response["selected_subaccount"] = strategy.RuntimeSubaccount
 	response["key_exists"] = true
-	response["key_chain_address"] = keyInfo["chain_address"]
+	response["key_chain_address"] = keyInfo.ChainAddress
 	return response, nil
 }
 
@@ -385,8 +385,8 @@ func (s *StrategyRuntimeService) resolveRuntimeKey(userID int, requestedNetwork 
 		}
 		return &runtimeKeyMaterial{
 			Network:      network,
-			ChainAddress: fmt.Sprintf("%v", key["chain_address"]),
-			SecretPhrase: fmt.Sprintf("%v", key["secret_phrase"]),
+			ChainAddress: key.ChainAddress,
+			SecretPhrase: key.SecretPhrase,
 		}, nil
 	}
 
@@ -401,7 +401,7 @@ func (s *StrategyRuntimeService) resolveRuntimeKey(userID int, requestedNetwork 
 	selectedNetwork := ""
 	for _, candidate := range []string{"testnet", "mainnet"} {
 		for _, key := range activeKeys {
-			if strings.EqualFold(fmt.Sprintf("%v", key["network"]), candidate) {
+			if strings.EqualFold(key.Network, candidate) {
 				selectedNetwork = candidate
 				break
 			}
@@ -411,7 +411,7 @@ func (s *StrategyRuntimeService) resolveRuntimeKey(userID int, requestedNetwork 
 		}
 	}
 	if selectedNetwork == "" {
-		selectedNetwork = strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", activeKeys[0]["network"])))
+		selectedNetwork = strings.ToLower(strings.TrimSpace(activeKeys[0].Network))
 	}
 
 	return s.resolveRuntimeKey(userID, selectedNetwork)

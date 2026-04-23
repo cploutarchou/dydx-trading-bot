@@ -184,7 +184,17 @@ const normalizePercent = (value: number | undefined | null): number | null => {
   return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
 };
 
-export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger = 0 }) => {
+export const BacktestList: React.FC<{
+  refreshTrigger?: number;
+  runs?: BacktestRun[];
+  loading?: boolean;
+  error?: string | null;
+}> = ({
+  refreshTrigger = 0,
+  runs: controlledRuns,
+  loading: controlledLoading = false,
+  error: controlledError = null,
+}) => {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<BacktestRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,14 +206,25 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
   const isLoadingRef = useRef(false);
   const activeRequestIdRef = useRef(0);
   const pollFailureRef = useRef(0);
+  const isControlled = Array.isArray(controlledRuns);
+  const displayRuns = controlledRuns ?? runs;
+  const displayLoading = isControlled ? controlledLoading : loading;
+  const displayError = isControlled ? controlledError : error;
 
   useEffect(() => {
+    if (isControlled) {
+      return;
+    }
     // First load blocks with spinner; subsequent refreshes stay non-blocking
     void loadBacktests(!hasLoadedOnce);
-  }, [refreshTrigger]);
+  }, [hasLoadedOnce, isControlled, refreshTrigger]);
 
   // Auto-poll while any run is active
   useEffect(() => {
+    if (isControlled) {
+      return;
+    }
+
     const hasActive = runs.some((r) => {
       const s = normalizeStatus(r.status);
       return s === 'RUNNING' || s === 'PENDING';
@@ -243,7 +264,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         pollRef.current = null;
       }
     };
-  }, [runs]);
+  }, [isControlled, runs]);
 
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
     // Keep this fast for dashboard rendering: fetch the newest page only.
@@ -327,7 +348,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     }
   };
 
-  if (loading) {
+  if (displayLoading) {
     return (
       <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border border-slate-700 bg-stone-950/60 p-8">
         <Loader className="h-7 w-7 animate-spin text-cyan-400" />
@@ -344,11 +365,11 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
     CANCELLED: 0,
   };
 
-  for (const run of runs) {
+  for (const run of displayRuns) {
     statusCounts[normalizeStatus(run.status)] += 1;
   }
 
-  const filteredRuns = runs.filter((run) => {
+  const filteredRuns = displayRuns.filter((run) => {
     if (statusFilter === 'ALL') return true;
     return normalizeStatus(run.status) === statusFilter;
   });
@@ -371,7 +392,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
           <p className="text-[10px] font-semibold uppercase text-cyan-300">Run archive</p>
           <h3 className="mt-1 text-base font-semibold text-white">Backtest runs</h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            {runs.length} total run{runs.length !== 1 ? 's' : ''}
+            {displayRuns.length} total run{displayRuns.length !== 1 ? 's' : ''}
           </p>
         </div>
         <div className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-stone-950 px-3 py-2 text-xs text-slate-400">
@@ -384,7 +405,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         <div className="flex flex-wrap gap-2">
           {(
             [
-              ['ALL', runs.length, 'All runs'],
+              ['ALL', displayRuns.length, 'All runs'],
               ['PENDING', statusCounts.PENDING, 'Pending'],
               ['RUNNING', statusCounts.RUNNING, 'Running'],
               ['COMPLETED', statusCounts.COMPLETED, 'Completed'],
@@ -407,14 +428,14 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
         </div>
       </div>
 
-      {error && (
+      {displayError && (
         <div className="mx-6 my-4 rounded-lg border border-red-700/60 bg-red-900/30 p-3 text-sm text-red-200">
-          <span className="font-semibold">Failed to load runs.</span> {error} — check your
+          <span className="font-semibold">Failed to load runs.</span> {displayError} — check your
           connection or try refreshing the page.
         </div>
       )}
 
-      {pollFailures > 0 && !error && (
+      {pollFailures > 0 && !displayError && (
         <div className="mx-6 my-4 rounded-lg border border-amber-600/60 bg-amber-900/25 p-3 text-xs text-amber-200">
           <span className="font-semibold">Live updates slowed</span> — retry {pollFailures} of 4.
           Displayed data may be slightly behind. The page will recover automatically.
@@ -423,7 +444,7 @@ export const BacktestList: React.FC<{ refreshTrigger?: number }> = ({ refreshTri
 
       {filteredRuns.length === 0 ? (
         <div className="py-16 text-center px-6">
-          {runs.length === 0 ? (
+          {displayRuns.length === 0 ? (
             <>
               <p className="text-sm font-medium text-slate-300">No runs recorded yet</p>
               <p className="mt-1 text-xs text-slate-500">

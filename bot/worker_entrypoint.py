@@ -7,7 +7,26 @@ import subprocess
 import sys
 
 
+def _sanitize_node_url_env(var_name: str) -> None:
+    raw = os.getenv(var_name, "")
+    if not raw:
+        return
+
+    value = raw.strip()
+    lowered = value.lower()
+    if lowered.startswith("http://"):
+        os.environ[var_name] = value[len("http://") :]
+        return
+    if lowered.startswith("https://"):
+        os.environ[var_name] = value[len("https://") :]
+        return
+
+
 def main() -> int:
+    # Harden runtime env for libraries that consume node URL variables directly.
+    _sanitize_node_url_env("DYDX_TESTNET_NODE_URL")
+    _sanitize_node_url_env("DYDX_MAINNET_NODE_URL")
+
     mode = os.getenv("WORKER_MODE", "bot").strip().lower()
     if mode in {"celery", "celery-backtest", "backtest-celery"}:
         argv = [

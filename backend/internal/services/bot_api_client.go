@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ type BotAPIClient struct {
 	requestCtx    context.Context
 	httpClient    *http.Client
 }
+
+const defaultBotAPIRequestTimeout = 120 * time.Second
 
 // BotAPIError preserves upstream HTTP status and message for delegated routes.
 type BotAPIError struct {
@@ -153,15 +156,32 @@ func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 	if token == "" {
 		token = ResolveConfiguredBotAPIServiceToken()
 	}
+	requestTimeout := resolveBotAPIRequestTimeout()
 	return &BotAPIClient{
 		baseURL:       baseURL,
 		token:         token,
 		fallbackToken: token,
 		requestCtx:    context.Background(),
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: requestTimeout,
 		},
 	}
+}
+
+func resolveBotAPIRequestTimeout() time.Duration {
+	for _, key := range []string{"BOT_API_TIMEOUT_SECONDS", "BOT_API_TIMEOUT"} {
+		raw := strings.TrimSpace(os.Getenv(key))
+		if raw == "" {
+			continue
+		}
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds <= 0 {
+			log.Printf("⚠️  Invalid %s=%q; using default timeout %s", key, raw, defaultBotAPIRequestTimeout)
+			return defaultBotAPIRequestTimeout
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	return defaultBotAPIRequestTimeout
 }
 
 // SetToken sets the authentication token
@@ -346,7 +366,7 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 	// 504 classification while the client-level timeout remains a safety net.
 	timeout := c.httpClient.Timeout
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = defaultBotAPIRequestTimeout
 	}
 	parentCtx := c.requestCtx
 	if parentCtx == nil {

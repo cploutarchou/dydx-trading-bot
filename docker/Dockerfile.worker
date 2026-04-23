@@ -15,11 +15,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy bot source
 COPY bot/ .
 
+# Create an unprivileged runtime user for Celery and bot processes
+RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:app /app
+
 # Stub so env_loader.find_repo_root() succeeds.
 # All real config comes from environment variables injected by Nomad Variables.
 RUN echo '{}' > /app/run.json
 
 ENV APP_ENV=prod
 ENV ENVIRONMENT=prod
+
+USER app
 
 CMD ["python", "worker_entrypoint.py"]

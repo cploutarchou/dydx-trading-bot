@@ -132,7 +132,7 @@ apps:
 
   # ── Python worker (background trading engine) ────────────────────────────
   - name: worker
-    type: python
+    type: worker
     image: ghcr.io/cploutarchou/dydx-trading-bot/worker:latest
     replicas: 1
     cpu: 500

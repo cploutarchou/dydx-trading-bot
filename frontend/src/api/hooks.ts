@@ -1044,7 +1044,7 @@ export function useBacktestProgress(runId: string) {
   });
 
   useEffect(() => {
-    if (!runId || isTerminalStatus(data?.status)) {
+    if (!runId || isConnected || isTerminalStatus(data?.status)) {
       return;
     }
 
@@ -1082,7 +1082,7 @@ export function useBacktestProgress(runId: string) {
     };
 
     void pollStatus();
-    const timerId = window.setInterval(pollStatus, isConnected ? 10000 : 5000);
+    const timerId = window.setInterval(pollStatus, 5000);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);

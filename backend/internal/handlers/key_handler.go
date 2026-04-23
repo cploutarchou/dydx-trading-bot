@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -59,6 +60,42 @@ type SuccessResponse struct {
 	Timestamp string      `json:"timestamp"`
 }
 
+func keyToResponse(key *models.DYDXKey) KeyResponse {
+	return KeyResponse{
+		ID:           key.ID,
+		Network:      key.Network,
+		ChainAddr:    key.ChainAddress,
+		SecretMasked: key.SecretMasked,
+		IsActive:     key.IsActive,
+		CreatedAt:    key.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    key.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func decryptedKeyToResponse(key *services.DecryptedDYDXKey) KeySecretResponse {
+	return KeySecretResponse{
+		ID:           key.ID,
+		Network:      key.Network,
+		ChainAddr:    key.ChainAddress,
+		SecretPhrase: key.SecretPhrase,
+		CreatedAt:    key.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    key.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func currentUserID(c *gin.Context) (int, bool) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		return 0, false
+	}
+
+	typedUserID, ok := userID.(int)
+	if !ok {
+		return 0, false
+	}
+	return typedUserID, true
+}
+
 func (h *KeyHandler) CreateKey(c *gin.Context) {
 	var req CreateKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -70,8 +107,8 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
@@ -80,7 +117,7 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 		return
 	}
 
-	key, err := h.service.CreateKey(userID.(int), req.Network, req.ChainAddress, req.SecretPhrase)
+	key, err := h.service.CreateKey(userID, req.Network, req.ChainAddress, req.SecretPhrase)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
@@ -90,25 +127,16 @@ func (h *KeyHandler) CreateKey(c *gin.Context) {
 		return
 	}
 
-	response := KeyResponse{
-		ID:        key.ID,
-		Network:   key.Network,
-		ChainAddr: key.ChainAddress,
-		IsActive:  key.IsActive,
-		CreatedAt: key.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: key.UpdatedAt.Format(time.RFC3339),
-	}
-
 	c.JSON(http.StatusCreated, SuccessResponse{
 		Success:   true,
-		Data:      response,
+		Data:      keyToResponse(key),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 func (h *KeyHandler) ListKeys(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
@@ -117,7 +145,7 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 		return
 	}
 
-	keys, err := h.service.GetActiveKeys(userID.(int))
+	keys, err := h.service.GetActiveKeys(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
@@ -127,17 +155,10 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 		return
 	}
 
-	keyResponses := make([]KeyResponse, 0)
+	keyResponses := make([]KeyResponse, 0, len(keys))
 	for _, k := range keys {
-		keyResponses = append(keyResponses, KeyResponse{
-			ID:           k["id"].(int),
-			Network:      k["network"].(string),
-			ChainAddr:    k["chain_address"].(string),
-			SecretMasked: stringValue(k["secret_masked"]),
-			IsActive:     true,
-			CreatedAt:    k["created_at"].(string),
-			UpdatedAt:    k["updated_at"].(string),
-		})
+		keyCopy := k
+		keyResponses = append(keyResponses, keyToResponse(&keyCopy))
 	}
 
 	response := KeyListResponse{
@@ -153,8 +174,8 @@ func (h *KeyHandler) ListKeys(c *gin.Context) {
 }
 
 func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
@@ -164,7 +185,7 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 	}
 
 	network := c.Param("network")
-	keyInfo, err := h.service.GetKeyInfo(userID.(int), network)
+	keyInfo, err := h.service.GetKeyInfo(userID, network)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
@@ -183,33 +204,16 @@ func (h *KeyHandler) GetKeyInfo(c *gin.Context) {
 		return
 	}
 
-	response := KeyResponse{
-		ID:           keyInfo["id"].(int),
-		Network:      keyInfo["network"].(string),
-		ChainAddr:    keyInfo["chain_address"].(string),
-		SecretMasked: stringValue(keyInfo["secret_masked"]),
-		IsActive:     keyInfo["is_active"].(bool),
-		CreatedAt:    keyInfo["created_at"].(string),
-		UpdatedAt:    keyInfo["updated_at"].(string),
-	}
-
 	c.JSON(http.StatusOK, SuccessResponse{
 		Success:   true,
-		Data:      response,
+		Data:      keyToResponse(keyInfo),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
-func stringValue(value interface{}) string {
-	if text, ok := value.(string); ok {
-		return text
-	}
-	return ""
-}
-
 func (h *KeyHandler) DeleteKey(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
@@ -219,7 +223,7 @@ func (h *KeyHandler) DeleteKey(c *gin.Context) {
 	}
 
 	network := c.Param("network")
-	err := h.service.DeleteKey(userID.(int), network)
+	err := h.service.DeleteKey(userID, network)
 	if err != nil {
 		if err.Error() == "no key found to delete" {
 			c.JSON(http.StatusNotFound, ErrorResponse{
@@ -242,8 +246,8 @@ func (h *KeyHandler) DeleteKey(c *gin.Context) {
 }
 
 func (h *KeyHandler) GetKeyWithSecret(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Success:   false,
 			Error:     "Unauthorized",
@@ -253,7 +257,7 @@ func (h *KeyHandler) GetKeyWithSecret(c *gin.Context) {
 	}
 
 	network := c.Param("network")
-	keyData, err := h.service.GetKey(userID.(int), network)
+	keyData, err := h.service.GetKey(userID, network)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Success:   false,
@@ -272,18 +276,9 @@ func (h *KeyHandler) GetKeyWithSecret(c *gin.Context) {
 		return
 	}
 
-	response := KeySecretResponse{
-		ID:           keyData["id"].(int),
-		Network:      keyData["network"].(string),
-		ChainAddr:    keyData["chain_address"].(string),
-		SecretPhrase: keyData["secret_phrase"].(string),
-		CreatedAt:    keyData["created_at"].(string),
-		UpdatedAt:    keyData["updated_at"].(string),
-	}
-
 	c.JSON(http.StatusOK, SuccessResponse{
 		Success:   true,
-		Data:      response,
+		Data:      decryptedKeyToResponse(keyData),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

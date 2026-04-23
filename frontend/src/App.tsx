@@ -3,12 +3,10 @@
  * Enhanced with React Query, Error Boundaries, and Toast Notifications
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
 import { getUserWorkspaceRole, roleMatches, type WorkspaceRole } from './auth/roles';
-import { BacktestComparator } from './components/BacktestComparator';
-import BotManager from './components/BotManager';
 import {
     ErrorBoundary as EnhancedErrorBoundary,
     ToastContainer,
@@ -16,36 +14,8 @@ import {
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
-import StrategyBuilder from './components/StrategyBuilder';
-import StrategyLibrary from './components/StrategyLibrary';
-import StrategyManager from './components/StrategyManager';
-import { AdminHubPage } from './pages/AdminHub';
-import BacktestDetailsV2 from './pages/BacktestDetailsV2';
-import { BacktestsPage } from './pages/Backtests';
-import { ClientAreaPage } from './pages/ClientArea';
-import { CodexPage } from './pages/Codex';
-import { CRMRouter } from './pages/crm';
-import { CRMClientDetail } from './pages/crm/CRMClientDetail';
-import { CRMClients } from './pages/crm/CRMClients';
-import { CRMCommissions } from './pages/crm/CRMCommissions';
-import { CRMDashboard } from './pages/crm/CRMDashboard';
-import { CRMHierarchy } from './pages/crm/CRMHierarchy';
-import { CRMLayout } from './pages/crm/CRMLayout';
-import { CRMPipeline } from './pages/crm/CRMPipeline';
-import { CRMSecurity } from './pages/crm/CRMSecurity';
 import { isCRMHost } from './pages/crm/paths';
-import { DashboardPage } from './pages/Dashboard';
-import { ForcePasswordChangePage } from './pages/ForcePasswordChange';
-import { IBRouter } from './pages/ib';
 import { isIBPortalHost } from './pages/ib/paths';
-import { LandingPage } from './pages/Landing';
-import { LoginPage } from './pages/Login';
-import { NewsPage } from './pages/News';
-import { PricingPage } from './pages/Pricing';
-import { PublicServicePage } from './pages/PublicServicePage';
-import { RegisterPage } from './pages/Register';
-import SettingsPage from './pages/Settings';
-import { TwoFactorAuthPage } from './pages/TwoFactorAuth';
 import { useAuthStore } from './store/auth';
 import { useUIPreferencesStore } from './store/uiPreferences';
 
@@ -78,6 +48,81 @@ const AuthSkeleton: React.FC = () => (
   <div className="min-h-screen bg-slate-900 flex items-center justify-center">
     <div className="w-8 h-8 border-2 border-slate-600 border-t-slate-300 rounded-full animate-spin" />
   </div>
+);
+
+const BacktestComparator = lazy(() =>
+  import('./components/BacktestComparator').then((module) => ({ default: module.BacktestComparator }))
+);
+const BotManager = lazy(() => import('./components/BotManager'));
+const StrategyBuilder = lazy(() => import('./components/StrategyBuilder'));
+const StrategyLibrary = lazy(() => import('./components/StrategyLibrary'));
+const StrategyManager = lazy(() => import('./components/StrategyManager'));
+const AdminHubPage = lazy(() =>
+  import('./pages/AdminHub').then((module) => ({ default: module.AdminHubPage }))
+);
+const BacktestDetailsV2 = lazy(() => import('./pages/BacktestDetailsV2'));
+const BacktestsPage = lazy(() =>
+  import('./pages/Backtests').then((module) => ({ default: module.BacktestsPage }))
+);
+const ClientAreaPage = lazy(() =>
+  import('./pages/ClientArea').then((module) => ({ default: module.ClientAreaPage }))
+);
+const CodexPage = lazy(() =>
+  import('./pages/Codex').then((module) => ({ default: module.CodexPage }))
+);
+const CRMRouter = lazy(() => import('./pages/crm').then((module) => ({ default: module.CRMRouter })));
+const CRMClientDetail = lazy(() =>
+  import('./pages/crm/CRMClientDetail').then((module) => ({ default: module.CRMClientDetail }))
+);
+const CRMClients = lazy(() =>
+  import('./pages/crm/CRMClients').then((module) => ({ default: module.CRMClients }))
+);
+const CRMCommissions = lazy(() =>
+  import('./pages/crm/CRMCommissions').then((module) => ({ default: module.CRMCommissions }))
+);
+const CRMDashboard = lazy(() =>
+  import('./pages/crm/CRMDashboard').then((module) => ({ default: module.CRMDashboard }))
+);
+const CRMHierarchy = lazy(() =>
+  import('./pages/crm/CRMHierarchy').then((module) => ({ default: module.CRMHierarchy }))
+);
+const CRMLayout = lazy(() =>
+  import('./pages/crm/CRMLayout').then((module) => ({ default: module.CRMLayout }))
+);
+const CRMPipeline = lazy(() =>
+  import('./pages/crm/CRMPipeline').then((module) => ({ default: module.CRMPipeline }))
+);
+const CRMSecurity = lazy(() =>
+  import('./pages/crm/CRMSecurity').then((module) => ({ default: module.CRMSecurity }))
+);
+const DashboardPage = lazy(() =>
+  import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage }))
+);
+const ForcePasswordChangePage = lazy(() =>
+  import('./pages/ForcePasswordChange').then((module) => ({ default: module.ForcePasswordChangePage }))
+);
+const IBRouter = lazy(() => import('./pages/ib').then((module) => ({ default: module.IBRouter })));
+const LandingPage = lazy(() =>
+  import('./pages/Landing').then((module) => ({ default: module.LandingPage }))
+);
+const LoginPage = lazy(() =>
+  import('./pages/Login').then((module) => ({ default: module.LoginPage }))
+);
+const NewsPage = lazy(() =>
+  import('./pages/News').then((module) => ({ default: module.NewsPage }))
+);
+const PricingPage = lazy(() =>
+  import('./pages/Pricing').then((module) => ({ default: module.PricingPage }))
+);
+const PublicServicePage = lazy(() =>
+  import('./pages/PublicServicePage').then((module) => ({ default: module.PublicServicePage }))
+);
+const RegisterPage = lazy(() =>
+  import('./pages/Register').then((module) => ({ default: module.RegisterPage }))
+);
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const TwoFactorAuthPage = lazy(() =>
+  import('./pages/TwoFactorAuth').then((module) => ({ default: module.TwoFactorAuthPage }))
 );
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
@@ -137,17 +182,12 @@ const PasswordRotationRoute: React.FC = () => {
 };
 
 export const App: React.FC = () => {
-  const [mounted, setMounted] = useState(false);
   const ibPortalHost = isIBPortalHost();
   const crmHost = isCRMHost();
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
   const toastWarning = useToastStore((state) => state.warning);
   const language = useUIPreferencesStore((state) => state.language);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'dark');
@@ -173,7 +213,7 @@ export const App: React.FC = () => {
     };
 
     void bootstrapAuth();
-  }, [initializeSession]);
+  }, [initializeSession, toastWarning]);
 
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -187,241 +227,239 @@ export const App: React.FC = () => {
     };
   }, [logout]);
 
-  if (!mounted) {
-    return null;
-  }
-
   return (
     <QueryProvider>
       <EnhancedErrorBoundary>
         <Router>
           <ToastContainer />
           <RegistrationDisabledLoginGate />
-          <Routes>
-            <Route
-              path="/"
-              element={
-                ibPortalHost || crmHost ? <Navigate to="/dashboard" replace /> : <LandingPage />
-              }
-            />
-            <Route path="/services/:slug" element={<PublicServicePage />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
-            <Route path="/force-password" element={<PasswordRotationRoute />} />
-            <Route
-              path="/dashboard"
-              element={
-                crmHost ? (
-                  <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                    <CRMLayout>
-                      <CRMDashboard />
-                    </CRMLayout>
-                  </ProtectedRoute>
-                ) : (
-                  <ProtectedRoute>
-                    <DashboardPage />
-                  </ProtectedRoute>
-                )
-              }
-            />
-            <Route
-              path="/client-area"
-              element={
-                <ProtectedRoute>
-                  <ClientAreaPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/codex"
-              element={
-                <ProtectedRoute>
-                  <CodexPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/news"
-              element={
-                <ProtectedRoute>
-                  <NewsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/backtests"
-              element={
-                <ProtectedRoute>
-                  <BacktestsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/backtest/:runId"
-              element={
-                <ProtectedRoute>
-                  <BacktestDetailsV2 />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/crm/*"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                  <CRMRouter />
-                </ProtectedRoute>
-              }
-            />
-            {crmHost && (
-              <>
-                <Route
-                  path="/clients"
-                  element={
-                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                      <CRMLayout>
-                        <CRMClients />
-                      </CRMLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/clients/:id"
-                  element={
-                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                      <CRMLayout>
-                        <CRMClientDetail />
-                      </CRMLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/pipeline"
-                  element={
-                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                      <CRMLayout>
-                        <CRMPipeline />
-                      </CRMLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/hierarchy"
-                  element={
-                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                      <CRMLayout>
-                        <CRMHierarchy />
-                      </CRMLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/commissions"
-                  element={
-                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                      <CRMLayout>
-                        <CRMCommissions />
-                      </CRMLayout>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/security"
-                  element={
-                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
-                      <CRMLayout>
-                        <CRMSecurity />
-                      </CRMLayout>
-                    </ProtectedRoute>
-                  }
-                />
-              </>
-            )}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AdminHubPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <SettingsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/ib-portal/*"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'backoffice', 'ib', 'sub_ib']}>
-                  <IBRouter />
-                </ProtectedRoute>
-              }
-            />
-            {ibPortalHost && (
+          <Suspense fallback={<AuthSkeleton />}>
+            <Routes>
               <Route
-                path="/*"
+                path="/"
+                element={
+                  ibPortalHost || crmHost ? <Navigate to="/dashboard" replace /> : <LandingPage />
+                }
+              />
+              <Route path="/services/:slug" element={<PublicServicePage />} />
+              <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
+              <Route path="/force-password" element={<PasswordRotationRoute />} />
+              <Route
+                path="/dashboard"
+                element={
+                  crmHost ? (
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                      <CRMLayout>
+                        <CRMDashboard />
+                      </CRMLayout>
+                    </ProtectedRoute>
+                  ) : (
+                    <ProtectedRoute>
+                      <DashboardPage />
+                    </ProtectedRoute>
+                  )
+                }
+              />
+              <Route
+                path="/client-area"
+                element={
+                  <ProtectedRoute>
+                    <ClientAreaPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/codex"
+                element={
+                  <ProtectedRoute>
+                    <CodexPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/news"
+                element={
+                  <ProtectedRoute>
+                    <NewsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/backtests"
+                element={
+                  <ProtectedRoute>
+                    <BacktestsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/backtest/:runId"
+                element={
+                  <ProtectedRoute>
+                    <BacktestDetailsV2 />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/crm/*"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                    <CRMRouter />
+                  </ProtectedRoute>
+                }
+              />
+              {crmHost && (
+                <>
+                  <Route
+                    path="/clients"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                        <CRMLayout>
+                          <CRMClients />
+                        </CRMLayout>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/clients/:id"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                        <CRMLayout>
+                          <CRMClientDetail />
+                        </CRMLayout>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/pipeline"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                        <CRMLayout>
+                          <CRMPipeline />
+                        </CRMLayout>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/hierarchy"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                        <CRMLayout>
+                          <CRMHierarchy />
+                        </CRMLayout>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/commissions"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                        <CRMLayout>
+                          <CRMCommissions />
+                        </CRMLayout>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/security"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'backoffice']}>
+                        <CRMLayout>
+                          <CRMSecurity />
+                        </CRMLayout>
+                      </ProtectedRoute>
+                    }
+                  />
+                </>
+              )}
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <AdminHubPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <SettingsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/ib-portal/*"
                 element={
                   <ProtectedRoute allowedRoles={['admin', 'backoffice', 'ib', 'sub_ib']}>
                     <IBRouter />
                   </ProtectedRoute>
                 }
               />
-            )}
-            <Route
-              path="/strategies"
-              element={
-                <ProtectedRoute>
-                  <StrategyLibrary />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/strategies/new"
-              element={
-                <ProtectedRoute>
-                  <StrategyBuilder />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/strategies/manage"
-              element={
-                <ProtectedRoute>
-                  <StrategyManager />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/strategies/:id/edit"
-              element={
-                <ProtectedRoute>
-                  <StrategyBuilder />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/bots"
-              element={
-                <ProtectedRoute>
-                  <BotManager />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/backtests/compare"
-              element={
-                <ProtectedRoute>
-                  <BacktestComparator />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+              {ibPortalHost && (
+                <Route
+                  path="/*"
+                  element={
+                    <ProtectedRoute allowedRoles={['admin', 'backoffice', 'ib', 'sub_ib']}>
+                      <IBRouter />
+                    </ProtectedRoute>
+                  }
+                />
+              )}
+              <Route
+                path="/strategies"
+                element={
+                  <ProtectedRoute>
+                    <StrategyLibrary />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/strategies/new"
+                element={
+                  <ProtectedRoute>
+                    <StrategyBuilder />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/strategies/manage"
+                element={
+                  <ProtectedRoute>
+                    <StrategyManager />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/strategies/:id/edit"
+                element={
+                  <ProtectedRoute>
+                    <StrategyBuilder />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/bots"
+                element={
+                  <ProtectedRoute>
+                    <BotManager />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/backtests/compare"
+                element={
+                  <ProtectedRoute>
+                    <BacktestComparator />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </Router>
       </EnhancedErrorBoundary>
     </QueryProvider>

@@ -1,5 +1,13 @@
 import type { LucideIcon } from 'lucide-react';
-import { ArrowRight, ExternalLink, Loader2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  ExternalLink,
+  Info,
+  Loader2,
+  XCircle,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -222,6 +230,135 @@ export const EmptyState = ({ icon: Icon, title, description, action }: EmptyStat
     {action && <div className="mt-4">{action}</div>}
   </div>
 );
+
+interface InlineNoticeProps {
+  title: string;
+  description?: string;
+  tone?: Tone;
+  action?: ReactNode;
+  className?: string;
+}
+
+const noticeIconMap: Record<Tone, LucideIcon> = {
+  default: Info,
+  accent: Info,
+  success: CheckCircle2,
+  warning: AlertTriangle,
+  danger: XCircle,
+  muted: Info,
+  violet: Info,
+};
+
+export const InlineNotice = ({
+  title,
+  description,
+  tone = 'muted',
+  action,
+  className = '',
+}: InlineNoticeProps) => {
+  const Icon = noticeIconMap[tone];
+
+  return (
+    <div
+      className={`flex flex-col gap-3 rounded-lg border px-4 py-3 sm:flex-row sm:items-start sm:justify-between ${toneSurface[tone]} ${className}`.trim()}
+    >
+      <div className="flex items-start gap-3">
+        <span className={`mt-0.5 rounded-lg border p-2 ${toneIcon[tone]}`}>
+          <Icon className="h-4 w-4" />
+        </span>
+        <div>
+          <p className={`text-sm font-semibold ${toneText[tone]}`}>{title}</p>
+          {description && <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p>}
+        </div>
+      </div>
+      {action && <div className="sm:pl-4">{action}</div>}
+    </div>
+  );
+};
+
+interface ActionDialogProps {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onClose: () => void;
+  confirmTone?: Extract<Tone, 'accent' | 'warning' | 'danger' | 'success'>;
+  loading?: boolean;
+  details?: ReactNode;
+}
+
+export const ActionDialog = ({
+  open,
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+  onClose,
+  confirmTone = 'accent',
+  loading = false,
+  details,
+}: ActionDialogProps) => {
+  if (!open) return null;
+
+  const confirmClassMap: Record<ActionDialogProps['confirmTone'], string> = {
+    accent:
+      'border-cyan-500/30 bg-cyan-500/15 text-cyan-50 hover:border-cyan-400/50 hover:bg-cyan-500/20',
+    warning:
+      'border-amber-500/30 bg-amber-500/15 text-amber-50 hover:border-amber-400/50 hover:bg-amber-500/20',
+    danger:
+      'border-rose-500/30 bg-rose-500/15 text-rose-50 hover:border-rose-400/50 hover:bg-rose-500/20',
+    success:
+      'border-emerald-500/30 bg-emerald-500/15 text-emerald-50 hover:border-emerald-400/50 hover:bg-emerald-500/20',
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        aria-label="Close dialog"
+        className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="relative z-10 w-full max-w-lg rounded-lg border border-slate-700/70 bg-slate-950/95 p-6 shadow-[0_40px_120px_rgba(2,6,23,0.7)]">
+        <div className="flex items-start gap-3">
+          <span className={`rounded-lg border p-2 ${toneIcon[confirmTone]}`}>
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-lg font-semibold text-white">{title}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p>
+          </div>
+        </div>
+
+        {details && (
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-4 text-sm text-slate-300">
+            {details}
+          </div>
+        )}
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-700/70 bg-slate-900/70 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-slate-600 hover:bg-slate-900"
+          >
+            Keep as is
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${confirmClassMap[confirmTone]}`}
+          >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export interface PortalTab {
   path: string;

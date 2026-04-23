@@ -330,7 +330,7 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 		var req RegisterRequest
 
 		// Bind JSON with error handling
-		if err := c.BindJSON(&req); err != nil {
+		if err := c.ShouldBindJSON(&req); err != nil {
 			log.Printf("Failed to bind JSON: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
@@ -651,7 +651,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		var req LoginRequest
 
 		// Bind JSON with error handling
-		if err := c.BindJSON(&req); err != nil {
+		if err := c.ShouldBindJSON(&req); err != nil {
 			log.Printf("Failed to bind JSON: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,

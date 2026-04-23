@@ -132,7 +132,9 @@ func main() {
 	startTime := time.Now()
 	loadStructuredConfigEnv()
 
-	config.LoadConfig()
+	if err := config.LoadConfig(); err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 	log.Printf("Loaded config (db_type=%s, redis_enabled=%t)", config.ConfigInstance.Database.Type, config.ConfigInstance.Redis.Enabled)
 	if err := startup.ValidateDatabaseOwnership(config.ConfigInstance); err != nil {
 		log.Fatalf("Invalid database ownership configuration: %v", err)
@@ -372,7 +374,10 @@ func main() {
 	// Debug endpoints
 	// Echo request headers - public (useful to see what client sends)
 	router.GET("/api/v1/debug/headers", func(c *gin.Context) {
-		c.JSON(200, gin.H{"headers": c.Request.Header})
+		c.JSON(http.StatusOK, gin.H{
+			"headers":  middleware.SanitizeHeaders(c.Request.Header),
+			"trace_id": middleware.GetTraceID(c),
+		})
 	})
 
 	// Whoami - protected by auth middleware and returns claims stored in context

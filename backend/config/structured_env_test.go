@@ -45,7 +45,9 @@ func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
 		ConfigInstance = nil
 	}()
 
-	LoadConfig()
+	if err := LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
 
 	if ConfigInstance == nil {
 		t.Fatal("expected ConfigInstance to be initialized")
@@ -55,17 +57,16 @@ func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_PanicsForSQLiteOutsideTestEnv(t *testing.T) {
+func TestLoadConfig_ReturnsErrorForUnsupportedDBType(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("DB_TYPE", "sqlite3")
 
 	defer func() {
 		ConfigInstance = nil
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("expected LoadConfig to panic for sqlite3")
-		}
 	}()
 
-	LoadConfig()
+	err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected LoadConfig to return an error for sqlite3")
+	}
 }

@@ -72,6 +72,9 @@ The current UI direction is production DeFi:
 - operator pages should use control-room headers, compact status pills, and reusable terminal-style cards/grids
 - the workspace shell uses sharper 8px surfaces, neutral dark panels, and restrained cyan/emerald/amber state color so data hierarchy stays stronger than decoration
 - dashboard quick-launch and activity-tape surfaces should refresh softly and preserve visible data while active jobs update
+- risky mutations should use consistent confirmation dialogs rather than browser-native confirms
+- inline notices and toast feedback should use human operator language with next-step guidance
+- setup flows such as backtest launch and runtime creation should show summary context before submission
 - live-state semantics should stay consistent:
   - healthy/positive: emerald
   - live/realtime: cyan

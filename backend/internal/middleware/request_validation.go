@@ -3,6 +3,7 @@ package middleware
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -449,13 +450,17 @@ func RequestLoggingMiddleware() gin.HandlerFunc {
 		traceID := GetTraceID(c)
 
 		// Log request
-		if statusCode >= 400 {
-			fmt.Printf("❌ [%s] %s %s - Status: %d - Duration: %dms - IP: %s - Trace: %s\n",
-				method, path, c.Request.URL.RawQuery, statusCode, duration, clientIP, traceID)
-		} else {
-			fmt.Printf("✅ [%s] %s %s - Status: %d - Duration: %dms - IP: %s - Trace: %s\n",
-				method, path, c.Request.URL.RawQuery, statusCode, duration, clientIP, traceID)
-		}
+		rawQuery := RedactSensitiveRawQuery(c.Request.URL.RawQuery)
+		log.Printf(
+			"request trace_id=%s method=%s path=%s query=%s status=%d duration_ms=%d client_ip=%s",
+			traceID,
+			method,
+			path,
+			rawQuery,
+			statusCode,
+			duration,
+			clientIP,
+		)
 	}
 }
 

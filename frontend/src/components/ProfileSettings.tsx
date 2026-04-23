@@ -5,7 +5,7 @@
 
 import { Camera, Check, Upload, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import apiClient from '../api';
 import { useAuthStore } from '../store/auth';
 
@@ -39,22 +39,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const currentUserQuery = useQuery({
-    queryKey: ['profile', 'current-user'],
-    queryFn: () => apiClient.getCurrentUser(),
-    staleTime: 5 * 60 * 1000,
-  });
-
   const updateProfileMutation = useMutation({
     mutationFn: (profileData: ProfileUpdateData) => apiClient.updateProfile(profileData),
   });
-
-  useEffect(() => {
-    const userData = currentUserQuery.data?.data;
-    if (userData) {
-      useAuthStore.setState({ user: userData });
-    }
-  }, [currentUserQuery.data]);
 
   useEffect(() => {
     setFullName(user?.full_name || '');
@@ -305,12 +292,6 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           </label>
         </div>
       </div>
-
-      {currentUserQuery.isError && (
-        <div className="mt-6 px-4 py-3 rounded border bg-red-900 border-red-700 text-red-100">
-          {getErrorMessage(currentUserQuery.error, 'Failed to refresh profile data')}
-        </div>
-      )}
 
       {/* Action Buttons */}
       <div className="mt-8 flex gap-3 pt-6 border-t border-slate-700">

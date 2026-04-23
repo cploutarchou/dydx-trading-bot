@@ -43,6 +43,7 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   const chartRef = useRef<IChartApi | null>(null);
   const areaSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
   const latestDataRef = useRef<PnlPoint[]>([]);
+  const hasFittedContentRef = useRef(false);
   const [hoverPoint, setHoverPoint] = useState<PnlPoint | null>(null);
 
   const normalizedData = useMemo(
@@ -60,6 +61,10 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
     latestDataRef.current = normalizedData;
     setHoverPoint(normalizedData[normalizedData.length - 1] ?? null);
   }, [normalizedData]);
+
+  useEffect(() => {
+    hasFittedContentRef.current = false;
+  }, [data]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -121,7 +126,21 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
       chartRef.current = null;
       chart.remove();
     };
-  }, [height, strokeColor]);
+  }, [height]);
+
+  useEffect(() => {
+    const areaSeries = areaSeriesRef.current;
+    if (!areaSeries) {
+      return;
+    }
+
+    areaSeries.applyOptions({
+      lineColor: strokeColor,
+      topColor: `${strokeColor}55`,
+      bottomColor: `${strokeColor}08`,
+      priceLineColor: strokeColor,
+    });
+  }, [strokeColor]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -136,7 +155,10 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
     }));
 
     areaSeries.setData(areaData);
-    chart.timeScale().fitContent();
+    if (!hasFittedContentRef.current) {
+      chart.timeScale().fitContent();
+      hasFittedContentRef.current = true;
+    }
   }, [normalizedData]);
 
   if (normalizedData.length === 0) {

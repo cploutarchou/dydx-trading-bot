@@ -4,10 +4,10 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-    guardBacktestStatusContract,
-    guardListBacktestsContract,
-    guardRunBacktestContract,
-    guardSyncHealthContract,
+	guardBacktestStatusContract,
+	guardListBacktestsContract,
+	guardRunBacktestContract,
+	guardSyncHealthContract,
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
@@ -1237,16 +1237,14 @@ class ApiClient {
     try {
       // Attempt to load token from localStorage first (recovery after page refresh)
       this.loadTokenFromStorage();
-      
       // If we already have a valid in-memory access token, skip the refresh round-trip.
       if (this.accessToken && this.sessionEstablished) {
         return true;
       }
-      
       // Token not in storage, attempt to refresh via HttpOnly session cookie
       await this.refreshAccessToken();
       return true;
-    } catch (error) {
+    } catch {
       // Clear any stale token from localStorage if refresh fails
       if (typeof localStorage !== 'undefined') {
         try {

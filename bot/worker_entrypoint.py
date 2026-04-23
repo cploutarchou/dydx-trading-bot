@@ -22,6 +22,29 @@ def _sanitize_node_url_env(var_name: str) -> None:
         return
 
 
+class _FilteredStderr:
+    """Filter noisy upstream warnings that are safe to ignore in worker logs."""
+
+    _DROP_TOKENS = (
+        "Node URL should not contain http(s)://",
+    )
+
+    def __init__(self, stderr):
+        self.stderr = stderr
+
+    def write(self, message):
+        if any(token in message for token in self._DROP_TOKENS):
+            return
+        self.stderr.write(message)
+        self.stderr.flush()
+
+    def flush(self):
+        self.stderr.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stderr, name)
+
+
 def main() -> int:
     # Harden runtime env for libraries that consume node URL variables directly.
     _sanitize_node_url_env("DYDX_TESTNET_NODE_URL")
@@ -41,7 +64,17 @@ def main() -> int:
             "--concurrency",
             os.getenv("CELERY_CONCURRENCY", "1"),
         ]
-        return subprocess.call(argv)
+
+        # Run celery in-process so our stderr filter can suppress known noisy lines.
+        original_stderr = sys.stderr
+        sys.stderr = _FilteredStderr(original_stderr)
+        try:
+            from celery.__main__ import main as celery_main
+
+            sys.argv = argv
+            return int(celery_main() or 0)
+        finally:
+            sys.stderr = original_stderr
 
     return subprocess.call([sys.executable, "main.py"])
 

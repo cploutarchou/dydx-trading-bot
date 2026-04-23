@@ -329,6 +329,9 @@ func (c *BotAPIClient) shouldRetryWithFallback(currentToken string) bool {
 	if fallbackToken == "" {
 		return false
 	}
+	if !UseConfiguredBotAPIServiceToken() {
+		return false
+	}
 	return !strings.EqualFold(currentToken, fallbackToken)
 }
 

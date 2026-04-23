@@ -4,10 +4,10 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-    guardBacktestStatusContract,
-    guardListBacktestsContract,
-    guardRunBacktestContract,
-    guardSyncHealthContract,
+	guardBacktestStatusContract,
+	guardListBacktestsContract,
+	guardRunBacktestContract,
+	guardSyncHealthContract,
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
@@ -1032,6 +1032,8 @@ class ApiClient {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
+      // Load persisted token for session recovery after page refresh
+      this.loadTokenFromStorage();
     }
 
     // Request interceptor: browser auth is carried by the HttpOnly session cookie.
@@ -1170,10 +1172,32 @@ class ApiClient {
   setToken(token: string, _remember: boolean = true): void {
     this.accessToken = token;
     this.sessionEstablished = true;
+    // Persist token to localStorage for recovery after page refresh
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('_dydx_access_token', token);
+      } catch (e) {
+        console.warn('❌ api.ts: Failed to persist token to localStorage', e);
+      }
+    }
   }
 
   getAccessToken(): string | null {
     return this.accessToken;
+  }
+
+  private loadTokenFromStorage(): void {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const storedToken = localStorage.getItem('_dydx_access_token');
+        if (storedToken) {
+          this.accessToken = storedToken;
+          this.sessionEstablished = true;
+        }
+      } catch (e) {
+        console.warn('❌ api.ts: Failed to load token from localStorage', e);
+      }
+    }
   }
 
   async refreshAccessToken(): Promise<Token> {
@@ -1211,13 +1235,24 @@ class ApiClient {
 
   async restoreSession(): Promise<boolean> {
     try {
+      // Attempt to load token from localStorage first (recovery after page refresh)
+      this.loadTokenFromStorage();
       // If we already have a valid in-memory access token, skip the refresh round-trip.
       if (this.accessToken && this.sessionEstablished) {
         return true;
       }
+      // Token not in storage, attempt to refresh via HttpOnly session cookie
       await this.refreshAccessToken();
       return true;
     } catch {
+      // Clear any stale token from localStorage if refresh fails
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.removeItem('_dydx_access_token');
+        } catch (e) {
+          console.warn('❌ api.ts: Failed to clear token from localStorage', e);
+        }
+      }
       return false;
     }
   }
@@ -1234,6 +1269,15 @@ class ApiClient {
   logout(): void {
     this.accessToken = null;
     this.sessionEstablished = false;
+
+    // Clear persisted token from localStorage
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem('_dydx_access_token');
+      } catch (e) {
+        console.warn('❌ api.ts: Failed to clear token from localStorage during logout', e);
+      }
+    }
 
     void axios.post(`${API_BASE_URL}/api/v1/auth/logout`, {}, { withCredentials: true });
 

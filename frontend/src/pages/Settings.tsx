@@ -29,7 +29,15 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
-import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentType,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import apiClient from '../api';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
@@ -326,12 +334,10 @@ const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
 export default function Settings() {
   const user = useAuthStore((state) => state.user);
   const [schema, setSchema] = useState<SettingsSchema | null>(null);
-  const [settings, setSettings] = useState<SavedSettings | null>(null);
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
   const [initialFormValues, setInitialFormValues] = useState<
     Record<string, Record<string, SettingValue>>
   >({});
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState<string>('profile');
@@ -343,6 +349,7 @@ export default function Settings() {
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
   const infoToast = useToastStore((state) => state.info);
+  const deferredSectionSearchQuery = useDeferredValue(sectionSearchQuery);
 
   const visibleSchemaSections = useMemo(
     () =>
@@ -383,7 +390,7 @@ export default function Settings() {
   }, [user?.is_admin, visibleSchemaSections]);
 
   const filteredSidebarSections = useMemo(() => {
-    const query = sectionSearchQuery.trim().toLowerCase();
+    const query = deferredSectionSearchQuery.trim().toLowerCase();
     if (!query) return sidebarSections;
 
     return sidebarSections.filter((section) =>
@@ -391,17 +398,22 @@ export default function Settings() {
         value.toLowerCase().includes(query)
       )
     );
-  }, [sectionSearchQuery, sidebarSections]);
+  }, [deferredSectionSearchQuery, sidebarSections]);
 
   const hasUnsavedChanges = useMemo(
     () => serializeFormValues(formValues) !== serializeFormValues(initialFormValues),
     [formValues, initialFormValues]
   );
 
+  const fieldErrors = useMemo(
+    () => buildFieldErrors(schema?.sections || [], formValues),
+    [formValues, schema?.sections]
+  );
+
   const hasValidationErrors = useMemo(() => hasAnyFieldErrors(fieldErrors), [fieldErrors]);
 
   useEffect(() => {
-    fetchSettingsData();
+    void fetchSettingsData();
   }, []);
 
   useEffect(() => {
@@ -449,7 +461,7 @@ export default function Settings() {
     setPendingFocusTarget(null);
   }, [activeSection, pendingFocusTarget]);
 
-  const fetchSettingsData = async () => {
+  const fetchSettingsData = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -469,7 +481,6 @@ export default function Settings() {
       const settingsData = settingsResponse.data as unknown as SavedSettings;
 
       setSchema(schemaData);
-      setSettings(settingsData);
 
       // Build formValues from saved settings
       const formVals: Record<string, Record<string, SettingValue>> = {};
@@ -492,13 +503,12 @@ export default function Settings() {
 
       setFormValues(formVals);
       setInitialFormValues(formVals);
-      setFieldErrors(buildFieldErrors(schemaData.sections, formVals));
     } catch (error: unknown) {
       errorToast('Failed to load settings', getApiErrorMessage(error, 'Unknown error'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [errorToast]);
 
   const handleFieldChange = (section: string, key: string, value: SettingValue) => {
     setFormValues((prev) => {
@@ -510,10 +520,6 @@ export default function Settings() {
         },
       };
 
-      if (schema?.sections) {
-        setFieldErrors(buildFieldErrors(schema.sections, nextValues));
-      }
-
       return nextValues;
     });
   };
@@ -521,9 +527,7 @@ export default function Settings() {
   const handleSave = async () => {
     if (!schema) return;
 
-    const nextErrors = buildFieldErrors(schema.sections, formValues);
-    setFieldErrors(nextErrors);
-
+    const nextErrors = fieldErrors;
     if (hasAnyFieldErrors(nextErrors)) {
       const firstInvalidSection = schema.sections.find(
         (section) =>
@@ -565,7 +569,9 @@ export default function Settings() {
         successToast('Settings saved', 'Your configuration has been updated successfully.');
         setInitialFormValues(formValues);
         // Refresh settings to confirm changes
-        setTimeout(() => fetchSettingsData(), 1000);
+        window.setTimeout(() => {
+          void fetchSettingsData();
+        }, 1000);
       } else {
         errorToast('Failed to save settings', response.message || 'Please try again.');
       }
@@ -609,9 +615,7 @@ export default function Settings() {
   };
 
   const handleReset = () => {
-    if (!schema) return;
     setFormValues(initialFormValues);
-    setFieldErrors(buildFieldErrors(schema.sections, initialFormValues));
     infoToast('Changes reset', 'Unsaved edits have been reverted for this session.');
   };
 
@@ -628,7 +632,7 @@ export default function Settings() {
     );
   }
 
-  if (!schema || !settings) {
+  if (!schema) {
     return (
       <PageContainer size="wide">
         <div className="flex items-center gap-3 rounded-xl border border-red-700/60 bg-red-900/20 px-5 py-4 text-red-200">

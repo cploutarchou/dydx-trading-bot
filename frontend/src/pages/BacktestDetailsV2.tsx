@@ -22,7 +22,7 @@ import {
   TrendingUp,
   Waves,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { useBacktestProgress } from '../api/hooks';
@@ -836,45 +836,59 @@ export const BacktestDetailsV2: React.FC = () => {
   }, [progressQuery.lastSocketEvent]);
 
   // Filter candles for selected market
-  const selectedCandles = candles.filter((c) => c.market === selectedMarket);
-  const selectedChartPoints: BacktestChartPoint[] = selectedCandles.map((candle, index) => {
-    const previous = index > 0 ? selectedCandles[index - 1] : null;
-    return {
-      time: candle.timestamp,
-      value: candle.close,
-      pnl: previous ? candle.close - previous.close : candle.close,
-      trades: Math.max(0, Math.round(candle.volume)),
-    };
-  });
-  const filteredChartPoints = filterChartPointsByRange(selectedChartPoints, chartRange);
-  const filteredChartMarkers = chartMarkers.filter((marker) => {
-    const matchesMarket =
-      !selectedMarket ||
-      marker.pair === selectedMarket ||
-      marker.pair.includes(selectedMarket) ||
-      selectedMarket.includes(marker.pair);
+  const selectedCandles = useMemo(
+    () => candles.filter((c) => c.market === selectedMarket),
+    [candles, selectedMarket]
+  );
+  const selectedChartPoints = useMemo<BacktestChartPoint[]>(
+    () =>
+      selectedCandles.map((candle, index) => {
+        const previous = index > 0 ? selectedCandles[index - 1] : null;
+        return {
+          time: candle.timestamp,
+          value: candle.close,
+          pnl: previous ? candle.close - previous.close : candle.close,
+          trades: Math.max(0, Math.round(candle.volume)),
+        };
+      }),
+    [selectedCandles]
+  );
+  const filteredChartPoints = useMemo(
+    () => filterChartPointsByRange(selectedChartPoints, chartRange),
+    [chartRange, selectedChartPoints]
+  );
+  const filteredChartMarkers = useMemo(
+    () =>
+      chartMarkers.filter((marker) => {
+        const matchesMarket =
+          !selectedMarket ||
+          marker.pair === selectedMarket ||
+          marker.pair.includes(selectedMarket) ||
+          selectedMarket.includes(marker.pair);
 
-    if (!matchesMarket) {
-      return false;
-    }
+        if (!matchesMarket) {
+          return false;
+        }
 
-    if (chartRange === 'ALL') {
-      return true;
-    }
+        if (chartRange === 'ALL') {
+          return true;
+        }
 
-    const markerDate = new Date(`${marker.time.slice(0, 10)}T00:00:00Z`);
-    const latestPoint = filteredChartPoints[filteredChartPoints.length - 1];
-    if (!latestPoint || Number.isNaN(markerDate.getTime())) {
-      return false;
-    }
-    const latestDate = new Date(`${latestPoint.time}T00:00:00Z`);
-    if (Number.isNaN(latestDate.getTime())) {
-      return false;
-    }
-    const lookbackDays = CHART_RANGE_DAYS[chartRange];
-    const cutoff = latestDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
-    return markerDate.getTime() >= cutoff;
-  });
+        const markerDate = new Date(`${marker.time.slice(0, 10)}T00:00:00Z`);
+        const latestPoint = filteredChartPoints[filteredChartPoints.length - 1];
+        if (!latestPoint || Number.isNaN(markerDate.getTime())) {
+          return false;
+        }
+        const latestDate = new Date(`${latestPoint.time}T00:00:00Z`);
+        if (Number.isNaN(latestDate.getTime())) {
+          return false;
+        }
+        const lookbackDays = CHART_RANGE_DAYS[chartRange];
+        const cutoff = latestDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
+        return markerDate.getTime() >= cutoff;
+      }),
+    [chartMarkers, chartRange, filteredChartPoints, selectedMarket]
+  );
 
   if (loading) {
     return (

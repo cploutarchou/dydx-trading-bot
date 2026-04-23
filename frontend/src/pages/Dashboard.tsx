@@ -1080,7 +1080,7 @@ export const DashboardPage: React.FC = () => {
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
-        <BacktestList refreshTrigger={refreshTrigger} />
+        <BacktestList runs={runs} loading={statsLoading} error={statsError} />
       </section>
     </PageContainer>
   );

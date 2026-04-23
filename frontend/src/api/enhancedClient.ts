@@ -92,7 +92,7 @@ class EnhancedAPIClient {
   private baseClient = apiClient;
 
   private getAccessToken(): string | null {
-    return null;
+    return this.baseClient.getAccessToken();
   }
 
   private buildAuthHeaders(existingHeaders?: unknown): Headers {

@@ -1163,6 +1163,10 @@ class ApiClient {
     this.sessionEstablished = true;
   }
 
+  getAccessToken(): string | null {
+    return this.accessToken;
+  }
+
   async refreshAccessToken(): Promise<Token> {
     const refreshResponse = await axios.post<ApiResponse<Token> | Token>(
       `${API_BASE_URL}/api/v1/auth/refresh`,

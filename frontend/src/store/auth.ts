@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../api';
+import { perfMark, perfMeasure } from '../utils/perf';
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
@@ -45,6 +46,7 @@ const buildLoggedOutState = () => ({
   user: null,
   loading: false,
   sessionLoading: false,
+  sessionInitialized: true,
   error: null,
   twoFARequired: false,
   twoFASecret: undefined,
@@ -74,6 +76,7 @@ interface AuthStore {
   user: User | null;
   loading: boolean;
   sessionLoading: boolean;
+  sessionInitialized: boolean;
   error: string | null;
   twoFARequired: boolean;
   twoFASecret?: string;
@@ -102,6 +105,7 @@ export const useAuthStore = create<AuthStore>()(
       user: null,
       loading: false,
       sessionLoading: false,
+      sessionInitialized: false,
       error: null,
       twoFARequired: false,
       twoFASecret: undefined,
@@ -188,7 +192,8 @@ export const useAuthStore = create<AuthStore>()(
         // Signal that auth bootstrap is in flight so ProtectedRoute can show a skeleton
         // instead of redirecting to /login prematurely.
         activeInitializeSession = (async () => {
-          set({ sessionLoading: true, error: null });
+          set({ sessionLoading: true, sessionInitialized: false, error: null });
+          perfMark('session:init:start');
 
           try {
             const restored = await withTimeout(
@@ -203,7 +208,6 @@ export const useAuthStore = create<AuthStore>()(
               return;
             }
 
-            void api.getRegistrationStatus().catch(() => undefined);
             await withTimeout(get().getCurrentUser(), 10000, 'initializeSession current user');
           } catch (error: unknown) {
             console.error('❌ auth.ts: initializeSession failed:', error);
@@ -213,7 +217,9 @@ export const useAuthStore = create<AuthStore>()(
               error: error instanceof Error ? error.message : 'Session restore failed',
             });
           } finally {
-            set({ sessionLoading: false });
+            perfMark('session:init:end');
+            perfMeasure('session:init:duration', 'session:init:start', 'session:init:end');
+            set({ sessionLoading: false, sessionInitialized: true });
             activeInitializeSession = null;
           }
         })();
@@ -296,6 +302,7 @@ export const useAuthStore = create<AuthStore>()(
           state.error = null;
           state.loading = false;
           state.sessionLoading = false;
+          state.sessionInitialized = true;
           state.twoFARequired = false;
           state.twoFASecret = undefined;
           state.twoFAQRCode = undefined;

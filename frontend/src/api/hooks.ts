@@ -52,6 +52,8 @@ const useManagedWebSocket = ({
     }
 
     let closedByEffect = false;
+    let pausedForPageLifecycle = false;
+    let shouldResumeAfterPageShow = false;
     let socket: WebSocket | null = null;
     let openCleanup: (() => void) | null = null;
 
@@ -163,7 +165,7 @@ const useManagedWebSocket = ({
         setIsConnected(false);
         clearStaleTimer();
         clearOpenCleanup();
-        if (!closedByEffect) {
+        if (!closedByEffect && !pausedForPageLifecycle) {
           scheduleReconnect();
         }
       };
@@ -177,12 +179,54 @@ const useManagedWebSocket = ({
       connect();
     };
 
+    const handlePageHide = () => {
+      if (closedByEffect) {
+        return;
+      }
+
+      shouldResumeAfterPageShow =
+        socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING;
+      pausedForPageLifecycle = shouldResumeAfterPageShow;
+
+      clearReconnectTimer();
+      clearStaleTimer();
+      clearOpenCleanup();
+
+      if (socket && socket.readyState !== WebSocket.CLOSED) {
+        try {
+          socket.close(1000, 'pagehide');
+        } catch (error) {
+          console.warn('Failed to close websocket on pagehide', error);
+        }
+      }
+    };
+
+    const handlePageShow = () => {
+      if (closedByEffect || !pausedForPageLifecycle) {
+        return;
+      }
+
+      pausedForPageLifecycle = false;
+      if (!shouldResumeAfterPageShow) {
+        return;
+      }
+
+      shouldResumeAfterPageShow = false;
+      reconnectAttemptRef.current = 0;
+      clearReconnectTimer();
+      connect();
+    };
+
     window.addEventListener('online', handleOnline);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
     connect();
 
     return () => {
       closedByEffect = true;
       window.removeEventListener('online', handleOnline);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
       clearReconnectTimer();
       clearStaleTimer();
       clearOpenCleanup();

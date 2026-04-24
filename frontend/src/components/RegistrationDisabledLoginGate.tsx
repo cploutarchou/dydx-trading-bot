@@ -6,6 +6,11 @@ import api from '../api';
 import { useAuthStore } from '../store/auth';
 import { isRegistrationDisabledByAdministrator } from '../utils/registrationStatus';
 
+type IdleWindow = Window & {
+  requestIdleCallback?: (_callback: () => void, _options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (_handle: number) => void;
+};
+
 export const RegistrationDisabledLoginGate: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -13,10 +18,43 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
   const { login, loading, error } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [allowRegistrationFetch, setAllowRegistrationFetch] = useState(false);
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const errorAlertRef = useRef<HTMLDivElement | null>(null);
 
   const isAuthRoute = location.pathname === '/login' || location.pathname === '/register';
+
+  useEffect(() => {
+    if (!isAuthRoute || isAuthenticated) {
+      setAllowRegistrationFetch(false);
+      return;
+    }
+
+    const idleWindow = window as IdleWindow;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+
+    const enableFetch = () => {
+      setAllowRegistrationFetch(true);
+    };
+
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+      idleId = idleWindow.requestIdleCallback(() => {
+        enableFetch();
+      }, { timeout: 250 });
+    } else {
+      timeoutId = window.setTimeout(enableFetch, 120);
+    }
+
+    return () => {
+      if (idleId !== null && typeof idleWindow.cancelIdleCallback === 'function') {
+        idleWindow.cancelIdleCallback(idleId);
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [isAuthRoute, isAuthenticated]);
 
   const registrationStatusQuery = useQuery({
     queryKey: ['auth', 'registration-status'],
@@ -25,7 +63,7 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
       return response.data;
     },
     staleTime: 60_000,
-    enabled: !isAuthenticated && isAuthRoute,
+    enabled: !isAuthenticated && isAuthRoute && allowRegistrationFetch,
   });
 
   const shouldGate =

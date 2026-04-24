@@ -1,19 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Loader, LockKeyhole } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useAuthStore } from '../store/auth';
 import { isRegistrationDisabledByAdministrator } from '../utils/registrationStatus';
 
 export const RegistrationDisabledLoginGate: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const { login, loading, error } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const errorAlertRef = useRef<HTMLDivElement | null>(null);
+
+  const isAuthRoute = location.pathname === '/login' || location.pathname === '/register';
 
   const registrationStatusQuery = useQuery({
     queryKey: ['auth', 'registration-status'],
@@ -22,7 +25,7 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
       return response.data;
     },
     staleTime: 60_000,
-    enabled: !isAuthenticated,
+    enabled: !isAuthenticated && isAuthRoute,
   });
 
   const shouldGate =
@@ -52,7 +55,7 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
     }
   };
 
-  if (!shouldGate) {
+  if (!isAuthRoute || !shouldGate) {
     return null;
   }
 

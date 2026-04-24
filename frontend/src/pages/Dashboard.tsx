@@ -402,12 +402,12 @@ export const DashboardPage: React.FC = () => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      const statsPromise = api.listBacktests(0, 50);
+      const statsPromise = api.listBacktests(0, 25);
       const timeoutPromise = new Promise<Awaited<ReturnType<typeof api.listBacktests>>>(
         (_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Timed out while loading dashboard stats')),
-            45000
+            12000
           );
         }
       );
@@ -464,7 +464,7 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     if (stats.running > 0 && !pollRef.current) {
-      pollRef.current = setInterval(() => void computeStats(), 4000);
+      pollRef.current = setInterval(() => void computeStats(), 10000);
     } else if (stats.running === 0 && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;

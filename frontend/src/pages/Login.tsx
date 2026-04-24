@@ -21,6 +21,9 @@ export const LoginPage: React.FC = () => {
       return response.data;
     },
     staleTime: 60_000,
+    // RegistrationDisabledLoginGate owns this fetch on /login and /register.
+    // Keep LoginPage subscribed to cached data without issuing a second request.
+    enabled: false,
   });
 
   useEffect(() => {

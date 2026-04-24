@@ -14,6 +14,11 @@ import {
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
+import { LandingPage } from './pages/Landing';
+import { LoginPage } from './pages/Login';
+import { PricingPage } from './pages/Pricing';
+import { PublicServicePage } from './pages/PublicServicePage';
+import { RegisterPage } from './pages/Register';
 import { isCRMHost } from './pages/crm/paths';
 import { isIBPortalHost } from './pages/ib/paths';
 import { useAuthStore } from './store/auth';
@@ -102,23 +107,8 @@ const ForcePasswordChangePage = lazy(() =>
   import('./pages/ForcePasswordChange').then((module) => ({ default: module.ForcePasswordChangePage }))
 );
 const IBRouter = lazy(() => import('./pages/ib').then((module) => ({ default: module.IBRouter })));
-const LandingPage = lazy(() =>
-  import('./pages/Landing').then((module) => ({ default: module.LandingPage }))
-);
-const LoginPage = lazy(() =>
-  import('./pages/Login').then((module) => ({ default: module.LoginPage }))
-);
 const NewsPage = lazy(() =>
   import('./pages/News').then((module) => ({ default: module.NewsPage }))
-);
-const PricingPage = lazy(() =>
-  import('./pages/Pricing').then((module) => ({ default: module.PricingPage }))
-);
-const PublicServicePage = lazy(() =>
-  import('./pages/PublicServicePage').then((module) => ({ default: module.PublicServicePage }))
-);
-const RegisterPage = lazy(() =>
-  import('./pages/Register').then((module) => ({ default: module.RegisterPage }))
 );
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const TwoFactorAuthPage = lazy(() =>
@@ -130,11 +120,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
   allowedRoles,
 }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
-  const loading = useAuthStore((state) => state.loading);
+  const sessionLoading = useAuthStore((state) => state.sessionLoading);
+  const sessionInitialized = useAuthStore((state) => state.sessionInitialized);
   const user = useAuthStore((state) => state.user);
 
-  // Auth bootstrap in flight — show skeleton rather than redirect prematurely
-  if (!isAuthenticated && loading) {
+  // Wait until bootstrap resolves before deciding to redirect.
+  if (!sessionInitialized || (!isAuthenticated && sessionLoading)) {
     return <AuthSkeleton />;
   }
 
@@ -163,10 +154,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
 
 const PasswordRotationRoute: React.FC = () => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
-  const loading = useAuthStore((state) => state.loading);
+  const sessionLoading = useAuthStore((state) => state.sessionLoading);
+  const sessionInitialized = useAuthStore((state) => state.sessionInitialized);
   const user = useAuthStore((state) => state.user);
 
-  if (!isAuthenticated && loading) {
+  if (!sessionInitialized || (!isAuthenticated && sessionLoading)) {
     return <AuthSkeleton />;
   }
 

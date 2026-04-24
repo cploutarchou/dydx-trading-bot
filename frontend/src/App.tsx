@@ -130,11 +130,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
   allowedRoles,
 }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
-  const loading = useAuthStore((state) => state.loading);
+  const sessionLoading = useAuthStore((state) => state.sessionLoading);
   const user = useAuthStore((state) => state.user);
 
   // Auth bootstrap in flight — show skeleton rather than redirect prematurely
-  if (!isAuthenticated && loading) {
+  if (!isAuthenticated && sessionLoading) {
     return <AuthSkeleton />;
   }
 
@@ -163,10 +163,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
 
 const PasswordRotationRoute: React.FC = () => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
-  const loading = useAuthStore((state) => state.loading);
+  const sessionLoading = useAuthStore((state) => state.sessionLoading);
   const user = useAuthStore((state) => state.user);
 
-  if (!isAuthenticated && loading) {
+  if (!isAuthenticated && sessionLoading) {
     return <AuthSkeleton />;
   }
 

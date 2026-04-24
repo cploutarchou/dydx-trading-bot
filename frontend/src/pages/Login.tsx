@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import AuthExperienceShell from '../components/AuthExperienceShell';
 import { useAuthStore } from '../store/auth';
+import { perfMark, perfMeasure } from '../utils/perf';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -24,6 +25,17 @@ export const LoginPage: React.FC = () => {
 
   useEffect(() => {
     usernameInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const animationFrameId = window.requestAnimationFrame(() => {
+      perfMark('login-page:rendered');
+      perfMeasure('boot->login-page:rendered', 'boot:start', 'login-page:rendered');
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
   }, []);
 
   useEffect(() => {

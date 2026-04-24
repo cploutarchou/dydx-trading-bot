@@ -44,6 +44,7 @@ const getVerifiedTwoFAMessage = (response: {
 const buildLoggedOutState = () => ({
   user: null,
   loading: false,
+  sessionLoading: false,
   error: null,
   twoFARequired: false,
   twoFASecret: undefined,
@@ -52,6 +53,7 @@ const buildLoggedOutState = () => ({
 });
 
 const hasActiveSession = (): boolean => api.hasToken();
+let activeInitializeSession: Promise<void> | null = null;
 
 interface User {
   id: number;
@@ -71,6 +73,7 @@ interface User {
 interface AuthStore {
   user: User | null;
   loading: boolean;
+  sessionLoading: boolean;
   error: string | null;
   twoFARequired: boolean;
   twoFASecret?: string;
@@ -98,6 +101,7 @@ export const useAuthStore = create<AuthStore>()(
     (set, get) => ({
       user: null,
       loading: false,
+      sessionLoading: false,
       error: null,
       twoFARequired: false,
       twoFASecret: undefined,
@@ -177,40 +181,44 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       initializeSession: async () => {
+        if (activeInitializeSession) {
+          return activeInitializeSession;
+        }
+
         // Signal that auth bootstrap is in flight so ProtectedRoute can show a skeleton
         // instead of redirecting to /login prematurely.
-        set({ loading: true, error: null });
+        activeInitializeSession = (async () => {
+          set({ sessionLoading: true, error: null });
 
-        try {
-          const restored = await withTimeout(api.restoreSession(), 10000, 'restoreSession');
-          if (!restored) {
-            set(buildLoggedOutState());
-            return;
+          try {
+            const restored = await withTimeout(
+              api.restoreSession({
+                allowCookieRefresh: api.hasSessionHint(),
+              }),
+              10000,
+              'restoreSession'
+            );
+            if (!restored) {
+              set(buildLoggedOutState());
+              return;
+            }
+
+            void api.getRegistrationStatus().catch(() => undefined);
+            await withTimeout(get().getCurrentUser(), 10000, 'initializeSession current user');
+          } catch (error: unknown) {
+            console.error('❌ auth.ts: initializeSession failed:', error);
+            api.logout();
+            set({
+              ...buildLoggedOutState(),
+              error: error instanceof Error ? error.message : 'Session restore failed',
+            });
+          } finally {
+            set({ sessionLoading: false });
+            activeInitializeSession = null;
           }
+        })();
 
-          // Parallelise: fetch current user and pre-warm registration-status simultaneously.
-          // Registration status is independent of the user object so there is no reason to sequence them.
-          await withTimeout(
-            Promise.all([
-              get().getCurrentUser(),
-              // Fire-and-forget pre-warm for registration status (used by RegistrationDisabledLoginGate
-              // and Login/Register pages via TanStack Query).  We swallow errors here because it is
-              // non-critical — the query components will retry on their own.
-              api.getRegistrationStatus().catch(() => undefined),
-            ]),
-            10000,
-            'initializeSession parallel fetch'
-          );
-        } catch (error: unknown) {
-          console.error('❌ auth.ts: initializeSession failed:', error);
-          api.logout();
-          set({
-            ...buildLoggedOutState(),
-            error: error instanceof Error ? error.message : 'Session restore failed',
-          });
-        } finally {
-          set({ loading: false });
-        }
+        return activeInitializeSession;
       },
 
       isAuthenticated: () => {
@@ -287,6 +295,7 @@ export const useAuthStore = create<AuthStore>()(
           state.user = null;
           state.error = null;
           state.loading = false;
+          state.sessionLoading = false;
           state.twoFARequired = false;
           state.twoFASecret = undefined;
           state.twoFAQRCode = undefined;

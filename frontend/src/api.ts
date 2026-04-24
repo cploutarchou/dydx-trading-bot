@@ -44,6 +44,7 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 const AUTH_COOKIE_NAMES = ['dydx_session', 'access_token', 'refresh_token'] as const;
+const SESSION_HINT_KEY = '_dydx_session_established';
 
 const getCookieDomainVariants = (hostname: string): Array<string | null> => {
   const variants = new Set<string | null>([null]);
@@ -1018,7 +1019,10 @@ class ApiClient {
   private accessToken: string | null = null;
   private sessionEstablished: boolean = false;
   private isRefreshing: boolean = false;
+  private activeRefreshPromise: Promise<Token> | null = null;
   private pendingRequests: PendingRequest[] = [];
+  private refreshBlockedUntil: number = 0;
+  private readonly refreshFailureCooldownMs: number = 10000;
 
   constructor() {
     this.client = axios.create({
@@ -1080,9 +1084,14 @@ class ApiClient {
           status === 401 &&
           url &&
           !url.includes('/auth/login') &&
+          !url.includes('/auth/logout') &&
           !url.includes('/auth/refresh') &&
           !url.includes('/auth/registration-status')
         ) {
+          if (!this.hasSessionHint()) {
+            return Promise.reject(error);
+          }
+
           const originalRequest = error.config as
             | (typeof error.config & { _retry?: boolean })
             | undefined;
@@ -1136,7 +1145,6 @@ class ApiClient {
               refreshError instanceof Error ? refreshError.message : String(refreshError);
             console.error('❌ api.ts: Token refresh failed', errorMsg);
             this.notifyRefreshFailure(refreshError);
-            this.logout();
             if (typeof window !== 'undefined') {
               window.dispatchEvent(
                 new CustomEvent('auth:session-expired', {
@@ -1172,6 +1180,7 @@ class ApiClient {
   setToken(token: string, _remember: boolean = true): void {
     this.accessToken = token;
     this.sessionEstablished = true;
+    this.markSessionEstablished();
     // Persist token to localStorage for recovery after page refresh
     if (typeof localStorage !== 'undefined') {
       try {
@@ -1179,6 +1188,34 @@ class ApiClient {
       } catch (e) {
         console.warn('❌ api.ts: Failed to persist token to localStorage', e);
       }
+    }
+  }
+
+  private markSessionEstablished(): void {
+    this.sessionEstablished = true;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(SESSION_HINT_KEY, 'true');
+      } catch (e) {
+        console.warn('❌ api.ts: Failed to persist session hint', e);
+      }
+    }
+  }
+
+  hasSessionHint(): boolean {
+    if (this.sessionEstablished) {
+      return true;
+    }
+
+    if (typeof localStorage === 'undefined') {
+      return false;
+    }
+
+    try {
+      return localStorage.getItem(SESSION_HINT_KEY) === 'true';
+    } catch (e) {
+      console.warn('❌ api.ts: Failed to read session hint', e);
+      return false;
     }
   }
 
@@ -1192,7 +1229,7 @@ class ApiClient {
         const storedToken = localStorage.getItem('_dydx_access_token');
         if (storedToken) {
           this.accessToken = storedToken;
-          this.sessionEstablished = true;
+          this.markSessionEstablished();
         }
       } catch (e) {
         console.warn('❌ api.ts: Failed to load token from localStorage', e);
@@ -1201,39 +1238,77 @@ class ApiClient {
   }
 
   async refreshAccessToken(): Promise<Token> {
-    const refreshResponse = await axios.post<ApiResponse<Token> | Token>(
-      `${API_BASE_URL}/api/v1/auth/refresh`,
-      {},
-      {
-        withCredentials: true,
-        headers: {
-          'Content-Type': 'application/json',
-          [traceHeaderName]: attachTraceHeader({}),
-        },
+    if (this.activeRefreshPromise) {
+      return this.activeRefreshPromise;
+    }
+
+    if (Date.now() < this.refreshBlockedUntil) {
+      const remainingMs = this.refreshBlockedUntil - Date.now();
+      console.debug(
+        `🔐 api.ts: refresh attempt suppressed by cooldown (${Math.max(0, remainingMs)}ms remaining)`
+      );
+      throw new Error('Refresh temporarily blocked after previous failure');
+    }
+
+    this.activeRefreshPromise = (async () => {
+      let refreshResponse;
+      try {
+        refreshResponse = await axios.post<ApiResponse<Token> | Token>(
+          `${API_BASE_URL}/api/v1/auth/refresh`,
+          {},
+          {
+            withCredentials: true,
+            timeout: 4000,
+            headers: {
+              'Content-Type': 'application/json',
+              [traceHeaderName]: attachTraceHeader({}),
+            },
+          }
+        );
+      } catch (error) {
+        this.refreshBlockedUntil = Date.now() + this.refreshFailureCooldownMs;
+        this.accessToken = null;
+        this.sessionEstablished = false;
+        if (typeof localStorage !== 'undefined') {
+          try {
+            localStorage.removeItem('_dydx_access_token');
+            localStorage.removeItem(SESSION_HINT_KEY);
+          } catch (e) {
+            console.warn('❌ api.ts: Failed to clear stale session hints after refresh failure', e);
+          }
+        }
+        throw error;
       }
-    );
 
-    const refreshPayload = (refreshResponse.data as ApiResponse<Token>)?.data
-      ? (refreshResponse.data as ApiResponse<Token>).data
-      : (refreshResponse.data as Token);
+      const refreshPayload = (refreshResponse.data as ApiResponse<Token>)?.data
+        ? (refreshResponse.data as ApiResponse<Token>).data
+        : (refreshResponse.data as Token);
 
-    if (!refreshPayload) {
-      throw new Error('Refresh endpoint did not return a session payload');
+      if (!refreshPayload) {
+        throw new Error('Refresh endpoint did not return a session payload');
+      }
+
+      this.refreshBlockedUntil = 0;
+      this.markSessionEstablished();
+      if (refreshPayload.access_token) {
+        this.setToken(refreshPayload.access_token);
+      }
+
+      return refreshPayload;
+    })();
+
+    try {
+      return await this.activeRefreshPromise;
+    } finally {
+      this.activeRefreshPromise = null;
     }
-
-    this.sessionEstablished = true;
-    if (refreshPayload.access_token) {
-      this.setToken(refreshPayload.access_token);
-    }
-
-    return refreshPayload;
   }
 
   hasRefreshToken(): boolean {
     return this.sessionEstablished;
   }
 
-  async restoreSession(): Promise<boolean> {
+  async restoreSession(options: { allowCookieRefresh?: boolean } = {}): Promise<boolean> {
     try {
       // Attempt to load token from localStorage first (recovery after page refresh)
       this.loadTokenFromStorage();
@@ -1241,6 +1316,11 @@ class ApiClient {
       if (this.accessToken && this.sessionEstablished) {
         return true;
       }
+
+      if (!(options.allowCookieRefresh ?? this.hasSessionHint())) {
+        return false;
+      }
+
       // Token not in storage, attempt to refresh via HttpOnly session cookie
       await this.refreshAccessToken();
       return true;
@@ -1249,6 +1329,7 @@ class ApiClient {
       if (typeof localStorage !== 'undefined') {
         try {
           localStorage.removeItem('_dydx_access_token');
+          localStorage.removeItem(SESSION_HINT_KEY);
         } catch (e) {
           console.warn('❌ api.ts: Failed to clear token from localStorage', e);
         }
@@ -1274,6 +1355,7 @@ class ApiClient {
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.removeItem('_dydx_access_token');
+        localStorage.removeItem(SESSION_HINT_KEY);
       } catch (e) {
         console.warn('❌ api.ts: Failed to clear token from localStorage during logout', e);
       }
@@ -1323,7 +1405,7 @@ class ApiClient {
       const payload = (response.data?.data || response.data) as Token;
 
       if (payload) {
-        this.sessionEstablished = true;
+        this.markSessionEstablished();
       }
       if (payload && payload.access_token) {
         this.setToken(payload.access_token);

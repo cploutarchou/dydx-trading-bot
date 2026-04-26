@@ -1136,6 +1136,10 @@ class ApiClient {
             if (error.config) {
               if (newAccessToken && error.config.headers) {
                 error.config.headers.Authorization = `Bearer ${newAccessToken}`;
+              } else if (!newAccessToken && error.config.headers) {
+                // Session-only refresh (no new JWT) — clear stale Bearer token so
+                // the retry relies on the HttpOnly session cookie instead.
+                delete (error.config.headers as Record<string, string>)['Authorization'];
               }
               return this.client(error.config);
             }
@@ -1292,6 +1296,17 @@ class ApiClient {
       this.markSessionEstablished();
       if (refreshPayload.access_token) {
         this.setToken(refreshPayload.access_token);
+      } else {
+        // Session-only refresh response — clear any stale JWT so requests
+        // fall back to HttpOnly cookie auth rather than sending an expired token.
+        this.accessToken = null;
+        if (typeof localStorage !== 'undefined') {
+          try {
+            localStorage.removeItem('_dydx_access_token');
+          } catch (_e) {
+            // ignore
+          }
+        }
       }
 
       return refreshPayload;

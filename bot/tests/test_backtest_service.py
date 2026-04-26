@@ -212,6 +212,30 @@ def test_backtest_runs_async_and_completes_with_trades(monkeypatch):
     asyncio.run(_run())
 
 
+def test_backtest_progress_callback_failure_does_not_fail_run(monkeypatch):
+    BacktestConfigRequest, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    async def _failing_progress(*_args):
+        raise RuntimeError("websocket unavailable")
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    service = BacktestService(session=None)
+
+    async def _run():
+        created = await service.create_and_run_backtest(
+            BacktestConfigRequest(**_request(max_pairs=1).model_dump()),
+            progress_callback=_failing_progress,
+        )
+        terminal = await _wait_for_terminal_status(service, created.run_id)
+        assert terminal == "completed"
+
+    asyncio.run(_run())
+
+
 def test_parameter_changes_produce_distinct_real_results(monkeypatch):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService

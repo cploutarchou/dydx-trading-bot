@@ -24,6 +24,7 @@ except Exception:  # pragma: no cover
 
 from src.trading.dydx_client import connect_dydx
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
+from src.infrastructure.use_cases.async_job_manager import async_job_manager
 
 logger = logging.getLogger(__name__)
 
@@ -1278,6 +1279,7 @@ class BacktestService:
             )
             run_data["updated_at"] = started_at.isoformat()
             run_data = self._persist_run_data(run_data)
+            async_job_manager.mark_running(run_id)
 
             params = request_payload.get("trading_parameters") or {}
             pairs_raw = request_payload.get("pairs") or []
@@ -1398,6 +1400,15 @@ class BacktestService:
                 run_data["current_task"] = "processing pair"
                 run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
                 run_data = self._persist_run_data(run_data)
+                async_job_manager.mark_progress(
+                    run_id,
+                    progress,
+                    metadata={
+                        "run_id": run_id,
+                        "current_pair": run_data.get("current_pair"),
+                        "current_task": run_data.get("current_task"),
+                    },
+                )
 
                 if progress_callback is not None:
                     try:
@@ -1413,6 +1424,13 @@ class BacktestService:
                             "Backtest progress callback timed out for run %s at %.2f%%",
                             run_id,
                             progress,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Backtest progress callback failed for run %s at %.2f%%: %s",
+                            run_id,
+                            progress,
+                            exc,
                         )
 
                 if m1 in market_history_cache:
@@ -1577,6 +1595,14 @@ class BacktestService:
                 worker_task_id=run_data.get("worker_task_id") or run_id,
             )
             run_data = self._persist_run_data(run_data)
+            async_job_manager.mark_completed(
+                run_id,
+                result={
+                    "status": "completed",
+                    "total_trades": total_trades,
+                    "total_pnl": round(total_pnl, 4),
+                },
+            )
 
             if progress_callback is not None:
                 try:
@@ -1587,6 +1613,12 @@ class BacktestService:
                 except asyncio.TimeoutError:
                     logger.warning(
                         "Backtest final progress callback timed out for run %s", run_id
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Backtest final progress callback failed for run %s: %s",
+                        run_id,
+                        exc,
                     )
 
         except asyncio.CancelledError:
@@ -1613,6 +1645,7 @@ class BacktestService:
                 }
             )
             run_data = self._persist_run_data(run_data)
+            async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
         except TimeoutError as exc:
             error_message = str(exc) or "Backtest timed out"
             run_data = self._set_runtime_control(
@@ -1636,6 +1669,7 @@ class BacktestService:
                 }
             )
             run_data = self._persist_run_data(run_data)
+            async_job_manager.mark_failed(run_id, error_message)
         except Exception as exc:
             error_message = str(exc)
             run_data = self._set_runtime_control(
@@ -1659,6 +1693,7 @@ class BacktestService:
                 }
             )
             run_data = self._persist_run_data(run_data)
+            async_job_manager.mark_failed(run_id, error_message)
         finally:
             self._tasks.pop(run_id, None)
             if client is not None:
@@ -1759,12 +1794,22 @@ class BacktestService:
             run_data = self._persist_run_data(run_data)
             return _BacktestRunDetails(**self._resolve_stale_run_data(run_data))
 
-        task = asyncio.create_task(
+        task = async_job_manager.create_supervised_task(
             self._execute_backtest(
                 run_id=run_id,
                 request_payload=request_payload,
                 progress_callback=progress_callback,
-            )
+            ),
+            job_type="backtest",
+            job_id=run_id,
+            parameters=request_payload,
+            metadata={
+                "run_id": run_id,
+                "worker_backend": "asyncio",
+                "start_date": str(start_date) if start_date else "",
+                "end_date": str(end_date) if end_date else "",
+            },
+            auto_complete=False,
         )
         self._tasks[run_id] = task
         task.add_done_callback(
@@ -2106,6 +2151,7 @@ class BacktestService:
         data["finished_at"] = data.get("finished_at") or now
         data["updated_at"] = now
         self._persist_run_data(data)
+        async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
         return True
 
     def delete_backtest(self, run_id: str) -> bool:

@@ -35,10 +35,17 @@ make test
 make preflight-testnet
 ```
 
+`make local-api` starts the canonical API without uvicorn hot reload by default, which gives cleaner shutdown semantics
+for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is needed.
+
 ## Runtime Model
 
-The bot manager owns process lifecycle. Bot instances run as isolated subprocesses and write state/log artifacts under
-`bot_states/`.
+The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; PostgreSQL is the source of truth for
+instance status, lifecycle events, supervised job state, and backtest progress. `bot_states/` is kept only for generated
+per-instance config, subprocess log output, and temporary/debug compatibility artifacts.
+
+Async background work must be launched through the supervised job helper so task failures, cancellations, progress, and
+traceback summaries are persisted in the `jobs` table instead of disappearing as unobserved task exceptions.
 
 The bot service is not a public frontend integration surface. The supported product path is:
 

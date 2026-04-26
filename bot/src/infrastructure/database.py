@@ -455,6 +455,37 @@ class DatabaseManager:
                         "Compatibility fix applied: backtest_strategies.pair_selection_mode"
                     )
 
+            if inspector.has_table("jobs"):
+                job_columns = {
+                    column["name"]: column for column in inspector.get_columns("jobs")
+                }
+                bot_id_column = job_columns.get("bot_id")
+                if bot_id_column is not None and not bool(bot_id_column.get("nullable", True)):
+                    logger.info("Applying compatibility fix: allowing jobs.bot_id to be nullable")
+                    connection.execute(
+                        text("ALTER TABLE jobs ALTER COLUMN bot_id DROP NOT NULL")
+                    )
+
+    def verify_required_tables(self) -> dict:
+        """Verify runtime-critical tables are present in the active bot database."""
+        required = {
+            "bot_instances",
+            "jobs",
+            "event_logs",
+            "trades",
+            "backtest_runtime_runs",
+        }
+        engine = self.get_engine()
+        inspector = inspect(engine)
+        present = set(inspector.get_table_names())
+        missing = sorted(required - present)
+        if missing:
+            raise RuntimeError(
+                "Bot database schema is missing required tables: "
+                + ", ".join(missing)
+            )
+        return {"required": sorted(required), "missing": missing}
+
     def _build_alembic_config(self) -> Optional[Config]:
         config = DatabaseConfig()
         alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"

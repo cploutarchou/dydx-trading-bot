@@ -13,6 +13,7 @@ from src.api.realtime_serializers import serialize_stats_risk_fields
 from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
     broadcast_alert, broadcast_position_opened, broadcast_position_closed
 from src.infrastructure.database import db
+from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.shared.time_utils import utc_now_iso
 
 
@@ -29,7 +30,13 @@ class RealTimeDataService:
             logger.warning(f"Bot {bot_instance_id} already being monitored")
             return
 
-        task = asyncio.create_task(self._monitor_bot(bot_instance_id))
+        task = async_job_manager.create_supervised_task(
+            self._monitor_bot(bot_instance_id),
+            job_type="strategy_worker",
+            job_id=f"realtime-monitor-{bot_instance_id}",
+            metadata={"bot_instance_id": str(bot_instance_id)},
+            auto_complete=False,
+        )
         self.update_tasks[bot_instance_id] = task
         logger.info(f"Started monitoring bot {bot_instance_id}")
 

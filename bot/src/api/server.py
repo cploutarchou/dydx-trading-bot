@@ -110,6 +110,7 @@ from src.infrastructure.domain.models_backtest import (
 )
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
+from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.shared.logging_setup import setup_logging
@@ -520,8 +521,16 @@ async def _broadcast_backtest_progress(
         "current_pair": current_pair,
         "current_task": "complete" if current_pair == "complete" else "running",
     }
-    await manager.broadcast_to_bot(f"backtest-{run_id}", progress_message)
-    await manager.broadcast_to_bot(f"backtest-{run_id}", log_message)
+    try:
+        await manager.broadcast_to_bot(f"backtest-{run_id}", progress_message)
+        await manager.broadcast_to_bot(f"backtest-{run_id}", log_message)
+    except Exception as exc:
+        logger.warning(
+            "backtest_websocket_publish_failed run_id={} progress={} error={}",
+            run_id,
+            progress,
+            exc,
+        )
     logger.debug(
         f"Backtest {run_id} progress: {progress:.1f}% ({current_pair}), ETA: {eta}s"
     )
@@ -649,14 +658,23 @@ async def lifespan(_: FastAPI):
         runtime_db_config.cutover_mode,
         runtime_db_config.field_source,
     )
+    if not db.health_check():
+        raise RuntimeError("Bot database health check failed during API startup")
     db.create_all_tables()
     db.ensure_schema_compatibility()
     db.run_pending_migrations()
+    db.verify_required_tables()
     if bot_manager is not None:
         bot_manager.set_status_event_publisher(broadcast_strategy_status)
         await bot_manager.cleanup_dead_processes()
         if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
-            bot_manager_monitor_task = asyncio.create_task(_bot_manager_monitor_loop())
+            bot_manager_monitor_task = async_job_manager.create_supervised_task(
+                _bot_manager_monitor_loop(),
+                job_type="readiness_check",
+                job_id="bot-manager-monitor",
+                metadata={"component": "bot_manager"},
+                auto_complete=False,
+            )
     else:
         logger.warning(
             "Bot manager unavailable; bot-instance endpoints may be degraded"
@@ -674,6 +692,14 @@ async def lifespan(_: FastAPI):
                 pass
             finally:
                 bot_manager_monitor_task = None
+        await async_job_manager.cancel_all(reason="api shutdown")
+        if bot_manager is not None:
+            await bot_manager.shutdown(
+                stop_active=os.getenv("BOT_STOP_RUNTIME_ON_API_SHUTDOWN", "false")
+                .strip()
+                .lower()
+                in {"1", "true", "yes", "on"}
+            )
         logger.info("Shutting down Bot API Server...")
 
 
@@ -1121,21 +1147,23 @@ async def create_bot_instance(
                 session = db.get_session()
                 uow = UnitOfWork(session)
 
-                # Create database record
-                bot_db = uow.bots.create_bot(
-                    instance_id=config.instance_id,
-                    network=(
-                        "testnet"
-                        if (config.trading_params and config.trading_params.is_testnet)
-                        else "mainnet"
-                    ),
-                    strategy=(
-                        config.trading_params.strategy
-                        if config.trading_params
-                        else "default"
-                    ),
-                    config=persisted_config,
-                )
+                # Create database record if the manager has not already done so.
+                bot_db = uow.bots.get_by_instance_id(config.instance_id)
+                if bot_db is None:
+                    bot_db = uow.bots.create_bot(
+                        instance_id=config.instance_id,
+                        network=(
+                            "testnet"
+                            if (config.trading_params and config.trading_params.is_testnet)
+                            else "mainnet"
+                        ),
+                        strategy=(
+                            config.trading_params.strategy
+                            if config.trading_params
+                            else "default"
+                        ),
+                        config=persisted_config,
+                    )
 
                 # Log creation event
                 uow.events.log_event(
@@ -1646,10 +1674,14 @@ async def get_bot_jobs(
 
         # Calculate job statistics
         total_jobs = len(jobs)
-        completed_jobs = len([j for j in jobs if j.status == "COMPLETED"])
-        failed_jobs = len([j for j in jobs if j.status == "FAILED"])
-        retry_jobs = len([j for j in jobs if j.status == "RETRY"])
-        queued_jobs = len([j for j in jobs if j.status == "QUEUED"])
+        def _job_status_value(job) -> str:
+            return str(getattr(job.status, "value", job.status)).lower()
+
+        completed_jobs = len([j for j in jobs if _job_status_value(j) == "completed"])
+        failed_jobs = len([j for j in jobs if _job_status_value(j) == "failed"])
+        cancelled_jobs = len([j for j in jobs if _job_status_value(j) == "cancelled"])
+        pending_jobs = len([j for j in jobs if _job_status_value(j) == "pending"])
+        running_jobs = len([j for j in jobs if _job_status_value(j) == "running"])
 
         return api_response(
             success=True,
@@ -1659,18 +1691,23 @@ async def get_bot_jobs(
                     "total_jobs": total_jobs,
                     "completed": completed_jobs,
                     "failed": failed_jobs,
-                    "retry": retry_jobs,
-                    "queued": queued_jobs,
+                    "cancelled": cancelled_jobs,
+                    "pending": pending_jobs,
+                    "running": running_jobs,
                 },
                 "jobs": [
                     {
                         "job_id": j.job_id,
                         "job_type": j.job_type,
-                        "status": j.status,
-                        "process_id": j.process_id,
-                        "execution_time_ms": j.execution_time_ms,
+                        "status": _job_status_value(j),
+                        "progress_pct": float(getattr(j, "progress_pct", 0.0) or 0.0),
+                        "process_id": getattr(j, "process_id", None),
+                        "execution_time_ms": getattr(j, "execution_time_ms", None),
                         "retry_count": f"{j.retry_count}/{j.max_retries}",
                         "created_at": j.created_at.isoformat(),
+                        "updated_at": (
+                            j.updated_at.isoformat() if getattr(j, "updated_at", None) else None
+                        ),
                         "started_at": (
                             j.started_at.isoformat() if j.started_at else None
                         ),
@@ -1678,6 +1715,8 @@ async def get_bot_jobs(
                             j.completed_at.isoformat() if j.completed_at else None
                         ),
                         "error_message": j.error_message,
+                        "cancellation_reason": getattr(j, "cancellation_reason", None),
+                        "metadata": dict(getattr(j, "metadata_json", None) or {}),
                     }
                     for j in jobs
                 ],

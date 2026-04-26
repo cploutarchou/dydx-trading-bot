@@ -919,11 +919,22 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 					sessionData, err := store.Refresh(c.Request.Context(), sessionToken, sessionTTL())
 					if err == nil && sessionData != nil {
 						setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
-						c.JSON(http.StatusOK, TokenResponse{
+						sessionRefreshResponse := TokenResponse{
 							TokenType:        "session",
 							ExpiresIn:        int(sessionTTL().Seconds()),
 							SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
-						})
+						}
+						if shouldReturnLegacyAuthTokens() {
+							newAccessToken, tokenErr := services.GenerateAccessTokenWithRole(
+								sessionData.UserID, sessionData.Username, sessionData.IsAdmin, sessionData.Role,
+							)
+							if tokenErr == nil {
+								sessionRefreshResponse.AccessToken = newAccessToken
+								sessionRefreshResponse.TokenType = "bearer"
+								sessionRefreshResponse.ExpiresIn = 1800
+							}
+						}
+						c.JSON(http.StatusOK, sessionRefreshResponse)
 						return
 					}
 					if err != nil && err != auth.ErrSessionNotFound {

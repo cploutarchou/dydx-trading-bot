@@ -421,6 +421,45 @@ export interface RollingMetrics {
   max_drawdown_percent: number;
 }
 
+// ==================== Bot Job Types ====================
+
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface BotJob {
+  job_id: string;
+  job_type: string;
+  status: JobStatus;
+
+  // Progress — prefer progress_pct; aliases for compat
+  progress_pct: number;
+  progress_percent?: number;
+  progress?: number;
+
+  // Timing
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  completed_at?: string;
+
+  // Execution details
+  execution_time_ms?: number;
+  process_id?: number;
+
+  // Error & cancellation context
+  error_message?: string;
+  error_traceback?: string;
+  cancellation_reason?: string;
+
+  // Configuration & results
+  metadata?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+
+  // Retry tracking
+  retry_count?: number;
+  max_retries?: number;
+}
+
 // ==================== System Types ====================
 
 export interface SystemStatus {

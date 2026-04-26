@@ -1,6 +1,6 @@
+import { useMutation } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useStrategyStore } from '../store/strategies';
@@ -208,7 +208,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         setFormData((prev) => ({
           ...prev,
           strategy_id: id,
-          initial_balance: strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
+          initial_balance:
+            strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
           benchmark_symbol: strategy.benchmark_symbol || prev.benchmark_symbol,
           trading_parameters: {
             ...prev.trading_parameters,
@@ -255,6 +256,19 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
 
       const tp = formData.trading_parameters;
+
+      // Ensure max_history_days covers the full requested period plus a warmup
+      // buffer so the bot service doesn't silently cap the backtest window.
+      const periodDays =
+        Math.max(
+          0,
+          Math.round(
+            (new Date(formData.end_date).getTime() - new Date(formData.start_date).getTime()) /
+              (1000 * 60 * 60 * 24)
+          )
+        ) + 1;
+      const effectiveMaxHistoryDays = Math.max(Number(tp.max_history_days ?? 90), periodDays + 30);
+
       const cleanedData = {
         start_date: formData.start_date,
         end_date: formData.end_date,
@@ -311,7 +325,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             benchmark_symbol: tp.benchmark_symbol,
           }),
           ...(tp.max_history_days !== undefined && {
-            max_history_days: Number(tp.max_history_days),
+            max_history_days: effectiveMaxHistoryDays,
           }),
           ...(tp.pair_selection_mode !== undefined && {
             pair_selection_mode: tp.pair_selection_mode,
@@ -358,8 +372,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const scanScopeLabel =
     Number(formData.max_pairs) > 0 ? `${formData.max_pairs} markets` : 'All available markets';
   const selectedMode =
-    (formData.trading_parameters.pair_selection_mode as BacktestRunRequest['pair_selection_mode']) ||
-    'liquidity';
+    (formData.trading_parameters
+      .pair_selection_mode as BacktestRunRequest['pair_selection_mode']) || 'liquidity';
   const pairSelectionNotes: Record<
     NonNullable<BacktestRunRequest['pair_selection_mode']>,
     string
@@ -395,8 +409,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           <h3 className="mt-1 text-xl font-bold text-white">Start new research run</h3>
         </div>
         <p className="max-w-xl text-sm leading-6 text-slate-400">
-          Tune the run, keep risk assumptions explicit, and send the job through the backend
-          control plane.
+          Tune the run, keep risk assumptions explicit, and send the job through the backend control
+          plane.
         </p>
       </div>
 
@@ -535,9 +549,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           </div>
 
           <div>
-            <label className={labelClass}>
-              Number of Markets (0 = All)
-            </label>
+            <label className={labelClass}>Number of Markets (0 = All)</label>
             <input
               type="number"
               name="max_pairs"
@@ -552,9 +564,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             </p>
           </div>
           <div>
-            <label className={labelClass}>
-              Pair Selection Mode
-            </label>
+            <label className={labelClass}>Pair Selection Mode</label>
             <select
               name="pair_selection_mode"
               value={formData.trading_parameters.pair_selection_mode || 'liquidity'}
@@ -582,9 +592,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             </select>
           </div>
           <div>
-            <label className={labelClass}>
-              Z-Score Threshold
-            </label>
+            <label className={labelClass}>Z-Score Threshold</label>
             <input
               type="number"
               name="zscore_threshold"
@@ -597,9 +605,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Stats Window (days)
-            </label>
+            <label className={labelClass}>Stats Window (days)</label>
             <input
               type="number"
               name="stats_window"
@@ -624,9 +630,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Starting Balance
-            </label>
+            <label className={labelClass}>Starting Balance</label>
             <input
               type="number"
               name="initial_balance"
@@ -638,9 +642,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Candle Resolution
-            </label>
+            <label className={labelClass}>Candle Resolution</label>
             <select
               name="resolution"
               value={formData.trading_parameters.resolution || '1HOUR'}
@@ -663,9 +665,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             </select>
           </div>
           <div>
-            <label className={labelClass}>
-              Transaction Fee
-            </label>
+            <label className={labelClass}>Transaction Fee</label>
             <input
               type="number"
               name="transaction_fee"
@@ -689,13 +689,15 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Benchmark Symbol
-            </label>
+            <label className={labelClass}>Benchmark Symbol</label>
             <input
               type="text"
               name="benchmark_symbol"
-              value={formData.benchmark_symbol || formData.trading_parameters.benchmark_symbol || 'BTC-USD'}
+              value={
+                formData.benchmark_symbol ||
+                formData.trading_parameters.benchmark_symbol ||
+                'BTC-USD'
+              }
               onChange={(e) =>
                 setFormData((prev) => ({
                   ...prev,
@@ -710,9 +712,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Risk-Free Rate
-            </label>
+            <label className={labelClass}>Risk-Free Rate</label>
             <input
               type="number"
               name="risk_free_rate"
@@ -724,9 +724,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Max History Days
-            </label>
+            <label className={labelClass}>Max History Days</label>
             <input
               type="number"
               name="max_history_days"

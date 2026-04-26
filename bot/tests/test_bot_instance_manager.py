@@ -389,7 +389,7 @@ def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_p
     assert persisted_record.config["runtime_state"]["last_error"] == "runtime crashed"
     assert persisted_record.config["runtime_state"]["exit_code"] == 7
     assert persisted_record.config["runtime_state"]["trading_stats"]["active_positions"] == 2
-    assert (tmp_path / "instances.json").exists()
+    assert not (tmp_path / "instances.json").exists()
 
 
 def test_save_instances_state_coerces_string_config_payload(monkeypatch, tmp_path):

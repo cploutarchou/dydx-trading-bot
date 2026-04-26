@@ -60,9 +60,13 @@ This mirrors the production ownership model and avoids accidental shared-state c
 
 ### Strategy runtimes and bot stats
 
-- bot emits runtime state
+- bot persists lifecycle status, supervised job state, runtime events, and backtest progress to the bot PostgreSQL DB
+- bot emits runtime state over websocket as a best-effort notification path; websocket publish failures must not fail core jobs
 - backend proxies websocket/state surfaces
 - frontend consumes backend-only live channels
+
+Plain-text files under `bot/bot_states/` are operational debug artifacts only. PostgreSQL is the recovery source for
+runtime status and job/backtest progress.
 
 ## Troubleshooting
 
@@ -275,4 +279,3 @@ The platform provides three-layer observability for live trading operations:
   3. `GET /metrics` → inspect connection pool and bot API snapshot for resource exhaustion
   4. Backend logs (structured JSON) → trace request flow and error context
   5. Bot logs (structured JSON) → trace strategy execution and exchange connectivity issues
-

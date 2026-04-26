@@ -17,7 +17,7 @@ const hasResponseStatus = (error: unknown, status: number): boolean => {
 export const queryKeys = {
   // Auth
   currentUser: ['auth', 'currentUser'] as const,
-  
+
   // Bots
   bots: (params?: QueryParams) => ['bots', params] as const,
   bot: (instanceId: string) => ['bots', instanceId] as const,
@@ -25,12 +25,14 @@ export const queryKeys = {
   botTrades: (instanceId: string, params?: QueryParams) =>
     ['bots', instanceId, 'trades', params] as const,
   botPositions: (instanceId: string) => ['bots', instanceId, 'positions'] as const,
-  botPosition: (instanceId: string, positionId: string) => ['bots', instanceId, 'positions', positionId] as const,
+  botPosition: (instanceId: string, positionId: string) =>
+    ['bots', instanceId, 'positions', positionId] as const,
   botAlerts: (instanceId: string, params?: QueryParams) =>
     ['bots', instanceId, 'alerts', params] as const,
   botRealtimeStats: (instanceId: string) => ['bots', instanceId, 'realtime'] as const,
   botMarketData: (instanceId: string) => ['bots', instanceId, 'market-data'] as const,
-  
+  botJobs: (instanceId: string, days?: number) => ['bots', instanceId, 'jobs', days ?? 7] as const,
+
   // Backtests
   backtests: (params?: QueryParams) => ['backtests', params] as const,
   backtest: (runId: string) => ['backtests', runId] as const,
@@ -141,9 +143,9 @@ export const cacheUtils = {
     const cache = queryClient.getQueryCache();
     return {
       totalQueries: cache.getAll().length,
-      freshQueries: cache.getAll().filter(q => q.isStale() === false).length,
-      staleQueries: cache.getAll().filter(q => q.isStale() === true).length,
-      errorQueries: cache.getAll().filter(q => q.state.status === 'error').length,
+      freshQueries: cache.getAll().filter((q) => q.isStale() === false).length,
+      staleQueries: cache.getAll().filter((q) => q.isStale() === true).length,
+      errorQueries: cache.getAll().filter((q) => q.state.status === 'error').length,
     };
   },
 };

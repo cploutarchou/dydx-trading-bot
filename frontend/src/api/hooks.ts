@@ -7,17 +7,18 @@ import api from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
-  BacktestConfig,
-  BotInstance,
-  CreateBotRequest,
-  ListAlertsParams,
-  ListBacktestsParams,
-  ListBotsParams,
-  ListTradesParams,
-  QuickDeployBotRequest,
-  StartBotRequest,
-  UpdateBotRequest,
-  User,
+    BacktestConfig,
+    BotInstance,
+    BotJob,
+    CreateBotRequest,
+    ListAlertsParams,
+    ListBacktestsParams,
+    ListBotsParams,
+    ListTradesParams,
+    QuickDeployBotRequest,
+    StartBotRequest,
+    UpdateBotRequest,
+    User,
 } from './types';
 
 interface ManagedWebSocketOptions {
@@ -623,6 +624,60 @@ export function useBotAlerts(instanceId: string, params: ListAlertsParams = {}) 
     queryFn: () => apiClient.getAlerts(instanceId, params),
     ...queryConfigs.trading,
     enabled: !!instanceId,
+  });
+}
+
+export function useBotJobs(instanceId: string, days: number = 7, enabled: boolean = true) {
+  return useQuery({
+    queryKey: queryKeys.botJobs(instanceId, days),
+    queryFn: async (): Promise<BotJob[]> => {
+      const result = await apiClient.getBotJobs(instanceId, days);
+      const raw = result as { jobs?: unknown; data?: { jobs?: unknown } };
+      const jobs: unknown[] = Array.isArray(raw.jobs)
+        ? (raw.jobs as unknown[])
+        : Array.isArray((raw.data as { jobs?: unknown } | undefined)?.jobs)
+          ? ((raw.data as { jobs: unknown[] }).jobs as unknown[])
+          : [];
+      return jobs.map((j): BotJob => {
+        const job = (j && typeof j === 'object' ? j : {}) as Record<string, unknown>;
+        const rawPct =
+          (job.progress_pct as number | undefined) ??
+          (job.progress_percent as number | undefined) ??
+          (job.progress as number | undefined) ??
+          0;
+        const pct = Math.min(
+          100,
+          Math.max(0, Number.isFinite(Number(rawPct)) ? Number(rawPct) : 0)
+        );
+        return {
+          job_id: String(job.job_id ?? ''),
+          job_type: String(job.job_type ?? ''),
+          status: String(job.status ?? 'pending').toLowerCase() as BotJob['status'],
+          progress_pct: pct,
+          progress_percent: job.progress_percent as number | undefined,
+          progress: job.progress as number | undefined,
+          created_at: String(job.created_at ?? new Date().toISOString()),
+          updated_at: String(job.updated_at ?? new Date().toISOString()),
+          started_at: job.started_at ? String(job.started_at) : undefined,
+          completed_at: job.completed_at ? String(job.completed_at) : undefined,
+          execution_time_ms:
+            job.execution_time_ms !== undefined ? Number(job.execution_time_ms) : undefined,
+          process_id: job.process_id !== undefined ? Number(job.process_id) : undefined,
+          error_message: job.error_message ? String(job.error_message) : undefined,
+          error_traceback: job.error_traceback ? String(job.error_traceback) : undefined,
+          cancellation_reason: job.cancellation_reason
+            ? String(job.cancellation_reason)
+            : undefined,
+          metadata: job.metadata as Record<string, unknown> | undefined,
+          result: job.result as Record<string, unknown> | undefined,
+          config: job.config as Record<string, unknown> | undefined,
+          retry_count: job.retry_count !== undefined ? Number(job.retry_count) : undefined,
+          max_retries: job.max_retries !== undefined ? Number(job.max_retries) : undefined,
+        };
+      });
+    },
+    ...queryConfigs.trading,
+    enabled: enabled && !!instanceId,
   });
 }
 

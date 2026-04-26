@@ -30,6 +30,7 @@ from src.infrastructure.domain.bot_api_models import (
     BotStatus,
 )
 from src.infrastructure.persistence.repository import UnitOfWork
+from src.infrastructure.use_cases.async_job_manager import async_job_manager
 
 
 class BotInstanceManager:
@@ -44,6 +45,7 @@ class BotInstanceManager:
         self.instances: Dict[str, BotInstanceState] = {}
         self.processes: Dict[str, subprocess.Popen] = {}
         self.log_handles: Dict[str, TextIO] = {}
+        self.instance_locks: Dict[str, asyncio.Lock] = {}
         self.status_event_publisher: Optional[
             Callable[[Dict[str, object]], Awaitable[None]]
         ] = None
@@ -60,6 +62,28 @@ class BotInstanceManager:
 
         # Load existing instances from disk
         self._load_existing_instances()
+
+    def _get_instance_lock(self, instance_id: str) -> asyncio.Lock:
+        lock = self.instance_locks.get(instance_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self.instance_locks[instance_id] = lock
+        return lock
+
+    @staticmethod
+    def _db_persistence_enabled() -> bool:
+        if any(
+                bool(os.getenv(name, "").strip())
+                for name in (
+                    "BOT_DATABASE_URL",
+                    "DATABASE_URL",
+                    "BOT_DB_HOST",
+                    "DB_HOST",
+                    "POSTGRES_HOST",
+                )
+        ):
+            return True
+        return getattr(db.get_session, "__self__", None) is not db
 
     def set_status_event_publisher(
             self,
@@ -90,6 +114,17 @@ class BotInstanceManager:
             logger.info("Loaded {} existing bot instances from database", loaded_from_db)
             return
 
+        if os.getenv("BOT_ENABLE_LEGACY_STATE_FALLBACK", "false").strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            self.recovery_diagnostics["source"] = "database_unavailable"
+            self.recovery_diagnostics["completed_at"] = datetime.now(timezone.utc).isoformat()
+            logger.warning("Bot instance DB recovery failed; legacy disk fallback is disabled")
+            return
+
         self._load_existing_instances_from_disk()
         self.recovery_diagnostics["source"] = "disk_snapshot"
         self.recovery_diagnostics["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -102,6 +137,9 @@ class BotInstanceManager:
 
     def _load_existing_instances_from_db(self) -> Optional[int]:
         """Hydrate manager state from persisted bot instances in PostgreSQL."""
+        if not self._db_persistence_enabled():
+            logger.info("Skipping bot instance DB recovery: no explicit database target configured")
+            return 0
         session = None
         try:
             session = db.get_session()
@@ -268,6 +306,48 @@ class BotInstanceManager:
         """Translate manager status into the SQLAlchemy enum used by persisted rows."""
         return BotStatusEnum[instance.status.name]
 
+    def _ensure_instance_record(self, instance: BotInstanceState):
+        """Create the DB row for an instance if API orchestration has not done it yet."""
+        if not self._db_persistence_enabled():
+            return
+        session = None
+        try:
+            session = db.get_session()
+            uow = UnitOfWork(session)
+            if uow.bots.get_by_instance_id(instance.instance_id) is not None:
+                return
+            uow.bots.create_bot(
+                instance_id=instance.instance_id,
+                network="testnet" if instance.config.trading_params.is_testnet else "mainnet",
+                strategy=instance.config.trading_params.strategy,
+                config={
+                    "instance_name": instance.config.instance_name,
+                    "credentials": instance.config.credentials.model_dump(),
+                    "telegram": (
+                        instance.config.telegram.model_dump()
+                        if instance.config.telegram
+                        else {}
+                    ),
+                    "trading_params": instance.config.trading_params.model_dump(),
+                    "backtesting_params": (
+                        instance.config.backtesting_params.model_dump()
+                        if instance.config.backtesting_params
+                        else {}
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to ensure bot instance DB row for {}: {}",
+                instance.instance_id,
+                exc,
+            )
+            if session is not None:
+                session.rollback()
+        finally:
+            if session is not None:
+                session.close()
+
     def _record_runtime_event(
             self,
             instance_id: str,
@@ -277,6 +357,8 @@ class BotInstanceManager:
             details: Optional[dict] = None,
     ):
         """Persist runtime events so failures survive process restarts."""
+        if not self._db_persistence_enabled():
+            return
         session = None
         try:
             session = db.get_session()
@@ -301,6 +383,8 @@ class BotInstanceManager:
 
     def _persist_instances_to_db(self):
         """Sync runtime state back into PostgreSQL so it stays authoritative across restarts."""
+        if not self._db_persistence_enabled():
+            return
         session = None
         try:
             session = db.get_session()
@@ -370,8 +454,16 @@ class BotInstanceManager:
                 session.close()
 
     def _save_instances_state(self):
-        """Persist instance state to DB first, plus a compatibility snapshot on disk."""
+        """Persist instance state to DB, with opt-in legacy snapshot for debugging."""
         self._persist_instances_to_db()
+
+        if os.getenv("BOT_WRITE_LEGACY_STATE_SNAPSHOT", "false").strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return
 
         state_file = self.state_dir / "instances.json"
         try:
@@ -391,7 +483,7 @@ class BotInstanceManager:
             with open(state_file, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            logger.error(f"Error saving instances state: {e}")
+            logger.warning("Error saving legacy instance snapshot: {}", e)
 
     def _strategy_id_from_instance_id(self, instance_id: str) -> Optional[int]:
         """Extract strategy id from deterministic strategy runtime instance ids."""
@@ -399,6 +491,20 @@ class BotInstanceManager:
         if len(parts) == 3 and parts[0] == "strategy" and parts[1].isdigit() and parts[2].isdigit():
             return int(parts[2])
         return None
+
+    def _job_metadata(self, instance_id: str) -> Dict[str, Any]:
+        instance = self.instances.get(instance_id)
+        if instance is None:
+            return {"bot_instance_id": instance_id}
+        params = instance.config.trading_params
+        return {
+            "bot_instance_id": instance_id,
+            "strategy_id": self._strategy_id_from_instance_id(instance_id),
+            "strategy": params.strategy,
+            "runtime_mode": "live",
+            "environment": "testnet" if params.is_testnet else "mainnet",
+            "subaccount": params.subaccount_number,
+        }
 
     def _build_strategy_status_payload(
             self,
@@ -760,15 +866,9 @@ class BotInstanceManager:
             # Create instance-specific configuration file
             config_file = self._create_instance_config_file(config.instance_id, config)
 
-            # Initialize empty state files
-            files = self._get_instance_state_files(config.instance_id)
-
-            # Create empty bot agents file
-            with open(files["bot_agents"], "w") as f:
-                json.dump([], f)
-
             # Store instance
             self.instances[config.instance_id] = instance_state
+            self._ensure_instance_record(instance_state)
             self._save_instances_state()
 
             logger.info(f"Created bot instance: {config.instance_id}")
@@ -792,6 +892,21 @@ class BotInstanceManager:
 
     async def start_instance(self, instance_id: str) -> BotOperationResult:
         """Start bot instance"""
+        lock = self._get_instance_lock(instance_id)
+        if lock.locked():
+            return BotOperationResult(
+                success=False,
+                message=f"Instance {instance_id} already has a lifecycle operation in progress",
+                instance_id=instance_id,
+                status=BotStatus.STARTING,
+            )
+
+        async with lock:
+            return await self._start_instance_locked(instance_id)
+
+    async def _start_instance_locked(self, instance_id: str) -> BotOperationResult:
+        """Start bot instance while holding the per-instance lifecycle lock."""
+        lifecycle_job_id: Optional[str] = None
         try:
             if instance_id not in self.instances:
                 return BotOperationResult(
@@ -803,18 +918,26 @@ class BotInstanceManager:
 
             instance = self.instances[instance_id]
 
-            if instance.status == BotStatus.RUNNING:
+            if instance.status in {BotStatus.RUNNING, BotStatus.STARTING, BotStatus.STOPPING}:
                 return BotOperationResult(
                     success=False,
-                    message=f"Instance {instance_id} is already running",
+                    message=f"Instance {instance_id} is already {instance.status.value}",
                     instance_id=instance_id,
-                    status=BotStatus.RUNNING,
+                    status=instance.status,
                 )
+
+            lifecycle_job_id = async_job_manager.create_job(
+                job_type="live_runtime",
+                bot_instance_id=instance_id,
+                parameters={"action": "start"},
+                metadata=self._job_metadata(instance_id),
+            )
 
             # Update status
             instance.status = BotStatus.STARTING
             instance.last_update = datetime.now(timezone.utc)
             instance.process_info.pop("last_error", None)
+            self._save_instances_state()
             await self._publish_strategy_status(instance_id, event="starting")
 
             # Get instance files
@@ -862,13 +985,17 @@ class BotInstanceManager:
                 text=True,
                 bufsize=1,
             )
+            if lifecycle_job_id:
+                async_job_manager.mark_running(lifecycle_job_id, process_id=process.pid)
 
             # Store process reference
             self.processes[instance_id] = process
 
-            startup_grace = float(os.getenv("BOT_STARTUP_GRACE_SECONDS", "0.2"))
-            await asyncio.sleep(max(0.0, startup_grace))
             exit_code = process.poll()
+            if exit_code is None:
+                startup_grace = float(os.getenv("BOT_STARTUP_GRACE_SECONDS", "0.2"))
+                await asyncio.sleep(max(0.0, startup_grace))
+                exit_code = process.poll()
             if exit_code is not None:
                 log_tail = self._read_recent_log_tail(instance_id)
                 error_message = (
@@ -878,6 +1005,8 @@ class BotInstanceManager:
                     error_message = f"{error_message}: {log_tail.splitlines()[-1]}"
 
                 self._mark_instance_error(instance_id, error_message, exit_code=exit_code)
+                if lifecycle_job_id:
+                    async_job_manager.mark_failed(lifecycle_job_id, error_message)
                 await self._publish_strategy_status(
                     instance_id,
                     event="error",
@@ -904,6 +1033,11 @@ class BotInstanceManager:
             self._save_instances_state()
 
             logger.info(f"Started bot instance {instance_id} with PID {process.pid}")
+            if lifecycle_job_id:
+                async_job_manager.mark_completed(
+                    lifecycle_job_id,
+                    result={"process_id": process.pid, "status": "running"},
+                )
             await self._publish_strategy_status(instance_id, event="running")
 
             return BotOperationResult(
@@ -916,6 +1050,8 @@ class BotInstanceManager:
 
         except Exception as e:
             logger.error(f"Error starting instance {instance_id}: {e}")
+            if lifecycle_job_id:
+                async_job_manager.mark_failed(lifecycle_job_id, e)
             if instance_id in self.instances:
                 self._mark_instance_error(instance_id, str(e))
                 await self._publish_strategy_status(
@@ -932,6 +1068,21 @@ class BotInstanceManager:
 
     async def stop_instance(self, instance_id: str, force: bool = False) -> BotOperationResult:
         """Stop bot instance"""
+        lock = self._get_instance_lock(instance_id)
+        if lock.locked():
+            return BotOperationResult(
+                success=False,
+                message=f"Instance {instance_id} already has a lifecycle operation in progress",
+                instance_id=instance_id,
+                status=BotStatus.STOPPING,
+            )
+
+        async with lock:
+            return await self._stop_instance_locked(instance_id, force=force)
+
+    async def _stop_instance_locked(self, instance_id: str, force: bool = False) -> BotOperationResult:
+        """Stop bot instance while holding the per-instance lifecycle lock."""
+        lifecycle_job_id: Optional[str] = None
         try:
             if instance_id not in self.instances:
                 return BotOperationResult(
@@ -951,9 +1102,18 @@ class BotInstanceManager:
                     status=BotStatus.STOPPED,
                 )
 
+            lifecycle_job_id = async_job_manager.create_job(
+                job_type="live_runtime",
+                bot_instance_id=instance_id,
+                parameters={"action": "stop", "force": force},
+                metadata=self._job_metadata(instance_id),
+            )
+            async_job_manager.mark_running(lifecycle_job_id, process_id=instance.process_info.get("pid"))
+
             # Update status
             instance.status = BotStatus.STOPPING
             instance.last_update = datetime.now(timezone.utc)
+            self._save_instances_state()
             await self._publish_strategy_status(instance_id, event="stopping")
 
             # Stop process if running
@@ -963,6 +1123,10 @@ class BotInstanceManager:
                 if process.poll() is None:  # Process is still running
                     if force:
                         process.kill()
+                        try:
+                            await asyncio.to_thread(process.wait, timeout=10)
+                        except subprocess.TimeoutExpired:
+                            logger.warning("Killed bot instance {} but process did not reap within timeout", instance_id)
                         logger.info(f"Force killed bot instance {instance_id}")
                     else:
                         process.terminate()
@@ -970,9 +1134,16 @@ class BotInstanceManager:
 
                         # Wait for graceful shutdown
                         try:
-                            process.wait(timeout=30)
+                            await asyncio.to_thread(process.wait, timeout=30)
                         except subprocess.TimeoutExpired:
                             process.kill()
+                            try:
+                                await asyncio.to_thread(process.wait, timeout=10)
+                            except subprocess.TimeoutExpired:
+                                logger.warning(
+                                    "Force killed bot instance {} after graceful timeout but process did not reap",
+                                    instance_id,
+                                )
                             logger.warning(f"Force killed bot instance {instance_id} after timeout")
 
                 # Remove process reference
@@ -983,6 +1154,13 @@ class BotInstanceManager:
                     try:
                         if force:
                             external_process.kill()
+                            try:
+                                await asyncio.to_thread(external_process.wait, timeout=10)
+                            except psutil.TimeoutExpired:
+                                logger.warning(
+                                    "Killed recovered bot instance {} but process did not reap within timeout",
+                                    instance_id,
+                                )
                             logger.info(
                                 "Force killed recovered bot instance {} (PID {})",
                                 instance_id,
@@ -996,9 +1174,16 @@ class BotInstanceManager:
                                 external_process.pid,
                             )
                             try:
-                                external_process.wait(timeout=30)
+                                await asyncio.to_thread(external_process.wait, timeout=30)
                             except psutil.TimeoutExpired:
                                 external_process.kill()
+                                try:
+                                    await asyncio.to_thread(external_process.wait, timeout=10)
+                                except psutil.TimeoutExpired:
+                                    logger.warning(
+                                        "Force killed recovered bot instance {} after graceful timeout but process did not reap",
+                                        instance_id,
+                                    )
                                 logger.warning(
                                     "Force killed recovered bot instance {} after timeout",
                                     instance_id,
@@ -1022,6 +1207,11 @@ class BotInstanceManager:
             self._save_instances_state()
 
             logger.info(f"Stopped bot instance: {instance_id}")
+            if lifecycle_job_id:
+                async_job_manager.mark_completed(
+                    lifecycle_job_id,
+                    result={"status": "stopped", "force": force},
+                )
             await self._publish_strategy_status(instance_id, event="stopped")
 
             return BotOperationResult(
@@ -1033,6 +1223,8 @@ class BotInstanceManager:
 
         except Exception as e:
             logger.error(f"Error stopping instance {instance_id}: {e}")
+            if lifecycle_job_id:
+                async_job_manager.mark_failed(lifecycle_job_id, e)
             self._mark_instance_error(instance_id, str(e))
             await self._publish_strategy_status(
                 instance_id,
@@ -1160,21 +1352,26 @@ class BotInstanceManager:
         return instance.to_api_status()
 
     def _update_instance_trading_stats(self, instance_id: str):
-        """Update trading statistics from bot state files"""
+        """Update trading statistics from PostgreSQL-backed trade state."""
+        if instance_id not in self.instances:
+            return
+        if not self._db_persistence_enabled():
+            return
+        session = None
         try:
-            files = self._get_instance_state_files(instance_id)
-
-            # Read bot agents file for active positions
-            if files["bot_agents"].exists():
-                with open(files["bot_agents"], "r") as f:
-                    agents = json.load(f)
-                    active_positions = len([a for a in agents if a.get("pair_status") == "LIVE"])
-                    self.instances[instance_id].trading_stats["active_positions"] = active_positions
-
-            # Additional stats can be added here (total trades, P&L, etc.)
-
+            session = db.get_session()
+            uow = UnitOfWork(session)
+            stats = uow.bots.get_statistics(instance_id)
+            if stats:
+                self.instances[instance_id].trading_stats.update(stats)
+                self.instances[instance_id].trading_stats["source"] = "postgres"
         except Exception as e:
-            logger.error(f"Error updating trading stats for {instance_id}: {e}")
+            logger.warning("Error updating DB-backed trading stats for {}: {}", instance_id, e)
+            if session is not None:
+                session.rollback()
+        finally:
+            if session is not None:
+                session.close()
 
     async def list_instances(self) -> List[BotInstanceStatus]:
         """Get list of all bot instances"""
@@ -1249,6 +1446,22 @@ class BotInstanceManager:
             "skipped_instances": list(skipped_instances) if isinstance(skipped_instances, list) else [],
             "last_error": self.recovery_diagnostics.get("last_error"),
         }
+
+    async def shutdown(self, *, stop_active: bool = False):
+        """Release manager resources and optionally stop active child runtimes."""
+        if stop_active:
+            for instance_id, instance in list(self.instances.items()):
+                if instance.status in {
+                    BotStatus.RUNNING,
+                    BotStatus.STARTING,
+                    BotStatus.STOPPING,
+                    BotStatus.DEGRADED,
+                    BotStatus.RECOVERING,
+                    BotStatus.SAFEGUARDED,
+                }:
+                    await self.stop_instance(instance_id, force=False)
+        for instance_id in list(self.log_handles.keys()):
+            self._close_instance_log(instance_id)
 
 
 # Global bot manager instance

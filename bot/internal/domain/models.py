@@ -29,6 +29,9 @@ class BotStatusEnum(enum.Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
     ERROR = "error"
+    RECOVERING = "recovering"
+    DEGRADED = "degraded"
+    SAFEGUARDED = "safeguarded"
 
 
 class JobStatusEnum(enum.Enum):
@@ -68,16 +71,23 @@ class Job(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(String(64), unique=True, nullable=False, index=True)
-    bot_id = Column(Integer, ForeignKey("bot_instances.id"), nullable=False)
+    bot_id = Column(Integer, ForeignKey("bot_instances.id"), nullable=True)
     job_type = Column(String(50), nullable=False)
     status = Column(Enum(JobStatusEnum), default=JobStatusEnum.PENDING)
     config = Column(JSON, nullable=True)
     result = Column(JSON, nullable=True)
     error_message = Column(Text, nullable=True)
+    error_traceback = Column(Text, nullable=True)
+    cancellation_reason = Column(Text, nullable=True)
+    progress_pct = Column(Float, nullable=False, default=0.0)
+    metadata_json = Column(JSON, nullable=False, default=dict)
+    process_id = Column(Integer, nullable=True)
+    execution_time_ms = Column(Integer, nullable=True)
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
     created_at = Column(DateTime, default=utc_now)
     started_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     completed_at = Column(DateTime, nullable=True)
 
     # Relationships

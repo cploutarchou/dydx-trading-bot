@@ -900,6 +900,26 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			respondBotAPIError(c, err)
 			return
 		}
+		// The bot service initial response may omit start_date/end_date (e.g.
+		// when queued via Celery or the dates default to empty string).
+		// Back-fill them from the request config so both the sync DB record and
+		// the frontend response contain the period the user actually requested.
+		for _, field := range []string{"start_date", "end_date"} {
+			requestVal, hasInConfig := config[field]
+			if !hasInConfig {
+				continue
+			}
+			// Fix at root level (flat response from bot service)
+			if existing, ok := result[field]; !ok || existing == nil || existing == "" {
+				result[field] = requestVal
+			}
+			// Fix inside the wrapped "data" envelope (api_response wrapper)
+			if dataMap, ok := result["data"].(map[string]interface{}); ok {
+				if existing, ok := dataMap[field]; !ok || existing == nil || existing == "" {
+					dataMap[field] = requestVal
+				}
+			}
+		}
 		syncRun(c, result)
 		respondBacktestEnvelope(c, http.StatusOK, "Backtest created successfully", result)
 	}

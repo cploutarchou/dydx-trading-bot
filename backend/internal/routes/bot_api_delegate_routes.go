@@ -331,6 +331,95 @@ func normalizeBacktestStatusPayload(payload map[string]interface{}) map[string]i
 	return normalizeBacktestStatusFields(payload)
 }
 
+func normalizeBotJobStatus(status interface{}) string {
+	normalized := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", status)))
+	switch normalized {
+	case "pending", "running", "completed", "failed", "cancelled":
+		return normalized
+	case "queued", "created", "scheduled", "retry":
+		return "pending"
+	case "in_progress", "processing", "active", "retrying":
+		return "running"
+	case "succeeded", "success", "done":
+		return "completed"
+	case "error":
+		return "failed"
+	case "canceled":
+		return "cancelled"
+	default:
+		return normalized
+	}
+}
+
+func normalizeBotJobFields(job map[string]interface{}) map[string]interface{} {
+	if job == nil {
+		return map[string]interface{}{}
+	}
+
+	// Normalize status to canonical lowercase values
+	if status, exists := job["status"]; exists && status != nil {
+		job["status"] = normalizeBotJobStatus(status)
+	}
+
+	// Normalize progress fields (progress_pct is canonical, create aliases for compatibility)
+	if progress, ok := getNumberField(job, "progress_pct", "progress_percent", "progress"); ok {
+		job["progress_pct"] = progress
+		if _, exists := job["progress_percent"]; !exists {
+			job["progress_percent"] = progress
+		}
+		if _, exists := job["progress"]; !exists {
+			job["progress"] = progress
+		}
+	}
+
+	// Preserve all new DB-backed fields from Bot Service:
+	// These fields are present in the database-driven job responses and should pass through unchanged:
+	// job_id, job_type, updated_at, process_id, execution_time_ms, cancellation_reason,
+	// metadata, error_message, error_traceback, started_at, completed_at, created_at,
+	// result, config, retry_count, max_retries
+	// All DB fields are preserved as-is from the API response
+
+	return job
+}
+
+func normalizeBotJobSlice(items []interface{}) []interface{} {
+	if items == nil {
+		return nil
+	}
+
+	for i, item := range items {
+		if job := asMap(item); job != nil {
+			items[i] = normalizeBotJobFields(job)
+		}
+	}
+	return items
+}
+
+func normalizeBotJobsPayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return map[string]interface{}{}
+	}
+
+	if data := asMap(payload["data"]); data != nil {
+		payload["data"] = normalizeBotJobsPayload(data)
+		return payload
+	}
+
+	if jobs := asSlice(payload["jobs"]); jobs != nil {
+		payload["jobs"] = normalizeBotJobSlice(jobs)
+		return payload
+	}
+	if jobs := asSlice(payload["job_history"]); jobs != nil {
+		payload["job_history"] = normalizeBotJobSlice(jobs)
+		return payload
+	}
+	if _, hasStatus := payload["status"]; hasStatus {
+		return normalizeBotJobFields(payload)
+	}
+
+	return payload
+}
+
 func normalizedPercentValue(value float64) float64 {
 	if value >= 0 && value <= 1 {
 		return value * 100.0
@@ -1697,9 +1786,13 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 					days = v
 				}
 			}
-			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
-				return requestClient.GetBotJobs(instanceID, days)
-			})
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			result, err := requestClient.GetBotJobs(instanceID, days)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			c.JSON(http.StatusOK, normalizeBotJobsPayload(result))
 		})
 
 		// Quick deploy bot

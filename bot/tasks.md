@@ -113,6 +113,11 @@ Last reviewed by: `bot-team` on `2026-04-04`.
   node-prefix stderr warnings are filtered during API import/startup.
 - [x] 2026-04-08: Local TTY runs now use colored structured Loguru formatting, and `src/` runtime modules were migrated
   off direct `logging.getLogger(...)` usage while keeping plain-text subprocess log files under `bot_states/`.
+- [x] 2026-04-26: Added supervised async job persistence for backtests, realtime monitors, and bot lifecycle operations;
+  lifecycle status/stat reads now prefer PostgreSQL, `instances.json` writes are disabled by default, websocket progress
+  publish failures are best-effort/non-fatal, and startup verifies required bot DB tables.
+- [x] 2026-04-26: Changed compatibility API launchers to default `BOT_API_RELOAD=false`; hot reload remains available via
+  `make dev-api` or explicit `BOT_API_RELOAD=true`, avoiding uvicorn reloader semaphore warnings during normal stops.
 - [x] 2026-04-08: Development-mode logging now forces verbose API request traces (`request_started` /
   `request_completed`) with trace id, safe query context, duration, and status-based warning/error severity for faster
   local debugging.

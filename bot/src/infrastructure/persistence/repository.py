@@ -3,7 +3,7 @@ Repository classes for core bot operations
 """
 
 from datetime import timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -72,6 +72,7 @@ class BotRepository:
 
         trades = self.session.query(Trade).filter(Trade.bot_id == bot.id).all()
         total_trades = len(trades)
+        open_trades = len([t for t in trades if t.status == TradeStatusEnum.OPEN])
         successful_trades = len(
             [t for t in trades if t.status == TradeStatusEnum.CLOSED and t.realized_pnl > 0]
         )
@@ -82,6 +83,7 @@ class BotRepository:
 
         return {
             "total_trades": total_trades,
+            "active_positions": open_trades,
             "successful_trades": successful_trades,
             "failed_trades": failed_trades,
             "total_profit_loss": total_pnl,
@@ -96,7 +98,12 @@ class JobRepository:
         self.session = session
 
     def create_job(
-            self, job_id: str, bot_id: int, job_type: str, parameters: Optional[dict] = None
+            self,
+            job_id: str,
+            bot_id: Optional[int],
+            job_type: str,
+            parameters: Optional[dict] = None,
+            metadata: Optional[dict] = None,
     ) -> Job:
         """Create a new job"""
         job = Job(
@@ -104,6 +111,9 @@ class JobRepository:
             bot_id=bot_id,
             job_type=job_type,
             config=parameters,
+            metadata_json=metadata or {},
+            progress_pct=0.0,
+            updated_at=utc_now(),
         )
         self.session.add(job)
         self.session.commit()
@@ -126,10 +136,15 @@ class JobRepository:
         job = self.get_by_job_id(job_id)
         if job:
             job.status = JobStatusEnum.RUNNING
-            job.started_at = utc_now()
+            now = utc_now()
+            job.started_at = now
+            job.updated_at = now
+            job.completed_at = None
+            job.error_message = None
+            job.error_traceback = None
+            job.cancellation_reason = None
             if process_id is not None:
-                # Assuming Job has process_id, but it doesn't. Maybe add it.
-                pass
+                job.process_id = process_id
             self.session.commit()
 
     def complete_job(
@@ -143,7 +158,11 @@ class JobRepository:
         if job:
             job.status = JobStatusEnum.COMPLETED
             job.result = result
+            job.progress_pct = 100.0
+            job.updated_at = utc_now()
             job.completed_at = utc_now()
+            if execution_time_ms is not None:
+                job.execution_time_ms = execution_time_ms
             self.session.commit()
 
     def fail_job(self, job_id: str, error_message: str, error_traceback: Optional[str] = None):
@@ -152,7 +171,36 @@ class JobRepository:
         if job:
             job.status = JobStatusEnum.FAILED
             job.error_message = error_message
+            job.error_traceback = error_traceback
+            job.updated_at = utc_now()
             job.completed_at = utc_now()
+            self.session.commit()
+
+    def cancel_job(self, job_id: str, reason: Optional[str] = None):
+        """Cancel a job and persist the cancellation reason."""
+        job = self.get_by_job_id(job_id)
+        if job:
+            job.status = JobStatusEnum.CANCELLED
+            job.cancellation_reason = reason
+            job.updated_at = utc_now()
+            job.completed_at = utc_now()
+            self.session.commit()
+
+    def update_progress(
+            self,
+            job_id: str,
+            progress_pct: float,
+            metadata: Optional[dict[str, Any]] = None,
+    ):
+        """Persist job progress and optional structured metadata."""
+        job = self.get_by_job_id(job_id)
+        if job:
+            job.progress_pct = max(0.0, min(100.0, float(progress_pct or 0.0)))
+            if metadata is not None:
+                current = dict(job.metadata_json or {})
+                current.update(metadata)
+                job.metadata_json = current
+            job.updated_at = utc_now()
             self.session.commit()
 
     def get_job_history(self, bot_id: int, days: int = 7) -> List[Job]:
@@ -171,6 +219,10 @@ class JobRepository:
             status: JobStatusEnum,
             result: Optional[dict] = None,
             error_message: Optional[str] = None,
+            error_traceback: Optional[str] = None,
+            cancellation_reason: Optional[str] = None,
+            progress_pct: Optional[float] = None,
+            metadata: Optional[dict[str, Any]] = None,
     ):
         """Update job status"""
         job = self.get_by_id(job_id)
@@ -180,6 +232,17 @@ class JobRepository:
                 job.result = result
             if error_message is not None:
                 job.error_message = error_message
+            if error_traceback is not None:
+                job.error_traceback = error_traceback
+            if cancellation_reason is not None:
+                job.cancellation_reason = cancellation_reason
+            if progress_pct is not None:
+                job.progress_pct = max(0.0, min(100.0, float(progress_pct)))
+            if metadata is not None:
+                current = dict(job.metadata_json or {})
+                current.update(metadata)
+                job.metadata_json = current
+            job.updated_at = utc_now()
             if status == JobStatusEnum.RUNNING and not job.started_at:
                 job.started_at = utc_now()
             elif status in [

@@ -565,6 +565,7 @@ func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStr
 		"trailing_stop_pct":        strategy.TrailingStopPct,
 		"rebalance_interval_hours": strategy.RebalanceIntervalHours,
 		"position_timeout_hours":   strategy.PositionTimeoutHours,
+		"selected_markets":         strategy.SelectedMarketList(),
 	}
 }
 

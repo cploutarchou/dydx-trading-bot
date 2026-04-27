@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
@@ -11,6 +11,7 @@ interface StrategyFormData {
   is_public: boolean;
   runtime_network: 'testnet' | 'mainnet';
   runtime_subaccount: number;
+  selected_markets: string[];
   resolution: string; // 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
   zscore_threshold: number;
   stats_window: number;
@@ -79,6 +80,9 @@ export default function StrategyBuilder() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(isEditMode);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [availableMarkets, setAvailableMarkets] = useState<string[]>([]);
+  const [marketsLoading, setMarketsLoading] = useState(false);
+  const [marketsError, setMarketsError] = useState<string | null>(null);
 
   // Get pre-loaded config from backtest or sessionStorage
   const getPreloadedConfig = () => {
@@ -114,6 +118,7 @@ export default function StrategyBuilder() {
       is_public: false,
       runtime_network: 'testnet',
       runtime_subaccount: 0,
+      selected_markets: [],
       resolution: '1HOUR',
       zscore_threshold: 1.5,
       stats_window: 21,
@@ -153,6 +158,35 @@ export default function StrategyBuilder() {
     }
   }, [isEditMode, strategyId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMarkets = async () => {
+      setMarketsLoading(true);
+      setMarketsError(null);
+      try {
+        const response = await api.getPerpetualMarkets(160);
+        const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
+        if (!cancelled) {
+          setAvailableMarkets(markets);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setMarketsError(getErrorMessage(err, 'Unable to load dYdX markets'));
+        }
+      } finally {
+        if (!cancelled) {
+          setMarketsLoading(false);
+        }
+      }
+    };
+
+    void loadMarkets();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Load preloaded config from backtest
   useEffect(() => {
     const preloadedConfig = getPreloadedConfig();
@@ -181,6 +215,9 @@ export default function StrategyBuilder() {
         reset({
           ...strategyData,
           resolution,
+          selected_markets: Array.isArray(response.data.selected_markets)
+            ? response.data.selected_markets
+            : [],
         });
       }
     } catch (err: unknown) {
@@ -214,10 +251,20 @@ export default function StrategyBuilder() {
 
       // Convert string values to numbers for all numeric fields
       const initialAmount = Number(data.initial_amount);
+      const selectedMarkets = Array.isArray(data.selected_markets) ? data.selected_markets : [];
+      if (selectedMarkets.length === 1) {
+        setError('Select at least two markets, or leave market selection empty.');
+        return;
+      }
+      if (selectedMarkets.length > 5) {
+        setError('Select no more than five markets for this strategy.');
+        return;
+      }
       const cleanedData = {
         ...data,
         runtime_network: data.runtime_network,
         runtime_subaccount: Number(data.runtime_subaccount),
+        selected_markets: selectedMarkets,
         zscore_threshold: Number(data.zscore_threshold),
         stats_window: Number(data.stats_window),
         max_half_life: Number(data.max_half_life),
@@ -267,6 +314,19 @@ export default function StrategyBuilder() {
       setLoading(false);
     }
   };
+
+  const selectedMarkets = Array.isArray(formValues.selected_markets)
+    ? formValues.selected_markets
+    : [];
+  const selectedPairPreview = useMemo(() => {
+    const pairs: string[] = [];
+    for (let i = 0; i < selectedMarkets.length - 1; i += 1) {
+      for (let j = i + 1; j < selectedMarkets.length; j += 1) {
+        pairs.push(`${selectedMarkets[i]}/${selectedMarkets[j]}`);
+      }
+    }
+    return pairs.slice(0, 5);
+  }, [selectedMarkets]);
 
   if (loadingExisting) {
     return (
@@ -480,6 +540,111 @@ export default function StrategyBuilder() {
               <p className="mt-1 text-red-400 text-sm">{errors.runtime_subaccount.message}</p>
             )}
           </div>
+        </div>
+
+        <div>
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <label className={fieldLabelClass}>dYdX Market Universe</label>
+              <p className={helperTextClass}>
+                Choose 2-5 markets to constrain live pair discovery and strategy backtests.
+              </p>
+            </div>
+            <Controller
+              name="selected_markets"
+              control={control}
+              render={({ field }) => {
+                const value = Array.isArray(field.value) ? field.value : [];
+                return (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => field.onChange(availableMarkets.slice(0, 5))}
+                      disabled={availableMarkets.length === 0}
+                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                    >
+                      First 5
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => field.onChange([])}
+                      disabled={value.length === 0}
+                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                );
+              }}
+            />
+          </div>
+
+          <Controller
+            name="selected_markets"
+            control={control}
+            render={({ field }) => {
+              const value = Array.isArray(field.value) ? field.value : [];
+              const toggleMarket = (market: string) => {
+                if (value.includes(market)) {
+                  field.onChange(value.filter((item) => item !== market));
+                  return;
+                }
+                if (value.length >= 5) {
+                  return;
+                }
+                field.onChange([...value, market]);
+              };
+
+              return (
+                <div className="rounded-xl border border-slate-800/80 bg-slate-950/45 p-3">
+                  {marketsLoading ? (
+                    <p className="text-sm text-slate-400">Loading dYdX markets...</p>
+                  ) : marketsError ? (
+                    <p className="text-sm text-amber-300">{marketsError}</p>
+                  ) : (
+                    <div className="grid max-h-52 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
+                      {availableMarkets.map((market) => {
+                        const checked = value.includes(market);
+                        const disabled = !checked && value.length >= 5;
+                        return (
+                          <label
+                            key={market}
+                            className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs transition ${
+                              checked
+                                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-100'
+                                : 'border-slate-800 text-slate-300 hover:border-slate-600'
+                            } ${disabled ? 'opacity-45' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() => toggleMarket(market)}
+                              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-cyan-500"
+                            />
+                            <span className="truncate">{market}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }}
+          />
+
+          {selectedPairPreview.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {selectedPairPreview.map((pair) => (
+                <span
+                  key={pair}
+                  className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-xs text-cyan-100"
+                >
+                  {pair}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Divider */}

@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
 
-type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE' | 'TIMEOUT';
 
 interface BacktestRun {
   id?: string;
@@ -13,7 +13,10 @@ interface BacktestRun {
   end_date?: string;
   status: string;
   progress_pct?: number;
+  progress_percent?: number;
+  progress?: number;
   current_pair?: string;
+  current_task?: string;
   total_trades: number;
   profitable_trades?: number;
   losing_trades?: number;
@@ -24,6 +27,10 @@ interface BacktestRun {
   max_drawdown?: number;
   max_drawdown_pct?: number;
   created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  finished_at?: string;
+  deadline_at?: string;
   updated_at?: string;
   error?: string;
   error_message?: string;
@@ -35,15 +42,43 @@ type FailureDiagnostic = {
   hint: string;
 };
 
-const normalizeStatus = (status?: string): RunStatus => {
+function normalizePercent(value: number | undefined | null): number | null {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) return null;
+  const numeric = Number(value);
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+}
+
+const normalizeStatus = (status?: string, run?: Partial<BacktestRun>): RunStatus => {
   const normalized = String(status || '')
     .trim()
     .toUpperCase();
-  if (normalized === 'CREATED') return 'PENDING';
-  if (normalized === 'RUNNING') return 'RUNNING';
+  const progressPct = normalizePercent(run?.progress_pct ?? run?.progress_percent ?? run?.progress) ?? 0;
+  const currentPair = String(run?.current_pair || '').trim().toLowerCase();
+  const currentTask = String(run?.current_task || '').trim().toLowerCase();
+  const hasMetrics =
+    Number(run?.total_trades || 0) > 0 ||
+    Number(run?.total_pnl || 0) !== 0 ||
+    Number(run?.win_rate || 0) !== 0 ||
+    Number(run?.sharpe_ratio || 0) !== 0;
+  const hasWorkEvidence =
+    progressPct > 0 ||
+    hasMetrics ||
+    (!!currentPair && !['pending', 'queued', 'complete'].includes(currentPair)) ||
+    (!!currentTask && !['pending', 'queued', 'complete', 'created'].includes(currentTask));
+
+  if (['CREATED', 'QUEUED', 'SCHEDULED', 'PENDING'].includes(normalized)) {
+    if (String(run?.error_message || run?.error || '').trim()) return 'FAILED';
+    if (progressPct >= 100 || currentPair === 'complete' || currentTask === 'complete') {
+      return 'COMPLETED';
+    }
+    return hasWorkEvidence ? 'RUNNING' : 'PENDING';
+  }
+  if (['RUNNING', 'IN_PROGRESS', 'PROCESSING', 'ACTIVE'].includes(normalized)) return 'RUNNING';
   if (normalized === 'COMPLETED') return 'COMPLETED';
   if (normalized === 'FAILED') return 'FAILED';
-  if (normalized === 'CANCELLED') return 'CANCELLED';
+  if (normalized === 'CANCELLED' || normalized === 'CANCELED') return 'CANCELLED';
+  if (normalized === 'STALE' || normalized === 'STALLED') return 'STALE';
+  if (normalized === 'TIMEOUT' || normalized === 'TIMED_OUT') return 'TIMEOUT';
   return 'PENDING';
 };
 
@@ -54,9 +89,12 @@ const statusBadgeClass = (status: RunStatus): string => {
     case 'RUNNING':
       return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300';
     case 'FAILED':
+    case 'TIMEOUT':
       return 'border-rose-500/30 bg-rose-500/10 text-rose-300';
     case 'CANCELLED':
       return 'border-slate-600/50 bg-slate-700/30 text-slate-300';
+    case 'STALE':
+      return 'border-orange-500/30 bg-orange-500/10 text-orange-300';
     default:
       return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
   }
@@ -77,11 +115,12 @@ function formatDuration(ms: number): string {
 }
 
 /** Estimate remaining time given start timestamp and current progress (0-100). */
-function calcEta(createdAt: string, progressPct: number): string | null {
-  if (progressPct < 0.3) return null; // not enough data yet
-  const elapsedMs = Date.now() - new Date(createdAt).getTime();
+function calcEta(startedAt: string | undefined, progressPct: number): string | null {
+  if (!startedAt || progressPct < 2) return null; // not enough stable data yet
+  const elapsedMs = Date.now() - new Date(startedAt).getTime();
   if (elapsedMs <= 0) return null;
   const remainingMs = (elapsedMs / progressPct) * (100 - progressPct);
+  if (!Number.isFinite(remainingMs) || remainingMs > 24 * 60 * 60 * 1000) return null;
   return formatDuration(remainingMs);
 }
 
@@ -178,12 +217,6 @@ const classifyFailureDiagnostic = (run: BacktestRun): FailureDiagnostic => {
   };
 };
 
-const normalizePercent = (value: number | undefined | null): number | null => {
-  if (value === undefined || value === null || Number.isNaN(Number(value))) return null;
-  const numeric = Number(value);
-  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
-};
-
 export const BacktestList: React.FC<{
   refreshTrigger?: number;
   runs?: BacktestRun[];
@@ -226,7 +259,7 @@ export const BacktestList: React.FC<{
     }
 
     const hasActive = runs.some((r) => {
-      const s = normalizeStatus(r.status);
+      const s = normalizeStatus(r.status, r);
       return s === 'RUNNING' || s === 'PENDING';
     });
 
@@ -363,15 +396,17 @@ export const BacktestList: React.FC<{
     COMPLETED: 0,
     FAILED: 0,
     CANCELLED: 0,
+    STALE: 0,
+    TIMEOUT: 0,
   };
 
   for (const run of displayRuns) {
-    statusCounts[normalizeStatus(run.status)] += 1;
+    statusCounts[normalizeStatus(run.status, run)] += 1;
   }
 
   const filteredRuns = displayRuns.filter((run) => {
     if (statusFilter === 'ALL') return true;
-    return normalizeStatus(run.status) === statusFilter;
+    return normalizeStatus(run.status, run) === statusFilter;
   });
 
   const formatPct = (value: number | undefined | null) => {
@@ -411,6 +446,8 @@ export const BacktestList: React.FC<{
               ['COMPLETED', statusCounts.COMPLETED, 'Completed'],
               ['FAILED', statusCounts.FAILED, 'Failed'],
               ['CANCELLED', statusCounts.CANCELLED, 'Cancelled'],
+              ['STALE', statusCounts.STALE, 'Stale'],
+              ['TIMEOUT', statusCounts.TIMEOUT, 'Timeout'],
             ] as const
           ).map(([status, count, label]) => (
             <button
@@ -501,12 +538,17 @@ export const BacktestList: React.FC<{
             </thead>
             <tbody>
               {filteredRuns.map((run) => {
-                const normalizedStatus = normalizeStatus(run.status);
+                const normalizedStatus = normalizeStatus(run.status, run);
                 const isActive = normalizedStatus === 'RUNNING' || normalizedStatus === 'PENDING';
-                const isFailed = normalizedStatus === 'FAILED' || normalizedStatus === 'CANCELLED';
+                const isFailed =
+                  normalizedStatus === 'FAILED' ||
+                  normalizedStatus === 'CANCELLED' ||
+                  normalizedStatus === 'STALE' ||
+                  normalizedStatus === 'TIMEOUT';
                 const failureDiagnostic = isFailed ? classifyFailureDiagnostic(run) : null;
-                const progressPct = run.progress_pct ?? 0;
-                const eta = isActive ? calcEta(run.created_at, progressPct) : null;
+                const progressPct =
+                  normalizePercent(run.progress_pct ?? run.progress_percent ?? run.progress) ?? 0;
+                const eta = isActive ? calcEta(run.started_at || run.created_at, progressPct) : null;
 
                 return (
                   <React.Fragment key={run.run_id}>

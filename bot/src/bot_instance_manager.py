@@ -754,6 +754,11 @@ class BotInstanceManager:
                 "trailingStopPct": config.trading_params.trailing_stop_pct,
                 "rebalanceIntervalHours": config.trading_params.rebalance_interval_hours,
                 "positionTimeoutHours": config.trading_params.position_timeout_hours,
+                "selectedMarkets": [
+                    str(market).strip()
+                    for market in config.trading_params.selected_markets
+                    if str(market).strip()
+                ],
             },
             "backtesting": {
                 "candleResolution": (

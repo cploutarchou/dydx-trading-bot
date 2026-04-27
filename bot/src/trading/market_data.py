@@ -79,7 +79,7 @@ async def get_markets(client):
     return await client.indexer.markets.get_perpetual_markets()
 
 
-async def construct_market_prices(client):
+async def construct_market_prices(client, selected_markets=None):
     """
     Construct a DataFrame of market prices for all tradeable markets.
 
@@ -91,12 +91,24 @@ async def construct_market_prices(client):
     # Declare variables
     tradeable_markets = []
     markets = await get_markets(client)
+    selected = {
+        str(market).strip()
+        for market in (selected_markets or [])
+        if str(market).strip()
+    }
 
     # Find tradeable pairs
     for market in markets["markets"].keys():
         market_info = markets["markets"][market]
+        if selected and market not in selected:
+            continue
         if market_info["status"] == "ACTIVE":
             tradeable_markets.append(market)
+
+    if selected and len(tradeable_markets) < 2:
+        raise ValueError(
+            "Selected market universe must include at least two active dYdX perpetual markets"
+        )
 
     # Set initial DataFrame
     close_prices = await get_candles_historical(client, tradeable_markets[0])

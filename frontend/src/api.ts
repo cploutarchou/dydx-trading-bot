@@ -554,6 +554,12 @@ interface BacktestRequest extends Record<string, unknown> {
   };
 }
 
+export interface PerpetualMarketsResponse extends Record<string, unknown> {
+  markets: string[];
+  count: number;
+  source: string;
+}
+
 interface StrategyRequest extends Record<string, unknown> {
   name: string;
   category?: string;
@@ -1626,6 +1632,15 @@ class ApiClient {
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
+  }
+
+  async getPerpetualMarkets(limit: number = 0): Promise<ApiResponse<PerpetualMarketsResponse>> {
+    this.ensureTokenLoaded();
+    const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    const response = await this.client.get<ApiResponse<PerpetualMarketsResponse>>(
+      `/api/v1/markets/perpetuals${query}`
+    );
+    return response.data;
   }
 
   async getStats(): Promise<ApiResponse> {

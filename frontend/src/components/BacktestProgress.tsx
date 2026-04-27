@@ -85,8 +85,10 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
         return 'bg-green-900 text-green-300';
       case 'cancelled':
         return 'bg-slate-700 text-slate-300';
+      case 'timeout':
       case 'timed_out':
         return 'bg-orange-900 text-orange-300';
+      case 'stale':
       case 'stalled':
         return 'bg-amber-900 text-amber-300';
       case 'failed':
@@ -106,8 +108,10 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
         return 'bg-blue-500';
       case 'cancelled':
         return 'bg-slate-500';
+      case 'timeout':
       case 'timed_out':
         return 'bg-orange-500';
+      case 'stale':
       case 'stalled':
         return 'bg-amber-500';
       default:

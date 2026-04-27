@@ -69,7 +69,7 @@ func (s *BacktestSyncService) SyncBacktestRun(userID int, upstream map[string]in
 	syncPayload := repository.BacktestRunSyncPayload{
 		RunID:           runID,
 		UserID:          userID,
-		Status:          getString(payload, "status"),
+		Status:          normalizeBacktestStatus(getString(payload, "status"), payload),
 		StartDate:       startDate,
 		EndDate:         endDate,
 		NumPairs:        numPairs,
@@ -88,11 +88,56 @@ func (s *BacktestSyncService) SyncBacktestRun(userID int, upstream map[string]in
 		TotalPnLUSD:     nullableFloatField(payload, "total_pnl_usd"),
 	}
 
-	if syncPayload.Status == "" {
-		syncPayload.Status = "queued"
+	return s.repo.UpsertBacktestRun(syncPayload)
+}
+
+func normalizeBacktestStatus(status string, payload map[string]interface{}) string {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	switch normalized {
+	case "", "<nil>":
+		normalized = "pending"
+	case "created", "queued", "scheduled", "retry":
+		normalized = "pending"
+	case "in_progress", "processing", "active", "retrying":
+		normalized = "running"
+	case "succeeded", "success", "done":
+		normalized = "completed"
+	case "error":
+		normalized = "failed"
+	case "timed_out":
+		normalized = "timeout"
+	case "stalled":
+		normalized = "stale"
+	case "canceled":
+		normalized = "cancelled"
 	}
 
-	return s.repo.UpsertBacktestRun(syncPayload)
+	progress := parseFloatField(payload, "progress_pct", "progress_percent", "progress")
+	hasMetrics := getInt(payload, "total_trades") > 0
+	for _, key := range []string{"total_pnl", "win_rate", "sharpe_ratio", "profit_factor"} {
+		if parseFloatField(payload, key) != 0 {
+			hasMetrics = true
+			break
+		}
+	}
+	errorMessage := getString(payload, "error_message", "error")
+	currentTask := strings.ToLower(getString(payload, "current_task"))
+	currentPair := strings.ToLower(getString(payload, "current_pair"))
+	if normalized == "pending" {
+		switch {
+		case getBool(payload, "cancel_requested") || strings.Contains(currentTask, "cancel"):
+			normalized = "cancelled"
+		case errorMessage != "":
+			normalized = "failed"
+		case progress >= 100 || currentTask == "complete" || currentPair == "complete":
+			normalized = "completed"
+		case progress > 0 || hasMetrics ||
+			(currentTask != "" && currentTask != "pending" && currentTask != "queued") ||
+			(currentPair != "" && currentPair != "pending" && currentPair != "queued"):
+			normalized = "running"
+		}
+	}
+	return normalized
 }
 
 func (s *BacktestSyncService) SyncBacktestTrades(runID string, upstream map[string]interface{}) error {
@@ -264,6 +309,22 @@ func getInt(source map[string]interface{}, keys ...string) int {
 		}
 	}
 	return 0
+}
+
+func getBool(source map[string]interface{}, keys ...string) bool {
+	for _, k := range keys {
+		v, ok := source[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch typed := v.(type) {
+		case bool:
+			return typed
+		case string:
+			return strings.EqualFold(strings.TrimSpace(typed), "true")
+		}
+	}
+	return false
 }
 
 func parseFloatField(source map[string]interface{}, keys ...string) float64 {

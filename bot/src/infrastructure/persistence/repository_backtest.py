@@ -56,7 +56,7 @@ class BacktestRepository:
     def _normalize_run_data(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = dict(run_data)
         now = cls._now().isoformat()
-        payload.setdefault("status", "created")
+        payload.setdefault("status", "pending")
         payload.setdefault("progress_pct", 0.0)
         payload.setdefault("current_pair", None)
         payload.setdefault("current_task", None)
@@ -76,8 +76,21 @@ class BacktestRepository:
         payload.setdefault("daily_pnl", [])
         payload.setdefault("cancel_requested", False)
         payload.setdefault("created_at", now)
+        payload.setdefault("started_at", None)
+        payload.setdefault("completed_at", payload.get("finished_at"))
+        payload.setdefault("finished_at", payload.get("completed_at"))
+        payload.setdefault("deadline_at", None)
+        payload.setdefault("timeout_seconds", None)
         payload.setdefault("updated_at", now)
         payload["created_at"] = cls._serialize_dt(payload.get("created_at")) or now
+        payload["started_at"] = cls._serialize_dt(payload.get("started_at"))
+        payload["completed_at"] = cls._serialize_dt(
+            payload.get("completed_at") or payload.get("finished_at")
+        )
+        payload["finished_at"] = cls._serialize_dt(
+            payload.get("finished_at") or payload.get("completed_at")
+        )
+        payload["deadline_at"] = cls._serialize_dt(payload.get("deadline_at"))
         payload["updated_at"] = cls._serialize_dt(payload.get("updated_at")) or now
         return payload
 
@@ -103,6 +116,15 @@ class BacktestRepository:
             "error_message": record.error_message,
             "cancel_requested": bool(record.cancel_requested),
             "created_at": cls._serialize_dt(record.created_at),
+            "started_at": cls._serialize_dt(record.started_at),
+            "completed_at": cls._serialize_dt(record.completed_at),
+            "finished_at": cls._serialize_dt(record.completed_at),
+            "deadline_at": cls._serialize_dt(record.deadline_at),
+            "timeout_seconds": (
+                float(record.timeout_seconds)
+                if record.timeout_seconds is not None
+                else None
+            ),
             "updated_at": cls._serialize_dt(record.updated_at),
         }
 
@@ -134,7 +156,7 @@ class BacktestRepository:
             self.session.add(record)
 
         record.name = str(payload.get("name") or "unnamed-backtest")
-        record.status = str(payload.get("status") or "created")
+        record.status = str(payload.get("status") or "pending")
         record.progress_pct = float(payload.get("progress_pct", 0.0) or 0.0)
         record.current_pair = payload.get("current_pair")
         record.current_task = payload.get("current_task")
@@ -156,6 +178,16 @@ class BacktestRepository:
         record.daily_pnl_json = payload.get("daily_pnl") or []
         record.cancel_requested = bool(payload.get("cancel_requested", False))
         record.created_at = self._parse_dt(payload.get("created_at"), default=self._now())
+        record.started_at = self._parse_dt(payload.get("started_at"))
+        record.completed_at = self._parse_dt(
+            payload.get("completed_at") or payload.get("finished_at")
+        )
+        record.deadline_at = self._parse_dt(payload.get("deadline_at"))
+        record.timeout_seconds = (
+            float(payload.get("timeout_seconds"))
+            if payload.get("timeout_seconds") is not None
+            else None
+        )
         record.updated_at = self._parse_dt(payload.get("updated_at"), default=self._now())
 
         self.session.commit()

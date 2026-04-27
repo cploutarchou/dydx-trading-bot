@@ -120,6 +120,7 @@ type BacktestStrategy struct {
 	RuntimeNetwork         string     `db:"runtime_network" json:"runtime_network"`
 	RuntimeSubaccount      int        `db:"runtime_subaccount" json:"runtime_subaccount"`
 	PairSelectionMode      string     `db:"pair_selection_mode" json:"pair_selection_mode"`
+	SelectedMarkets        string     `db:"selected_markets" json:"-"`
 	ZscoreThreshold        float64    `db:"zscore_threshold" json:"zscore_threshold"`
 	StatsWindow            int        `db:"stats_window" json:"stats_window"`
 	MaxHalfLife            float64    `db:"max_half_life" json:"max_half_life"`

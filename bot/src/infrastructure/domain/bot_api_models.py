@@ -46,6 +46,7 @@ class TradingParameters(BaseModel):
     trailing_stop_pct: float = 1.0
     rebalance_interval_hours: int = 24
     position_timeout_hours: int = 72
+    selected_markets: List[str] = Field(default_factory=list)
 
 
 class BacktestingParameters(BaseModel):

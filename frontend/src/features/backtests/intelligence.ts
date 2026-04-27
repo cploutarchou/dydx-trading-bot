@@ -77,7 +77,14 @@ const isCompleted = (run: BacktestRun): boolean => normalizeStatus(run.status) =
 
 export const isActiveBacktestRun = (run: BacktestRun): boolean => {
   const status = normalizeStatus(run.status);
-  return status === 'RUNNING' || status === 'PENDING' || status === 'CREATED';
+  return (
+    status === 'RUNNING' ||
+    status === 'PENDING' ||
+    status === 'CREATED' ||
+    status === 'QUEUED' ||
+    status === 'IN_PROGRESS' ||
+    status === 'PROCESSING'
+  );
 };
 
 const average = (values: number[]): number =>
@@ -191,7 +198,14 @@ export const buildIntelligence = (
         group.profitableRunCount += 1;
       }
     }
-    if (status === 'RUNNING' || status === 'PENDING' || status === 'CREATED') {
+    if (
+      status === 'RUNNING' ||
+      status === 'PENDING' ||
+      status === 'CREATED' ||
+      status === 'QUEUED' ||
+      status === 'IN_PROGRESS' ||
+      status === 'PROCESSING'
+    ) {
       group.activeRuns += 1;
     }
 

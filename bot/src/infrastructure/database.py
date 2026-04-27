@@ -466,6 +466,58 @@ class DatabaseManager:
                         text("ALTER TABLE jobs ALTER COLUMN bot_id DROP NOT NULL")
                     )
 
+            if inspector.has_table("backtest_runtime_runs"):
+                run_columns = {
+                    column["name"] for column in inspector.get_columns("backtest_runtime_runs")
+                }
+                add_column_sql = {
+                    "started_at": "ALTER TABLE backtest_runtime_runs ADD COLUMN started_at TIMESTAMP NULL",
+                    "completed_at": "ALTER TABLE backtest_runtime_runs ADD COLUMN completed_at TIMESTAMP NULL",
+                    "deadline_at": "ALTER TABLE backtest_runtime_runs ADD COLUMN deadline_at TIMESTAMP NULL",
+                    "timeout_seconds": "ALTER TABLE backtest_runtime_runs ADD COLUMN timeout_seconds FLOAT NULL",
+                }
+                for column_name, statement in add_column_sql.items():
+                    if column_name not in run_columns:
+                        logger.info(
+                            "Applying compatibility fix: adding backtest_runtime_runs.{}",
+                            column_name,
+                        )
+                        connection.execute(text(statement))
+
+                logger.info("Applying compatibility fix: normalizing backtest runtime statuses")
+                connection.execute(
+                    text(
+                        """
+                        UPDATE backtest_runtime_runs
+                        SET status = CASE
+                            WHEN status IS NULL THEN 'pending'
+                            ELSE CASE LOWER(CAST(status AS TEXT))
+                            WHEN 'created' THEN 'pending'
+                            WHEN 'queued' THEN 'pending'
+                            WHEN 'scheduled' THEN 'pending'
+                            WHEN 'in_progress' THEN 'running'
+                            WHEN 'processing' THEN 'running'
+                            WHEN 'active' THEN 'running'
+                            WHEN 'succeeded' THEN 'completed'
+                            WHEN 'success' THEN 'completed'
+                            WHEN 'done' THEN 'completed'
+                            WHEN 'error' THEN 'failed'
+                            WHEN 'timed_out' THEN 'timeout'
+                            WHEN 'stalled' THEN 'stale'
+                            WHEN 'canceled' THEN 'cancelled'
+                            ELSE LOWER(CAST(status AS TEXT))
+                            END
+                        END
+                        WHERE status IS NULL
+                           OR LOWER(CAST(status AS TEXT)) IN (
+                                'created', 'queued', 'scheduled', 'in_progress',
+                                'processing', 'active', 'succeeded', 'success',
+                                'done', 'error', 'timed_out', 'stalled', 'canceled'
+                           )
+                        """
+                    )
+                )
+
     def verify_required_tables(self) -> dict:
         """Verify runtime-critical tables are present in the active bot database."""
         required = {

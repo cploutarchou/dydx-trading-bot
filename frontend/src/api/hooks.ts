@@ -903,7 +903,7 @@ export function useBacktestProgress(runId: string) {
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
   const [lastSocketEvent, setLastSocketEvent] = useState<Record<string, unknown> | null>(null);
   const isTerminalStatus = useCallback((status: unknown): boolean => {
-    return ['COMPLETED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'STALLED'].includes(
+    return ['COMPLETED', 'FAILED', 'TIMEOUT', 'TIMED_OUT', 'CANCELLED', 'STALE', 'STALLED'].includes(
       normalizeStatus(status)
     );
   }, []);
@@ -1201,8 +1201,8 @@ export function useBacktestProgress(runId: string) {
     lastSocketEvent,
     isComplete: normalizeStatus(resolvedData?.status) === 'COMPLETED',
     isFailed: normalizeStatus(resolvedData?.status) === 'FAILED',
-    isTimedOut: normalizeStatus(resolvedData?.status) === 'TIMED_OUT',
-    isStalled: normalizeStatus(resolvedData?.status) === 'STALLED',
+    isTimedOut: ['TIMEOUT', 'TIMED_OUT'].includes(normalizeStatus(resolvedData?.status)),
+    isStalled: ['STALE', 'STALLED'].includes(normalizeStatus(resolvedData?.status)),
     isCancelled: normalizeStatus(resolvedData?.status) === 'CANCELLED',
     isRunning: normalizeStatus(resolvedData?.status) === 'RUNNING',
     progressPercent: normalizeProgressPercent(resolvedData),

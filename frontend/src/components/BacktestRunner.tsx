@@ -104,6 +104,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableMarkets, setAvailableMarkets] = useState<string[]>([]);
+  const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
+  const [marketsLoading, setMarketsLoading] = useState(false);
+  const [marketsError, setMarketsError] = useState<string | null>(null);
   const presets = [
     {
       id: 'disciplined',
@@ -133,6 +137,35 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   useEffect(() => {
     void fetchStrategies();
   }, [fetchStrategies]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMarkets = async () => {
+      setMarketsLoading(true);
+      setMarketsError(null);
+      try {
+        const response = await api.getPerpetualMarkets(120);
+        const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
+        if (!cancelled) {
+          setAvailableMarkets(markets);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setMarketsError(getErrorMessage(err, 'Unable to load dYdX markets'));
+        }
+      } finally {
+        if (!cancelled) {
+          setMarketsLoading(false);
+        }
+      }
+    };
+
+    void loadMarkets();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const TRADING_PARAM_FIELDS = new Set([
     'zscore_threshold',
@@ -243,6 +276,18 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     }
   };
 
+  const toggleMarket = (market: string) => {
+    setSelectedMarkets((prev) => {
+      if (prev.includes(market)) {
+        return prev.filter((item) => item !== market);
+      }
+      if (prev.length >= 5) {
+        return prev;
+      }
+      return [...prev, market];
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -256,6 +301,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
 
       const tp = formData.trading_parameters;
+      if (selectedMarkets.length === 1) {
+        const message = 'Select at least two markets for a constrained backtest universe.';
+        setError(message);
+        errorToast('Market selection needs attention', message);
+        return;
+      }
 
       // Ensure max_history_days covers the full requested period plus a warmup
       // buffer so the bot service doesn't silently cap the backtest window.
@@ -274,9 +325,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         end_date: formData.end_date,
         name: formData.name || 'ui-backtest',
         initial_balance: Number(formData.initial_balance),
-        max_pairs: Number(formData.max_pairs),
+        max_pairs: selectedMarkets.length > 0 ? selectedMarkets.length : Number(formData.max_pairs),
         benchmark_symbol: formData.benchmark_symbol,
         pair_selection_mode: tp.pair_selection_mode || formData.pair_selection_mode || 'liquidity',
+        ...(selectedMarkets.length > 0 && { pairs: selectedMarkets }),
         trading_parameters: {
           ...(tp.zscore_threshold !== undefined && {
             zscore_threshold: Number(tp.zscore_threshold),
@@ -369,8 +421,22 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     return Math.max(0, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
   }, [formData.end_date, formData.start_date]);
 
+  const selectedPairPreview = useMemo(() => {
+    const pairs: string[] = [];
+    for (let i = 0; i < selectedMarkets.length - 1; i += 1) {
+      for (let j = i + 1; j < selectedMarkets.length; j += 1) {
+        pairs.push(`${selectedMarkets[i]}/${selectedMarkets[j]}`);
+      }
+    }
+    return pairs.slice(0, 5);
+  }, [selectedMarkets]);
+
   const scanScopeLabel =
-    Number(formData.max_pairs) > 0 ? `${formData.max_pairs} markets` : 'All available markets';
+    selectedMarkets.length > 0
+      ? `${selectedPairPreview.length} pair${selectedPairPreview.length === 1 ? '' : 's'} from ${selectedMarkets.length} markets`
+      : Number(formData.max_pairs) > 0
+        ? `${formData.max_pairs} markets`
+        : 'All available markets';
   const selectedMode =
     (formData.trading_parameters
       .pair_selection_mode as BacktestRunRequest['pair_selection_mode']) || 'liquidity';
@@ -590,6 +656,80 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               <option value="volatility">Volatility (highest movement first)</option>
               <option value="input">Input order (no ranking)</option>
             </select>
+          </div>
+          <div className="md:col-span-2">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label className="block text-xs font-semibold uppercase text-slate-400">
+                dYdX Markets
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMarkets(availableMarkets.slice(0, 5))}
+                  disabled={availableMarkets.length === 0}
+                  className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 disabled:opacity-50"
+                >
+                  First 5
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMarkets([])}
+                  disabled={selectedMarkets.length === 0}
+                  className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="rounded border border-slate-800 bg-stone-950/70 p-3">
+              {marketsLoading ? (
+                <p className="text-sm text-slate-400">Loading markets...</p>
+              ) : marketsError ? (
+                <p className="text-sm text-amber-300">{marketsError}</p>
+              ) : (
+                <div className="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
+                  {availableMarkets.map((market) => {
+                    const checked = selectedMarkets.includes(market);
+                    const disabled = !checked && selectedMarkets.length >= 5;
+                    return (
+                      <label
+                        key={market}
+                        className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs ${
+                          checked
+                            ? 'border-cyan-500 bg-cyan-500/10 text-cyan-100'
+                            : 'border-slate-800 text-slate-300'
+                        } ${disabled ? 'opacity-45' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={() => toggleMarket(market)}
+                          className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-cyan-500"
+                        />
+                        <span className="truncate">{market}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-gray-400">
+              Optional. Select 2-5 markets; the run processes the first five generated pair
+              combinations.
+            </p>
+            {selectedPairPreview.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {selectedPairPreview.map((pair) => (
+                  <span
+                    key={pair}
+                    className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-xs text-cyan-100"
+                  >
+                    {pair}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className={labelClass}>Z-Score Threshold</label>

@@ -1,7 +1,7 @@
+import react from '@vitejs/plugin-react';
+import { createDecipheriv } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { createDecipheriv } from 'node:crypto';
-import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
@@ -171,10 +171,15 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 5173,
       allowedHosts: ['.localhost'],
+      hmr: {
+        host: 'localhost',
+        port: 5173,
+      },
       proxy: {
         '/api': {
           target: env.VITE_API_URL || 'http://localhost:8888',
           changeOrigin: true,
+          ws: true,
         },
       },
     },

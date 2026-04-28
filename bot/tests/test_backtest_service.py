@@ -153,7 +153,7 @@ async def _wait_for_terminal_status(service, run_id, timeout_seconds=2.0):
     while asyncio.get_event_loop().time() < end:
         status = service.get_backtest_status(run_id)
         assert status is not None
-        if status.status in {"completed", "failed", "timed_out", "cancelled", "stalled"}:
+        if status.status in {"completed", "failed", "timeout", "cancelled", "stale"}:
             return status.status
         await asyncio.sleep(0.02)
     raise TimeoutError("backtest did not reach terminal status in time")
@@ -400,13 +400,13 @@ def test_celery_worker_backend_queues_persisted_run(monkeypatch):
 
     async def _run():
         created = await service.create_and_run_backtest(_request())
-        assert created.status == "queued"
+        assert created.status == "pending"
         assert created.worker_backend == "celery"
         assert created.worker_task_id == f"task-{created.run_id}"
 
         status = service.get_backtest_status(created.run_id)
         assert status is not None
-        assert status.status == "queued"
+        assert status.status == "pending"
         assert status.pausable is True
         assert status.worker_backend == "celery"
         assert service.delete_backtest(created.run_id)
@@ -473,11 +473,11 @@ def test_backtest_times_out_and_exposes_heartbeat_fields(monkeypatch):
             created.run_id,
             timeout_seconds=1.0,
         )
-        assert terminal == "timed_out"
+        assert terminal == "timeout"
 
         status = service.get_backtest_status(created.run_id)
         assert status is not None
-        assert status.status == "timed_out"
+        assert status.status == "timeout"
         assert status.deadline_at is not None
         assert status.last_heartbeat_at == status.updated_at
         assert status.heartbeat_age_seconds is not None
@@ -486,14 +486,14 @@ def test_backtest_times_out_and_exposes_heartbeat_fields(monkeypatch):
 
         progress = service.get_live_progress(created.run_id)
         assert progress is not None
-        assert progress["status"] == "timed_out"
+        assert progress["status"] == "timeout"
         assert progress["last_heartbeat_at"] == status.updated_at
         assert progress["cancellable"] is False
 
     asyncio.run(_run())
 
 
-def test_stale_backtest_status_is_persisted_as_stalled(monkeypatch):
+def test_stale_backtest_status_is_persisted_as_stale(monkeypatch):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
     monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 1.0)
@@ -517,18 +517,50 @@ def test_stale_backtest_status_is_persisted_as_stalled(monkeypatch):
 
     status = service.get_backtest_status("stale-run")
     assert status is not None
-    assert status.status == "stalled"
+    assert status.status == "stale"
     assert status.cancellable is False
     assert status.progress_pct == 63.0
     assert "heartbeat is stale" in str(status.error_message).lower()
 
     persisted = service.repository.get_run("stale-run")
     assert persisted is not None
-    assert persisted["status"] == "stalled"
+    assert persisted["status"] == "stale"
     assert persisted["updated_at"] == stale_updated_at
 
     health = service.get_runtime_health()
     assert health["queue_depth"] == 0
+
+
+def test_legacy_pending_with_progress_normalizes_to_running(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 3600.0)
+
+    service = BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "legacy-progress-run",
+            "name": "legacy-progress",
+            "status": "created",
+            "progress_pct": 12.3,
+            "current_pair": "BTC-USD/ETH-USD",
+            "current_task": "processing pair",
+            "created_at": now,
+            "updated_at": now,
+            "start_date": "2026-03-20",
+            "end_date": "2026-04-19",
+        }
+    )
+
+    status = service.get_backtest_status("legacy-progress-run")
+    assert status is not None
+    assert status.status == "running"
+    assert status.progress_pct == 12.3
+
+    persisted = service.repository.get_run("legacy-progress-run")
+    assert persisted is not None
+    assert persisted["status"] == "running"
 
 
 def test_build_market_pairs_uses_all_unique_combinations():
@@ -791,7 +823,10 @@ def test_service_init_does_not_auto_reconcile_running_runs():
     BacktestRepository._memory_runs.clear()
 
     service = BacktestService(session=None)
-    now = datetime.now(timezone.utc).isoformat()
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
     service.repository.save_run(
         {
             "run_id": "run-still-running",
@@ -821,7 +856,10 @@ def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
     BacktestRepository._memory_runs.clear()
 
     service = BacktestService(session=None)
-    now = datetime.now(timezone.utc).isoformat()
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
     seeded = service.repository.save_run(
         {
             "run_id": "run-orphaned-ops",
@@ -857,3 +895,136 @@ def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
         run["run_id"] == "run-orphaned-ops"
         for run in ops_report["interrupted_runs"]
     )
+
+
+def test_auto_recovery_marks_orphaned_backtests_failed_by_default():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-auto-mark-failed",
+            "name": "orphaned",
+            "status": "running",
+            "progress_pct": 22.0,
+            "created_at": now,
+            "updated_at": now,
+            "request": _request().model_dump(),
+        }
+    )
+
+    report = asyncio.run(service.auto_recover_interrupted_runs())
+
+    assert report["mode"] == "mark_failed"
+    assert report["candidate_count"] == 1
+    assert report["eligible_count"] == 1
+    assert report["marked_failed_count"] == 1
+    assert report["restarted_count"] == 0
+    persisted = service.repository.get_run("run-auto-mark-failed")
+    assert persisted is not None
+    assert persisted["status"] == "failed"
+    assert persisted["error"] == "Backtest interrupted by API reload or restart"
+
+
+def test_auto_recovery_skips_fresh_orphaned_backtests_to_avoid_false_positive():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-auto-fresh",
+            "name": "fresh",
+            "status": "running",
+            "progress_pct": 8.0,
+            "created_at": now,
+            "updated_at": now,
+            "request": _request().model_dump(),
+        }
+    )
+
+    report = asyncio.run(service.auto_recover_interrupted_runs())
+
+    assert report["candidate_count"] == 1
+    assert report["eligible_count"] == 0
+    assert report["marked_failed_count"] == 0
+    assert report["skipped_count"] == 1
+    persisted = service.repository.get_run("run-auto-fresh")
+    assert persisted is not None
+    assert persisted["status"] == "running"
+
+
+def test_auto_recovery_restart_requeues_existing_backtest_run(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-auto-restart",
+            "name": "orphaned",
+            "status": "running",
+            "progress_pct": 31.0,
+            "created_at": now,
+            "updated_at": now,
+            "request": _request().model_dump(),
+        }
+    )
+    recovered = []
+
+    async def _fake_execute_existing(run_id, progress_callback=None):
+        recovered.append((run_id, progress_callback))
+        service._update_run_data(
+            run_id,
+            status="completed",
+            progress_pct=100.0,
+            current_task="complete",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    monkeypatch.setattr(service, "execute_existing_backtest", _fake_execute_existing)
+
+    async def _run_recovery():
+        report = await service.auto_recover_interrupted_runs(mode="restart")
+        await asyncio.sleep(0)
+        return report
+
+    report = asyncio.run(_run_recovery())
+
+    assert report["mode"] == "restart"
+    assert report["candidate_count"] == 1
+    assert report["eligible_count"] == 1
+    assert report["restarted_count"] == 1
+    assert recovered and recovered[0][0] == "run-auto-restart"
+    persisted = service.repository.get_run("run-auto-restart")
+    assert persisted is not None
+    assert persisted["status"] == "completed"

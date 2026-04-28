@@ -3,6 +3,8 @@ package models
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -22,6 +24,7 @@ func (b *BacktestStrategy) ToDict() map[string]interface{} {
 		"runtime_network":          b.RuntimeNetwork,
 		"runtime_subaccount":       b.RuntimeSubaccount,
 		"pair_selection_mode":      b.PairSelectionMode,
+		"selected_markets":         b.SelectedMarketList(),
 		"zscore_threshold":         b.ZscoreThreshold,
 		"stats_window":             b.StatsWindow,
 		"max_half_life":            b.MaxHalfLife,
@@ -54,6 +57,44 @@ func (b *BacktestStrategy) ToDict() map[string]interface{} {
 		"created_at":               b.CreatedAt,
 		"updated_at":               b.UpdatedAt,
 	}
+}
+
+// SelectedMarketList returns the persisted dYdX market universe for this strategy.
+func (b *BacktestStrategy) SelectedMarketList() []string {
+	raw := strings.TrimSpace(b.SelectedMarkets)
+	if raw == "" {
+		return []string{}
+	}
+	var markets []string
+	if err := json.Unmarshal([]byte(raw), &markets); err != nil {
+		return []string{}
+	}
+	return normalizeSelectedMarkets(markets)
+}
+
+// SetSelectedMarketList stores a normalized market list as JSON.
+func (b *BacktestStrategy) SetSelectedMarketList(markets []string) {
+	normalized := normalizeSelectedMarkets(markets)
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		b.SelectedMarkets = "[]"
+		return
+	}
+	b.SelectedMarkets = string(raw)
+}
+
+func normalizeSelectedMarkets(markets []string) []string {
+	seen := map[string]bool{}
+	normalized := make([]string, 0, len(markets))
+	for _, market := range markets {
+		cleaned := strings.TrimSpace(market)
+		if cleaned == "" || seen[cleaned] {
+			continue
+		}
+		seen[cleaned] = true
+		normalized = append(normalized, cleaned)
+	}
+	return normalized
 }
 
 // FromDict populates BacktestStrategy from a dictionary
@@ -90,6 +131,15 @@ func (b *BacktestStrategy) FromDict(data map[string]interface{}) {
 	}
 	if pairSelectionMode, ok := data["pair_selection_mode"].(string); ok {
 		b.PairSelectionMode = pairSelectionMode
+	}
+	if selectedMarkets, ok := data["selected_markets"].([]interface{}); ok {
+		markets := make([]string, 0, len(selectedMarkets))
+		for _, market := range selectedMarkets {
+			markets = append(markets, strings.TrimSpace(strings.Trim(fmt.Sprintf("%v", market), "\"")))
+		}
+		b.SetSelectedMarketList(markets)
+	} else if selectedMarkets, ok := data["selected_markets"].([]string); ok {
+		b.SetSelectedMarketList(selectedMarkets)
 	}
 	if zscore, ok := data["zscore_threshold"].(float64); ok {
 		b.ZscoreThreshold = zscore

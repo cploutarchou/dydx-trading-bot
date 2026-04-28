@@ -36,6 +36,7 @@ class _BacktestRunStatus(BaseModel):
     updated_at: str
     created_at: Optional[str] = None
     started_at: Optional[str] = None
+    completed_at: Optional[str] = None
     finished_at: Optional[str] = None
     deadline_at: Optional[str] = None
     timeout_seconds: Optional[float] = None
@@ -91,6 +92,7 @@ class _BacktestRunDetails(BaseModel):
     end_date: str = ""
     progress_pct: float = 0.0
     started_at: Optional[str] = None
+    completed_at: Optional[str] = None
     finished_at: Optional[str] = None
     deadline_at: Optional[str] = None
     timeout_seconds: Optional[float] = None
@@ -126,7 +128,16 @@ class BacktestService:
     _PROGRESS_CALLBACK_TIMEOUT_SECONDS = 5.0
     _HISTORY_REQUEST_TIMEOUT_SECONDS = 20.0
     _STALE_BACKTEST_HEARTBEAT_SECONDS = 120.0
-    _TERMINAL_STATUSES = {"completed", "failed", "timed_out", "cancelled", "stalled"}
+    _TERMINAL_STATUSES = {
+        "completed",
+        "failed",
+        "timeout",
+        "timed_out",
+        "cancelled",
+        "stale",
+        "stalled",
+    }
+    _ACTIVE_STATUSES = {"pending", "running", "paused"}
     _CONTROL_KEY = "_runtime_control"
     _BASELINE_METRICS: Dict[str, float] = {
         "total_pnl": 48.2,
@@ -158,6 +169,66 @@ class BacktestService:
             "error_message": run.get("error_message"),
         }
 
+    @classmethod
+    def _canonical_status(cls, status: Any) -> str:
+        normalized = str(status or "").strip().lower()
+        aliases = {
+            "": "pending",
+            "created": "pending",
+            "queued": "pending",
+            "scheduled": "pending",
+            "in_progress": "running",
+            "processing": "running",
+            "active": "running",
+            "succeeded": "completed",
+            "success": "completed",
+            "done": "completed",
+            "error": "failed",
+            "timed_out": "timeout",
+            "stalled": "stale",
+            "canceled": "cancelled",
+        }
+        return aliases.get(normalized, normalized)
+
+    @classmethod
+    def _normalize_lifecycle_state(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(run_data)
+        status = cls._canonical_status(payload.get("status"))
+        progress = cls._safe_float(payload.get("progress_pct"), 0.0)
+        current_pair = str(payload.get("current_pair") or "").strip().lower()
+        current_task = str(payload.get("current_task") or "").strip().lower()
+        has_error = bool(str(payload.get("error") or payload.get("error_message") or "").strip())
+        has_cancel = bool(payload.get("cancel_requested")) or current_task == "cancelled"
+        has_metrics = any(
+            cls._safe_float(payload.get(key), 0.0) != 0.0
+            for key in ("total_pnl", "win_rate", "sharpe_ratio", "profit_factor")
+        ) or cls._safe_float(payload.get("total_trades"), 0.0) > 0.0
+        has_work_marker = (
+            bool(payload.get("started_at"))
+            or progress > 0.0
+            or (
+                current_pair
+                and current_pair not in {"pending", "queued", "complete", "none", "null"}
+            )
+            or (
+                current_task
+                and current_task not in {"pending", "queued", "complete", "created"}
+            )
+        )
+
+        if status == "pending":
+            if has_cancel:
+                status = "cancelled"
+            elif has_error:
+                status = "failed"
+            elif progress >= 100.0 or current_pair == "complete" or current_task == "complete":
+                status = "completed"
+            elif has_work_marker or has_metrics:
+                status = "running"
+
+        payload["status"] = status
+        return payload
+
     def _find_orphaned_in_progress_runs(
             self, runs: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
@@ -168,7 +239,7 @@ class BacktestService:
             if not run_id:
                 continue
             status = str(run.get("status") or "").strip().lower()
-            if status in {"created", "running"} and run_id not in self._tasks:
+            if self._canonical_status(status) in {"pending", "running"} and run_id not in self._tasks:
                 candidates.append(dict(run))
         return candidates
 
@@ -356,7 +427,8 @@ class BacktestService:
     @classmethod
     def _apply_control_observability(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
         control = cls._get_runtime_control(payload)
-        status = str(payload.get("status") or "").lower()
+        status = cls._canonical_status(payload.get("status"))
+        payload["status"] = status
         action = str(control.get("action") or "").lower()
         control_status = str(control.get("status") or "").lower()
         pause_requested = bool(control.get("pause_requested"))
@@ -368,7 +440,7 @@ class BacktestService:
         payload["worker_backend"] = control.get("worker_backend") or "asyncio"
         payload["worker_task_id"] = control.get("worker_task_id")
         payload["pausable"] = (
-            status in {"created", "queued", "running"}
+            status in {"pending", "running"}
             and not pause_requested
             and action != "cancel"
         )
@@ -418,12 +490,12 @@ class BacktestService:
 
     @classmethod
     def _with_status_observability(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
-        payload = dict(run_data)
-        status = str(payload.get("status") or "").lower()
+        payload = cls._normalize_lifecycle_state(run_data)
+        status = cls._canonical_status(payload.get("status"))
         payload["last_heartbeat_at"] = payload.get("updated_at")
         payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
         if (
-                status in {"created", "queued", "running"}
+                status in {"pending", "running"}
                 and payload["heartbeat_age_seconds"] is not None
                 and payload["heartbeat_age_seconds"] > cls._STALE_BACKTEST_HEARTBEAT_SECONDS
         ):
@@ -431,32 +503,47 @@ class BacktestService:
                 "Backtest heartbeat is stale; the worker task may have been interrupted "
                 "or restarted"
             )
-            payload["status"] = "stalled"
-            payload["current_task"] = "stalled"
+            payload["status"] = "stale"
+            payload["current_task"] = "stale"
             payload["error"] = payload.get("error") or stale_message
             payload["error_message"] = payload.get("error_message") or stale_message
-            status = "stalled"
+            status = "stale"
         payload["cancellable"] = status not in cls._TERMINAL_STATUSES
         return cls._apply_control_observability(payload)
 
     def _resolve_stale_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         observed = self._with_status_observability(run_data)
-        original_status = str(run_data.get("status") or "").lower()
-        if observed.get("status") != "stalled" or original_status not in {
-            "created",
-            "queued",
+        original_status = self._canonical_status(run_data.get("status"))
+        if observed.get("status") != run_data.get("status") and original_status in {
+            "pending",
             "running",
         }:
+            persisted = dict(run_data)
+            persisted.update(
+                {
+                    "status": observed.get("status"),
+                    "current_task": observed.get("current_task"),
+                    "error": observed.get("error"),
+                    "error_message": observed.get("error_message"),
+                }
+            )
+            if observed.get("status") in self._TERMINAL_STATUSES and not persisted.get("finished_at"):
+                persisted["finished_at"] = datetime.now(timezone.utc).isoformat()
+                persisted["completed_at"] = persisted["finished_at"]
+            return self._with_status_observability(self._persist_run_data(persisted))
+
+        if observed.get("status") != "stale" or original_status not in {"pending", "running"}:
             return observed
 
         stalled = dict(run_data)
         stalled.update(
             {
-                "status": "stalled",
-                "current_task": "stalled",
+                "status": "stale",
+                "current_task": "stale",
                 "error": observed.get("error"),
                 "error_message": observed.get("error_message"),
                 "finished_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
             }
         )
         return self._with_status_observability(self._persist_run_data(stalled))
@@ -614,6 +701,231 @@ class BacktestService:
         if value is None:
             return default
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _auto_recovery_mode(cls) -> str:
+        """Resolve startup auto-recovery mode for orphaned persisted backtests."""
+        mode = os.getenv("BACKTEST_AUTO_RECOVERY_MODE", "").strip().lower()
+        if not mode and cls._coerce_bool(os.getenv("BACKTEST_AUTO_RECOVER"), default=False):
+            mode = "restart"
+        if not mode:
+            return "mark_failed"
+        aliases = {
+            "0": "off",
+            "false": "off",
+            "no": "off",
+            "disabled": "off",
+            "disable": "off",
+            "observe": "off",
+            "dry_run": "off",
+            "dry-run": "off",
+            "reconcile": "mark_failed",
+            "fail": "mark_failed",
+            "failed": "mark_failed",
+            "mark-failed": "mark_failed",
+            "mark_failed": "mark_failed",
+            "1": "restart",
+            "true": "restart",
+            "yes": "restart",
+            "on": "restart",
+            "rerun": "restart",
+            "restart": "restart",
+            "resume": "restart",
+        }
+        return aliases.get(mode, "mark_failed")
+
+    @classmethod
+    def _auto_recovery_min_age_seconds(cls) -> float:
+        raw = os.getenv("BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS")
+        if raw is None:
+            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+
+    @classmethod
+    def _is_auto_recovery_candidate(cls, run_data: Dict[str, Any]) -> bool:
+        minimum_age = cls._auto_recovery_min_age_seconds()
+        if minimum_age <= 0:
+            return True
+        age = cls._heartbeat_age_seconds(run_data)
+        return age is None or age >= minimum_age
+
+    def _prepare_existing_run_recovery(
+            self,
+            run_data: Dict[str, Any],
+            *,
+            worker_backend: str,
+            worker_task_id: str,
+    ) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc).isoformat()
+        recovered = dict(run_data)
+        recovered.update(
+            {
+                "status": "pending" if worker_backend == "celery" else "running",
+                "current_task": "auto recovery queued" if worker_backend == "celery" else "auto recovery running",
+                "error": None,
+                "error_message": None,
+                "cancel_requested": False,
+                "updated_at": now,
+                "worker_backend": worker_backend,
+                "worker_task_id": worker_task_id,
+            }
+        )
+        recovered = self._set_runtime_control(
+            recovered,
+            status="pending" if worker_backend == "celery" else "running",
+            action="auto_recover",
+            pause_requested=False,
+            resume_requested=False,
+            cancel_requested=False,
+            worker_backend=worker_backend,
+            worker_task_id=worker_task_id,
+            requested_at=now,
+        )
+        return self._persist_run_data(recovered)
+
+    async def _restart_interrupted_existing_run(
+            self,
+            run: Dict[str, Any],
+            progress_callback: Any = None,
+    ) -> Optional[Dict[str, Any]]:
+        run_id = str(run.get("run_id") or "").strip()
+        if not run_id:
+            return None
+
+        run_data = self._load_run_data(run_id)
+        if not run_data:
+            return None
+
+        request_payload = self._strip_runtime_control(run_data.get("request") or {})
+        if not request_payload:
+            return None
+
+        worker_backend = self._configured_worker_backend()
+        if worker_backend == "celery":
+            task_id = self._enqueue_celery_backtest(run_id)
+            return self._prepare_existing_run_recovery(
+                run_data,
+                worker_backend="celery",
+                worker_task_id=task_id,
+            )
+
+        task = async_job_manager.create_supervised_task(
+            self.execute_existing_backtest(run_id, progress_callback),
+            job_type="backtest",
+            job_id=run_id,
+            parameters=request_payload,
+            metadata={
+                "run_id": run_id,
+                "worker_backend": "asyncio",
+                "recovery": "startup_auto_recover",
+            },
+            auto_complete=False,
+        )
+        self._tasks[run_id] = task
+        task.add_done_callback(
+            lambda completed_task, completed_run_id=run_id: self._handle_task_done(
+                completed_run_id, completed_task
+            )
+        )
+        return self._prepare_existing_run_recovery(
+            run_data,
+            worker_backend="asyncio",
+            worker_task_id=run_id,
+        )
+
+    async def auto_recover_interrupted_runs(
+            self,
+            progress_callback: Any = None,
+            *,
+            mode: Optional[str] = None,
+            limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Reconcile orphaned backtests at API startup.
+
+        The default mode marks orphaned in-progress rows as failed so stale UI
+        state does not masquerade as active work. Automatic restart is opt-in
+        because it can consume exchange-history and CPU resources after a deploy.
+        """
+        resolved_mode = (mode or self._auto_recovery_mode()).strip().lower()
+        if resolved_mode not in {"off", "mark_failed", "restart"}:
+            resolved_mode = "mark_failed"
+
+        runs = self.repository.list_runs(limit=None, offset=0)
+        for run in runs:
+            run_id = str(run.get("run_id") or "").strip()
+            if run_id:
+                self._runs[run_id] = dict(run)
+
+        candidates = self._find_orphaned_in_progress_runs(runs)
+        eligible_candidates = [
+            run for run in candidates if self._is_auto_recovery_candidate(run)
+        ]
+        fresh_candidates = [
+            run for run in candidates if not self._is_auto_recovery_candidate(run)
+        ]
+        safe_limit = max(1, int(limit or 50))
+        marked_failed: List[Dict[str, Any]] = []
+        restarted: List[Dict[str, Any]] = []
+        skipped: List[Dict[str, Any]] = list(fresh_candidates)
+
+        if resolved_mode == "off":
+            return {
+                "mode": resolved_mode,
+                "interruption_error": self._INTERRUPTION_ERROR,
+                "candidate_count": len(candidates),
+                "eligible_count": len(eligible_candidates),
+                "marked_failed_count": 0,
+                "restarted_count": 0,
+                "skipped_count": len(candidates),
+                "candidates": [self._to_ops_row(run) for run in candidates[:safe_limit]],
+                "marked_failed": [],
+                "restarted": [],
+                "skipped": [self._to_ops_row(run) for run in candidates[:safe_limit]],
+            }
+
+        for run in eligible_candidates:
+            run_id = str(run.get("run_id") or "").strip()
+            if resolved_mode == "restart":
+                recovered = await self._restart_interrupted_existing_run(
+                    run,
+                    progress_callback=progress_callback,
+                )
+                if recovered is not None:
+                    restarted.append(recovered)
+                    continue
+
+            if not run_id:
+                skipped.append(run)
+                continue
+
+            persisted = self.repository.save_run(self._build_interrupted_run_payload(run))
+            self._runs[run_id] = dict(persisted)
+            if resolved_mode == "restart":
+                skipped.append(
+                    {
+                        **persisted,
+                        "error": persisted.get("error") or "Backtest run has no restartable request payload",
+                    }
+                )
+            else:
+                marked_failed.append(persisted)
+
+        return {
+            "mode": resolved_mode,
+            "interruption_error": self._INTERRUPTION_ERROR,
+            "candidate_count": len(candidates),
+            "eligible_count": len(eligible_candidates),
+            "marked_failed_count": len(marked_failed),
+            "restarted_count": len(restarted),
+            "skipped_count": len(skipped),
+            "candidates": [self._to_ops_row(run) for run in candidates[:safe_limit]],
+            "marked_failed": [self._to_ops_row(run) for run in marked_failed[:safe_limit]],
+            "restarted": [self._to_ops_row(run) for run in restarted[:safe_limit]],
+            "skipped": [self._to_ops_row(run) for run in skipped[:safe_limit]],
+        }
 
     @classmethod
     def _build_metrics(cls, request: Any) -> Dict[str, Any]:
@@ -1559,6 +1871,7 @@ class BacktestService:
                 ordered_daily, initial_balance
             )
 
+            finished_at = datetime.now(timezone.utc).isoformat()
             run_data.update(
                 {
                     "status": "completed",
@@ -1580,8 +1893,9 @@ class BacktestService:
                     ),
                     "error": None,
                     "error_message": None,
-                    "finished_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "finished_at": finished_at,
+                    "completed_at": finished_at,
+                    "updated_at": finished_at,
                 }
             )
             run_data = self._set_runtime_control(
@@ -1632,6 +1946,7 @@ class BacktestService:
                 worker_backend=run_data.get("worker_backend") or "asyncio",
                 worker_task_id=run_data.get("worker_task_id") or run_id,
             )
+            finished_at = datetime.now(timezone.utc).isoformat()
             run_data.update(
                 {
                     "status": "cancelled",
@@ -1640,8 +1955,9 @@ class BacktestService:
                     "current_task": "cancelled",
                     "error": "Backtest cancelled",
                     "error_message": "Backtest cancelled",
-                    "finished_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "finished_at": finished_at,
+                    "completed_at": finished_at,
+                    "updated_at": finished_at,
                 }
             )
             run_data = self._persist_run_data(run_data)
@@ -1650,7 +1966,7 @@ class BacktestService:
             error_message = str(exc) or "Backtest timed out"
             run_data = self._set_runtime_control(
                 run_data,
-                status="timed_out",
+                status="timeout",
                 action="timeout",
                 pause_requested=False,
                 resume_requested=False,
@@ -1658,14 +1974,16 @@ class BacktestService:
                 worker_backend=run_data.get("worker_backend") or "asyncio",
                 worker_task_id=run_data.get("worker_task_id") or run_id,
             )
+            finished_at = datetime.now(timezone.utc).isoformat()
             run_data.update(
                 {
-                    "status": "timed_out",
-                    "current_task": "timed_out",
+                    "status": "timeout",
+                    "current_task": "timeout",
                     "error": error_message,
                     "error_message": error_message,
-                    "finished_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "finished_at": finished_at,
+                    "completed_at": finished_at,
+                    "updated_at": finished_at,
                 }
             )
             run_data = self._persist_run_data(run_data)
@@ -1682,14 +2000,16 @@ class BacktestService:
                 worker_backend=run_data.get("worker_backend") or "asyncio",
                 worker_task_id=run_data.get("worker_task_id") or run_id,
             )
+            finished_at = datetime.now(timezone.utc).isoformat()
             run_data.update(
                 {
                     "status": "failed",
                     "current_task": "failed",
                     "error": error_message,
                     "error_message": error_message,
-                    "finished_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "finished_at": finished_at,
+                    "completed_at": finished_at,
+                    "updated_at": finished_at,
                 }
             )
             run_data = self._persist_run_data(run_data)
@@ -1727,7 +2047,7 @@ class BacktestService:
         run_data: Dict[str, Any] = {
             "run_id": run_id,
             "name": name,
-            "status": "created",
+            "status": "pending",
             "progress_pct": 0.0,
             "current_pair": "pending",
             "current_task": "pending",
@@ -1755,7 +2075,7 @@ class BacktestService:
             "position_snapshots": [],
             "daily_pnl": [],
             "cancel_requested": False,
-            "control_status": "created",
+            "control_status": "pending",
             "control_action": "create",
             "worker_backend": self._configured_worker_backend(),
             "worker_task_id": run_id,
@@ -1763,7 +2083,7 @@ class BacktestService:
         worker_backend = self._configured_worker_backend()
         run_data = self._set_runtime_control(
             run_data,
-            status="created",
+            status="pending",
             action="create",
             pause_requested=False,
             resume_requested=False,
@@ -1778,7 +2098,7 @@ class BacktestService:
             task_id = self._enqueue_celery_backtest(run_id)
             run_data = self._set_runtime_control(
                 run_data,
-                status="queued",
+                status="pending",
                 action="enqueue",
                 pause_requested=False,
                 resume_requested=False,
@@ -1786,7 +2106,7 @@ class BacktestService:
                 worker_backend="celery",
                 worker_task_id=task_id,
             )
-            run_data["status"] = "queued"
+            run_data["status"] = "pending"
             run_data["current_task"] = "queued"
             run_data["worker_backend"] = "celery"
             run_data["worker_task_id"] = task_id
@@ -1882,6 +2202,11 @@ class BacktestService:
             started_at=(
                 str(data.get("started_at"))
                 if data.get("started_at") is not None
+                else None
+            ),
+            completed_at=(
+                str(data.get("completed_at") or data.get("finished_at"))
+                if (data.get("completed_at") or data.get("finished_at")) is not None
                 else None
             ),
             finished_at=(
@@ -2149,6 +2474,7 @@ class BacktestService:
         data["error"] = data.get("error") or "Backtest cancelled"
         data["error_message"] = data.get("error_message") or "Backtest cancelled"
         data["finished_at"] = data.get("finished_at") or now
+        data["completed_at"] = data.get("completed_at") or data["finished_at"]
         data["updated_at"] = now
         self._persist_run_data(data)
         async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
@@ -2179,8 +2505,10 @@ class BacktestService:
             self._resolve_stale_run_data(run)
             for run in self.repository.list_runs(limit=None, offset=0)
         ]
-        active_statuses = {"created", "queued", "running", "paused"}
-        queued_or_running = [r for r in runs if str(r.get("status")) in active_statuses]
+        active_statuses = {"pending", "running", "paused"}
+        queued_or_running = [
+            r for r in runs if self._canonical_status(r.get("status")) in active_statuses
+        ]
         return {
             "queue_depth": len(queued_or_running),
             "active_jobs": len(self._tasks),
@@ -2230,6 +2558,7 @@ class BacktestService:
             "progress_pct": progress,
             "created_at": data.get("created_at"),
             "started_at": data.get("started_at"),
+            "completed_at": data.get("completed_at") or data.get("finished_at"),
             "finished_at": data.get("finished_at"),
             "deadline_at": data.get("deadline_at"),
             "timeout_seconds": data.get("timeout_seconds"),

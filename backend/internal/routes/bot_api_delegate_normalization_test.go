@@ -99,3 +99,46 @@ func TestNormalizeBacktestStatusPayload_HTTPStatusRemainsAuthoritativeWithoutWeb
 		t.Fatalf("expected current_pair key to be present when websocket event is absent")
 	}
 }
+
+func TestNormalizeBacktestStatusPayload_LegacyPendingWithProgressBecomesRunning(t *testing.T) {
+	payload := map[string]interface{}{
+		"data": map[string]interface{}{
+			"run_id":       "legacy-run",
+			"status":       "pending",
+			"progress_pct": float64(12.3),
+			"current_pair": "BTC-USD/ETH-USD",
+		},
+	}
+
+	normalized := normalizeBacktestStatusPayload(payload)
+	data := normalized["data"].(map[string]interface{})
+	if data["status"] != "running" {
+		t.Fatalf("expected progress-bearing pending run to normalize to running, got %v", data["status"])
+	}
+	if data["progress_pct"] != float64(12.3) {
+		t.Fatalf("expected progress to be preserved, got %+v", data)
+	}
+}
+
+func TestNormalizeBacktestListPayload_CanonicalizesLegacyStatuses(t *testing.T) {
+	payload := map[string]interface{}{
+		"data": map[string]interface{}{
+			"backtests": []interface{}{
+				map[string]interface{}{"run_id": "queued", "status": "queued"},
+				map[string]interface{}{"run_id": "busy", "status": "created", "total_trades": float64(3)},
+				map[string]interface{}{"run_id": "old-stalled", "status": "stalled"},
+				map[string]interface{}{"run_id": "old-timeout", "status": "timed_out"},
+			},
+		},
+	}
+
+	normalized := normalizeBacktestListPayload(payload)
+	items := normalized["data"].(map[string]interface{})["backtests"].([]interface{})
+	want := []string{"pending", "running", "stale", "timeout"}
+	for i, expected := range want {
+		run := items[i].(map[string]interface{})
+		if run["status"] != expected {
+			t.Fatalf("run %d expected %q, got %v", i, expected, run["status"])
+		}
+	}
+}

@@ -3,7 +3,7 @@
  * Enhanced with React Query, Error Boundaries, and Toast Notifications
  */
 
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useRef } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
 import { getUserWorkspaceRole, roleMatches, type WorkspaceRole } from './auth/roles';
@@ -56,7 +56,9 @@ const AuthSkeleton: React.FC = () => (
 );
 
 const BacktestComparator = lazy(() =>
-  import('./components/BacktestComparator').then((module) => ({ default: module.BacktestComparator }))
+  import('./components/BacktestComparator').then((module) => ({
+    default: module.BacktestComparator,
+  }))
 );
 const BotManager = lazy(() => import('./components/BotManager'));
 const StrategyBuilder = lazy(() => import('./components/StrategyBuilder'));
@@ -75,7 +77,9 @@ const ClientAreaPage = lazy(() =>
 const CodexPage = lazy(() =>
   import('./pages/Codex').then((module) => ({ default: module.CodexPage }))
 );
-const CRMRouter = lazy(() => import('./pages/crm').then((module) => ({ default: module.CRMRouter })));
+const CRMRouter = lazy(() =>
+  import('./pages/crm').then((module) => ({ default: module.CRMRouter }))
+);
 const CRMClientDetail = lazy(() =>
   import('./pages/crm/CRMClientDetail').then((module) => ({ default: module.CRMClientDetail }))
 );
@@ -104,7 +108,9 @@ const DashboardPage = lazy(() =>
   import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage }))
 );
 const ForcePasswordChangePage = lazy(() =>
-  import('./pages/ForcePasswordChange').then((module) => ({ default: module.ForcePasswordChangePage }))
+  import('./pages/ForcePasswordChange').then((module) => ({
+    default: module.ForcePasswordChangePage,
+  }))
 );
 const IBRouter = lazy(() => import('./pages/ib').then((module) => ({ default: module.IBRouter })));
 const NewsPage = lazy(() =>
@@ -180,6 +186,7 @@ export const App: React.FC = () => {
   const initializeSession = useAuthStore((state) => state.initializeSession);
   const toastWarning = useToastStore((state) => state.warning);
   const language = useUIPreferencesStore((state) => state.language);
+  const refreshWarningLastShownRef = useRef(0);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'dark');
@@ -213,11 +220,34 @@ export const App: React.FC = () => {
       logout();
     };
 
+    const handleRefreshWarning = (event: Event) => {
+      const now = Date.now();
+      if (now - refreshWarningLastShownRef.current < 8000) {
+        return;
+      }
+      refreshWarningLastShownRef.current = now;
+
+      const detail =
+        event instanceof CustomEvent
+          ? (event.detail as { reason?: string; status?: number | null } | undefined)
+          : undefined;
+
+      toastWarning(
+        'Session refresh unavailable',
+        detail?.status
+          ? `Could not refresh session (status ${detail.status}). Retry in a moment.`
+          : 'Could not refresh session right now. Please retry shortly.',
+        { duration: 5000 }
+      );
+    };
+
     window.addEventListener('auth:session-expired', handleSessionExpired);
+    window.addEventListener('auth:refresh-warning', handleRefreshWarning);
     return () => {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
+      window.removeEventListener('auth:refresh-warning', handleRefreshWarning);
     };
-  }, [logout]);
+  }, [logout, toastWarning]);
 
   return (
     <QueryProvider>

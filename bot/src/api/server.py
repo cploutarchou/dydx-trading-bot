@@ -444,7 +444,6 @@ async def _resolve_backtest_markets(
 
     return markets
 
-
 def _strategy_to_backtest_request(
         strategy: Dict[str, Any],
         request: BacktestRunRequestCompat,
@@ -664,9 +663,31 @@ async def lifespan(_: FastAPI):
     db.ensure_schema_compatibility()
     db.run_pending_migrations()
     db.verify_required_tables()
+    try:
+        with backtest_service_scope() as service:
+            backtest_recovery = await service.auto_recover_interrupted_runs(
+                _broadcast_backtest_progress
+            )
+        logger.info(
+            "Backtest auto-recovery completed: mode={} candidates={} restarted={} marked_failed={}",
+            backtest_recovery.get("mode"),
+            backtest_recovery.get("candidate_count"),
+            backtest_recovery.get("restarted_count"),
+            backtest_recovery.get("marked_failed_count"),
+        )
+    except Exception as exc:
+        logger.warning("Backtest auto-recovery failed during API startup: {}", exc)
     if bot_manager is not None:
         bot_manager.set_status_event_publisher(broadcast_strategy_status)
         await bot_manager.cleanup_dead_processes()
+        live_recovery = await bot_manager.auto_recover_live_runtimes()
+        logger.info(
+            "Live runtime auto-recovery completed: checked={} verified={} restarted={} marked_error={}",
+            live_recovery.get("checked"),
+            len(live_recovery.get("verified_running", [])),
+            len(live_recovery.get("restarted", [])),
+            len(live_recovery.get("marked_error", [])),
+        )
         if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
             bot_manager_monitor_task = async_job_manager.create_supervised_task(
                 _bot_manager_monitor_loop(),
@@ -757,6 +778,51 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
         status_code=status_code,
     )
     return response
+
+
+@app.get("/api/v1/markets/perpetuals")
+async def list_perpetual_markets(limit: int = 0):
+    """Return available dYdX perpetual markets for run configuration."""
+    cap = _normalize_requested_pair_cap(limit)
+    markets: List[str] = []
+    source = "dydx"
+    client = None
+
+    try:
+        client = await asyncio.wait_for(
+            connect_dydx(),
+            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+        )
+        payload = await asyncio.wait_for(
+            client.indexer.markets.get_perpetual_markets(),
+            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+        )
+        raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
+        if isinstance(raw_map, dict):
+            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
+    except Exception as err:
+        source = "fallback"
+        markets = DEFAULT_PAIRS[:]
+        logger.warning("Falling back to default market list for API response: {}", err)
+    finally:
+        if client is not None:
+            try:
+                await client.node.close()
+            except Exception:
+                pass
+
+    if cap is not None:
+        markets = markets[:cap]
+
+    return api_response(
+        success=True,
+        data={
+            "markets": markets,
+            "count": len(markets),
+            "source": source,
+        },
+        message=f"Retrieved {len(markets)} perpetual markets",
+    )
 
 
 @app.post("/api/v1/runtime/preflight")
@@ -2735,10 +2801,16 @@ async def create_backtest(
                         resolved_pairs,
                     )
                 else:
-                    logger.warning(
-                        "Strategy '{}' not found; falling back to manual backtest payload",
-                        request.strategy_id,
-                    )
+                    if request.trading_parameters:
+                        logger.info(
+                            "Strategy '{}' not found in bot store; using provided backtest trading_parameters",
+                            request.strategy_id,
+                        )
+                    else:
+                        logger.warning(
+                            "Strategy '{}' not found; falling back to manual backtest payload",
+                            request.strategy_id,
+                        )
                     normalized_request = BacktestConfigRequest(
                         name=request.name or "manual-backtest",
                         description=request.description or "Manual backtest run",
@@ -2838,10 +2910,16 @@ async def run_backtest_compat(
                     resolved_pairs,
                 )
             else:
-                logger.warning(
-                    "Strategy '{}' not found in /backtests/run; falling back to manual payload",
-                    request.strategy_id,
-                )
+                if request.trading_parameters:
+                    logger.info(
+                        "Strategy '{}' not found in bot store for /backtests/run; using provided backtest trading_parameters",
+                        request.strategy_id,
+                    )
+                else:
+                    logger.warning(
+                        "Strategy '{}' not found in /backtests/run; falling back to manual payload",
+                        request.strategy_id,
+                    )
                 backtest_request = BacktestConfigRequest(
                     name=request.name or "manual-backtest",
                     description=request.description or "Manual backtest run",
@@ -3478,7 +3556,7 @@ async def get_advanced_performance_metrics(
     """Get advanced performance metrics with market benchmarking"""
     try:
         with backtest_service_scope() as service:
-            metrics = await service.get_advanced_performance_metrics(run_id, benchmark)
+            metrics = service.get_advanced_performance_metrics(run_id, benchmark)
         if not metrics:
             return api_response(
                 success=False,

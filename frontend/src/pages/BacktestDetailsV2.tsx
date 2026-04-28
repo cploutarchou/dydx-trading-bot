@@ -764,7 +764,9 @@ export const BacktestDetailsV2: React.FC = () => {
     if (
       liveStatus !== 'completed' &&
       liveStatus !== 'failed' &&
+      liveStatus !== 'timeout' &&
       liveStatus !== 'timed_out' &&
+      liveStatus !== 'stale' &&
       liveStatus !== 'stalled' &&
       liveStatus !== 'cancelled'
     ) {
@@ -999,7 +1001,9 @@ export const BacktestDetailsV2: React.FC = () => {
   const isCompleted = statusNorm === 'completed';
   const isFailed =
     statusNorm === 'failed' ||
+    statusNorm === 'timeout' ||
     statusNorm === 'timed_out' ||
+    statusNorm === 'stale' ||
     statusNorm === 'stalled' ||
     statusNorm === 'cancelled';
   const metadataProgress = firstFiniteNumber(
@@ -1305,7 +1309,9 @@ export const BacktestDetailsV2: React.FC = () => {
                       : statusNorm === 'running'
                         ? 'bg-blue-500/15 text-blue-200'
                         : statusNorm === 'failed' ||
+                            statusNorm === 'timeout' ||
                             statusNorm === 'timed_out' ||
+                            statusNorm === 'stale' ||
                             statusNorm === 'stalled' ||
                             statusNorm === 'cancelled'
                           ? 'bg-rose-500/15 text-rose-200'

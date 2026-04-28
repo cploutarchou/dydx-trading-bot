@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from src.shared.env_loader import load_repo_env
 
@@ -62,6 +62,7 @@ class BotSettings:
     trailingStopPct: float = 1.0
     rebalanceIntervalHours: int = 24
     positionTimeoutHours: int = 72
+    selectedMarkets: List[str] = field(default_factory=list)
 
     @classmethod
     def from_env(cls) -> "BotSettings":
@@ -106,6 +107,11 @@ class BotSettings:
             positionTimeoutHours=int(
                 os.getenv("BOT_POSITION_TIMEOUT_HOURS", "72")
             ),
+            selectedMarkets=[
+                market.strip()
+                for market in os.getenv("BOT_SELECTED_MARKETS", "").split(",")
+                if market.strip()
+            ],
         )
 
 

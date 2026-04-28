@@ -40,6 +40,8 @@ interface Strategy {
   name: string;
   category: string;
   description: string;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
+  selected_markets?: string[];
   zscore_threshold: number;
   stats_window: number;
   max_half_life: number;
@@ -57,6 +59,15 @@ interface Strategy {
   trailing_stop_pct: number;
   rebalance_interval_hours: number;
   position_timeout_hours: number;
+  transaction_fee?: number;
+  slippage?: number;
+  starting_balance?: number;
+  resolution?: string;
+  candle_resolution?: string;
+  max_history_days?: number;
+  benchmark_symbol?: string;
+  risk_free_rate?: number;
+  initial_amount?: number;
   is_public: boolean;
   created_at: string;
   updated_at: string;
@@ -65,6 +76,18 @@ interface Strategy {
 interface StrategyListResult {
   strategies: Strategy[];
   total: number;
+}
+
+interface StrategyBacktestRunPayload extends Record<string, unknown> {
+  start_date: string;
+  end_date: string;
+  name: string;
+  description: string;
+  strategy_id: number;
+  initial_balance?: number;
+  pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
+  pairs?: string[];
+  trading_parameters: Record<string, unknown>;
 }
 
 const ITEMS_PER_PAGE = 10;
@@ -127,8 +150,7 @@ export default function StrategyLibrary() {
   });
 
   const runBacktestMutation = useMutation({
-    mutationFn: (payload: { start_date: string; end_date: string; strategy_id: number }) =>
-      api.runBacktest(payload),
+    mutationFn: (payload: StrategyBacktestRunPayload) => api.runBacktest(payload),
   });
 
   const strategies = strategiesQuery.data?.strategies ?? [];
@@ -178,18 +200,72 @@ export default function StrategyLibrary() {
     setBacktestEndDate(endDate.toISOString().split('T')[0]);
   };
 
-  const buildRunPayload = () => {
+  const buildRunPayload = (): StrategyBacktestRunPayload | null => {
     if (!selectedStrategy || !backtestStartDate || !backtestEndDate) return null;
+    const pairSelectionMode = selectedStrategy.pair_selection_mode || 'liquidity';
+    const resolution = selectedStrategy.resolution || selectedStrategy.candle_resolution || '1HOUR';
+    const strategyBenchmark = selectedStrategy.benchmark_symbol?.trim();
+    // benchmark_symbol is a performance-comparison reference, not a trading market.
+    // Never derive it from selected_markets — only use strategy config or default to BTC-USD.
+    const benchmarkSymbol =
+      strategyBenchmark && strategyBenchmark.length > 0 ? strategyBenchmark : 'BTC-USD';
+    const tradingParameters: Record<string, unknown> = {
+      zscore_threshold: selectedStrategy.zscore_threshold,
+      stats_window: selectedStrategy.stats_window,
+      max_half_life: selectedStrategy.max_half_life,
+      usd_per_trade: selectedStrategy.usd_per_trade,
+      usd_min_collateral: selectedStrategy.usd_min_collateral,
+      close_at_zscore_cross: selectedStrategy.close_at_zscore_cross,
+      find_cointegrated_pairs: selectedStrategy.find_cointegrated_pairs,
+      manage_exits: selectedStrategy.manage_exits,
+      place_trades: selectedStrategy.place_trades,
+      abort_all_positions: selectedStrategy.abort_all_positions,
+      max_positions: selectedStrategy.max_positions,
+      max_drawdown_pct: selectedStrategy.max_drawdown_pct,
+      stop_loss_pct: selectedStrategy.stop_loss_pct,
+      take_profit_pct: selectedStrategy.take_profit_pct,
+      trailing_stop_pct: selectedStrategy.trailing_stop_pct,
+      rebalance_interval_hours: selectedStrategy.rebalance_interval_hours,
+      position_timeout_hours: selectedStrategy.position_timeout_hours,
+      transaction_fee: selectedStrategy.transaction_fee ?? 0.0005,
+      slippage: selectedStrategy.slippage ?? 0.001,
+      risk_free_rate: selectedStrategy.risk_free_rate ?? 0.02,
+      benchmark_symbol: benchmarkSymbol,
+      max_history_days: selectedStrategy.max_history_days ?? 90,
+      resolution,
+      candle_resolution: resolution,
+      pair_selection_mode: pairSelectionMode,
+    };
+
     return {
       start_date: backtestStartDate,
       end_date: backtestEndDate,
+      name: `${selectedStrategy.name} Backtest`,
+      description: selectedStrategy.description || `Backtest for strategy ${selectedStrategy.name}`,
       strategy_id: selectedStrategy.id,
+      initial_balance: selectedStrategy.starting_balance ?? selectedStrategy.initial_amount ?? 1000,
+      pair_selection_mode: pairSelectionMode,
+      ...(selectedStrategy.selected_markets?.length
+        ? { pairs: selectedStrategy.selected_markets }
+        : {}),
+      trading_parameters: tradingParameters,
     };
   };
 
   const handleExecuteBacktest = async () => {
     if (!selectedStrategy || !backtestStartDate || !backtestEndDate) {
       setRunError('Please enter valid start and end dates');
+      return;
+    }
+
+    const strategyMode = selectedStrategy.pair_selection_mode || 'liquidity';
+    const hasMarkets =
+      Array.isArray(selectedStrategy.selected_markets) &&
+      selectedStrategy.selected_markets.length >= 2;
+    if (strategyMode === 'input' && !hasMarkets) {
+      setRunError(
+        'This strategy uses manual pair selection ("input" mode) but has no markets configured. Edit the strategy to add at least two markets before running a backtest.'
+      );
       return;
     }
 
@@ -495,8 +571,8 @@ export default function StrategyLibrary() {
         selectedStrategy &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-            <div className="premium-panel w-full max-w-md">
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm">
+            <div className="premium-panel my-6 w-full max-w-md max-h-[calc(100vh-3rem)] overflow-y-auto">
               <h2 className="text-xl font-bold text-white mb-4">
                 Run Backtest: {selectedStrategy.name}
               </h2>

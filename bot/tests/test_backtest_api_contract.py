@@ -44,6 +44,14 @@ class _StubService:
     def get_position_snapshots(self, **_kwargs):
         return [{"timestamp": "2026-01-01T00:00:00Z", "positions": []}]
 
+    def get_advanced_performance_metrics(self, run_id, benchmark="BTC-USD"):
+        return {
+            "run_id": run_id,
+            "benchmark": benchmark,
+            "sharpe_ratio": 1.25,
+            "max_drawdown_pct": 3.5,
+        }
+
     def get_runtime_health(self):
         return {"queue_depth": 2, "active_jobs": 1, "total_runs": 5}
 
@@ -98,11 +106,35 @@ class _RunStubService:
             {
                 "run_id": "fallback-run",
                 "name": request.name,
-                "status": "queued",
+                "status": "pending",
                 "progress_pct": 0.0,
                 "timeout_seconds": getattr(request, "timeout_seconds", None),
             }
         )
+
+
+class _MarketStubClient:
+    class _Node:
+        async def close(self):
+            return None
+
+    class _Markets:
+        async def get_perpetual_markets(self):
+            return {
+                "markets": {
+                    "ETH-USD": {"status": "ACTIVE"},
+                    "BTC-USD": {"status": "ACTIVE"},
+                    "SOL-USD": {"status": "ACTIVE"},
+                }
+            }
+
+    class _Indexer:
+        def __init__(self):
+            self.markets = _MarketStubClient._Markets()
+
+    def __init__(self):
+        self.node = self._Node()
+        self.indexer = self._Indexer()
 
 
 async def _call(awaitable):
@@ -152,6 +184,34 @@ def test_run_scoped_trade_and_snapshot_routes_include_run_id(monkeypatch):
     assert "position_snapshots" in snapshots_payload["data"]
     assert "snapshots" in snapshots_payload["data"]
     assert snapshots_payload["data"]["count"] == 1
+
+
+def test_performance_metrics_endpoint_accepts_sync_service(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(_call(server.get_advanced_performance_metrics("run-xyz")))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["run_id"] == "run-xyz"
+    assert payload["data"]["benchmark"] == "BTC-USD"
+
+
+def test_perpetual_markets_endpoint_returns_sorted_chain_markets(monkeypatch):
+    server = _load_server_module()
+
+    async def connect_stub():
+        return _MarketStubClient()
+
+    monkeypatch.setattr(server, "connect_dydx", connect_stub)
+
+    response = asyncio.run(_call(server.list_perpetual_markets(limit=2)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["markets"] == ["BTC-USD", "ETH-USD"]
+    assert payload["data"]["source"] == "dydx"
 
 
 def test_sync_health_endpoint_returns_runtime_counters(monkeypatch):
@@ -289,6 +349,47 @@ def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
     assert payload["data"]["progress"] == 0.0
     assert payload["data"]["timeout_seconds"] == 120
     assert stub_service.progress_callback == server._broadcast_backtest_progress
+
+
+def test_strategy_to_backtest_request_preserves_request_trading_parameters():
+    server = _load_server_module()
+
+    strategy = {
+        "id": 4,
+        "name": "Aggressive Strategy",
+        "description": "Aggressive strategy with lower thresholds for frequent trading",
+        "starting_balance": 1000,
+        "pair_selection_mode": "liquidity",
+        "benchmark_symbol": "BTC-USD",
+    }
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-29",
+        end_date="2026-04-28",
+        strategy_id=4,
+        max_pairs=6,
+        pair_selection_mode="liquidity",
+        trading_parameters={
+            "zscore_threshold": 1.0,
+            "stats_window": 14,
+            "benchmark_symbol": "ETH-USD",
+            "resolution": "4HOUR",
+            "max_history_days": 120,
+        },
+    )
+
+    result = server._strategy_to_backtest_request(
+        strategy,
+        request,
+        ["ETH-USD", "SOL-USD", "ADA-USD"],
+    )
+
+    assert result.trading_parameters["benchmark_symbol"] == "ETH-USD"
+    assert result.trading_parameters["resolution"] == "4HOUR"
+    assert result.trading_parameters["max_history_days"] == 120
+    assert result.trading_parameters["pair_selection_mode"] == "liquidity"
+    assert result.trading_parameters["max_pairs"] == 6
+    assert result.pairs == ["ETH-USD", "SOL-USD", "ADA-USD"]
 
 
 def test_api_response_sanitizes_internal_error_details():

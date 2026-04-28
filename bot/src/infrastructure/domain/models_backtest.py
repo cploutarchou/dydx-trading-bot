@@ -11,15 +11,14 @@ from pydantic import BaseModel, Field
 
 class BacktestStatus(str, Enum):
     """Backtest status enumeration"""
-    CREATED = "created"
-    QUEUED = "queued"
+    PENDING = "pending"
     RUNNING = "running"
     PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
-    TIMED_OUT = "timed_out"
+    TIMEOUT = "timeout"
     CANCELLED = "cancelled"
-    STALLED = "stalled"
+    STALE = "stale"
 
 
 class BacktestConfigRequest(BaseModel):

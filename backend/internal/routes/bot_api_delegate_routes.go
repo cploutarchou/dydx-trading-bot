@@ -110,6 +110,8 @@ func normalizeBacktestRunPayload(config map[string]interface{}) map[string]inter
 		"transaction_fee",
 		"slippage",
 		"risk_free_rate",
+		"benchmark_symbol",
+		"max_history_days",
 		"resolution",
 		"candle_resolution",
 	}
@@ -230,9 +232,6 @@ func normalizeBacktestDetailsFields(payload map[string]interface{}) map[string]i
 	if payload == nil {
 		payload = map[string]interface{}{}
 	}
-	if _, ok := payload["status"]; !ok {
-		payload["status"] = "unknown"
-	}
 	if _, ok := payload["error_message"]; !ok {
 		if errorMessage := getStringField(payload, "error"); errorMessage != "" {
 			payload["error_message"] = errorMessage
@@ -270,6 +269,7 @@ func normalizeBacktestDetailsFields(payload map[string]interface{}) map[string]i
 			payload["max_drawdown"] = drawdown
 		}
 	}
+	payload["status"] = normalizeBacktestRunStatus(payload, progress)
 
 	return payload
 }
@@ -289,7 +289,6 @@ func normalizeBacktestStatusFields(payload map[string]interface{}) map[string]in
 	if payload == nil {
 		payload = map[string]interface{}{}
 	}
-	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", payload["status"])))
 	if _, ok := payload["error_message"]; !ok {
 		if errorMessage := getStringField(payload, "error"); errorMessage != "" {
 			payload["error_message"] = errorMessage
@@ -304,10 +303,7 @@ func normalizeBacktestStatusFields(payload map[string]interface{}) map[string]in
 	if value, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
 		progress = value
 	}
-	if status == "pending" || status == "queued" {
-		progress = 0.0
-		payload["current_task"] = nil
-	}
+	payload["status"] = normalizeBacktestRunStatus(payload, progress)
 	payload["progress_percent"] = progress
 	payload["progress_pct"] = progress
 	payload["progress"] = progress
@@ -316,6 +312,91 @@ func normalizeBacktestStatusFields(payload map[string]interface{}) map[string]in
 	}
 	if _, ok := payload["current_pair"]; !ok {
 		payload["current_pair"] = nil
+	}
+	return payload
+}
+
+func normalizeBacktestRunStatus(payload map[string]interface{}, progress float64) string {
+	status := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", payload["status"])))
+	switch status {
+	case "", "<nil>":
+		status = "pending"
+	case "created", "queued", "scheduled", "retry":
+		status = "pending"
+	case "in_progress", "processing", "active", "retrying":
+		status = "running"
+	case "succeeded", "success", "done":
+		status = "completed"
+	case "error":
+		status = "failed"
+	case "timed_out":
+		status = "timeout"
+	case "stalled":
+		status = "stale"
+	case "canceled":
+		status = "cancelled"
+	}
+
+	errorMessage := strings.TrimSpace(getStringField(payload, "error_message", "error"))
+	currentTask := strings.ToLower(strings.TrimSpace(getStringField(payload, "current_task")))
+	currentPair := strings.ToLower(strings.TrimSpace(getStringField(payload, "current_pair")))
+	hasMetrics := false
+	for _, key := range []string{"total_pnl", "win_rate", "sharpe_ratio", "profit_factor", "total_trades"} {
+		if value, ok := getNumberField(payload, key); ok && value != 0 {
+			hasMetrics = true
+			break
+		}
+	}
+
+	if status == "pending" {
+		switch {
+		case strings.Contains(currentTask, "cancel") || strings.TrimSpace(fmt.Sprintf("%v", payload["cancel_requested"])) == "true":
+			status = "cancelled"
+		case errorMessage != "":
+			status = "failed"
+		case progress >= 100 || currentTask == "complete" || currentPair == "complete":
+			status = "completed"
+		case progress > 0 || hasMetrics || (currentTask != "" && currentTask != "pending" && currentTask != "queued") || (currentPair != "" && currentPair != "pending" && currentPair != "queued"):
+			status = "running"
+		}
+	}
+	return status
+}
+
+func normalizeBacktestRunFields(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return map[string]interface{}{}
+	}
+	progress := 0.0
+	if value, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
+		progress = value
+	}
+	payload["status"] = normalizeBacktestRunStatus(payload, progress)
+	payload["progress_percent"] = progress
+	payload["progress_pct"] = progress
+	payload["progress"] = progress
+	return payload
+}
+
+func normalizeBacktestListPayload(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return map[string]interface{}{}
+	}
+	if data := asMap(payload["data"]); data != nil {
+		payload["data"] = normalizeBacktestListPayload(data)
+		return payload
+	}
+	for _, key := range []string{"backtests", "runs"} {
+		items := asSlice(payload[key])
+		if items == nil {
+			continue
+		}
+		for i, item := range items {
+			if run := asMap(item); run != nil {
+				items[i] = normalizeBacktestRunFields(run)
+			}
+		}
+		payload[key] = items
 	}
 	return payload
 }
@@ -986,6 +1067,19 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		})
 	})
 
+	router.GET("/api/v1/markets/perpetuals", middleware.RequireAuth(), withRequestScopedBotClient, func(c *gin.Context) {
+		requestClient := getRequestBotAPIClient(c, apiClient)
+		limit := 0
+		if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+			if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+				limit = parsed
+			}
+		}
+		delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+			return requestClient.GetPerpetualMarkets(limit)
+		})
+	})
+
 	// Backtest proxy endpoints
 	backtestGroup := router.Group("/api/v1/backtests")
 	backtestGroup.Use(middleware.RequireAuth())
@@ -1078,6 +1172,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				respondBotAPIError(c, err)
 				return
 			}
+			result = normalizeBacktestListPayload(result)
 			syncRunList(c, result)
 			respondBacktestEnvelope(c, http.StatusOK, "Backtests fetched successfully", result)
 		})

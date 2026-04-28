@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
@@ -11,6 +11,7 @@ interface StrategyFormData {
   is_public: boolean;
   runtime_network: 'testnet' | 'mainnet';
   runtime_subaccount: number;
+  selected_markets: string[];
   resolution: string; // 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
   zscore_threshold: number;
   stats_window: number;
@@ -56,6 +57,10 @@ const PRESETS = {
   },
 };
 
+const MAX_SELECTED_MARKETS = 20;
+const MAX_BACKTEST_RUNS_FOR_FILTERS = 120;
+const TRADE_FETCH_BATCH_SIZE = 6;
+
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error) return error.message;
   if (typeof error === 'object' && error !== null) {
@@ -79,6 +84,13 @@ export default function StrategyBuilder() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(isEditMode);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [availableMarkets, setAvailableMarkets] = useState<string[]>([]);
+  const [marketsLoading, setMarketsLoading] = useState(false);
+  const [marketsError, setMarketsError] = useState<string | null>(null);
+  const [marketFilterLoading, setMarketFilterLoading] = useState<
+    null | 'top20' | 'popular' | 'profitable'
+  >(null);
+  const [marketFilterError, setMarketFilterError] = useState<string | null>(null);
 
   // Get pre-loaded config from backtest or sessionStorage
   const getPreloadedConfig = () => {
@@ -114,6 +126,7 @@ export default function StrategyBuilder() {
       is_public: false,
       runtime_network: 'testnet',
       runtime_subaccount: 0,
+      selected_markets: [],
       resolution: '1HOUR',
       zscore_threshold: 1.5,
       stats_window: 21,
@@ -153,6 +166,35 @@ export default function StrategyBuilder() {
     }
   }, [isEditMode, strategyId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMarkets = async () => {
+      setMarketsLoading(true);
+      setMarketsError(null);
+      try {
+        const response = await api.getPerpetualMarkets(160);
+        const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
+        if (!cancelled) {
+          setAvailableMarkets(markets);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setMarketsError(getErrorMessage(err, 'Unable to load dYdX markets'));
+        }
+      } finally {
+        if (!cancelled) {
+          setMarketsLoading(false);
+        }
+      }
+    };
+
+    void loadMarkets();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Load preloaded config from backtest
   useEffect(() => {
     const preloadedConfig = getPreloadedConfig();
@@ -181,6 +223,9 @@ export default function StrategyBuilder() {
         reset({
           ...strategyData,
           resolution,
+          selected_markets: Array.isArray(response.data.selected_markets)
+            ? response.data.selected_markets
+            : [],
         });
       }
     } catch (err: unknown) {
@@ -214,10 +259,20 @@ export default function StrategyBuilder() {
 
       // Convert string values to numbers for all numeric fields
       const initialAmount = Number(data.initial_amount);
+      const selectedMarkets = Array.isArray(data.selected_markets) ? data.selected_markets : [];
+      if (selectedMarkets.length === 1) {
+        setError('Select at least two markets, or leave market selection empty.');
+        return;
+      }
+      if (selectedMarkets.length > MAX_SELECTED_MARKETS) {
+        setError(`Select no more than ${MAX_SELECTED_MARKETS} markets for this strategy.`);
+        return;
+      }
       const cleanedData = {
         ...data,
         runtime_network: data.runtime_network,
         runtime_subaccount: Number(data.runtime_subaccount),
+        selected_markets: selectedMarkets,
         zscore_threshold: Number(data.zscore_threshold),
         stats_window: Number(data.stats_window),
         max_half_life: Number(data.max_half_life),
@@ -265,6 +320,171 @@ export default function StrategyBuilder() {
       setError(getErrorMessage(err, 'An error occurred'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const selectedMarkets = Array.isArray(formValues.selected_markets)
+    ? formValues.selected_markets
+    : [];
+  const selectedPairPreview = useMemo(() => {
+    const pairs: string[] = [];
+    for (let i = 0; i < selectedMarkets.length - 1; i += 1) {
+      for (let j = i + 1; j < selectedMarkets.length; j += 1) {
+        pairs.push(`${selectedMarkets[i]}/${selectedMarkets[j]}`);
+      }
+    }
+    return pairs.slice(0, 5);
+  }, [selectedMarkets]);
+
+  const applyMarketPreset = async (
+    preset: 'top20' | 'popular' | 'profitable',
+    onChange: (_value: string[]) => void,
+    currentSelection: string[]
+  ) => {
+    const normalizedCurrentSelection = Array.isArray(currentSelection) ? currentSelection : [];
+    const toRecord = (value: unknown): Record<string, unknown> =>
+      typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+    const asString = (value: unknown): string | null => {
+      if (typeof value !== 'string') return null;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+
+    const asNumber = (value: unknown): number => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+
+    const normalizeTopMarkets = (markets: string[]): string[] => {
+      const unique = Array.from(
+        new Set(
+          markets
+            .map((market) => market.trim())
+            .filter((market) => market.length > 0)
+            .filter((market) => availableMarkets.includes(market))
+        )
+      );
+      return unique.slice(0, MAX_SELECTED_MARKETS);
+    };
+
+    setMarketFilterError(null);
+
+    if (preset === 'top20') {
+      onChange(normalizeTopMarkets(availableMarkets));
+      return;
+    }
+
+    try {
+      setMarketFilterLoading(preset);
+      const availableSet = new Set(availableMarkets);
+      const scoreMap = new Map<string, number>();
+
+      const runIds: string[] = [];
+      let skip = 0;
+      const pageLimit = 100;
+      let total = Number.POSITIVE_INFINITY;
+
+      while (skip < total && runIds.length < MAX_BACKTEST_RUNS_FOR_FILTERS) {
+        const response = await api.listBacktests(skip, pageLimit);
+        const root = toRecord(response);
+        const data = toRecord(root.data);
+        const rows = Array.isArray(data.backtests) ? data.backtests : [];
+
+        if (typeof data.total === 'number' && Number.isFinite(data.total)) {
+          total = data.total;
+        }
+
+        if (rows.length === 0) {
+          break;
+        }
+
+        rows.forEach((row) => {
+          const run = toRecord(row);
+          const runId = asString(run.run_id);
+          if (runId) {
+            runIds.push(runId);
+          }
+        });
+
+        skip += rows.length;
+        if (rows.length < pageLimit) {
+          break;
+        }
+      }
+
+      const dedupedRunIds = Array.from(new Set(runIds)).slice(0, MAX_BACKTEST_RUNS_FOR_FILTERS);
+
+      if (dedupedRunIds.length === 0) {
+        setMarketFilterError('No historical backtests found yet. Using current top markets.');
+        onChange(normalizeTopMarkets(availableMarkets));
+        return;
+      }
+
+      for (let index = 0; index < dedupedRunIds.length; index += TRADE_FETCH_BATCH_SIZE) {
+        const batch = dedupedRunIds.slice(index, index + TRADE_FETCH_BATCH_SIZE);
+        const responses = await Promise.all(
+          batch.map(async (runId) => {
+            try {
+              return await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 1000);
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        responses.forEach((response) => {
+          if (!response) return;
+          const root = toRecord(response);
+          const data = toRecord(root.data);
+          const trades = Array.isArray(data.trades) ? data.trades : [];
+
+          trades.forEach((trade) => {
+            const row = toRecord(trade);
+            const market1 = asString(row.market_1);
+            const market2 = asString(row.market_2);
+            const pnlRaw = asNumber(row.pnl_usd ?? row.pnl ?? row.total_pnl ?? 0);
+            const perMarketPnl = pnlRaw / 2;
+
+            if (market1 && availableSet.has(market1)) {
+              const current = scoreMap.get(market1) || 0;
+              scoreMap.set(market1, current + (preset === 'popular' ? 1 : perMarketPnl));
+            }
+            if (market2 && availableSet.has(market2)) {
+              const current = scoreMap.get(market2) || 0;
+              scoreMap.set(market2, current + (preset === 'popular' ? 1 : perMarketPnl));
+            }
+          });
+        });
+      }
+
+      const rankedMarkets = Array.from(scoreMap.entries())
+        .sort((a, b) => {
+          if (b[1] === a[1]) return a[0].localeCompare(b[0]);
+          return b[1] - a[1];
+        })
+        .map(([market]) => market);
+
+      const topRanked = normalizeTopMarkets(rankedMarkets);
+
+      if (topRanked.length < 2) {
+        setMarketFilterError('Not enough historical market data yet. Falling back to top markets.');
+        onChange(normalizeTopMarkets(availableMarkets));
+        return;
+      }
+
+      onChange(topRanked);
+      console.log('📊 StrategyBuilder: Applied market preset', {
+        preset,
+        selectedCount: topRanked.length,
+        previousCount: normalizedCurrentSelection.length,
+        runsAnalyzed: dedupedRunIds.length,
+      });
+    } catch (err: unknown) {
+      console.error('❌ StrategyBuilder: Failed to apply market preset', { preset, err });
+      setMarketFilterError(getErrorMessage(err, 'Failed to apply market filter preset'));
+    } finally {
+      setMarketFilterLoading(null);
     }
   };
 
@@ -480,6 +700,133 @@ export default function StrategyBuilder() {
               <p className="mt-1 text-red-400 text-sm">{errors.runtime_subaccount.message}</p>
             )}
           </div>
+        </div>
+
+        <div>
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <label className={fieldLabelClass}>dYdX Market Universe</label>
+              <p className={helperTextClass}>
+                Choose 2-20 markets to constrain live pair discovery and strategy backtests.
+              </p>
+            </div>
+            <Controller
+              name="selected_markets"
+              control={control}
+              render={({ field }) => {
+                const value = Array.isArray(field.value) ? field.value : [];
+                return (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void applyMarketPreset('top20', field.onChange, value)}
+                      disabled={availableMarkets.length === 0}
+                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                    >
+                      Top 20
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void applyMarketPreset('popular', field.onChange, value)}
+                      disabled={availableMarkets.length === 0 || marketFilterLoading !== null}
+                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                    >
+                      {marketFilterLoading === 'popular' ? 'Loading…' : 'Most Popular'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void applyMarketPreset('profitable', field.onChange, value)}
+                      disabled={availableMarkets.length === 0 || marketFilterLoading !== null}
+                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                    >
+                      {marketFilterLoading === 'profitable' ? 'Loading…' : 'Most Profitable'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => field.onChange([])}
+                      disabled={value.length === 0}
+                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                );
+              }}
+            />
+          </div>
+
+          {marketFilterError && <p className="mb-3 text-xs text-amber-300">{marketFilterError}</p>}
+
+          <Controller
+            name="selected_markets"
+            control={control}
+            render={({ field }) => {
+              const value = Array.isArray(field.value) ? field.value : [];
+              const toggleMarket = (market: string) => {
+                if (value.includes(market)) {
+                  field.onChange(value.filter((item) => item !== market));
+                  return;
+                }
+                if (value.length >= MAX_SELECTED_MARKETS) {
+                  return;
+                }
+                field.onChange([...value, market]);
+              };
+
+              return (
+                <div className="rounded-xl border border-slate-800/80 bg-slate-950/45 p-3">
+                  {marketsLoading ? (
+                    <p className="text-sm text-slate-400">Loading dYdX markets...</p>
+                  ) : marketsError ? (
+                    <p className="text-sm text-amber-300">{marketsError}</p>
+                  ) : (
+                    <div className="grid max-h-52 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
+                      {availableMarkets.map((market) => {
+                        const checked = value.includes(market);
+                        const disabled = !checked && value.length >= MAX_SELECTED_MARKETS;
+                        return (
+                          <label
+                            key={market}
+                            className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs transition ${
+                              checked
+                                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-100'
+                                : 'border-slate-800 text-slate-300 hover:border-slate-600'
+                            } ${disabled ? 'opacity-45' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() => toggleMarket(market)}
+                              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-cyan-500"
+                            />
+                            <span className="truncate">{market}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }}
+          />
+
+          {selectedPairPreview.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {selectedPairPreview.map((pair) => (
+                <span
+                  key={pair}
+                  className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-xs text-cyan-100"
+                >
+                  {pair}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className={helperTextClass}>
+            Selected markets: <span className={inlineValueClass}>{selectedMarkets.length}</span> /{' '}
+            {MAX_SELECTED_MARKETS}
+          </p>
         </div>
 
         {/* Divider */}

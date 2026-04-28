@@ -12,6 +12,7 @@ Repository-level startup guidance for coding agents working in this monorepo.
 
 - Workspace defaults: `.github/copilot-instructions.md`
 - Customization index: `.github/CUSTOMIZATION_INDEX.md`
+- Universal project agent: `.github/agents/senior-defi-universal-project.agent.md`
 - Main monorepo agent: `.github/agents/senior-defi-monorepo-platform.agent.md`
 - Main trading agent: `.github/agents/senior-defi-dev.agent.md`
 - Python trading skill: `.github/skills/defi-python-algo-trading/SKILL.md`

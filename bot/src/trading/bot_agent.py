@@ -9,6 +9,8 @@ from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
     cancel_order,
     check_order_status,
+    get_order,
+    get_order_fills,
     place_market_order,
 )
 
@@ -67,10 +69,14 @@ class BotAgent:
             "order_id_m1": "",
             "order_m1_size": base_size,
             "order_m1_side": base_side,
+            "order_m1_price": base_price,
+            "order_m1_price_source": "accepted_price",
             "order_time_m1": "",
             "order_id_m2": "",
             "order_m2_size": quote_size,
             "order_m2_side": quote_side,
+            "order_m2_price": quote_price,
+            "order_m2_price_source": "accepted_price",
             "order_time_m2": "",
             "pair_status": "",
             "comments": "",
@@ -159,6 +165,91 @@ class BotAgent:
         # Return live
         return "live"
 
+    @staticmethod
+    def _first_present(payload, keys):
+        for key in keys:
+            value = payload.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    @staticmethod
+    def _weighted_average_fill_price(fills):
+        total_size = 0.0
+        total_notional = 0.0
+        for fill in fills:
+            if not isinstance(fill, dict):
+                continue
+            price = BotAgent._first_present(fill, ("price", "fillPrice", "filledPrice"))
+            size = BotAgent._first_present(fill, ("size", "fillSize", "filledSize"))
+            if price in (None, "") or size in (None, ""):
+                continue
+            try:
+                fill_size = abs(float(size))
+                fill_price = float(price)
+            except (TypeError, ValueError):
+                continue
+            total_size += fill_size
+            total_notional += fill_price * fill_size
+        if total_size <= 0:
+            return None
+        return str(total_notional / total_size)
+
+    async def _reconcile_filled_order(self, leg_prefix, *, order_id, market):
+        """
+        Refresh order details from the indexer and prefer actual fill prices.
+
+        The dYdX order record does not always include an average fill price, so
+        fills are the primary source. The order record remains a deterministic
+        fallback for side/size/market and, if needed, price.
+        """
+        try:
+            order = await get_order(self.client, order_id)
+        except Exception as exc:
+            logger.warning("Could not reconcile filled order {}: {}", order_id, exc)
+            return
+
+        if isinstance(order, dict) and isinstance(order.get("order"), dict):
+            order = order["order"]
+        if not isinstance(order, dict):
+            return
+
+        ticker = self._first_present(order, ("ticker", "market", "symbol"))
+        side = self._first_present(order, ("side",))
+        size = self._first_present(order, ("size", "totalFilled", "filledSize"))
+        order_price = self._first_present(
+            order,
+            (
+                "averageFilledPrice",
+                "avgFilledPrice",
+                "filledPrice",
+                "fillPrice",
+                "price",
+            ),
+        )
+
+        if ticker:
+            self.order_dict[f"{leg_prefix}_market"] = ticker
+        if side:
+            self.order_dict[f"{leg_prefix}_side"] = side
+        if size:
+            self.order_dict[f"{leg_prefix}_size"] = size
+        if order_price:
+            self.order_dict[f"{leg_prefix}_price"] = order_price
+            self.order_dict[f"{leg_prefix}_price_source"] = "order_record"
+
+        try:
+            fills = await get_order_fills(self.client, order_id, market=market)
+        except Exception as exc:
+            logger.warning("Could not fetch fills for order {}: {}", order_id, exc)
+            return
+
+        fill_price = self._weighted_average_fill_price(fills)
+        if fill_price is not None:
+            self.order_dict[f"{leg_prefix}_price"] = fill_price
+            self.order_dict[f"{leg_prefix}_price_source"] = "fills"
+            self.order_dict[f"{leg_prefix}_fill_count"] = len(fills)
+
     async def open_trades(self):
         """
         Open both sides of the paired trade.
@@ -206,6 +297,11 @@ class BotAgent:
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"{self.market_1} failed to fill"
             return self.order_dict
+        await self._reconcile_filled_order(
+            "order_m1",
+            order_id=self.order_dict["order_id_m1"],
+            market=self.market_1,
+        )
 
         # Print status - opening second order
         logger.info(
@@ -280,9 +376,13 @@ class BotAgent:
 
             # Return failure state after emergency cleanup
             return self.order_dict
+        await self._reconcile_filled_order(
+            "order_m2",
+            order_id=self.order_dict["order_id_m2"],
+            market=self.market_2,
+        )
 
         # Return success result
-        else:
-            logger.info("SUCCESS: LIVE PAIR {} / {}", self.market_1, self.market_2)
-            self.order_dict["pair_status"] = "LIVE"
-            return self.order_dict
+        logger.info("SUCCESS: LIVE PAIR {} / {}", self.market_1, self.market_2)
+        self.order_dict["pair_status"] = "LIVE"
+        return self.order_dict

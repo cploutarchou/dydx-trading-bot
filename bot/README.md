@@ -47,6 +47,12 @@ per-instance config, subprocess log output, and temporary/debug compatibility ar
 Async background work must be launched through the supervised job helper so task failures, cancellations, progress, and
 traceback summaries are persisted in the `jobs` table instead of disappearing as unobserved task exceptions.
 
+Startup recovery is fail-safe by default: stale orphaned in-progress backtests are reconciled to failed, and active live
+bot rows with missing workers are marked error. Set `BACKTEST_AUTO_RECOVERY_MODE=restart` for stale backtest requeueing
+and `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` for testnet live bot auto-restart; mainnet live restart also requires
+`BOT_AUTO_RECOVER_LIVE_MAINNET=true`. Backtest startup recovery waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`
+before acting so fresh rows from another API worker are not incorrectly failed.
+
 The bot service is not a public frontend integration surface. The supported product path is:
 
 `frontend -> backend -> bot`
@@ -78,6 +84,7 @@ Use the generated schema and source code as the detailed endpoint contract, not 
 
 ## Related Docs
 
+- [Bot Flow Documentation](/home/chris/workspace/dydx-trading-bot/bot/docs/BOT_FLOWS.md)
 - [Root README](/home/chris/workspace/dydx-trading-bot/README.md)
 - [Platform Wiki Home](/home/chris/workspace/dydx-trading-bot/docs/README.md)
 - [Operations Guide](/home/chris/workspace/dydx-trading-bot/docs/OPERATIONS.md)

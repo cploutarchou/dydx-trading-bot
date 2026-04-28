@@ -205,13 +205,10 @@ export default function StrategyLibrary() {
     const pairSelectionMode = selectedStrategy.pair_selection_mode || 'liquidity';
     const resolution = selectedStrategy.resolution || selectedStrategy.candle_resolution || '1HOUR';
     const strategyBenchmark = selectedStrategy.benchmark_symbol?.trim();
-    const fallbackBenchmarkFromPairs = selectedStrategy.selected_markets?.[0]?.trim();
+    // benchmark_symbol is a performance-comparison reference, not a trading market.
+    // Never derive it from selected_markets — only use strategy config or default to BTC-USD.
     const benchmarkSymbol =
-      strategyBenchmark && strategyBenchmark.length > 0
-        ? strategyBenchmark
-        : fallbackBenchmarkFromPairs && fallbackBenchmarkFromPairs.length > 0
-          ? fallbackBenchmarkFromPairs
-          : 'BTC-USD';
+      strategyBenchmark && strategyBenchmark.length > 0 ? strategyBenchmark : 'BTC-USD';
     const tradingParameters: Record<string, unknown> = {
       zscore_threshold: selectedStrategy.zscore_threshold,
       stats_window: selectedStrategy.stats_window,
@@ -258,6 +255,17 @@ export default function StrategyLibrary() {
   const handleExecuteBacktest = async () => {
     if (!selectedStrategy || !backtestStartDate || !backtestEndDate) {
       setRunError('Please enter valid start and end dates');
+      return;
+    }
+
+    const strategyMode = selectedStrategy.pair_selection_mode || 'liquidity';
+    const hasMarkets =
+      Array.isArray(selectedStrategy.selected_markets) &&
+      selectedStrategy.selected_markets.length >= 2;
+    if (strategyMode === 'input' && !hasMarkets) {
+      setRunError(
+        'This strategy uses manual pair selection ("input" mode) but has no markets configured. Edit the strategy to add at least two markets before running a backtest.'
+      );
       return;
     }
 

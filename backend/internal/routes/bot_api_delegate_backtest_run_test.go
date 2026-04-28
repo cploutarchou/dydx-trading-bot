@@ -453,6 +453,8 @@ func TestDelegatedBacktestRun_NormalizesLegacyFlatPayload(t *testing.T) {
 		"zscore_threshold":    1.75,
 		"stats_window":        30,
 		"usd_per_trade":       25,
+		"benchmark_symbol":    "ETH-USD",
+		"max_history_days":    120,
 	})
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
@@ -493,6 +495,12 @@ func TestDelegatedBacktestRun_NormalizesLegacyFlatPayload(t *testing.T) {
 		}
 		if tp["pair_selection_mode"] != "cointegration" {
 			t.Fatalf("expected pair_selection_mode propagated, got %v", tp["pair_selection_mode"])
+		}
+		if tp["benchmark_symbol"] != "ETH-USD" {
+			t.Fatalf("expected benchmark_symbol propagated, got %v", tp["benchmark_symbol"])
+		}
+		if tp["max_history_days"] != float64(120) {
+			t.Fatalf("expected max_history_days=120, got %v", tp["max_history_days"])
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for upstream request payload")

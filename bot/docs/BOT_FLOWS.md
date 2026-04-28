@@ -162,8 +162,10 @@ Decision points:
 Postconditions:
 
 - If both legs fill, `BotAgent.open_trades()` returns an order dictionary with `pair_status="LIVE"`.
+- Before returning `LIVE`, `BotAgent` reconciles both filled orders from dYdX and records weighted average fill prices when fill records are available.
 - The worker appends the live pair to `BOT_AGENTS_FILE` using an atomic file write and lock.
-- Telegram trade-opened notification is sent.
+- Telegram trade-opened notification is sent from the actual `BotAgent.open_trades()` order fields: base/quote side, size, z-score, hedge ratio, half-life, and both order ids.
+- When PostgreSQL persistence is enabled and a `BOT_INSTANCE_ID` maps to a bot row, the worker best-effort persists the opened pair to the existing core `trades` table and realtime `positions_realtime` table.
 - If entry fails before the first leg fills, the pair is marked `ERROR` or `FAILED` and no tracked position is appended.
 - If the first leg fills and the second leg fails, the runtime attempts reduce-only emergency cleanup of the first leg.
 
@@ -220,6 +222,7 @@ Decision points:
 Postconditions:
 
 - On successful close of both legs, the position is omitted from the saved tracked-position list.
+- On successful close of both legs, the worker best-effort marks the existing core trade and realtime position closed when PostgreSQL persistence is enabled.
 - If the first close leg succeeds but the second fails, the runtime retries the orphaned close leg.
 - If orphan close retry fails, the tracked position is retained with `pair_status="ORPHANED_EXIT_FAILED"` and error metadata.
 - Remaining positions are written with `_save_processed_positions(...)`, preserving concurrent appends.
@@ -268,7 +271,7 @@ flowchart TD
   - emergency close is reduce-only.
 - Pair exit is reduce-only and retry-backed through `_place_reduce_only_close_with_retries(...)`.
 - Orphan exposure recovery uses exchange position side and size where available.
-- `abort_all_positions(client)` cancels open orders, then submits reduce-only close orders for all open positions.
+- `abort_all_positions(client)` cancels open orders, then submits reduce-only close orders for all open positions, and clears the per-instance tracked-position file through the same locked atomic state helper used by normal entry/exit state writes.
 - API runtime preflight checks wallet derivation, subaccount availability, free collateral, minimum collateral, configured capital allocation, and trade-size-to-collateral ratio.
 - The manager uses per-instance lifecycle locks to avoid concurrent start/stop races.
 
@@ -328,7 +331,7 @@ Create:
 Start:
 
 1. Manager acquires the per-instance lock.
-2. Manager rejects missing/running/starting/stopping instances.
+2. Manager rejects missing instances and active runtime states, including `running`, `starting`, `stopping`, `degraded`, `recovering`, and `safeguarded`, to avoid duplicate workers.
 3. Manager creates a `live_runtime` async job.
 4. Manager writes `STARTING`.
 5. Manager starts the worker subprocess with per-instance environment and log file.
@@ -341,6 +344,7 @@ Status/list:
 2. If the process exited, manager marks `ERROR`.
 3. If no local handle exists but status is active, manager probes persisted PID and validates command line.
 4. Manager refreshes DB-backed trading stats when database persistence is enabled.
+5. If a degraded worker is still alive, manager-owned liveness verification moves it back to `running`.
 
 Stop:
 
@@ -352,7 +356,7 @@ Stop:
 
 Delete:
 
-1. Manager force-stops a running instance.
+1. Manager force-stops any active runtime instance, including degraded/recovering/safeguarded states.
 2. Manager removes in-memory state.
 3. Manager closes logs and deletes `bot_states/*_<instance_id>*` files known to `_get_instance_state_files(...)`.
 4. API logs deletion and deletes the DB bot row.
@@ -370,7 +374,7 @@ stateDiagram-v2
     stopping --> error: stop failure
     running --> error: worker crash detected
     running --> degraded: heartbeat stale
-    degraded --> running: healthy status update
+    degraded --> running: manager verifies process liveness
     degraded --> stopping: operator stop
     error --> starting: operator restart/start
     error --> stopped: operator stop or recreate
@@ -507,6 +511,7 @@ PostgreSQL:
 - Historical trades and stats: exposed through `UnitOfWork.trades` and bot statistics methods.
 - Backtest runs, trades, snapshots, analytics: managed by `BacktestRepository` and `BacktestService`.
 - Realtime tables: exposed by `UnitOfWorkRealtime` for positions, market data, stats, alerts, and snapshots.
+- Live entry/exit persistence: `position_manager.py` calls `trade_persistence.py` after successful paired opens and closes. This uses existing repository APIs only; it does not introduce schema changes. Entry prices come from `BotAgent`'s post-fill reconciliation: weighted average fill prices when dYdX fills are available, otherwise the exchange order record price.
 
 Local files:
 
@@ -584,6 +589,9 @@ flowchart LR
 - Per-instance lifecycle locks reject overlapping start/stop operations.
 - Status persistence stores `runtime_state` inside the DB config payload, including PID, last error, exit code, timestamps, and trading stats.
 - `get_instance_status()` and `cleanup_dead_processes()` reconcile dead processes into `ERROR`.
+- `cleanup_dead_processes()` and status probes refresh manager-owned heartbeats from attached or recovered worker process liveness, so long-running healthy workers are not marked `DEGRADED` merely because no lifecycle websocket event was published.
+- API startup reconciles stale orphaned backtest runs. By default it marks persisted `pending`/`running` runs with no in-memory worker as `failed` after `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS` (default: the stale heartbeat threshold); set `BACKTEST_AUTO_RECOVERY_MODE=restart` or `BACKTEST_AUTO_RECOVER=true` to requeue restartable persisted runs.
+- API startup asks `BotInstanceManager` to reconcile active live bot rows. It verifies attached/recovered PIDs first, marks missing workers `ERROR` by default, and only restarts missing testnet workers when `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true`. Mainnet live auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`.
 - The tracked-position file uses an async lock, thread lock, optional `fcntl` file lock, temp-file write, `fsync`, and atomic replace.
 - `_save_processed_positions(...)` preserves positions appended concurrently while exits were being processed.
 
@@ -594,7 +602,8 @@ flowchart LR
 - **Exchange/local state divergence**: Local `bot_agents_<id>.json` does not match dYdX orders or positions. The runtime raises for unreconciled mismatches. Operator must verify dYdX first before editing local state.
 - **One-sided exposure**: One leg remains open after entry or exit failure. The runtime attempts reduce-only cleanup and sends critical alerts. If cleanup fails, manual exchange intervention is required.
 - **Worker crash**: The manager marks the instance `ERROR`, records exit code and last log tail, and publishes strategy error status.
-- **Detached process after API restart**: The manager can validate persisted PID and command line. If validation fails, active status is moved to `ERROR`.
+- **Detached process after API restart**: The manager validates persisted PID and command line. If validation fails, active status is moved to `ERROR` unless live auto-restart is explicitly enabled and allowed for the environment.
+- **Interrupted backtest after API restart**: Startup reconciliation fails stale in-progress rows by default so dashboards do not show phantom work. Fresh rows are skipped to avoid false positives in multi-worker API deployments. Opt-in restart mode requeues stale runs that still have a persisted request payload.
 - **Database unavailable at startup**: API lifespan raises before ready. `/ready` should not return `200`.
 - **Insufficient collateral**: Runtime preflight reports blockers. Entry loop skips or stops execution when collateral is below configured minimum or buffer.
 - **Cancellation uncertainty**: `cancel_all_orders()` submits cancellation requests then raises to force dashboard verification.
@@ -618,6 +627,7 @@ flowchart LR
 - Confirm `/ready` returns `200` only when the bot manager imports and database startup checks pass.
 - Confirm `/health` includes `bot_recovery` diagnostics.
 - Confirm `GET /api/v1/capabilities` lists bot, backtest, and websocket routes.
+- Confirm startup logs include backtest auto-recovery and live runtime auto-recovery summaries.
 
 ### Auth And Readiness
 
@@ -659,6 +669,8 @@ Use a testnet config and small `usd_per_trade`.
   - `/ws/strategies` receives an error status for strategy-scoped ids.
 - Simulate immediate startup failure and confirm the start response contains the startup exit message and recent log tail.
 - Simulate stale heartbeat by reducing heartbeat timeout in test and confirm `DEGRADED` status.
+- Simulate a stale orphaned persisted backtest and confirm startup/default auto-recovery marks it `failed`; enable `BACKTEST_AUTO_RECOVERY_MODE=restart` only when requeueing is desired.
+- Simulate a persisted active live testnet bot with a dead PID and confirm it is marked `ERROR` by default; set `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` and confirm restart occurs through `BotInstanceManager`.
 - Test orphan handling with mocked exchange positions:
   - one leg live, one leg absent: reduce-only recovery attempted.
   - both legs absent: tracked local state removed.
@@ -680,8 +692,7 @@ Use a testnet config and small `usd_per_trade`.
 ## Assumptions, Unknowns, And Documentation Gaps
 
 - Inferred: PostgreSQL is intended to be authoritative for bot instance recovery in deployed environments because disk fallback is disabled unless explicitly enabled.
-- Inferred: `recovering`, `safeguarded`, and parts of heartbeat-based `degraded` state are operational vocabulary for incident handling, but not all states have complete automated remediation flows in the traced code.
-- Gap: Live strategy runtime currently persists tracked open pair state to JSON files; DB trade/realtime tables are exposed by APIs, but the traced live entry/exit path does not clearly show DB writes for every live order transition.
-- Gap: `BotAgent.open_trades()` returns fields named `order_id_m1`, `order_id_m2`, `order_m1_size`, and `order_m2_size`; notification assembly in `open_positions()` references some alternate names such as `market_1_order_id`. Operators should rely on tracked state fields for reconciliation.
+- Inferred: `recovering`, `safeguarded`, and parts of heartbeat-based `degraded` state are operational vocabulary for incident handling. Startup auto-recovery now covers orphaned backtests and missing live worker processes, but it intentionally defaults to fail-safe marking rather than unattended live restart.
+- Gap: Live DB persistence records accepted order prices and best-effort fill averages when the exchange exposes fills; operators should still reconcile against exchange-reported fills for settlement-grade accounting.
 - Gap: The worker signal handler calls `sys.exit(0)` directly. This is acceptable at the process entrypoint boundary, but library/service code should continue raising typed errors instead.
 - Gap: The validation commands above depend on local DB, config, and testnet credentials. Record blockers explicitly if they cannot run in a given environment.

@@ -6,6 +6,40 @@ import json
 import pandas as pd
 
 from src.trading import position_manager
+from src.trading import bot_agents_state
+
+
+def test_trade_opened_notification_maps_bot_agent_order_dict_keys():
+    payload = position_manager._build_trade_opened_notification(
+        {
+            "market_1": "BTC-USD",
+            "market_2": "ETH-USD",
+            "order_m1_side": "SELL",
+            "order_m2_side": "BUY",
+            "order_m1_size": "0.2",
+            "order_m2_size": "3.0",
+            "order_id_m1": "base-order",
+            "order_id_m2": "quote-order",
+            "z_score": 2.4,
+            "hedge_ratio": 0.72,
+            "half_life": 11,
+        }
+    )
+
+    assert payload == {
+        "pair": "BTC-USD / ETH-USD",
+        "base_market": "BTC-USD",
+        "quote_market": "ETH-USD",
+        "base_side": "SELL",
+        "quote_side": "BUY",
+        "base_size": "0.2",
+        "quote_size": "3.0",
+        "z_score": 2.4,
+        "hedge_ratio": 0.72,
+        "half_life": 11,
+        "market_1_order_id": "base-order",
+        "market_2_order_id": "quote-order",
+    }
 
 
 def test_manage_trade_exits_retries_second_leg_after_partial_close(monkeypatch, tmp_path):
@@ -43,6 +77,7 @@ def test_manage_trade_exits_retries_second_leg_after_partial_close(monkeypatch, 
         ),
         encoding="utf-8",
     )
+    monkeypatch.setattr(bot_agents_state, "BOT_AGENTS_PATH", bot_agents_path)
     monkeypatch.setattr(position_manager, "BOT_AGENTS_PATH", bot_agents_path)
     monkeypatch.setattr(position_manager, "TelegramMessenger", DummyMessenger)
 

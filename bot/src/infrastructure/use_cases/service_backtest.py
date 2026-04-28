@@ -703,6 +703,231 @@ class BacktestService:
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     @classmethod
+    def _auto_recovery_mode(cls) -> str:
+        """Resolve startup auto-recovery mode for orphaned persisted backtests."""
+        mode = os.getenv("BACKTEST_AUTO_RECOVERY_MODE", "").strip().lower()
+        if not mode and cls._coerce_bool(os.getenv("BACKTEST_AUTO_RECOVER"), default=False):
+            mode = "restart"
+        if not mode:
+            return "mark_failed"
+        aliases = {
+            "0": "off",
+            "false": "off",
+            "no": "off",
+            "disabled": "off",
+            "disable": "off",
+            "observe": "off",
+            "dry_run": "off",
+            "dry-run": "off",
+            "reconcile": "mark_failed",
+            "fail": "mark_failed",
+            "failed": "mark_failed",
+            "mark-failed": "mark_failed",
+            "mark_failed": "mark_failed",
+            "1": "restart",
+            "true": "restart",
+            "yes": "restart",
+            "on": "restart",
+            "rerun": "restart",
+            "restart": "restart",
+            "resume": "restart",
+        }
+        return aliases.get(mode, "mark_failed")
+
+    @classmethod
+    def _auto_recovery_min_age_seconds(cls) -> float:
+        raw = os.getenv("BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS")
+        if raw is None:
+            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+
+    @classmethod
+    def _is_auto_recovery_candidate(cls, run_data: Dict[str, Any]) -> bool:
+        minimum_age = cls._auto_recovery_min_age_seconds()
+        if minimum_age <= 0:
+            return True
+        age = cls._heartbeat_age_seconds(run_data)
+        return age is None or age >= minimum_age
+
+    def _prepare_existing_run_recovery(
+            self,
+            run_data: Dict[str, Any],
+            *,
+            worker_backend: str,
+            worker_task_id: str,
+    ) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc).isoformat()
+        recovered = dict(run_data)
+        recovered.update(
+            {
+                "status": "pending" if worker_backend == "celery" else "running",
+                "current_task": "auto recovery queued" if worker_backend == "celery" else "auto recovery running",
+                "error": None,
+                "error_message": None,
+                "cancel_requested": False,
+                "updated_at": now,
+                "worker_backend": worker_backend,
+                "worker_task_id": worker_task_id,
+            }
+        )
+        recovered = self._set_runtime_control(
+            recovered,
+            status="pending" if worker_backend == "celery" else "running",
+            action="auto_recover",
+            pause_requested=False,
+            resume_requested=False,
+            cancel_requested=False,
+            worker_backend=worker_backend,
+            worker_task_id=worker_task_id,
+            requested_at=now,
+        )
+        return self._persist_run_data(recovered)
+
+    async def _restart_interrupted_existing_run(
+            self,
+            run: Dict[str, Any],
+            progress_callback: Any = None,
+    ) -> Optional[Dict[str, Any]]:
+        run_id = str(run.get("run_id") or "").strip()
+        if not run_id:
+            return None
+
+        run_data = self._load_run_data(run_id)
+        if not run_data:
+            return None
+
+        request_payload = self._strip_runtime_control(run_data.get("request") or {})
+        if not request_payload:
+            return None
+
+        worker_backend = self._configured_worker_backend()
+        if worker_backend == "celery":
+            task_id = self._enqueue_celery_backtest(run_id)
+            return self._prepare_existing_run_recovery(
+                run_data,
+                worker_backend="celery",
+                worker_task_id=task_id,
+            )
+
+        task = async_job_manager.create_supervised_task(
+            self.execute_existing_backtest(run_id, progress_callback),
+            job_type="backtest",
+            job_id=run_id,
+            parameters=request_payload,
+            metadata={
+                "run_id": run_id,
+                "worker_backend": "asyncio",
+                "recovery": "startup_auto_recover",
+            },
+            auto_complete=False,
+        )
+        self._tasks[run_id] = task
+        task.add_done_callback(
+            lambda completed_task, completed_run_id=run_id: self._handle_task_done(
+                completed_run_id, completed_task
+            )
+        )
+        return self._prepare_existing_run_recovery(
+            run_data,
+            worker_backend="asyncio",
+            worker_task_id=run_id,
+        )
+
+    async def auto_recover_interrupted_runs(
+            self,
+            progress_callback: Any = None,
+            *,
+            mode: Optional[str] = None,
+            limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Reconcile orphaned backtests at API startup.
+
+        The default mode marks orphaned in-progress rows as failed so stale UI
+        state does not masquerade as active work. Automatic restart is opt-in
+        because it can consume exchange-history and CPU resources after a deploy.
+        """
+        resolved_mode = (mode or self._auto_recovery_mode()).strip().lower()
+        if resolved_mode not in {"off", "mark_failed", "restart"}:
+            resolved_mode = "mark_failed"
+
+        runs = self.repository.list_runs(limit=None, offset=0)
+        for run in runs:
+            run_id = str(run.get("run_id") or "").strip()
+            if run_id:
+                self._runs[run_id] = dict(run)
+
+        candidates = self._find_orphaned_in_progress_runs(runs)
+        eligible_candidates = [
+            run for run in candidates if self._is_auto_recovery_candidate(run)
+        ]
+        fresh_candidates = [
+            run for run in candidates if not self._is_auto_recovery_candidate(run)
+        ]
+        safe_limit = max(1, int(limit or 50))
+        marked_failed: List[Dict[str, Any]] = []
+        restarted: List[Dict[str, Any]] = []
+        skipped: List[Dict[str, Any]] = list(fresh_candidates)
+
+        if resolved_mode == "off":
+            return {
+                "mode": resolved_mode,
+                "interruption_error": self._INTERRUPTION_ERROR,
+                "candidate_count": len(candidates),
+                "eligible_count": len(eligible_candidates),
+                "marked_failed_count": 0,
+                "restarted_count": 0,
+                "skipped_count": len(candidates),
+                "candidates": [self._to_ops_row(run) for run in candidates[:safe_limit]],
+                "marked_failed": [],
+                "restarted": [],
+                "skipped": [self._to_ops_row(run) for run in candidates[:safe_limit]],
+            }
+
+        for run in eligible_candidates:
+            run_id = str(run.get("run_id") or "").strip()
+            if resolved_mode == "restart":
+                recovered = await self._restart_interrupted_existing_run(
+                    run,
+                    progress_callback=progress_callback,
+                )
+                if recovered is not None:
+                    restarted.append(recovered)
+                    continue
+
+            if not run_id:
+                skipped.append(run)
+                continue
+
+            persisted = self.repository.save_run(self._build_interrupted_run_payload(run))
+            self._runs[run_id] = dict(persisted)
+            if resolved_mode == "restart":
+                skipped.append(
+                    {
+                        **persisted,
+                        "error": persisted.get("error") or "Backtest run has no restartable request payload",
+                    }
+                )
+            else:
+                marked_failed.append(persisted)
+
+        return {
+            "mode": resolved_mode,
+            "interruption_error": self._INTERRUPTION_ERROR,
+            "candidate_count": len(candidates),
+            "eligible_count": len(eligible_candidates),
+            "marked_failed_count": len(marked_failed),
+            "restarted_count": len(restarted),
+            "skipped_count": len(skipped),
+            "candidates": [self._to_ops_row(run) for run in candidates[:safe_limit]],
+            "marked_failed": [self._to_ops_row(run) for run in marked_failed[:safe_limit]],
+            "restarted": [self._to_ops_row(run) for run in restarted[:safe_limit]],
+            "skipped": [self._to_ops_row(run) for run in skipped[:safe_limit]],
+        }
+
+    @classmethod
     def _build_metrics(cls, request: Any) -> Dict[str, Any]:
         payload = cls._extract_request_payload(request)
         params = (

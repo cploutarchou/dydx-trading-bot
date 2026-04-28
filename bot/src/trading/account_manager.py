@@ -1,10 +1,7 @@
 """Private account operations and order management for dYdX."""
 
 import asyncio
-import json
-import os
 import random
-from pathlib import Path
 from typing import Any, cast
 
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
@@ -15,21 +12,8 @@ from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 from src.constants import DYDX_ADDRESS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
+from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.market_data import get_markets
-
-
-def _resolve_bot_agents_path() -> Path:
-    """Resolve per-instance bot agents path from environment."""
-    configured_path = os.getenv("BOT_AGENTS_FILE", "bot_agents.json")
-    instance_id = os.getenv("BOT_INSTANCE_ID", "default")
-    resolved = configured_path.replace("{instance_id}", instance_id)
-    path = Path(resolved)
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parents[2] / path
-    return path
-
-
-BOT_AGENTS_PATH = _resolve_bot_agents_path()
 
 
 def _resolve_client_address(client) -> str:
@@ -115,6 +99,30 @@ async def get_open_positions(client):
 async def get_order(client, order_id):
     """Get details of a specific order."""
     return await client.indexer_account.account.get_order(order_id)
+
+
+async def get_order_fills(client, order_id, market=None, limit: int = 100):
+    """Get recent fills for an order, filtered client-side by order id."""
+    address = _resolve_client_address(client)
+    fills = await client.indexer_account.account.get_subaccount_fills(
+        address,
+        _resolve_subaccount_number(),
+        ticker=market,
+        limit=limit,
+    )
+    if isinstance(fills, dict):
+        fills = fills.get("fills", [])
+    if not isinstance(fills, list):
+        return []
+
+    order_id_text = str(order_id)
+    return [
+        fill
+        for fill in fills
+        if isinstance(fill, dict)
+        if str(fill.get("orderId") or fill.get("order_id") or fill.get("orderID") or "")
+        == order_id_text
+    ]
 
 
 async def is_open_positions(client, market):
@@ -337,10 +345,7 @@ async def abort_all_positions(client):
             # Protect API
             await asyncio.sleep(0.2)
 
-        # Override json file with empty list
-        bot_agents = []
-        with BOT_AGENTS_PATH.open("w", encoding="utf-8") as f:
-            json.dump(bot_agents, f)
+    await clear_tracked_positions()
 
-        # Return closed orders
-        return close_orders
+    # Return closed orders
+    return close_orders

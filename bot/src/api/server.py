@@ -663,9 +663,31 @@ async def lifespan(_: FastAPI):
     db.ensure_schema_compatibility()
     db.run_pending_migrations()
     db.verify_required_tables()
+    try:
+        with backtest_service_scope() as service:
+            backtest_recovery = await service.auto_recover_interrupted_runs(
+                _broadcast_backtest_progress
+            )
+        logger.info(
+            "Backtest auto-recovery completed: mode={} candidates={} restarted={} marked_failed={}",
+            backtest_recovery.get("mode"),
+            backtest_recovery.get("candidate_count"),
+            backtest_recovery.get("restarted_count"),
+            backtest_recovery.get("marked_failed_count"),
+        )
+    except Exception as exc:
+        logger.warning("Backtest auto-recovery failed during API startup: {}", exc)
     if bot_manager is not None:
         bot_manager.set_status_event_publisher(broadcast_strategy_status)
         await bot_manager.cleanup_dead_processes()
+        live_recovery = await bot_manager.auto_recover_live_runtimes()
+        logger.info(
+            "Live runtime auto-recovery completed: checked={} verified={} restarted={} marked_error={}",
+            live_recovery.get("checked"),
+            len(live_recovery.get("verified_running", [])),
+            len(live_recovery.get("restarted", [])),
+            len(live_recovery.get("marked_error", [])),
+        )
         if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
             bot_manager_monitor_task = async_job_manager.create_supervised_task(
                 _bot_manager_monitor_loop(),

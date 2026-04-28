@@ -9,6 +9,7 @@ load_repo_env(__file__)
 
 import argparse
 import asyncio
+import inspect
 import os
 import signal
 import sys
@@ -252,10 +253,15 @@ class BotInstance:
             # Find cointegrated pairs if requested
             if bot_settings.findCointegratedPairs:
                 self.logger.info("Starting cointegration analysis...")
-                df_market_prices = await construct_market_prices(
-                    self.client,
-                    selected_markets=getattr(bot_settings, "selectedMarkets", []),
-                )
+                selected_markets = getattr(bot_settings, "selectedMarkets", [])
+                signature = inspect.signature(construct_market_prices)
+                if "selected_markets" in signature.parameters:
+                    df_market_prices = await construct_market_prices(
+                        self.client,
+                        selected_markets=selected_markets,
+                    )
+                else:
+                    df_market_prices = await construct_market_prices(self.client)
 
                 # Store results in instance-specific file
                 stores_result = store_cointegration_results(df_market_prices)

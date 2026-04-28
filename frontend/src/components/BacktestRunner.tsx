@@ -304,11 +304,24 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       const explicitBenchmarkSymbol = String(
         tp.benchmark_symbol ?? formData.benchmark_symbol ?? ''
       ).trim();
-      const fallbackBenchmarkFromPairs = String(selectedMarkets[0] ?? '').trim();
-      const effectiveBenchmarkSymbol =
-        explicitBenchmarkSymbol || fallbackBenchmarkFromPairs || 'BTC-USD';
-      if (selectedMarkets.length === 1) {
-        const message = 'Select at least two markets for a constrained backtest universe.';
+      // benchmark_symbol is a performance-comparison reference, not a trading market.
+      // Never derive it from selectedMarkets — only use explicit config or default to BTC-USD.
+      const effectiveBenchmarkSymbol = explicitBenchmarkSymbol || 'BTC-USD';
+      const activeMode = tp.pair_selection_mode || formData.pair_selection_mode || 'liquidity';
+
+      if (activeMode === 'input' && selectedMarkets.length < 2) {
+        const message =
+          selectedMarkets.length === 0
+            ? 'Pair selection mode is set to "input" — please select at least two markets to define the backtest universe.'
+            : 'Pair selection mode is set to "input" — please select at least two markets (one pair minimum).';
+        setError(message);
+        errorToast('Markets required', message);
+        return;
+      }
+
+      if (activeMode !== 'input' && selectedMarkets.length === 1) {
+        const message =
+          'Select at least two markets for a constrained backtest universe, or clear the selection to use all available markets.';
         setError(message);
         errorToast('Market selection needs attention', message);
         return;
@@ -333,7 +346,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         initial_balance: Number(formData.initial_balance),
         max_pairs: selectedMarkets.length > 0 ? selectedMarkets.length : Number(formData.max_pairs),
         benchmark_symbol: effectiveBenchmarkSymbol,
-        pair_selection_mode: tp.pair_selection_mode || formData.pair_selection_mode || 'liquidity',
+        pair_selection_mode: activeMode,
         ...(selectedMarkets.length > 0 && { pairs: selectedMarkets }),
         trading_parameters: {
           ...(tp.zscore_threshold !== undefined && {

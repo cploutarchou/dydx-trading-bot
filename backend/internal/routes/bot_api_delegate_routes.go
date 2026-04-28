@@ -110,6 +110,8 @@ func normalizeBacktestRunPayload(config map[string]interface{}) map[string]inter
 		"transaction_fee",
 		"slippage",
 		"risk_free_rate",
+		"benchmark_symbol",
+		"max_history_days",
 		"resolution",
 		"candle_resolution",
 	}

@@ -4,10 +4,10 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-	guardBacktestStatusContract,
-	guardListBacktestsContract,
-	guardRunBacktestContract,
-	guardSyncHealthContract,
+    guardBacktestStatusContract,
+    guardListBacktestsContract,
+    guardRunBacktestContract,
+    guardSyncHealthContract,
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
@@ -1150,17 +1150,39 @@ class ApiClient {
               return this.client(error.config);
             }
           } catch (refreshError: unknown) {
-            // Refresh failed - session truly invalid
+            // Refresh failed. Only force logout when refresh explicitly says
+            // the session is unauthorized/forbidden; otherwise surface error
+            // without bouncing the user to login.
             const errorMsg =
               refreshError instanceof Error ? refreshError.message : String(refreshError);
+            const refreshStatus =
+              axios.isAxiosError(refreshError) && refreshError.response
+                ? refreshError.response.status
+                : null;
+            const shouldExpireSession = refreshStatus === 401 || refreshStatus === 403;
             console.error('❌ api.ts: Token refresh failed', errorMsg);
             this.notifyRefreshFailure(refreshError);
-            if (typeof window !== 'undefined') {
+            if (shouldExpireSession && typeof window !== 'undefined') {
               window.dispatchEvent(
                 new CustomEvent('auth:session-expired', {
                   detail: { reason: errorMsg },
                 })
               );
+            } else {
+              console.warn(
+                '⚠️ api.ts: Refresh failed without auth-invalid status; preserving current session UI state',
+                { refreshStatus }
+              );
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('auth:refresh-warning', {
+                    detail: {
+                      reason: errorMsg,
+                      status: refreshStatus,
+                    },
+                  })
+                );
+              }
             }
             return Promise.reject(refreshError);
           } finally {

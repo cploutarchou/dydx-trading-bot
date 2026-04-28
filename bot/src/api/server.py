@@ -2801,10 +2801,16 @@ async def create_backtest(
                         resolved_pairs,
                     )
                 else:
-                    logger.warning(
-                        "Strategy '{}' not found; falling back to manual backtest payload",
-                        request.strategy_id,
-                    )
+                    if request.trading_parameters:
+                        logger.info(
+                            "Strategy '{}' not found in bot store; using provided backtest trading_parameters",
+                            request.strategy_id,
+                        )
+                    else:
+                        logger.warning(
+                            "Strategy '{}' not found; falling back to manual backtest payload",
+                            request.strategy_id,
+                        )
                     normalized_request = BacktestConfigRequest(
                         name=request.name or "manual-backtest",
                         description=request.description or "Manual backtest run",
@@ -2904,10 +2910,16 @@ async def run_backtest_compat(
                     resolved_pairs,
                 )
             else:
-                logger.warning(
-                    "Strategy '{}' not found in /backtests/run; falling back to manual payload",
-                    request.strategy_id,
-                )
+                if request.trading_parameters:
+                    logger.info(
+                        "Strategy '{}' not found in bot store for /backtests/run; using provided backtest trading_parameters",
+                        request.strategy_id,
+                    )
+                else:
+                    logger.warning(
+                        "Strategy '{}' not found in /backtests/run; falling back to manual payload",
+                        request.strategy_id,
+                    )
                 backtest_request = BacktestConfigRequest(
                     name=request.name or "manual-backtest",
                     description=request.description or "Manual backtest run",

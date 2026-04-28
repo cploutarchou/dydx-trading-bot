@@ -301,6 +301,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
 
       const tp = formData.trading_parameters;
+      const explicitBenchmarkSymbol = String(
+        tp.benchmark_symbol ?? formData.benchmark_symbol ?? ''
+      ).trim();
+      const fallbackBenchmarkFromPairs = String(selectedMarkets[0] ?? '').trim();
+      const effectiveBenchmarkSymbol =
+        explicitBenchmarkSymbol || fallbackBenchmarkFromPairs || 'BTC-USD';
       if (selectedMarkets.length === 1) {
         const message = 'Select at least two markets for a constrained backtest universe.';
         setError(message);
@@ -326,7 +332,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         name: formData.name || 'ui-backtest',
         initial_balance: Number(formData.initial_balance),
         max_pairs: selectedMarkets.length > 0 ? selectedMarkets.length : Number(formData.max_pairs),
-        benchmark_symbol: formData.benchmark_symbol,
+        benchmark_symbol: effectiveBenchmarkSymbol,
         pair_selection_mode: tp.pair_selection_mode || formData.pair_selection_mode || 'liquidity',
         ...(selectedMarkets.length > 0 && { pairs: selectedMarkets }),
         trading_parameters: {
@@ -373,9 +379,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             risk_free_rate: Number(tp.risk_free_rate),
           }),
           ...(tp.resolution !== undefined && { resolution: tp.resolution }),
-          ...(tp.benchmark_symbol !== undefined && {
-            benchmark_symbol: tp.benchmark_symbol,
-          }),
+          benchmark_symbol: effectiveBenchmarkSymbol,
           ...(tp.max_history_days !== undefined && {
             max_history_days: effectiveMaxHistoryDays,
           }),

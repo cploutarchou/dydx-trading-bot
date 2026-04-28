@@ -25,6 +25,9 @@ For each new task, review:
 - `.github/agents/senior-defi-monorepo-platform.agent.md`
   Agent mode for cross-service platform work, architecture, end-to-end integration, docs, config, and production-readiness changes.
 
+- `.github/agents/senior-defi-universal-project.agent.md`
+  Agent mode for handling any repo task across bot, backend, frontend, config, docs, infra, and integration work.
+
 - `.github/agents/senior-defi-dev.agent.md`  
   Agent mode for trading strategy, DeFi execution, quant/stat-arb, and full-stack bot changes.
 

@@ -78,7 +78,7 @@ interface StrategyListResult {
   total: number;
 }
 
-interface StrategyBacktestRunPayload {
+interface StrategyBacktestRunPayload extends Record<string, unknown> {
   start_date: string;
   end_date: string;
   name: string;
@@ -204,6 +204,14 @@ export default function StrategyLibrary() {
     if (!selectedStrategy || !backtestStartDate || !backtestEndDate) return null;
     const pairSelectionMode = selectedStrategy.pair_selection_mode || 'liquidity';
     const resolution = selectedStrategy.resolution || selectedStrategy.candle_resolution || '1HOUR';
+    const strategyBenchmark = selectedStrategy.benchmark_symbol?.trim();
+    const fallbackBenchmarkFromPairs = selectedStrategy.selected_markets?.[0]?.trim();
+    const benchmarkSymbol =
+      strategyBenchmark && strategyBenchmark.length > 0
+        ? strategyBenchmark
+        : fallbackBenchmarkFromPairs && fallbackBenchmarkFromPairs.length > 0
+          ? fallbackBenchmarkFromPairs
+          : 'BTC-USD';
     const tradingParameters: Record<string, unknown> = {
       zscore_threshold: selectedStrategy.zscore_threshold,
       stats_window: selectedStrategy.stats_window,
@@ -225,7 +233,7 @@ export default function StrategyLibrary() {
       transaction_fee: selectedStrategy.transaction_fee ?? 0.0005,
       slippage: selectedStrategy.slippage ?? 0.001,
       risk_free_rate: selectedStrategy.risk_free_rate ?? 0.02,
-      benchmark_symbol: selectedStrategy.benchmark_symbol ?? 'BTC-USD',
+      benchmark_symbol: benchmarkSymbol,
       max_history_days: selectedStrategy.max_history_days ?? 90,
       resolution,
       candle_resolution: resolution,
@@ -555,8 +563,8 @@ export default function StrategyLibrary() {
         selectedStrategy &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-            <div className="premium-panel w-full max-w-md">
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm">
+            <div className="premium-panel my-6 w-full max-w-md max-h-[calc(100vh-3rem)] overflow-y-auto">
               <h2 className="text-xl font-bold text-white mb-4">
                 Run Backtest: {selectedStrategy.name}
               </h2>

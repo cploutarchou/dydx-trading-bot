@@ -242,10 +242,10 @@ export const App: React.FC = () => {
     };
 
     window.addEventListener('auth:session-expired', handleSessionExpired);
-    window.addEventListener('auth:refresh-warning', handleRefreshWarning as EventListener);
+    window.addEventListener('auth:refresh-warning', handleRefreshWarning);
     return () => {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
-      window.removeEventListener('auth:refresh-warning', handleRefreshWarning as EventListener);
+      window.removeEventListener('auth:refresh-warning', handleRefreshWarning);
     };
   }, [logout, toastWarning]);
 

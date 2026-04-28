@@ -1,11 +1,12 @@
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
+import pytest
 
 import src.bot_instance_manager as bot_instance_manager_module
 from src.bot_instance_manager import BotInstanceManager
@@ -16,6 +17,15 @@ from src.infrastructure.domain.bot_api_models import (
     BotStatus,
     TradingParameters,
 )
+
+
+@pytest.fixture(autouse=True)
+def _disable_db_persistence_by_default(monkeypatch):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: False),
+    )
 
 
 def _strategy_config(instance_id: str = "strategy-1-101") -> BotInstanceConfig:
@@ -176,6 +186,137 @@ def test_cleanup_dead_processes_publishes_error_for_crashed_strategy(tmp_path):
     assert published[-1]["status"] == "error"
 
 
+def test_cleanup_dead_processes_refreshes_live_worker_heartbeat_without_degrading(tmp_path):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_strategy_config()))
+
+    instance = manager.instances["strategy-1-101"]
+    instance.status = BotStatus.RUNNING
+    instance.process_info = {"pid": 1001}
+    instance.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=120)
+    instance.heartbeat_stale_seconds = 30
+
+    class LiveProcess:
+        pid = 1001
+
+        def poll(self):
+            return None
+
+    manager.processes["strategy-1-101"] = LiveProcess()
+
+    asyncio.run(manager.cleanup_dead_processes())
+
+    refreshed = manager.instances["strategy-1-101"]
+    assert refreshed.status == BotStatus.RUNNING
+    assert refreshed.recovery_state is None
+    assert refreshed.last_heartbeat is not None
+    assert (datetime.now(timezone.utc) - refreshed.last_heartbeat).total_seconds() < 5
+
+
+def test_degraded_live_worker_recovers_to_running_on_status_probe(tmp_path):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_strategy_config()))
+
+    instance = manager.instances["strategy-1-101"]
+    instance.status = BotStatus.DEGRADED
+    instance.recovery_state = "degraded"
+    instance.recovery_reason = "Heartbeat stale for 120s"
+    instance.process_info = {"pid": os.getpid()}
+
+    class LiveProcess:
+        pid = os.getpid()
+
+        def poll(self):
+            return None
+
+    manager.processes["strategy-1-101"] = LiveProcess()
+
+    status = asyncio.run(manager.get_instance_status("strategy-1-101"))
+
+    assert status.status == BotStatus.RUNNING
+    assert manager.instances["strategy-1-101"].recovery_state is None
+    assert manager.instances["strategy-1-101"].recovery_reason is None
+
+
+def test_status_probe_preserves_running_when_metrics_access_denied(
+        tmp_path,
+        monkeypatch,
+):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_strategy_config()))
+
+    instance = manager.instances["strategy-1-101"]
+    instance.status = BotStatus.RUNNING
+    instance.process_info = {"pid": 1003}
+
+    class LiveProcess:
+        pid = 1003
+
+        def poll(self):
+            return None
+
+    class MetricsDeniedProcess:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def cpu_percent(self):
+            raise bot_instance_manager_module.psutil.AccessDenied(pid=self.pid)
+
+    manager.processes["strategy-1-101"] = LiveProcess()
+    monkeypatch.setattr(
+        bot_instance_manager_module.psutil,
+        "Process",
+        lambda pid: MetricsDeniedProcess(pid),
+    )
+
+    status = asyncio.run(manager.get_instance_status("strategy-1-101"))
+
+    assert status.status == BotStatus.RUNNING
+    assert manager.instances["strategy-1-101"].last_heartbeat is not None
+
+
+def test_start_instance_rejects_degraded_active_runtime_without_spawning(
+        tmp_path,
+        monkeypatch,
+):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_strategy_config()))
+    manager.instances["strategy-1-101"].status = BotStatus.DEGRADED
+
+    def fail_popen(*_args, **_kwargs):
+        raise AssertionError("start_instance must not spawn duplicate degraded runtime")
+
+    monkeypatch.setattr("src.bot_instance_manager.subprocess.Popen", fail_popen)
+
+    result = asyncio.run(manager.start_instance("strategy-1-101"))
+
+    assert result.success is False
+    assert result.status == BotStatus.DEGRADED
+    assert "already degraded" in result.message
+
+
+def test_delete_instance_force_stops_degraded_runtime_before_cleanup(tmp_path, monkeypatch):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_strategy_config()))
+    manager.instances["strategy-1-101"].status = BotStatus.DEGRADED
+
+    stopped = {}
+
+    async def fake_stop_instance(instance_id, force=False):
+        stopped["instance_id"] = instance_id
+        stopped["force"] = force
+        manager.instances[instance_id].status = BotStatus.STOPPED
+        return SimpleNamespace(success=True)
+
+    monkeypatch.setattr(manager, "stop_instance", fake_stop_instance)
+
+    result = asyncio.run(manager.delete_instance("strategy-1-101"))
+
+    assert result.success is True
+    assert stopped == {"instance_id": "strategy-1-101", "force": True}
+    assert "strategy-1-101" not in manager.instances
+
+
 def test_create_instance_persists_runtime_and_backtest_parameters_to_yaml(tmp_path):
     manager = BotInstanceManager(state_dir=str(tmp_path))
 
@@ -244,6 +385,11 @@ def test_instance_config_uses_structured_defaults_instead_of_legacy_env(monkeypa
 
 
 def test_manager_recovers_instances_from_database_before_legacy_disk(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: True),
+    )
     legacy_state = tmp_path / "instances.json"
     legacy_state.write_text(
         """
@@ -320,6 +466,11 @@ def test_manager_recovers_instances_from_database_before_legacy_disk(monkeypatch
 
 
 def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: True),
+    )
     now = datetime.now()
     persisted_record = SimpleNamespace(
         instance_id="strategy-1-101",
@@ -393,6 +544,11 @@ def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_p
 
 
 def test_save_instances_state_coerces_string_config_payload(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: True),
+    )
     now = datetime.now()
     persisted_record = SimpleNamespace(
         instance_id="strategy-1-101",
@@ -492,6 +648,11 @@ def test_mark_instance_error_records_runtime_event(monkeypatch, tmp_path):
 
 
 def test_recovered_running_instance_is_marked_error_when_pid_is_dead(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: True),
+    )
     now = datetime.now()
     persisted_record = SimpleNamespace(
         instance_id="strategy-1-101",
@@ -556,3 +717,256 @@ def test_recovered_running_instance_is_marked_error_when_pid_is_dead(monkeypatch
     assert manager.instances["strategy-1-101"].status == BotStatus.ERROR
     assert published[-1]["status"] == "error"
     assert "no longer running" in published[-1]["last_error"]
+
+
+def test_live_auto_recovery_marks_dead_active_runtime_error_by_default(monkeypatch, tmp_path):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_strategy_config()))
+    instance = manager.instances["strategy-1-101"]
+    instance.status = BotStatus.RUNNING
+    instance.process_info = {"pid": 424242}
+
+    monkeypatch.setattr(
+        manager,
+        "_resolve_external_runtime_process",
+        lambda instance_id: (None, f"Runtime process for {instance_id} is no longer running"),
+    )
+
+    report = asyncio.run(manager.auto_recover_live_runtimes())
+
+    assert report["restart_enabled"] is False
+    assert report["checked"] == 1
+    assert report["restarted"] == []
+    assert report["marked_error"][0]["instance_id"] == "strategy-1-101"
+    assert manager.instances["strategy-1-101"].status == BotStatus.ERROR
+    assert "no longer running" in manager.instances["strategy-1-101"].process_info["last_error"]
+
+
+def test_live_auto_recovery_restarts_dead_testnet_runtime_when_enabled(
+        monkeypatch,
+        tmp_path,
+):
+    monkeypatch.setenv("BOT_AUTO_RECOVER_LIVE_RUNTIMES", "true")
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_strategy_config()))
+    instance = manager.instances["strategy-1-101"]
+    instance.status = BotStatus.RUNNING
+    instance.process_info = {"pid": 424242}
+
+    monkeypatch.setattr(
+        manager,
+        "_resolve_external_runtime_process",
+        lambda instance_id: (None, f"Runtime process for {instance_id} is no longer running"),
+    )
+
+    async def _fake_start_locked(instance_id):
+        manager.instances[instance_id].status = BotStatus.RUNNING
+        manager.instances[instance_id].process_info = {
+            "pid": 777,
+            "started_at": datetime.now(timezone.utc),
+        }
+        return SimpleNamespace(
+            success=True,
+            message="started",
+            instance_id=instance_id,
+            status=BotStatus.RUNNING,
+            error=None,
+        )
+
+    monkeypatch.setattr(manager, "_start_instance_locked", _fake_start_locked)
+
+    report = asyncio.run(manager.auto_recover_live_runtimes())
+
+    assert report["restart_enabled"] is True
+    assert report["restarted"] == ["strategy-1-101"]
+    assert report["marked_error"] == []
+    assert manager.instances["strategy-1-101"].status == BotStatus.RUNNING
+    assert manager.instances["strategy-1-101"].process_info["pid"] == 777
+    assert manager.instances["strategy-1-101"].recovery_state is None
+
+
+def test_live_auto_recovery_does_not_restart_mainnet_without_explicit_gate(
+        monkeypatch,
+        tmp_path,
+):
+    monkeypatch.setenv("BOT_AUTO_RECOVER_LIVE_RUNTIMES", "true")
+    config = _strategy_config()
+    config.trading_params.is_testnet = False
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(config))
+    instance = manager.instances["strategy-1-101"]
+    instance.status = BotStatus.RUNNING
+    instance.process_info = {"pid": 424242}
+
+    monkeypatch.setattr(
+        manager,
+        "_resolve_external_runtime_process",
+        lambda instance_id: (None, f"Runtime process for {instance_id} is no longer running"),
+    )
+
+    async def _fail_start_locked(instance_id):
+        raise AssertionError(f"mainnet runtime {instance_id} must not auto-start")
+
+    monkeypatch.setattr(manager, "_start_instance_locked", _fail_start_locked)
+
+    report = asyncio.run(manager.auto_recover_live_runtimes())
+
+    assert report["restart_enabled"] is True
+    assert report["allow_mainnet"] is False
+    assert report["restarted"] == []
+    assert report["marked_error"][0]["reason"] == "auto-restart disabled for mainnet runtime"
+    assert manager.instances["strategy-1-101"].status == BotStatus.ERROR
+
+
+def test_dev_recovery_deletes_invalid_non_mainnet_bot_rows(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: True),
+    )
+    monkeypatch.setenv("ENVIRONMENT", "development")
+
+    invalid_record = {
+        "instance_id": "api-test-bot-855356f2",
+        "network": "testnet",
+        "strategy": "cointegration",
+        "config": {"trading_params": _strategy_config().trading_params.model_dump()},
+        "process_id": None,
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+        "status": "STOPPED",
+    }
+
+    class FakeSession:
+        def __init__(self):
+            self.deleted = []
+            self.commits = 0
+
+        def execute(self, query, params=None):
+            query_text = str(query)
+            if "DELETE FROM bot_instances" in query_text:
+                self.deleted.append(params["instance_id"])
+                return None
+            if query_text.lstrip().upper().startswith("DELETE"):
+                return None
+            return SimpleNamespace(mappings=lambda: [invalid_record])
+
+        def commit(self):
+            self.commits += 1
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    session = FakeSession()
+    monkeypatch.setattr(bot_instance_manager_module.db, "get_session", lambda: session)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    assert manager.instances == {}
+    assert session.deleted == ["api-test-bot-855356f2"]
+    assert manager.recovery_diagnostics["skipped"] == 1
+
+
+def test_production_recovery_does_not_delete_invalid_bot_rows(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: True),
+    )
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    invalid_record = {
+        "instance_id": "prod-bot-with-bad-config",
+        "network": "testnet",
+        "strategy": "cointegration",
+        "config": {"trading_params": _strategy_config().trading_params.model_dump()},
+        "process_id": None,
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+        "status": "STOPPED",
+    }
+
+    class FakeSession:
+        def __init__(self):
+            self.deleted = []
+
+        def execute(self, query, params=None):
+            query_text = str(query)
+            if "DELETE FROM bot_instances" in query_text:
+                self.deleted.append(params["instance_id"])
+                return None
+            if query_text.lstrip().upper().startswith("DELETE"):
+                return None
+            return SimpleNamespace(mappings=lambda: [invalid_record])
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    session = FakeSession()
+    monkeypatch.setattr(bot_instance_manager_module.db, "get_session", lambda: session)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    assert manager.instances == {}
+    assert session.deleted == []
+    assert manager.recovery_diagnostics["skipped"] == 1
+
+
+def test_dev_recovery_deletes_invalid_mainnet_test_fixture_rows(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        BotInstanceManager,
+        "_db_persistence_enabled",
+        staticmethod(lambda: True),
+    )
+    monkeypatch.setenv("ENVIRONMENT", "development")
+
+    invalid_record = {
+        "instance_id": "lifecycle-test-bot-855356f2",
+        "network": "mainnet",
+        "strategy": "cointegration",
+        "config": {"trading_params": _strategy_config().trading_params.model_dump()},
+        "process_id": None,
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+        "status": "STOPPED",
+    }
+
+    class FakeSession:
+        def __init__(self):
+            self.deleted = []
+
+        def execute(self, query, params=None):
+            query_text = str(query)
+            if "DELETE FROM bot_instances" in query_text:
+                self.deleted.append(params["instance_id"])
+                return None
+            if query_text.lstrip().upper().startswith("DELETE"):
+                return None
+            return SimpleNamespace(mappings=lambda: [invalid_record])
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    session = FakeSession()
+    monkeypatch.setattr(bot_instance_manager_module.db, "get_session", lambda: session)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    assert manager.instances == {}
+    assert session.deleted == ["lifecycle-test-bot-855356f2"]
+    assert manager.recovery_diagnostics["skipped"] == 1

@@ -173,6 +173,12 @@ Bot instances report their operational state via extended status indicators:
    - Force-recreate (if instance is stuck or stale)
    - Let operator investigate first (set to SAFEGUARDED and pause trades)
 
+#### Startup auto-recovery controls
+
+- Backtests: API startup reconciles stale orphaned persisted `pending`/`running` runs. Default mode marks them failed with an interruption message after `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS` (default: stale heartbeat threshold). Set `BACKTEST_AUTO_RECOVERY_MODE=restart` or `BACKTEST_AUTO_RECOVER=true` to requeue restartable stale runs with persisted request payloads.
+- Live bots: API startup verifies active persisted live workers by attached process or recovered PID. Missing workers are marked **ERROR** by default. Set `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` to auto-restart missing testnet workers through `BotInstanceManager`.
+- Mainnet: live auto-restart is blocked unless `BOT_AUTO_RECOVER_LIVE_MAINNET=true` is also set.
+
 ## Subscription Tiers and Feature Gating (P1.8)
 
 The platform supports three subscription tiers with profit-share incentive alignment:

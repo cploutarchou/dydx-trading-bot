@@ -36,6 +36,15 @@ from src.infrastructure.use_cases.async_job_manager import async_job_manager
 class BotInstanceManager:
     """Manages multiple bot instances with isolated state and configuration"""
 
+    ACTIVE_RUNTIME_STATUSES = {
+        BotStatus.RUNNING,
+        BotStatus.STARTING,
+        BotStatus.STOPPING,
+        BotStatus.DEGRADED,
+        BotStatus.RECOVERING,
+        BotStatus.SAFEGUARDED,
+    }
+
     def __init__(self, state_dir: str = "./bot_states", max_instances: int = 10):
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(exist_ok=True)
@@ -57,6 +66,7 @@ class BotInstanceManager:
             "loaded": 0,
             "skipped": 0,
             "skipped_instances": [],
+            "live_auto_recovery": {},
             "last_error": None,
         }
 
@@ -103,6 +113,7 @@ class BotInstanceManager:
                 "loaded": 0,
                 "skipped": 0,
                 "skipped_instances": [],
+                "live_auto_recovery": {},
                 "last_error": None,
             }
         )
@@ -134,6 +145,93 @@ class BotInstanceManager:
         if isinstance(skipped_instances, list):
             skipped_instances.append({"instance_id": instance_id, "reason": reason})
         self.recovery_diagnostics["skipped"] = int(self.recovery_diagnostics.get("skipped", 0)) + 1
+
+    @staticmethod
+    def _env_flag(name: str, default: bool = False) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _live_auto_recovery_enabled(cls) -> bool:
+        return cls._env_flag("BOT_AUTO_RECOVER_LIVE_RUNTIMES", default=False)
+
+    @classmethod
+    def _live_auto_recovery_allows_mainnet(cls) -> bool:
+        return cls._env_flag("BOT_AUTO_RECOVER_LIVE_MAINNET", default=False)
+
+    @staticmethod
+    def _dev_invalid_recovery_cleanup_enabled(record) -> bool:
+        """Allow stale invalid DB rows to be purged only in non-production runtimes."""
+        if os.getenv("BOT_DEV_CLEAN_INVALID_BOT_ROWS", "true").strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return False
+
+        environment = (
+            os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or os.getenv("APP_CONFIG_ENV")
+            or "development"
+        ).strip().lower()
+        if environment not in {"development", "dev", "test", "testing", "local"}:
+            return False
+
+        network = str(getattr(record, "network", "")).strip().lower()
+        if network != "mainnet":
+            return True
+
+        instance_id = str(getattr(record, "instance_id", "")).strip().lower()
+        return any(marker in instance_id for marker in ("test", "fixture", "dummy"))
+
+    def _delete_invalid_recovery_record_if_dev(self, session, record, reason: str) -> bool:
+        """Delete unrecoverable dev/test bot rows so recovery warnings do not repeat."""
+        if not self._dev_invalid_recovery_cleanup_enabled(record):
+            return False
+
+        try:
+            stale_ids = (
+                "SELECT id FROM bot_instances WHERE instance_id = :instance_id"
+            )
+            for table_name, column_name in (
+                ("jobs", "bot_id"),
+                ("trades", "bot_id"),
+                ("event_logs", "bot_instance_id"),
+                ("positions_realtime", "bot_instance_id"),
+                ("market_data_realtime", "bot_instance_id"),
+                ("bot_stats_realtime", "bot_instance_id"),
+                ("alerts_realtime", "bot_instance_id"),
+            ):
+                session.execute(
+                    text(
+                        f"DELETE FROM {table_name} "
+                        f"WHERE {column_name} IN ({stale_ids})"
+                    ),
+                    {"instance_id": record.instance_id},
+                )
+            session.execute(
+                text("DELETE FROM bot_instances WHERE instance_id = :instance_id"),
+                {"instance_id": record.instance_id},
+            )
+            session.commit()
+            logger.warning(
+                "Deleted invalid dev bot instance {} during DB recovery because {}",
+                record.instance_id,
+                reason,
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete invalid dev bot instance {} during DB recovery: {}",
+                record.instance_id,
+                exc,
+            )
+            session.rollback()
+            return False
 
     def _load_existing_instances_from_db(self) -> Optional[int]:
         """Hydrate manager state from persisted bot instances in PostgreSQL."""
@@ -169,6 +267,11 @@ class BotInstanceManager:
                 self.recovery_diagnostics["attempted"] = int(self.recovery_diagnostics.get("attempted", 0)) + 1
                 config = self._build_instance_config_from_record(record)
                 if config is None:
+                    self._delete_invalid_recovery_record_if_dev(
+                        session,
+                        record,
+                        "persisted credentials are incomplete",
+                    )
                     continue
 
                 status = self._coerce_record_status(record.status)
@@ -557,13 +660,8 @@ class BotInstanceManager:
             message: Optional[str] = None,
     ):
         """Publish status update for strategy-managed instances when configured."""
-        # P1.7: Update heartbeat on any status update (alive signal)
-        if instance_id in self.instances:
-            self.instances[instance_id].last_heartbeat = datetime.now(timezone.utc)
-            # Clear degraded state if instance is running again
-            if event == "running" and self.instances[instance_id].recovery_state == "degraded":
-                self.instances[instance_id].recovery_state = None
-                self.instances[instance_id].recovery_reason = None
+        if event in {"running", "heartbeat"}:
+            self._mark_instance_liveness_verified(instance_id)
 
         if self.status_event_publisher is None:
             return
@@ -668,6 +766,64 @@ class BotInstanceManager:
             )
 
         return process, None
+
+    def _mark_instance_liveness_verified(
+            self,
+            instance_id: str,
+            *,
+            process_id: Optional[int] = None,
+    ) -> bool:
+        """Record a deterministic liveness heartbeat owned by the manager."""
+        instance = self.instances.get(instance_id)
+        if instance is None:
+            return False
+
+        now = datetime.now(timezone.utc)
+        instance.last_heartbeat = now
+        instance.last_update = now
+        if process_id is not None:
+            instance.process_info["pid"] = process_id
+        if instance.recovery_state in {"degraded", "recovering"} or instance.status == BotStatus.DEGRADED:
+            instance.recovery_state = None
+            instance.recovery_reason = None
+            if instance.status == BotStatus.DEGRADED:
+                instance.status = BotStatus.RUNNING
+        return True
+
+    def _refresh_instance_liveness_from_process(self, instance_id: str) -> bool:
+        """Verify attached or recovered worker process liveness without lifecycle events."""
+        process = self.processes.get(instance_id)
+        if process is not None:
+            if process.poll() is None:
+                self._mark_instance_liveness_verified(
+                    instance_id,
+                    process_id=getattr(process, "pid", None),
+                )
+                return True
+            return False
+
+        external_process, probe_error = self._resolve_external_runtime_process(instance_id)
+        if external_process is None:
+            if probe_error:
+                logger.debug("Unable to verify liveness for {}: {}", instance_id, probe_error)
+            return False
+
+        try:
+            if external_process.is_running() and external_process.status() != psutil.STATUS_ZOMBIE:
+                self._mark_instance_liveness_verified(
+                    instance_id,
+                    process_id=external_process.pid,
+                )
+                return True
+        except psutil.AccessDenied:
+            self._mark_instance_liveness_verified(
+                instance_id,
+                process_id=external_process.pid,
+            )
+            return True
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            return False
+        return False
 
     def _mark_instance_error(
             self,
@@ -923,7 +1079,7 @@ class BotInstanceManager:
 
             instance = self.instances[instance_id]
 
-            if instance.status in {BotStatus.RUNNING, BotStatus.STARTING, BotStatus.STOPPING}:
+            if instance.status in self.ACTIVE_RUNTIME_STATUSES:
                 return BotOperationResult(
                     success=False,
                     message=f"Instance {instance_id} is already {instance.status.value}",
@@ -1249,7 +1405,7 @@ class BotInstanceManager:
             # Stop instance first if running
             if (
                     instance_id in self.instances
-                    and self.instances[instance_id].status == BotStatus.RUNNING
+                    and self.instances[instance_id].status in self.ACTIVE_RUNTIME_STATUSES
             ):
                 stop_result = await self.stop_instance(instance_id, force=True)
                 if not stop_result.success:
@@ -1307,6 +1463,7 @@ class BotInstanceManager:
                         last_error=error_message,
                     )
             else:
+                self._mark_instance_liveness_verified(instance_id, process_id=process.pid)
                 # Update resource usage
                 try:
                     proc = psutil.Process(process.pid)
@@ -1316,6 +1473,8 @@ class BotInstanceManager:
                             "memory_usage_mb": proc.memory_info().rss / (1024 * 1024),
                         }
                     )
+                except psutil.AccessDenied:
+                    logger.debug("Metrics access denied for {}; liveness verified", instance_id)
                 except psutil.NoSuchProcess:
                     error_message = (
                         f"Runtime process for {instance_id} disappeared before metrics could be collected"
@@ -1326,7 +1485,7 @@ class BotInstanceManager:
                             event="error",
                             last_error=error_message,
                         )
-        elif instance.status in {BotStatus.RUNNING, BotStatus.STARTING, BotStatus.STOPPING}:
+        elif instance.status in self.ACTIVE_RUNTIME_STATUSES:
             external_process, probe_error = self._resolve_external_runtime_process(instance_id)
             if external_process is not None:
                 try:
@@ -1337,6 +1496,16 @@ class BotInstanceManager:
                             "memory_usage_mb": external_process.memory_info().rss / (1024 * 1024),
                         }
                     )
+                    self._mark_instance_liveness_verified(
+                        instance_id,
+                        process_id=external_process.pid,
+                    )
+                except psutil.AccessDenied:
+                    self._mark_instance_liveness_verified(
+                        instance_id,
+                        process_id=external_process.pid,
+                    )
+                    logger.debug("Metrics access denied for recovered {}; liveness verified", instance_id)
                 except (psutil.NoSuchProcess, psutil.ZombieProcess):
                     probe_error = f"Runtime process for {instance_id} is no longer running"
                     external_process = None
@@ -1388,6 +1557,102 @@ class BotInstanceManager:
 
         return statuses
 
+    async def auto_recover_live_runtimes(self) -> Dict[str, Any]:
+        """Reconcile active persisted live runtimes after API restart.
+
+        Attached or externally visible worker processes are treated as healthy.
+        Missing workers are marked ERROR by default. Restarting a missing worker
+        is opt-in and goes through the normal manager lifecycle path.
+        """
+        restart_enabled = self._live_auto_recovery_enabled()
+        allow_mainnet = self._live_auto_recovery_allows_mainnet()
+        report: Dict[str, Any] = {
+            "restart_enabled": restart_enabled,
+            "allow_mainnet": allow_mainnet,
+            "checked": 0,
+            "verified_running": [],
+            "restarted": [],
+            "marked_error": [],
+            "skipped": [],
+        }
+
+        for instance_id, instance in list(self.instances.items()):
+            if instance.status not in self.ACTIVE_RUNTIME_STATUSES:
+                continue
+
+            report["checked"] += 1
+            if self._refresh_instance_liveness_from_process(instance_id):
+                instance.status = BotStatus.RUNNING
+                report["verified_running"].append(instance_id)
+                await self._publish_strategy_status(instance_id, event="heartbeat")
+                continue
+
+            lock = self._get_instance_lock(instance_id)
+            if lock.locked():
+                report["skipped"].append(
+                    {"instance_id": instance_id, "reason": "lifecycle operation in progress"}
+                )
+                continue
+
+            async with lock:
+                if self._refresh_instance_liveness_from_process(instance_id):
+                    instance.status = BotStatus.RUNNING
+                    report["verified_running"].append(instance_id)
+                    await self._publish_strategy_status(instance_id, event="heartbeat")
+                    continue
+
+                _, probe_error = self._resolve_external_runtime_process(instance_id)
+                error_message = probe_error or f"Runtime process for {instance_id} is not attached"
+                is_mainnet = not instance.config.trading_params.is_testnet
+                can_restart = restart_enabled and (allow_mainnet or not is_mainnet)
+
+                if not can_restart:
+                    reason = (
+                        "auto-restart disabled for mainnet runtime"
+                        if restart_enabled and is_mainnet and not allow_mainnet
+                        else "auto-restart disabled"
+                    )
+                    if self._mark_instance_error(instance_id, f"{error_message}; {reason}"):
+                        await self._publish_strategy_status(
+                            instance_id,
+                            event="error",
+                            last_error=f"{error_message}; {reason}",
+                        )
+                    report["marked_error"].append(
+                        {"instance_id": instance_id, "reason": reason}
+                    )
+                    continue
+
+                instance.status = BotStatus.RECOVERING
+                instance.recovery_state = "recovering"
+                instance.recovery_reason = error_message
+                instance.last_update = datetime.now(timezone.utc)
+                instance.process_info.pop("pid", None)
+                self._save_instances_state()
+                await self._publish_strategy_status(
+                    instance_id,
+                    event="recovering",
+                    last_error=error_message,
+                )
+
+                # Reuse the normal start path while holding the lifecycle lock.
+                instance.status = BotStatus.STOPPED
+                result = await self._start_instance_locked(instance_id)
+                if result.success:
+                    self._mark_instance_liveness_verified(instance_id)
+                    report["restarted"].append(instance_id)
+                else:
+                    report["marked_error"].append(
+                        {
+                            "instance_id": instance_id,
+                            "reason": result.error or result.message,
+                        }
+                    )
+
+        self._save_instances_state()
+        self.recovery_diagnostics["live_auto_recovery"] = report
+        return report
+
     async def cleanup_dead_processes(self):
         """Cleanup dead processes and update instance statuses"""
         for instance_id in list(self.processes.keys()):
@@ -1407,6 +1672,11 @@ class BotInstanceManager:
                         event="error",
                         last_error=error_message,
                     )
+            else:
+                self._mark_instance_liveness_verified(
+                    instance_id,
+                    process_id=getattr(process, "pid", None),
+                )
 
         self._save_instances_state()
 
@@ -1417,26 +1687,33 @@ class BotInstanceManager:
         """P1.7: Monitor heartbeat staleness and degrade status if needed"""
         now = datetime.now(timezone.utc)
         for instance_id, instance in list(self.instances.items()):
-            if instance.status != BotStatus.RUNNING:
+            if instance.status not in {BotStatus.RUNNING, BotStatus.DEGRADED}:
                 continue
 
-            # Check if heartbeat is stale
-            if instance.last_heartbeat is not None:
-                time_since_heartbeat = (now - instance.last_heartbeat).total_seconds()
-                if time_since_heartbeat > instance.heartbeat_stale_seconds:
-                    # Mark as degraded if not already in recovery
-                    if instance.recovery_state != "recovering":
-                        logger.warning(
-                            f"Instance {instance_id} heartbeat stale for {time_since_heartbeat:.0f}s; marking degraded"
-                        )
-                        instance.recovery_state = "degraded"
-                        instance.recovery_reason = f"Heartbeat stale for {time_since_heartbeat:.0f}s"
-                        instance.status = BotStatus.DEGRADED
-                        await self._publish_strategy_status(
-                            instance_id,
-                            event="degraded",
-                            message="Runtime heartbeat stale; operating with caution",
-                        )
+            if instance.last_heartbeat is None:
+                self._refresh_instance_liveness_from_process(instance_id)
+                continue
+
+            time_since_heartbeat = (now - instance.last_heartbeat).total_seconds()
+            if time_since_heartbeat <= instance.heartbeat_stale_seconds:
+                continue
+
+            if self._refresh_instance_liveness_from_process(instance_id):
+                continue
+
+            # Mark as degraded if not already in recovery.
+            if instance.recovery_state != "recovering":
+                logger.warning(
+                    f"Instance {instance_id} heartbeat stale for {time_since_heartbeat:.0f}s; marking degraded"
+                )
+                instance.recovery_state = "degraded"
+                instance.recovery_reason = f"Heartbeat stale for {time_since_heartbeat:.0f}s"
+                instance.status = BotStatus.DEGRADED
+                await self._publish_strategy_status(
+                    instance_id,
+                    event="degraded",
+                    message="Runtime heartbeat stale; operating with caution",
+                )
 
     def get_recovery_diagnostics(self) -> Dict[str, Any]:
         """Return startup recovery diagnostics for observability endpoints."""
@@ -1449,6 +1726,7 @@ class BotInstanceManager:
             "loaded": int(self.recovery_diagnostics.get("loaded", 0)),
             "skipped": int(self.recovery_diagnostics.get("skipped", 0)),
             "skipped_instances": list(skipped_instances) if isinstance(skipped_instances, list) else [],
+            "live_auto_recovery": dict(self.recovery_diagnostics.get("live_auto_recovery") or {}),
             "last_error": self.recovery_diagnostics.get("last_error"),
         }
 
@@ -1456,14 +1734,7 @@ class BotInstanceManager:
         """Release manager resources and optionally stop active child runtimes."""
         if stop_active:
             for instance_id, instance in list(self.instances.items()):
-                if instance.status in {
-                    BotStatus.RUNNING,
-                    BotStatus.STARTING,
-                    BotStatus.STOPPING,
-                    BotStatus.DEGRADED,
-                    BotStatus.RECOVERING,
-                    BotStatus.SAFEGUARDED,
-                }:
+                if instance.status in self.ACTIVE_RUNTIME_STATUSES:
                     await self.stop_instance(instance_id, force=False)
         for instance_id in list(self.log_handles.keys()):
             self._close_instance_log(instance_id)

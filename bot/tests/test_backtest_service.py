@@ -823,7 +823,10 @@ def test_service_init_does_not_auto_reconcile_running_runs():
     BacktestRepository._memory_runs.clear()
 
     service = BacktestService(session=None)
-    now = datetime.now(timezone.utc).isoformat()
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
     service.repository.save_run(
         {
             "run_id": "run-still-running",
@@ -853,7 +856,10 @@ def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
     BacktestRepository._memory_runs.clear()
 
     service = BacktestService(session=None)
-    now = datetime.now(timezone.utc).isoformat()
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
     seeded = service.repository.save_run(
         {
             "run_id": "run-orphaned-ops",
@@ -889,3 +895,136 @@ def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
         run["run_id"] == "run-orphaned-ops"
         for run in ops_report["interrupted_runs"]
     )
+
+
+def test_auto_recovery_marks_orphaned_backtests_failed_by_default():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-auto-mark-failed",
+            "name": "orphaned",
+            "status": "running",
+            "progress_pct": 22.0,
+            "created_at": now,
+            "updated_at": now,
+            "request": _request().model_dump(),
+        }
+    )
+
+    report = asyncio.run(service.auto_recover_interrupted_runs())
+
+    assert report["mode"] == "mark_failed"
+    assert report["candidate_count"] == 1
+    assert report["eligible_count"] == 1
+    assert report["marked_failed_count"] == 1
+    assert report["restarted_count"] == 0
+    persisted = service.repository.get_run("run-auto-mark-failed")
+    assert persisted is not None
+    assert persisted["status"] == "failed"
+    assert persisted["error"] == "Backtest interrupted by API reload or restart"
+
+
+def test_auto_recovery_skips_fresh_orphaned_backtests_to_avoid_false_positive():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-auto-fresh",
+            "name": "fresh",
+            "status": "running",
+            "progress_pct": 8.0,
+            "created_at": now,
+            "updated_at": now,
+            "request": _request().model_dump(),
+        }
+    )
+
+    report = asyncio.run(service.auto_recover_interrupted_runs())
+
+    assert report["candidate_count"] == 1
+    assert report["eligible_count"] == 0
+    assert report["marked_failed_count"] == 0
+    assert report["skipped_count"] == 1
+    persisted = service.repository.get_run("run-auto-fresh")
+    assert persisted is not None
+    assert persisted["status"] == "running"
+
+
+def test_auto_recovery_restart_requeues_existing_backtest_run(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+    BacktestRepository._memory_runs.clear()
+
+    service = BacktestService(session=None)
+    now = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+    ).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-auto-restart",
+            "name": "orphaned",
+            "status": "running",
+            "progress_pct": 31.0,
+            "created_at": now,
+            "updated_at": now,
+            "request": _request().model_dump(),
+        }
+    )
+    recovered = []
+
+    async def _fake_execute_existing(run_id, progress_callback=None):
+        recovered.append((run_id, progress_callback))
+        service._update_run_data(
+            run_id,
+            status="completed",
+            progress_pct=100.0,
+            current_task="complete",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    monkeypatch.setattr(service, "execute_existing_backtest", _fake_execute_existing)
+
+    async def _run_recovery():
+        report = await service.auto_recover_interrupted_runs(mode="restart")
+        await asyncio.sleep(0)
+        return report
+
+    report = asyncio.run(_run_recovery())
+
+    assert report["mode"] == "restart"
+    assert report["candidate_count"] == 1
+    assert report["eligible_count"] == 1
+    assert report["restarted_count"] == 1
+    assert recovered and recovered[0][0] == "run-auto-restart"
+    persisted = service.repository.get_run("run-auto-restart")
+    assert persisted is not None
+    assert persisted["status"] == "completed"

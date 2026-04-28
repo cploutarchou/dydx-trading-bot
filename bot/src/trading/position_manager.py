@@ -1,12 +1,7 @@
 """Position entry and exit management for pairs trading."""
 
 import asyncio
-import contextlib
-import json
-import os
-import threading
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -29,29 +24,18 @@ from src.trading.account_manager import (
     place_market_order,
 )
 from src.trading.analysis.cointegration import calculate_zscore
+from src.trading.bot_agents_state import (
+    BOT_AGENTS_PATH,
+    append_tracked_position,
+    load_tracked_positions,
+    save_processed_positions,
+)
 from src.trading.bot_agent import BotAgent
 from src.trading.market_data import get_candles_recent, get_markets
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - non-POSIX fallback
-    fcntl = None
-
-
-def _resolve_bot_agents_path() -> Path:
-    """Resolve per-instance bot agents path from environment."""
-    configured_path = os.getenv("BOT_AGENTS_FILE", "bot_agents.json")
-    instance_id = os.getenv("BOT_INSTANCE_ID", "default")
-    resolved = configured_path.replace("{instance_id}", instance_id)
-    path = Path(resolved)
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parents[2] / path
-    return path
-
-
-BOT_AGENTS_PATH = _resolve_bot_agents_path()
-_BOT_AGENTS_ASYNC_LOCK = asyncio.Lock()
-_BOT_AGENTS_THREAD_LOCK = threading.RLock()
+from src.trading.trade_persistence import (
+    persist_live_trade_closed,
+    persist_live_trade_opened,
+)
 
 IGNORE_ASSETS = [
     "BTC-USD_x",
@@ -63,83 +47,24 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _position_identity(position: Dict[str, Any]) -> tuple[str, str, str, str]:
-    return (
-        str(position.get("order_id_m1", "")),
-        str(position.get("order_id_m2", "")),
-        str(position.get("market_1", "")),
-        str(position.get("market_2", "")),
-    )
-
-
-def _read_bot_agents_unlocked() -> List[Dict[str, Any]]:
-    try:
-        with BOT_AGENTS_PATH.open("r", encoding="utf-8") as open_positions_file:
-            loaded = json.load(open_positions_file)
-        return loaded if isinstance(loaded, list) else []
-    except Exception:
-        logger.debug("No existing {} found; starting fresh", BOT_AGENTS_PATH)
-        return []
-
-
-def _write_bot_agents_unlocked(positions: List[Dict[str, Any]]) -> None:
-    BOT_AGENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = BOT_AGENTS_PATH.with_name(f".{BOT_AGENTS_PATH.name}.tmp")
-    with tmp_path.open("w", encoding="utf-8") as f:
-        json.dump(positions, f)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, BOT_AGENTS_PATH)
-
-
-@contextlib.contextmanager
-def _bot_agents_file_lock():
-    BOT_AGENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = BOT_AGENTS_PATH.with_name(f".{BOT_AGENTS_PATH.name}.lock")
-    with lock_path.open("a", encoding="utf-8") as lock_file:
-        if fcntl is not None:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-async def _load_tracked_positions() -> List[Dict[str, Any]]:
-    async with _BOT_AGENTS_ASYNC_LOCK:
-        with _BOT_AGENTS_THREAD_LOCK:
-            with _bot_agents_file_lock():
-                return _read_bot_agents_unlocked()
-
-
-async def _append_tracked_position(position: Dict[str, Any]) -> None:
-    async with _BOT_AGENTS_ASYNC_LOCK:
-        with _BOT_AGENTS_THREAD_LOCK:
-            with _bot_agents_file_lock():
-                positions = _read_bot_agents_unlocked()
-                position_ids = {_position_identity(item) for item in positions}
-                if _position_identity(position) not in position_ids:
-                    positions.append(position)
-                _write_bot_agents_unlocked(positions)
-
-
-async def _save_processed_positions(
-        original_positions: List[Dict[str, Any]],
-        remaining_positions: List[Dict[str, Any]],
-) -> None:
-    """Atomically save processed positions while preserving concurrent appends."""
-    processed_ids = {_position_identity(item) for item in original_positions}
-    async with _BOT_AGENTS_ASYNC_LOCK:
-        with _BOT_AGENTS_THREAD_LOCK:
-            with _bot_agents_file_lock():
-                current_positions = _read_bot_agents_unlocked()
-                concurrent_additions = [
-                    item
-                    for item in current_positions
-                    if _position_identity(item) not in processed_ids
-                ]
-                _write_bot_agents_unlocked(remaining_positions + concurrent_additions)
+def _build_trade_opened_notification(bot_open_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Map BotAgent.open_trades() fields into Telegram's opened-trade payload."""
+    base_market = bot_open_dict.get("market_1", "")
+    quote_market = bot_open_dict.get("market_2", "")
+    return {
+        "pair": f"{base_market} / {quote_market}",
+        "base_market": base_market,
+        "quote_market": quote_market,
+        "base_side": bot_open_dict.get("order_m1_side", "Unknown"),
+        "quote_side": bot_open_dict.get("order_m2_side", "Unknown"),
+        "base_size": bot_open_dict.get("order_m1_size", 0),
+        "quote_size": bot_open_dict.get("order_m2_size", 0),
+        "z_score": bot_open_dict.get("z_score", 0),
+        "hedge_ratio": bot_open_dict.get("hedge_ratio", 0),
+        "half_life": bot_open_dict.get("half_life", 0),
+        "market_1_order_id": bot_open_dict.get("order_id_m1", ""),
+        "market_2_order_id": bot_open_dict.get("order_id_m2", ""),
+    }
 
 
 def _opposite_order_side(side: str) -> str:
@@ -456,24 +381,12 @@ async def open_positions(client):
                                 and bot_open_dict.get("pair_status") == "LIVE"
                         ):
                             # Send trade opened notification before deleting bot_open_dict
-                            trade_info = {
-                                "pair": f"{base_market} / {quote_market}",
-                                "base_market": base_market,
-                                "quote_market": quote_market,
-                                "base_side": bot_open_dict.get("base_side", "Unknown"),
-                                "quote_side": bot_open_dict.get("quote_side", "Unknown"),
-                                "base_size": bot_open_dict.get("base_size", 0),
-                                "quote_size": bot_open_dict.get("quote_size", 0),
-                                "z_score": bot_open_dict.get("z_score", 0),
-                                "hedge_ratio": bot_open_dict.get("hedge_ratio", 0),
-                                "half_life": bot_open_dict.get("half_life", 0),
-                                "market_1_order_id": bot_open_dict.get("market_1_order_id", ""),
-                                "market_2_order_id": bot_open_dict.get("market_2_order_id", ""),
-                            }
+                            trade_info = _build_trade_opened_notification(bot_open_dict)
                             messenger.send_trade_opened_message(trade_info)
 
                             # Save trade using atomic per-instance state update.
-                            await _append_tracked_position(bot_open_dict)
+                            await append_tracked_position(bot_open_dict)
+                            persist_live_trade_opened(bot_open_dict)
                             del bot_open_dict
 
                             # Confirm live status in print
@@ -500,7 +413,7 @@ async def manage_trade_exits(client):
     # Initialize saving output
     save_output = []
 
-    open_positions_dict = await _load_tracked_positions()
+    open_positions_dict = await load_tracked_positions()
     logger.debug("Loaded {} tracked positions", len(open_positions_dict))
     if not BOT_AGENTS_PATH.exists() and len(open_positions_dict) == 0:
         logger.info("No {} found; nothing to close", BOT_AGENTS_PATH)
@@ -735,6 +648,13 @@ async def manage_trade_exits(client):
                     "close_order_m2_id": close_order_m2_id,
                 }
                 messenger.send_trade_closed_message(trade_info, "Z-score reversion")
+                persist_live_trade_closed(
+                    position,
+                    exit_price1=accept_price_m1,
+                    exit_price2=accept_price_m2,
+                    exit_size1=position_size_m1,
+                    exit_size2=position_size_m2,
+                )
 
             except Exception as exc:
                 logger.exception(
@@ -773,6 +693,13 @@ async def manage_trade_exits(client):
                             },
                             "Z-score reversion after orphan retry",
                         )
+                        persist_live_trade_closed(
+                            position,
+                            exit_price1=accept_price_m1,
+                            exit_price2=accept_price_m2,
+                            exit_size1=position_size_m1,
+                            exit_size2=position_size_m2,
+                        )
                         continue
                     except Exception as retry_exc:
                         position["pair_status"] = "ORPHANED_EXIT_FAILED"
@@ -799,4 +726,4 @@ async def manage_trade_exits(client):
 
     # Save remaining items
     logger.info("{} items remaining; persisting {}", len(save_output), BOT_AGENTS_PATH)
-    await _save_processed_positions(open_positions_dict, save_output)
+    await save_processed_positions(open_positions_dict, save_output)

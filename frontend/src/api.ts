@@ -554,6 +554,86 @@ interface BacktestRequest extends Record<string, unknown> {
   };
 }
 
+const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest => {
+  const startDate = String(data.start_date || '').trim();
+  const endDate = String(data.end_date || '').trim();
+
+  if (!startDate || !endDate) {
+    throw new Error('Backtest payload requires both start_date and end_date');
+  }
+
+  if (startDate > endDate) {
+    throw new Error('Backtest payload has invalid date range: start_date is after end_date');
+  }
+
+  const incomingPairs = Array.isArray(data.pairs)
+    ? data.pairs
+        .map((pair) => String(pair).trim())
+        .filter((pair): pair is string => pair.length > 0)
+    : undefined;
+
+  const dedupedPairs = incomingPairs ? Array.from(new Set(incomingPairs)) : undefined;
+
+  if (dedupedPairs && dedupedPairs.length === 1) {
+    throw new Error('When pairs are provided, at least two markets are required');
+  }
+
+  const topLevelMode = data.pair_selection_mode;
+  const incomingTradingParams =
+    data.trading_parameters && typeof data.trading_parameters === 'object'
+      ? { ...data.trading_parameters }
+      : {};
+
+  const normalizedPairSelectionMode =
+    incomingTradingParams.pair_selection_mode || topLevelMode || 'liquidity';
+
+  const existingBenchmark =
+    typeof incomingTradingParams.benchmark_symbol === 'string'
+      ? incomingTradingParams.benchmark_symbol.trim()
+      : typeof data.benchmark_symbol === 'string'
+        ? data.benchmark_symbol.trim()
+        : '';
+  // benchmark_symbol is a performance-comparison reference (e.g. 'BTC-USD'), not a
+  // trading market. It must never be derived from the selected pairs list.
+  const normalizedBenchmarkSymbol = existingBenchmark || 'BTC-USD';
+
+  const existingResolution =
+    typeof incomingTradingParams.resolution === 'string' &&
+    incomingTradingParams.resolution.length > 0
+      ? incomingTradingParams.resolution
+      : typeof incomingTradingParams.candle_resolution === 'string' &&
+          incomingTradingParams.candle_resolution.length > 0
+        ? incomingTradingParams.candle_resolution
+        : undefined;
+
+  const normalizedTradingParameters = {
+    ...incomingTradingParams,
+    pair_selection_mode: normalizedPairSelectionMode,
+    benchmark_symbol: normalizedBenchmarkSymbol,
+    ...(existingResolution
+      ? {
+          resolution: existingResolution,
+          candle_resolution: existingResolution,
+        }
+      : {}),
+  };
+
+  const normalizedPayload: BacktestRequest = {
+    ...data,
+    start_date: startDate,
+    end_date: endDate,
+    pair_selection_mode: normalizedPairSelectionMode,
+    trading_parameters: normalizedTradingParameters,
+  };
+
+  if (dedupedPairs && dedupedPairs.length > 0) {
+    normalizedPayload.pairs = dedupedPairs;
+    normalizedPayload.max_pairs = dedupedPairs.length;
+  }
+
+  return normalizedPayload;
+};
+
 export interface PerpetualMarketsResponse extends Record<string, unknown> {
   markets: string[];
   count: number;
@@ -1648,7 +1728,8 @@ class ApiClient {
   async runBacktest(data: BacktestRequest): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     try {
-      const response = await this.client.post('/api/v1/backtests/run', data);
+      const normalizedPayload = normalizeBacktestPayload(data);
+      const response = await this.client.post('/api/v1/backtests/run', normalizedPayload);
       guardRunBacktestContract(response.data);
       return response.data;
     } catch (error: unknown) {

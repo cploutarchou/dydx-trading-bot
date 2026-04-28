@@ -351,6 +351,47 @@ def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
     assert stub_service.progress_callback == server._broadcast_backtest_progress
 
 
+def test_strategy_to_backtest_request_preserves_request_trading_parameters():
+    server = _load_server_module()
+
+    strategy = {
+        "id": 4,
+        "name": "Aggressive Strategy",
+        "description": "Aggressive strategy with lower thresholds for frequent trading",
+        "starting_balance": 1000,
+        "pair_selection_mode": "liquidity",
+        "benchmark_symbol": "BTC-USD",
+    }
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-29",
+        end_date="2026-04-28",
+        strategy_id=4,
+        max_pairs=6,
+        pair_selection_mode="liquidity",
+        trading_parameters={
+            "zscore_threshold": 1.0,
+            "stats_window": 14,
+            "benchmark_symbol": "ETH-USD",
+            "resolution": "4HOUR",
+            "max_history_days": 120,
+        },
+    )
+
+    result = server._strategy_to_backtest_request(
+        strategy,
+        request,
+        ["ETH-USD", "SOL-USD", "ADA-USD"],
+    )
+
+    assert result.trading_parameters["benchmark_symbol"] == "ETH-USD"
+    assert result.trading_parameters["resolution"] == "4HOUR"
+    assert result.trading_parameters["max_history_days"] == 120
+    assert result.trading_parameters["pair_selection_mode"] == "liquidity"
+    assert result.trading_parameters["max_pairs"] == 6
+    assert result.pairs == ["ETH-USD", "SOL-USD", "ADA-USD"]
+
+
 def test_api_response_sanitizes_internal_error_details():
     server = _load_server_module()
 

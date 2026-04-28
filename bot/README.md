@@ -78,6 +78,7 @@ Use the generated schema and source code as the detailed endpoint contract, not 
 
 ## Related Docs
 
+- [Bot Flow Documentation](/home/chris/workspace/dydx-trading-bot/bot/docs/BOT_FLOWS.md)
 - [Root README](/home/chris/workspace/dydx-trading-bot/README.md)
 - [Platform Wiki Home](/home/chris/workspace/dydx-trading-bot/docs/README.md)
 - [Operations Guide](/home/chris/workspace/dydx-trading-bot/docs/OPERATIONS.md)

@@ -1,4 +1,4 @@
-import { Activity, Command, LogOut, Sparkles, X } from 'lucide-react';
+import { Command, LogOut, Search, X } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getUserWorkspaceRole } from '../auth/roles';
@@ -26,6 +26,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
   const role = getUserWorkspaceRole(user);
   const visibleNavItems = filterNavItemsForRole(workspaceNavItems, role);
   const visibleQuickActions = filterNavItemsForRole(workspaceQuickActions, role);
+  const sectionLabel = (section: (typeof workspaceSections)[number]) => {
+    const labels = {
+      Overview: t('Overview', 'Επισκόπηση'),
+      'Strategy Lab': t('Strategy Lab', 'Εργαστήριο Στρατηγικής'),
+      'Live Trading': t('Live Trading', 'Ζωντανές Συναλλαγές'),
+      Intelligence: t('Intelligence', 'Πληροφόρηση'),
+      Administration: t('Administration', 'Διαχείριση'),
+    };
+
+    return labels[section];
+  };
 
   const openWorkspace = (path: string) => {
     navigate(path);
@@ -57,19 +68,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
           </button>
         </div>
 
-        <div className="border-b border-slate-800/90 px-6 pb-6 pt-4 lg:pt-8">
-          <div className="workspace-chip border-cyan-500/20 text-cyan-200">
-            <Sparkles className="h-3.5 w-3.5" />
-            {t('Trading desk', 'Πίνακας συναλλαγών')}
-          </div>
-
-          <div className="mt-4 flex items-center gap-3">
+        <div className="border-b border-slate-800/90 px-5 pb-4 pt-4 lg:pt-6">
+          <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/15 text-sm font-semibold text-teal-100">
               DA
             </div>
-            <div>
-              <h1 className="text-lg font-semibold text-white">DefiArbitrage</h1>
-              <p className="text-xs text-slate-500">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-lg font-semibold text-white">DefiArbitrage</h1>
+                <span
+                  className="rounded-full bg-emerald-400/80 p-1"
+                  title={t('Ready', 'Έτοιμο')}
+                />
+              </div>
+              <p className="truncate text-xs text-slate-500">
                 {t(
                   'Research, backtests, bots, and controls',
                   'Έρευνα, backtests, bots και έλεγχοι'
@@ -78,32 +90,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3">
-            <div className="workspace-card px-4 py-4">
-              <div className="flex items-center gap-2 text-emerald-300">
-                <Activity className="h-4 w-4" />
-                <p className="text-sm font-semibold text-white">
-                  {t('Workspace ready', 'Ο χώρος εργασίας είναι έτοιμος')}
-                </p>
-              </div>
-              <p className="mt-2 text-xs leading-5 text-slate-400">
-                {t(
-                  'Active routes, quick actions, and command access stay within one scan.',
-                  'Ενεργές διαδρομές, γρήγορες ενέργειες και πρόσβαση εντολών σε μία ματιά.'
-                )}
-              </p>
-            </div>
-
+          <div className="mt-4 grid gap-3">
             <button
               type="button"
               onClick={() => {
                 onOpenCommandPalette?.();
                 onClose?.();
               }}
-              className="workspace-card flex w-full items-center gap-3 px-4 py-4 text-left transition hover:border-cyan-500/20"
+              className="workspace-card flex w-full items-center gap-3 px-3 py-3 text-left transition hover:border-cyan-500/20"
             >
               <div className="rounded-lg border border-slate-800 bg-slate-950 p-2 text-cyan-200">
-                <Command className="h-4 w-4" />
+                <Search className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-100">
@@ -111,22 +108,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                 </p>
                 <p className="truncate text-xs text-slate-500">
                   {t(
-                    'Jump anywhere with keyboard-first navigation',
-                    'Μετακίνηση παντού με πληκτρολόγιο'
+                    'Find routes, actions, and recent screens',
+                    'Βρείτε διαδρομές, ενέργειες και πρόσφατες οθόνες'
                   )}
                 </p>
               </div>
               <span className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] uppercase text-slate-500">
-                Ctrl K
+                <Command className="inline h-3 w-3" /> K
               </span>
             </button>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-6">
-          <div className="workspace-card px-3 py-3">
-            <p className="px-1 text-[10px] uppercase text-slate-500">Quick actions</p>
-            <div className="mt-3 space-y-2">
+        <nav className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="mb-5">
+            <p className="px-1 text-[10px] font-semibold uppercase text-slate-500">
+              {t('Primary actions', 'Κύριες ενέργειες')}
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
               {visibleQuickActions.slice(0, 3).map((item) => {
                 const Icon = item.icon;
                 return (
@@ -137,29 +136,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                       openWorkspace(item.path);
                       onClose?.();
                     }}
-                    className="flex w-full items-center gap-3 rounded-lg border border-slate-800 bg-stone-950/78 px-3 py-3 text-left text-sm text-slate-300 transition hover:border-slate-700 hover:bg-stone-900 hover:text-white"
+                    className="flex min-h-22 flex-col items-start justify-between rounded-lg border border-slate-800 bg-stone-950/78 p-3 text-left text-slate-300 transition hover:border-cyan-500/30 hover:bg-stone-900 hover:text-white"
+                    title={tr(item.description)}
                   >
                     <div className="rounded-lg border border-slate-800 bg-stone-900 p-2 text-cyan-200">
                       <Icon className="h-4 w-4" />
                     </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-100">{item.label}</p>
-                      <p className="truncate text-xs text-slate-500">{tr(item.description)}</p>
-                    </div>
+                    <p className="mt-2 text-xs font-semibold leading-4 text-slate-100">
+                      {tr(item.label)}
+                    </p>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             {workspaceSections.map((section) => {
               const items = visibleNavItems.filter((item) => item.section === section);
               if (items.length === 0) return null;
 
               return (
                 <div key={section}>
-                  <p className="px-3 text-[10px] uppercase text-slate-500">{tr(section)}</p>
+                  <p className="px-3 text-[10px] font-semibold uppercase text-slate-500">
+                    {sectionLabel(section)}
+                  </p>
                   <div className="mt-2 space-y-1">
                     {items.map((item) => {
                       const active = isNavItemActive(location.pathname, item);
@@ -213,18 +214,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
         </nav>
 
         <div className="border-t border-slate-800/90 px-4 py-4">
-          <div className="workspace-card px-4 py-4">
-            <p className="text-[10px] uppercase text-slate-500">
-              {t('Signed in as', 'Συνδεδεμένος ως')}
-            </p>
-            <p className="mt-2 truncate text-sm font-semibold text-white">
-              {user?.full_name || user?.username}
-            </p>
-            <p className="truncate text-xs text-slate-500">{user?.email}</p>
+          <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-stone-950/62 px-3 py-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-500/20 bg-cyan-500/10 text-xs font-bold text-cyan-200">
+              {(user?.full_name || user?.username || 'T').slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] uppercase text-slate-500">
+                {t('Signed in as', 'Συνδεδεμένος ως')}
+              </p>
+              <p className="truncate text-sm font-semibold text-white">
+                {user?.full_name || user?.username}
+              </p>
+              <p className="truncate text-xs text-slate-500">{user?.email}</p>
+            </div>
             {user?.role && (
-              <div className="mt-3 inline-flex rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase text-cyan-300">
+              <span className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase text-cyan-300">
                 {user.role}
-              </div>
+              </span>
             )}
           </div>
 

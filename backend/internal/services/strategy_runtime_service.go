@@ -542,6 +542,7 @@ func (s *StrategyRuntimeService) buildTelegramParams() map[string]interface{} {
 }
 
 func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStrategy, network string) map[string]interface{} {
+	resolution := normalizeDydxCandleResolution(strategy.CandleResolution)
 	return map[string]interface{}{
 		"is_testnet":               !strings.EqualFold(network, "mainnet"),
 		"subaccount_number":        strategy.RuntimeSubaccount,
@@ -550,7 +551,7 @@ func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStr
 		"manage_exits":             strategy.ManageExits,
 		"place_trades":             strategy.PlaceTrades,
 		"abort_all_positions":      strategy.AbortAllPositions,
-		"resolution_timeframe":     strategy.CandleResolution,
+		"resolution_timeframe":     resolution,
 		"strategy":                 resolvedRuntimeStrategy(strategy),
 		"stats_window":             strategy.StatsWindow,
 		"max_half_life":            int(strategy.MaxHalfLife),
@@ -570,14 +571,36 @@ func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStr
 }
 
 func (s *StrategyRuntimeService) buildBacktestingParams(strategy *models.BacktestStrategy) map[string]interface{} {
+	resolution := normalizeDydxCandleResolution(strategy.CandleResolution)
 	return map[string]interface{}{
-		"candle_resolution": strategy.CandleResolution,
+		"candle_resolution": resolution,
 		"max_history_days":  strategy.MaxHistoryDays,
 		"starting_balance":  strategy.StartingBalance,
 		"transaction_fee":   strategy.TransactionFee,
 		"slippage":          strategy.Slippage,
 		"benchmark_symbol":  strategy.BenchmarkSymbol,
 		"risk_free_rate":    strategy.RiskFreeRate,
+	}
+}
+
+func normalizeDydxCandleResolution(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "M1", "1M", "1MIN", "1MINUTE", "1MINUTES":
+		return "1MIN"
+	case "M5", "5M", "5MIN", "5MINS", "5MINUTE", "5MINUTES":
+		return "5MINS"
+	case "M15", "15M", "15MIN", "15MINS", "15MINUTE", "15MINUTES":
+		return "15MINS"
+	case "M30", "30M", "30MIN", "30MINS", "30MINUTE", "30MINUTES":
+		return "30MINS"
+	case "H1", "1H", "1HR", "1HOUR", "1HOURS":
+		return "1HOUR"
+	case "H4", "4H", "4HR", "4HOUR", "4HOURS":
+		return "4HOURS"
+	case "D1", "1D", "1DAY", "1DAYS":
+		return "1DAY"
+	default:
+		return "1HOUR"
 	}
 }
 

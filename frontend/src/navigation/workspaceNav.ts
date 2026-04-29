@@ -23,7 +23,7 @@ export interface WorkspaceNavItem {
   label: string;
   path: string;
   description: string;
-  section: 'Cockpit' | 'Execute' | 'Research' | 'System';
+  section: 'Overview' | 'Strategy Lab' | 'Live Trading' | 'Intelligence' | 'Administration';
   keywords: string[];
   exact?: boolean;
   icon: LucideIcon;
@@ -36,7 +36,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Dashboard',
     path: '/dashboard',
     description: 'Portfolio overview, active runs, market pulse, and quick launch.',
-    section: 'Cockpit',
+    section: 'Overview',
     keywords: ['home', 'overview', 'kpi', 'pulse'],
     exact: true,
     icon: Home,
@@ -46,7 +46,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Client Area',
     path: '/client-area',
     description: 'Onboarding, account progression, and partner upgrade requests.',
-    section: 'Cockpit',
+    section: 'Overview',
     keywords: ['client', 'account', 'onboarding', 'promotion'],
     exact: true,
     icon: Building2,
@@ -56,7 +56,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Backtests',
     path: '/backtests',
     description: 'Explore backtest runs, rankings, and strategy intelligence.',
-    section: 'Execute',
+    section: 'Strategy Lab',
     keywords: ['runs', 'simulation', 'history', 'results'],
     exact: true,
     icon: Target,
@@ -66,7 +66,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Compare Backtests',
     path: '/backtests/compare',
     description: 'Compare multiple runs and inspect relative performance.',
-    section: 'Execute',
+    section: 'Strategy Lab',
     keywords: ['compare', 'benchmark', 'versus'],
     exact: false,
     icon: BarChart3,
@@ -75,7 +75,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Strategies',
     path: '/strategies',
     description: 'Browse and organize reusable trading strategies.',
-    section: 'Execute',
+    section: 'Strategy Lab',
     keywords: ['library', 'templates', 'alpha'],
     exact: true,
     icon: Library,
@@ -85,7 +85,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Strategy Runtime',
     path: '/strategies/manage',
     description: 'Monitor live strategy runtime state and execution health.',
-    section: 'Execute',
+    section: 'Live Trading',
     keywords: ['runtime', 'signals', 'live', 'manage'],
     exact: false,
     icon: PlayCircle,
@@ -94,7 +94,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Bot Manager',
     path: '/bots',
     description: 'Operate bot instances, runtime health, and control flows.',
-    section: 'Execute',
+    section: 'Live Trading',
     keywords: ['instances', 'operator', 'deploy'],
     exact: false,
     icon: Bot,
@@ -104,7 +104,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Market Intel',
     path: '/codex',
     description: 'AI-assisted asset intelligence and research context.',
-    section: 'Research',
+    section: 'Intelligence',
     keywords: ['intel', 'codex', 'analysis', 'assets'],
     exact: true,
     icon: Sparkles,
@@ -113,7 +113,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Market News',
     path: '/news',
     description: 'News flow, narratives, and market context.',
-    section: 'Research',
+    section: 'Intelligence',
     keywords: ['news', 'headlines', 'coindesk'],
     exact: true,
     icon: Newspaper,
@@ -122,7 +122,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'CRM',
     path: crmPath('dashboard'),
     description: 'Backoffice workflows for clients, IB approvals, and partner reviews.',
-    section: 'System',
+    section: 'Administration',
     keywords: ['crm', 'backoffice', 'approvals', 'partners', 'clients'],
     exact: false,
     icon: BriefcaseBusiness,
@@ -133,7 +133,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Settings',
     path: '/settings',
     description: 'Operator preferences, credentials, integrations, and system config.',
-    section: 'System',
+    section: 'Administration',
     keywords: ['preferences', 'config', 'auth', 'keys'],
     exact: false,
     icon: Settings,
@@ -143,7 +143,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'IB Portal',
     path: ibPortalPath('dashboard'),
     description: 'Invitation tokens and Introducing Broker onboarding operations.',
-    section: 'System',
+    section: 'Administration',
     keywords: ['ib', 'invites', 'tokens', 'partners', 'onboarding'],
     exact: false,
     icon: KeyRound,
@@ -154,7 +154,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     label: 'Admin Hub',
     path: '/admin',
     description: 'Platform operating center for access, controls, and cross-portal oversight.',
-    section: 'System',
+    section: 'Administration',
     keywords: ['admin', 'hub', 'controls', 'governance'],
     exact: true,
     icon: ShieldCheck,
@@ -168,7 +168,7 @@ export const workspaceQuickActions: WorkspaceNavItem[] = [
     label: 'New Strategy',
     path: '/strategies/new',
     description: 'Create a fresh strategy blueprint.',
-    section: 'Execute',
+    section: 'Strategy Lab',
     keywords: ['create', 'new', 'builder', 'strategy'],
     exact: false,
     icon: PlusCircle,
@@ -180,10 +180,11 @@ export const workspaceQuickActions: WorkspaceNavItem[] = [
 ];
 
 export const workspaceSections: Array<WorkspaceNavItem['section']> = [
-  'Cockpit',
-  'Execute',
-  'Research',
-  'System',
+  'Overview',
+  'Strategy Lab',
+  'Live Trading',
+  'Intelligence',
+  'Administration',
 ];
 
 export const filterNavItemsForRole = (

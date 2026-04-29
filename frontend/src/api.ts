@@ -14,6 +14,70 @@ import { attachTraceHeader, traceHeaderName } from './api/trace';
 
 const API_BASE_URL = getBackendHttpBase();
 
+export const DYDX_CANDLE_RESOLUTION_OPTIONS = [
+  { value: '1MIN', label: '1 Minute' },
+  { value: '5MINS', label: '5 Minutes' },
+  { value: '15MINS', label: '15 Minutes' },
+  { value: '30MINS', label: '30 Minutes' },
+  { value: '1HOUR', label: '1 Hour' },
+  { value: '4HOURS', label: '4 Hours' },
+  { value: '1DAY', label: '1 Day' },
+] as const;
+
+export type DydxCandleResolution = (typeof DYDX_CANDLE_RESOLUTION_OPTIONS)[number]['value'];
+
+export const normalizeDydxCandleResolution = (value?: string | null): DydxCandleResolution => {
+  const normalized = String(value || '').trim().toUpperCase();
+  switch (normalized) {
+    case 'M1':
+    case '1M':
+    case '1MIN':
+    case '1MINUTE':
+    case '1MINUTES':
+      return '1MIN';
+    case 'M5':
+    case '5M':
+    case '5MIN':
+    case '5MINS':
+    case '5MINUTE':
+    case '5MINUTES':
+      return '5MINS';
+    case 'M15':
+    case '15M':
+    case '15MIN':
+    case '15MINS':
+    case '15MINUTE':
+    case '15MINUTES':
+      return '15MINS';
+    case 'M30':
+    case '30M':
+    case '30MIN':
+    case '30MINS':
+    case '30MINUTE':
+    case '30MINUTES':
+      return '30MINS';
+    case 'H1':
+    case '1H':
+    case '1HR':
+    case '1HOUR':
+    case '1HOURS':
+      return '1HOUR';
+    case 'H4':
+    case '4H':
+    case '4HR':
+    case '4HOUR':
+    case '4HOURS':
+      return '4HOURS';
+    case 'D1':
+    case '1D':
+    case '1DAY':
+    case '1DAYS':
+      return '1DAY';
+    default:
+      return '1HOUR';
+  }
+};
+
 const isPublicUnauthenticatedRoute = (url: string): boolean =>
   url.includes('/auth/login') ||
   url.includes('/auth/register') ||
@@ -605,15 +669,18 @@ const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest => {
           incomingTradingParams.candle_resolution.length > 0
         ? incomingTradingParams.candle_resolution
         : undefined;
+  const normalizedResolution = existingResolution
+    ? normalizeDydxCandleResolution(existingResolution)
+    : undefined;
 
   const normalizedTradingParameters = {
     ...incomingTradingParams,
     pair_selection_mode: normalizedPairSelectionMode,
     benchmark_symbol: normalizedBenchmarkSymbol,
-    ...(existingResolution
+    ...(normalizedResolution
       ? {
-          resolution: existingResolution,
-          candle_resolution: existingResolution,
+          resolution: normalizedResolution,
+          candle_resolution: normalizedResolution,
         }
       : {}),
   };
@@ -649,6 +716,7 @@ interface StrategyRequest extends Record<string, unknown> {
   runtime_strategy?: string;
   runtime_network?: 'testnet' | 'mainnet';
   runtime_subaccount?: number;
+  selected_markets?: string[];
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -805,6 +873,60 @@ export interface CodexAssetContextResponse extends Record<string, unknown> {
 export interface CodexKeyPayload extends Record<string, unknown> {
   api_key: string;
   label?: string;
+}
+
+export type AIMarketProvider = 'openai' | 'deepseek' | 'claude';
+
+export interface AIProviderStatus extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  label?: string;
+  enabled: boolean;
+  shared_key_available: boolean;
+  user_key_available: boolean;
+  user_key_masked?: string;
+  active_key_source: 'user' | 'shared' | 'none';
+  model: string;
+}
+
+export interface AIMarketStatusResponse extends Record<string, unknown> {
+  providers: AIProviderStatus[];
+}
+
+export interface AIKeyPayload extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  api_key: string;
+  label?: string;
+}
+
+export interface AIMarketSelectionRequest extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  mode: 'ai_recommended' | 'most_popular' | 'most_profitable' | 'top_20';
+  markets?: string[];
+  limit?: number;
+  strategy?: string;
+  criteria?: {
+    objective?: string;
+    volume_weight?: number;
+    liquidity_weight?: number;
+    tradeability_weight?: number;
+    momentum_weight?: number;
+    volatility_weight?: number;
+    cointegration_weight?: number;
+    risk_weight?: number;
+    future_gainers?: boolean;
+    notes?: string;
+  };
+}
+
+export interface AIMarketSelectionResponse extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  mode: string;
+  source: string;
+  selected_markets: string[];
+  rationale: string;
+  confidence: number;
+  used_ai: boolean;
+  fallback_reason?: string;
 }
 
 export interface CoinDeskArticle extends Record<string, unknown> {
@@ -1044,8 +1166,9 @@ const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
         : undefined;
 
   if (resolvedResolution) {
-    normalized.resolution = resolvedResolution;
-    normalized.candle_resolution = resolvedResolution;
+    const canonicalResolution = normalizeDydxCandleResolution(resolvedResolution);
+    normalized.resolution = canonicalResolution;
+    normalized.candle_resolution = canonicalResolution;
   }
 
   return normalized;
@@ -1062,10 +1185,13 @@ const normalizeStrategyResponse = <T extends StrategyResponse | undefined>(strat
       : typeof strategy.candle_resolution === 'string'
         ? strategy.candle_resolution
         : undefined;
+  const canonicalResolution = resolution ? normalizeDydxCandleResolution(resolution) : undefined;
 
   return {
     ...strategy,
-    ...(resolution ? { resolution, candle_resolution: resolution } : {}),
+    ...(canonicalResolution
+      ? { resolution: canonicalResolution, candle_resolution: canonicalResolution }
+      : {}),
   } as T;
 };
 
@@ -2943,6 +3069,42 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<CodexAssetContextResponse>>(
       '/api/v1/codex/assets/context',
+      data
+    );
+    return response.data;
+  }
+
+  async getAIMarketStatus(): Promise<ApiResponse<AIMarketStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<AIMarketStatusResponse>>(
+      '/api/v1/ai/market-filters/status'
+    );
+    return response.data;
+  }
+
+  async saveAIMarketKey(data: AIKeyPayload): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/ai/market-filters/key',
+      data
+    );
+    return response.data;
+  }
+
+  async deleteAIMarketKey(provider: AIMarketProvider): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/ai/market-filters/key/${encodeURIComponent(provider)}`
+    );
+    return response.data;
+  }
+
+  async selectAIMarkets(
+    data: AIMarketSelectionRequest
+  ): Promise<ApiResponse<AIMarketSelectionResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<AIMarketSelectionResponse>>(
+      '/api/v1/ai/market-filters/select',
       data
     );
     return response.data;

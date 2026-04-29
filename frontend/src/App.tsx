@@ -78,7 +78,7 @@ const CodexPage = lazy(() =>
   import('./pages/Codex').then((module) => ({ default: module.CodexPage }))
 );
 const CRMRouter = lazy(() =>
-  import('./pages/crm').then((module) => ({ default: module.CRMRouter }))
+  import('./pages/crm/index').then((module) => ({ default: module.CRMRouter }))
 );
 const CRMClientDetail = lazy(() =>
   import('./pages/crm/CRMClientDetail').then((module) => ({ default: module.CRMClientDetail }))

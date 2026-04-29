@@ -39,6 +39,7 @@ import {
 } from 'react';
 import apiClient from '../api';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
+import { AIMarketSettings } from '../components/AIMarketSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
 import { CodexSettings } from '../components/CodexSettings';
 import { CoinDeskNewsSettings } from '../components/CoinDeskNewsSettings';
@@ -133,6 +134,7 @@ const getSettingsFieldRefKey = (section: string, fieldKey: string): string =>
 
 const MANUAL_SECTION_IDS = new Set([
   'codex_io',
+  'ai_market_filters',
   'market_news',
   'mailgun',
   'telegram',
@@ -150,6 +152,7 @@ const MANUAL_SECTION_IDS = new Set([
 const SECTION_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   profile: UserCircle,
   dydx_keys: KeyRound,
+  ai_market_filters: Zap,
   codex_io: BarChart2,
   access_control: Users,
   telegram: MessageSquare,
@@ -163,7 +166,7 @@ const getSectionIcon = (id: string): ComponentType<{ className?: string }> =>
 // ── Sidebar grouping ─────────────────────────────────────────────────────────
 const SIDEBAR_GROUPS: Array<{ label: string; sectionIds: string[] }> = [
   { label: 'Identity', sectionIds: ['profile', 'security'] },
-  { label: 'API Keys', sectionIds: ['dydx_keys', 'codex_io'] },
+  { label: 'API Keys', sectionIds: ['dydx_keys', 'ai_market_filters', 'codex_io'] },
   { label: 'Integrations', sectionIds: ['access_control', 'telegram', 'mailgun', 'market_news'] },
 ];
 
@@ -364,6 +367,11 @@ export default function Settings() {
       { section: 'profile', title: 'Profile', description: 'Account & avatar' },
       { section: 'security', title: 'Security', description: '2FA & sessions' },
       { section: 'dydx_keys', title: 'dYdX Keys', description: 'Testnet & mainnet' },
+      {
+        section: 'ai_market_filters',
+        title: 'AI Filters',
+        description: 'OpenAI, DeepSeek, Claude',
+      },
       { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
       ...(user?.is_admin
         ? [
@@ -821,6 +829,7 @@ export default function Settings() {
         <div className="min-w-0 flex-1">
           {activeSection === 'profile' && <ProfileSettings />}
           {activeSection === 'dydx_keys' && <DYDXKeyManager />}
+          {activeSection === 'ai_market_filters' && <AIMarketSettings />}
           {activeSection === 'codex_io' && <CodexSettings />}
           {activeSection === 'access_control' && user?.is_admin && <AdminAccessControlSettings />}
           {activeSection === 'mailgun' && user?.is_admin && <MailgunSettings />}

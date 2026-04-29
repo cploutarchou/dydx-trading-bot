@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api';
+import api, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
 import { useStrategyStore } from '../store/strategies';
 import { useToastStore } from './ErrorBoundary';
 import { InlineNotice } from './ui/PlatformUI';
@@ -802,23 +802,25 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             <label className={labelClass}>Candle Resolution</label>
             <select
               name="resolution"
-              value={formData.trading_parameters.resolution || '1HOUR'}
+              value={normalizeDydxCandleResolution(
+                formData.trading_parameters.resolution || '1HOUR'
+              )}
               onChange={(e) =>
                 setFormData((prev) => ({
                   ...prev,
                   trading_parameters: {
                     ...prev.trading_parameters,
-                    resolution: e.target.value,
+                    resolution: normalizeDydxCandleResolution(e.target.value),
                   },
                 }))
               }
               className={inputClass}
             >
-              <option value="15MINS">15 Minutes</option>
-              <option value="30MINS">30 Minutes</option>
-              <option value="1HOUR">1 Hour</option>
-              <option value="4HOUR">4 Hours</option>
-              <option value="1DAY">1 Day</option>
+              {DYDX_CANDLE_RESOLUTION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>

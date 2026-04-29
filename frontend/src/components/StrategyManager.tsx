@@ -14,7 +14,7 @@ import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'l
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../api';
+import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
@@ -70,14 +70,6 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 const RUNTIME_STRATEGY_OPTIONS = [
   { value: 'cointegration', label: 'Cointegration' },
   { value: 'mean_reversion', label: 'Mean Reversion' },
-];
-
-const RESOLUTION_OPTIONS = [
-  { value: '15MINS', label: '15 Minutes' },
-  { value: '30MINS', label: '30 Minutes' },
-  { value: '1HOUR', label: '1 Hour' },
-  { value: '4HOUR', label: '4 Hours' },
-  { value: '1DAY', label: '1 Day' },
 ];
 
 const needsRuntimeRecreateConfirmation = (message?: string): boolean => {
@@ -683,8 +675,12 @@ export default function StrategyManager() {
         runtime_strategy: editingConfig.runtime_strategy || 'cointegration',
         runtime_network: editingConfig.runtime_network || 'testnet',
         runtime_subaccount: editingConfig.runtime_subaccount ?? 0,
-        resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
-        candle_resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
+        resolution: normalizeDydxCandleResolution(
+          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+        ),
+        candle_resolution: normalizeDydxCandleResolution(
+          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+        ),
         zscore_threshold: editingConfig.zscore_threshold,
         stats_window: editingConfig.stats_window,
         max_half_life: editingConfig.max_half_life,
@@ -1595,17 +1591,19 @@ export default function StrategyManager() {
                       <label className="mb-2 block text-white font-medium">Resolution</label>
                       <select
                         value={
-                          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+                          normalizeDydxCandleResolution(
+                            editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+                          )
                         }
                         onChange={(e) =>
                           updateEditingConfig({
-                            resolution: e.target.value,
-                            candle_resolution: e.target.value,
+                            resolution: normalizeDydxCandleResolution(e.target.value),
+                            candle_resolution: normalizeDydxCandleResolution(e.target.value),
                           })
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       >
-                        {RESOLUTION_OPTIONS.map((option) => (
+                        {DYDX_CANDLE_RESOLUTION_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>

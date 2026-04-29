@@ -27,6 +27,7 @@ interface TradingParameters {
   rebalance_interval_hours?: number;
   position_timeout_hours?: number;
   resolution?: string;
+  candle_resolution?: string;
   transaction_fee?: number;
   slippage?: number;
   risk_free_rate?: number;
@@ -238,6 +239,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     if (id && useStrategy) {
       const strategy = strategies.find((s) => s.id === id);
       if (strategy) {
+        const strategyMarkets = Array.isArray(strategy.selected_markets)
+          ? strategy.selected_markets
+          : [];
+        setSelectedMarkets(strategyMarkets.slice(0, 20));
         setFormData((prev) => ({
           ...prev,
           strategy_id: id,
@@ -247,6 +252,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           trading_parameters: {
             ...prev.trading_parameters,
             resolution: strategy.candle_resolution || strategy.resolution,
+            candle_resolution: strategy.candle_resolution || strategy.resolution,
             zscore_threshold: strategy.zscore_threshold,
             stats_window: strategy.stats_window,
             max_half_life: strategy.max_half_life,
@@ -281,7 +287,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       if (prev.includes(market)) {
         return prev.filter((item) => item !== market);
       }
-      if (prev.length >= 5) {
+      if (prev.length >= 20) {
         return prev;
       }
       return [...prev, market];

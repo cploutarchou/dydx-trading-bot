@@ -13,6 +13,54 @@ from src.shared.utils import get_ISO_times
 ISO_TIMES = get_ISO_times()
 
 
+def normalize_resolution(resolution):
+    """Return a dYdX candle resolution enum while accepting older app aliases."""
+    raw = str(resolution or "1HOUR").strip().upper()
+    mapping = {
+        "M1": "1MIN",
+        "1M": "1MIN",
+        "1MIN": "1MIN",
+        "1MINUTE": "1MIN",
+        "1MINUTES": "1MIN",
+        "M5": "5MINS",
+        "5M": "5MINS",
+        "5MIN": "5MINS",
+        "5MINS": "5MINS",
+        "5MINUTE": "5MINS",
+        "5MINUTES": "5MINS",
+        "M15": "15MINS",
+        "15M": "15MINS",
+        "15MIN": "15MINS",
+        "15MINS": "15MINS",
+        "15MINUTE": "15MINS",
+        "15MINUTES": "15MINS",
+        "M30": "30MINS",
+        "30M": "30MINS",
+        "30MIN": "30MINS",
+        "30MINS": "30MINS",
+        "30MINUTE": "30MINS",
+        "30MINUTES": "30MINS",
+        "H1": "1HOUR",
+        "1H": "1HOUR",
+        "1HR": "1HOUR",
+        "1HOUR": "1HOUR",
+        "1HOURS": "1HOUR",
+        "H4": "4HOURS",
+        "4H": "4HOURS",
+        "4HR": "4HOURS",
+        "4HOUR": "4HOURS",
+        "4HOURS": "4HOURS",
+        "D1": "1DAY",
+        "1D": "1DAY",
+        "1DAY": "1DAY",
+        "1DAYS": "1DAY",
+    }
+    return mapping.get(raw, "1HOUR")
+
+
+DYDX_RESOLUTION = normalize_resolution(RESOLUTION)
+
+
 async def get_candles_recent(client, market):
     """Get recent candles for a market."""
     # Define output
@@ -23,7 +71,7 @@ async def get_candles_recent(client, market):
 
     # Get Prices from DYDX V4
     response = await client.indexer.markets.get_perpetual_market_candles(
-        market=market, resolution=RESOLUTION
+        market=market, resolution=DYDX_RESOLUTION
     )
 
     # Candles
@@ -57,7 +105,7 @@ async def get_candles_historical(client, market):
 
         response = await client.indexer.markets.get_perpetual_market_candles(
             market=market,
-            resolution=RESOLUTION,
+            resolution=DYDX_RESOLUTION,
             from_iso=from_iso,
             to_iso=to_iso,
             limit=100,

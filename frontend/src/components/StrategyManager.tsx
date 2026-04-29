@@ -672,9 +672,12 @@ export default function StrategyManager() {
         name: editingConfig.name || 'Untitled Strategy',
         category: editingConfig.category,
         description: editingConfig.description,
+        is_public: editingConfig.is_public,
         runtime_strategy: editingConfig.runtime_strategy || 'cointegration',
         runtime_network: editingConfig.runtime_network || 'testnet',
         runtime_subaccount: editingConfig.runtime_subaccount ?? 0,
+        selected_markets: editingConfig.selected_markets || [],
+        pair_selection_mode: editingConfig.pair_selection_mode || 'liquidity',
         resolution: normalizeDydxCandleResolution(
           editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
         ),
@@ -735,11 +738,52 @@ export default function StrategyManager() {
       const endDate = new Date();
       const startDate = new Date(endDate);
       startDate.setDate(startDate.getDate() - 30);
+      const selectedMarkets = Array.isArray(strategy.selected_markets)
+        ? strategy.selected_markets
+        : [];
+      const resolution = normalizeDydxCandleResolution(
+        strategy.candle_resolution || strategy.resolution || '1HOUR'
+      );
+      const pairSelectionMode = strategy.pair_selection_mode || 'liquidity';
+      const initialBalance = Number(strategy.starting_balance ?? strategy.initial_amount ?? 1000);
 
       const response = await apiClient.runBacktest({
         strategy_id: strategy.id,
+        name: `${strategy.name} Backtest`,
+        description: strategy.description || '',
         start_date: startDate.toISOString().split('T')[0],
         end_date: endDate.toISOString().split('T')[0],
+        initial_balance: initialBalance,
+        max_pairs: selectedMarkets.length,
+        pair_selection_mode: pairSelectionMode,
+        ...(selectedMarkets.length > 0 ? { pairs: selectedMarkets } : {}),
+        trading_parameters: {
+          resolution,
+          candle_resolution: resolution,
+          zscore_threshold: strategy.zscore_threshold,
+          stats_window: strategy.stats_window,
+          max_half_life: strategy.max_half_life,
+          usd_per_trade: strategy.usd_per_trade,
+          usd_min_collateral: strategy.usd_min_collateral,
+          close_at_zscore_cross: strategy.close_at_zscore_cross,
+          find_cointegrated_pairs: strategy.find_cointegrated_pairs,
+          manage_exits: strategy.manage_exits,
+          place_trades: strategy.place_trades,
+          abort_all_positions: strategy.abort_all_positions,
+          max_positions: strategy.max_positions,
+          max_drawdown_pct: strategy.max_drawdown_pct,
+          stop_loss_pct: strategy.stop_loss_pct,
+          take_profit_pct: strategy.take_profit_pct,
+          trailing_stop_pct: strategy.trailing_stop_pct,
+          rebalance_interval_hours: strategy.rebalance_interval_hours,
+          position_timeout_hours: strategy.position_timeout_hours,
+          transaction_fee: strategy.transaction_fee,
+          slippage: strategy.slippage,
+          risk_free_rate: strategy.risk_free_rate,
+          benchmark_symbol: strategy.benchmark_symbol || 'BTC-USD',
+          max_history_days: strategy.max_history_days,
+          pair_selection_mode: pairSelectionMode,
+        },
       });
 
       const runId = response.data?.run_id;

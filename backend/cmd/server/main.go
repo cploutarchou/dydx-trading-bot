@@ -538,6 +538,7 @@ func main() {
 	// Using bot API delegate routes instead for backtests
 	routes.RegisterBotInstanceRoutes(router, database)
 	routes.RegisterBotAPIDelegateRoutesWithSync(router, apiClient, backtestSyncService) // Register bot API proxy routes (includes backtests)
+	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)

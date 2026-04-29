@@ -16,6 +16,7 @@ export interface Strategy {
   runtime_strategy?: string;
   runtime_network?: 'testnet' | 'mainnet';
   runtime_subaccount?: number;
+  selected_markets?: string[];
   resolution?: string;
   candle_resolution?: string;
   zscore_threshold?: number;
@@ -76,6 +77,7 @@ const buildStrategyPayload = (data: Partial<Strategy>) => ({
   runtime_strategy: data.runtime_strategy,
   runtime_network: data.runtime_network,
   runtime_subaccount: data.runtime_subaccount,
+  selected_markets: data.selected_markets,
   resolution: data.resolution,
   candle_resolution: data.candle_resolution ?? data.resolution,
   zscore_threshold: data.zscore_threshold,

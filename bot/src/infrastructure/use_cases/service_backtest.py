@@ -1014,19 +1014,60 @@ class BacktestService:
         return base
 
     @staticmethod
-    def _resolution_to_minutes(resolution: str) -> int:
+    def _normalize_resolution(resolution: str) -> str:
         raw = str(resolution or "1HOUR").strip().upper()
+        mapping = {
+            "M1": "1MIN",
+            "1M": "1MIN",
+            "1MIN": "1MIN",
+            "1MINUTE": "1MIN",
+            "1MINUTES": "1MIN",
+            "M5": "5MINS",
+            "5M": "5MINS",
+            "5MIN": "5MINS",
+            "5MINS": "5MINS",
+            "5MINUTE": "5MINS",
+            "5MINUTES": "5MINS",
+            "M15": "15MINS",
+            "15M": "15MINS",
+            "15MIN": "15MINS",
+            "15MINS": "15MINS",
+            "15MINUTE": "15MINS",
+            "15MINUTES": "15MINS",
+            "M30": "30MINS",
+            "30M": "30MINS",
+            "30MIN": "30MINS",
+            "30MINS": "30MINS",
+            "30MINUTE": "30MINS",
+            "30MINUTES": "30MINS",
+            "H1": "1HOUR",
+            "1H": "1HOUR",
+            "1HR": "1HOUR",
+            "1HOUR": "1HOUR",
+            "1HOURS": "1HOUR",
+            "H4": "4HOURS",
+            "4H": "4HOURS",
+            "4HR": "4HOURS",
+            "4HOUR": "4HOURS",
+            "4HOURS": "4HOURS",
+            "D1": "1DAY",
+            "1D": "1DAY",
+            "1DAY": "1DAY",
+            "1DAYS": "1DAY",
+        }
+        return mapping.get(raw, "1HOUR")
+
+    @staticmethod
+    def _resolution_to_minutes(resolution: str) -> int:
+        raw = BacktestService._normalize_resolution(resolution)
         mapping = {
             "1MIN": 1,
             "5MINS": 5,
             "15MINS": 15,
             "30MINS": 30,
             "1HOUR": 60,
-            "1H": 60,
             "4HOURS": 240,
-            "4H": 240,
             "1DAY": 1440,
-            "1D": 1440,
         }
         if raw in mapping:
             return mapping[raw]
@@ -1605,7 +1646,7 @@ class BacktestService:
             if end_dt <= start_dt:
                 raise ValueError("end_date must be after start_date")
 
-            resolution = str(params.get("resolution", "1HOUR") or "1HOUR")
+            resolution = self._normalize_resolution(params.get("resolution", "1HOUR") or "1HOUR")
             initial_balance = float(
                 request_payload.get("initial_balance", 10000.0) or 10000.0
             )

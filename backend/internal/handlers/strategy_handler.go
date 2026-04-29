@@ -21,42 +21,42 @@ type StrategyHandler struct {
 }
 
 type strategyPayload struct {
-	Name                   string   `json:"name" binding:"required"`
-	Description            string   `json:"description"`
-	Category               string   `json:"category"`
-	IsPublic               bool     `json:"is_public"`
-	IsDefault              bool     `json:"is_default"`
-	RuntimeStrategy        string   `json:"runtime_strategy"`
-	RuntimeNetwork         string   `json:"runtime_network"`
-	RuntimeSubaccount      *int     `json:"runtime_subaccount"`
-	PairSelectionMode      string   `json:"pair_selection_mode"`
-	SelectedMarkets        []string `json:"selected_markets"`
-	Resolution             string   `json:"resolution"`
-	CandleResolution       string   `json:"candle_resolution"`
-	ZscoreThreshold        float64  `json:"zscore_threshold"`
-	StatsWindow            int      `json:"stats_window"`
-	MaxHalfLife            float64  `json:"max_half_life"`
-	UsdPerTrade            float64  `json:"usd_per_trade"`
-	UsdMinCollateral       float64  `json:"usd_min_collateral"`
-	CloseAtZscoreCross     *bool    `json:"close_at_zscore_cross"`
-	FindCointegratedPairs  *bool    `json:"find_cointegrated_pairs"`
-	ManageExits            *bool    `json:"manage_exits"`
-	PlaceTrades            *bool    `json:"place_trades"`
-	AbortAllPositions      *bool    `json:"abort_all_positions"`
-	MaxDrawdownPct         float64  `json:"max_drawdown_pct"`
-	StopLossPct            float64  `json:"stop_loss_pct"`
-	TakeProfitPct          float64  `json:"take_profit_pct"`
-	TrailingStopPct        float64  `json:"trailing_stop_pct"`
-	MaxPositions           int      `json:"max_positions"`
-	RebalanceIntervalHours int      `json:"rebalance_interval_hours"`
-	PositionTimeoutHours   int      `json:"position_timeout_hours"`
-	StartingBalance        float64  `json:"starting_balance"`
-	InitialAmount          float64  `json:"initial_amount"`
-	TransactionFee         float64  `json:"transaction_fee"`
-	Slippage               float64  `json:"slippage"`
-	MaxHistoryDays         int      `json:"max_history_days"`
-	BenchmarkSymbol        string   `json:"benchmark_symbol"`
-	RiskFreeRate           float64  `json:"risk_free_rate"`
+	Name                   string    `json:"name" binding:"required"`
+	Description            string    `json:"description"`
+	Category               string    `json:"category"`
+	IsPublic               *bool     `json:"is_public"`
+	IsDefault              *bool     `json:"is_default"`
+	RuntimeStrategy        string    `json:"runtime_strategy"`
+	RuntimeNetwork         string    `json:"runtime_network"`
+	RuntimeSubaccount      *int      `json:"runtime_subaccount"`
+	PairSelectionMode      string    `json:"pair_selection_mode"`
+	SelectedMarkets        *[]string `json:"selected_markets"`
+	Resolution             string    `json:"resolution"`
+	CandleResolution       string    `json:"candle_resolution"`
+	ZscoreThreshold        float64   `json:"zscore_threshold"`
+	StatsWindow            int       `json:"stats_window"`
+	MaxHalfLife            float64   `json:"max_half_life"`
+	UsdPerTrade            float64   `json:"usd_per_trade"`
+	UsdMinCollateral       float64   `json:"usd_min_collateral"`
+	CloseAtZscoreCross     *bool     `json:"close_at_zscore_cross"`
+	FindCointegratedPairs  *bool     `json:"find_cointegrated_pairs"`
+	ManageExits            *bool     `json:"manage_exits"`
+	PlaceTrades            *bool     `json:"place_trades"`
+	AbortAllPositions      *bool     `json:"abort_all_positions"`
+	MaxDrawdownPct         float64   `json:"max_drawdown_pct"`
+	StopLossPct            float64   `json:"stop_loss_pct"`
+	TakeProfitPct          float64   `json:"take_profit_pct"`
+	TrailingStopPct        float64   `json:"trailing_stop_pct"`
+	MaxPositions           int       `json:"max_positions"`
+	RebalanceIntervalHours int       `json:"rebalance_interval_hours"`
+	PositionTimeoutHours   int       `json:"position_timeout_hours"`
+	StartingBalance        float64   `json:"starting_balance"`
+	InitialAmount          float64   `json:"initial_amount"`
+	TransactionFee         float64   `json:"transaction_fee"`
+	Slippage               float64   `json:"slippage"`
+	MaxHistoryDays         int       `json:"max_history_days"`
+	BenchmarkSymbol        string    `json:"benchmark_symbol"`
+	RiskFreeRate           float64   `json:"risk_free_rate"`
 }
 
 func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload) {
@@ -69,8 +69,12 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if req.Category != "" {
 		strategy.Category = req.Category
 	}
-	strategy.IsPublic = req.IsPublic
-	strategy.IsDefault = req.IsDefault
+	if req.IsPublic != nil {
+		strategy.IsPublic = *req.IsPublic
+	}
+	if req.IsDefault != nil {
+		strategy.IsDefault = *req.IsDefault
+	}
 	if strings.TrimSpace(req.RuntimeStrategy) != "" {
 		strategy.RuntimeStrategy = strings.TrimSpace(req.RuntimeStrategy)
 	}
@@ -83,12 +87,14 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if strings.TrimSpace(req.PairSelectionMode) != "" {
 		strategy.PairSelectionMode = normalizePairSelectionMode(req.PairSelectionMode)
 	}
-	strategy.SetSelectedMarketList(req.SelectedMarkets)
+	if req.SelectedMarkets != nil {
+		strategy.SetSelectedMarketList(*req.SelectedMarkets)
+	}
 
-	if req.CandleResolution != "" {
-		strategy.CandleResolution = req.CandleResolution
-	} else if req.Resolution != "" {
-		strategy.CandleResolution = req.Resolution
+	if strings.TrimSpace(req.CandleResolution) != "" {
+		strategy.CandleResolution = normalizeCandleResolution(req.CandleResolution)
+	} else if strings.TrimSpace(req.Resolution) != "" {
+		strategy.CandleResolution = normalizeCandleResolution(req.Resolution)
 	}
 	if req.ZscoreThreshold > 0 {
 		strategy.ZscoreThreshold = req.ZscoreThreshold
@@ -149,6 +155,9 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	}
 	if req.InitialAmount > 0 {
 		strategy.InitialAmount = req.InitialAmount
+		if req.StartingBalance <= 0 {
+			strategy.StartingBalance = req.InitialAmount
+		}
 		// Keep create/edit UI budget aligned with runtime collateral defaults.
 		if strategy.UsdMinCollateral <= 0 {
 			strategy.UsdMinCollateral = req.InitialAmount
@@ -181,6 +190,34 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if strategy.RuntimeSubaccount < 0 {
 		strategy.RuntimeSubaccount = 0
 	}
+	if strings.TrimSpace(strategy.CandleResolution) == "" {
+		strategy.CandleResolution = "1HOUR"
+	}
+}
+
+func normalizeCandleResolution(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "M1", "1M", "1MIN", "1MINUTE", "1MINUTES":
+		return "1MIN"
+	case "M5", "5M", "5MIN", "5MINS", "5MINUTE", "5MINUTES":
+		return "5MINS"
+	case "M15", "15M", "15MIN", "15MINS", "15MINUTE", "15MINUTES":
+		return "15MINS"
+	case "M30", "30M", "30MIN", "30MINS", "30MINUTE", "30MINUTES":
+		return "30MINS"
+	case "H1", "1H", "1HR", "1HOUR", "1HOURS":
+		return "1HOUR"
+	case "H4", "4H", "4HR", "4HOUR", "4HOURS":
+		return "4HOURS"
+	case "D1", "1D", "1DAY", "1DAYS":
+		return "1DAY"
+	default:
+		return "1HOUR"
+	}
+}
+
+func boolValue(value *bool) bool {
+	return value != nil && *value
 }
 
 func normalizePairSelectionMode(value string) string {
@@ -256,8 +293,8 @@ func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
 		req.Name,
 		req.Description,
 		req.Category,
-		req.IsPublic,
-		req.IsDefault,
+		boolValue(req.IsPublic),
+		boolValue(req.IsDefault),
 	)
 	if err == nil {
 		applyStrategyPayload(strategy, req)

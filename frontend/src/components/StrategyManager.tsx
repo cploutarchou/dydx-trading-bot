@@ -14,7 +14,7 @@ import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'l
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../api';
+import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
@@ -70,14 +70,6 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 const RUNTIME_STRATEGY_OPTIONS = [
   { value: 'cointegration', label: 'Cointegration' },
   { value: 'mean_reversion', label: 'Mean Reversion' },
-];
-
-const RESOLUTION_OPTIONS = [
-  { value: '15MINS', label: '15 Minutes' },
-  { value: '30MINS', label: '30 Minutes' },
-  { value: '1HOUR', label: '1 Hour' },
-  { value: '4HOUR', label: '4 Hours' },
-  { value: '1DAY', label: '1 Day' },
 ];
 
 const needsRuntimeRecreateConfirmation = (message?: string): boolean => {
@@ -680,11 +672,18 @@ export default function StrategyManager() {
         name: editingConfig.name || 'Untitled Strategy',
         category: editingConfig.category,
         description: editingConfig.description,
+        is_public: editingConfig.is_public,
         runtime_strategy: editingConfig.runtime_strategy || 'cointegration',
         runtime_network: editingConfig.runtime_network || 'testnet',
         runtime_subaccount: editingConfig.runtime_subaccount ?? 0,
-        resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
-        candle_resolution: editingConfig.candle_resolution || editingConfig.resolution || '1HOUR',
+        selected_markets: editingConfig.selected_markets || [],
+        pair_selection_mode: editingConfig.pair_selection_mode || 'liquidity',
+        resolution: normalizeDydxCandleResolution(
+          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+        ),
+        candle_resolution: normalizeDydxCandleResolution(
+          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+        ),
         zscore_threshold: editingConfig.zscore_threshold,
         stats_window: editingConfig.stats_window,
         max_half_life: editingConfig.max_half_life,
@@ -739,11 +738,52 @@ export default function StrategyManager() {
       const endDate = new Date();
       const startDate = new Date(endDate);
       startDate.setDate(startDate.getDate() - 30);
+      const selectedMarkets = Array.isArray(strategy.selected_markets)
+        ? strategy.selected_markets
+        : [];
+      const resolution = normalizeDydxCandleResolution(
+        strategy.candle_resolution || strategy.resolution || '1HOUR'
+      );
+      const pairSelectionMode = strategy.pair_selection_mode || 'liquidity';
+      const initialBalance = Number(strategy.starting_balance ?? strategy.initial_amount ?? 1000);
 
       const response = await apiClient.runBacktest({
         strategy_id: strategy.id,
+        name: `${strategy.name} Backtest`,
+        description: strategy.description || '',
         start_date: startDate.toISOString().split('T')[0],
         end_date: endDate.toISOString().split('T')[0],
+        initial_balance: initialBalance,
+        max_pairs: selectedMarkets.length,
+        pair_selection_mode: pairSelectionMode,
+        ...(selectedMarkets.length > 0 ? { pairs: selectedMarkets } : {}),
+        trading_parameters: {
+          resolution,
+          candle_resolution: resolution,
+          zscore_threshold: strategy.zscore_threshold,
+          stats_window: strategy.stats_window,
+          max_half_life: strategy.max_half_life,
+          usd_per_trade: strategy.usd_per_trade,
+          usd_min_collateral: strategy.usd_min_collateral,
+          close_at_zscore_cross: strategy.close_at_zscore_cross,
+          find_cointegrated_pairs: strategy.find_cointegrated_pairs,
+          manage_exits: strategy.manage_exits,
+          place_trades: strategy.place_trades,
+          abort_all_positions: strategy.abort_all_positions,
+          max_positions: strategy.max_positions,
+          max_drawdown_pct: strategy.max_drawdown_pct,
+          stop_loss_pct: strategy.stop_loss_pct,
+          take_profit_pct: strategy.take_profit_pct,
+          trailing_stop_pct: strategy.trailing_stop_pct,
+          rebalance_interval_hours: strategy.rebalance_interval_hours,
+          position_timeout_hours: strategy.position_timeout_hours,
+          transaction_fee: strategy.transaction_fee,
+          slippage: strategy.slippage,
+          risk_free_rate: strategy.risk_free_rate,
+          benchmark_symbol: strategy.benchmark_symbol || 'BTC-USD',
+          max_history_days: strategy.max_history_days,
+          pair_selection_mode: pairSelectionMode,
+        },
       });
 
       const runId = response.data?.run_id;
@@ -1595,17 +1635,19 @@ export default function StrategyManager() {
                       <label className="mb-2 block text-white font-medium">Resolution</label>
                       <select
                         value={
-                          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+                          normalizeDydxCandleResolution(
+                            editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+                          )
                         }
                         onChange={(e) =>
                           updateEditingConfig({
-                            resolution: e.target.value,
-                            candle_resolution: e.target.value,
+                            resolution: normalizeDydxCandleResolution(e.target.value),
+                            candle_resolution: normalizeDydxCandleResolution(e.target.value),
                           })
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       >
-                        {RESOLUTION_OPTIONS.map((option) => (
+                        {DYDX_CANDLE_RESOLUTION_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>

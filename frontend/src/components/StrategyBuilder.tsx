@@ -1,7 +1,12 @@
+import { CheckSquare, ListChecks, Sparkles, Star, Trophy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import api from '../api';
+import api, {
+  DYDX_CANDLE_RESOLUTION_OPTIONS,
+  normalizeDydxCandleResolution,
+  type AIMarketProvider,
+} from '../api';
 import { PageContainer } from './PageContainer';
 
 interface StrategyFormData {
@@ -12,7 +17,7 @@ interface StrategyFormData {
   runtime_network: 'testnet' | 'mainnet';
   runtime_subaccount: number;
   selected_markets: string[];
-  resolution: string; // 1MIN, 5MINS, 15MINS, 1HOUR, 4HOURS, 1DAY
+  resolution: string;
   zscore_threshold: number;
   stats_window: number;
   max_half_life: number;
@@ -58,8 +63,16 @@ const PRESETS = {
 };
 
 const MAX_SELECTED_MARKETS = 20;
+const DEFAULT_AUTO_SELECTED_MARKETS = 5;
 const MAX_BACKTEST_RUNS_FOR_FILTERS = 120;
 const TRADE_FETCH_BATCH_SIZE = 6;
+type AIMarketObjective =
+  | 'balanced'
+  | 'volume'
+  | 'tradeable'
+  | 'future_gainers'
+  | 'volatility'
+  | 'cointegration';
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error) return error.message;
@@ -88,9 +101,13 @@ export default function StrategyBuilder() {
   const [marketsLoading, setMarketsLoading] = useState(false);
   const [marketsError, setMarketsError] = useState<string | null>(null);
   const [marketFilterLoading, setMarketFilterLoading] = useState<
-    null | 'top20' | 'popular' | 'profitable'
+    null | 'top20' | 'popular' | 'profitable' | 'ai'
   >(null);
   const [marketFilterError, setMarketFilterError] = useState<string | null>(null);
+  const [aiMarketProvider, setAIMarketProvider] = useState<AIMarketProvider>('openai');
+  const [aiMarketObjective, setAIMarketObjective] = useState<AIMarketObjective>('balanced');
+  const [autoMarketLimit, setAutoMarketLimit] = useState(DEFAULT_AUTO_SELECTED_MARKETS);
+  const [showPairPreview, setShowPairPreview] = useState(false);
 
   // Get pre-loaded config from backtest or sessionStorage
   const getPreloadedConfig = () => {
@@ -158,6 +175,10 @@ export default function StrategyBuilder() {
   const compactInputClass = 'premium-input px-4 py-2.5 text-sm';
   const sectionTitleClass = 'mb-4 text-lg font-semibold text-white';
   const dividerClass = 'my-2 border-t border-slate-800/80';
+  const marketToolbarButtonClass =
+    'inline-flex h-10 items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-950/70 px-3 text-xs font-semibold text-slate-300 transition hover:border-cyan-500/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50';
+  const marketToolbarSelectClass =
+    'h-10 rounded-lg border border-slate-700/80 bg-slate-950/70 px-3 text-xs font-semibold text-slate-300 outline-none transition hover:border-cyan-500/50 focus:border-cyan-500';
 
   // Load existing strategy if in edit mode
   useEffect(() => {
@@ -218,7 +239,9 @@ export default function StrategyBuilder() {
       const response = await api.getStrategy(id);
       if (response.data) {
         const { candle_resolution: _candleResolution, ...strategyData } = response.data;
-        const resolution = response.data.resolution || response.data.candle_resolution || '1HOUR';
+        const resolution = normalizeDydxCandleResolution(
+          response.data.resolution || response.data.candle_resolution || '1HOUR'
+        );
 
         reset({
           ...strategyData,
@@ -273,6 +296,8 @@ export default function StrategyBuilder() {
         runtime_network: data.runtime_network,
         runtime_subaccount: Number(data.runtime_subaccount),
         selected_markets: selectedMarkets,
+        resolution: normalizeDydxCandleResolution(data.resolution),
+        candle_resolution: normalizeDydxCandleResolution(data.resolution),
         zscore_threshold: Number(data.zscore_threshold),
         stats_window: Number(data.stats_window),
         max_half_life: Number(data.max_half_life),
@@ -286,6 +311,7 @@ export default function StrategyBuilder() {
         trailing_stop_pct: Number(data.trailing_stop_pct),
         rebalance_interval_hours: Number(data.rebalance_interval_hours),
         position_timeout_hours: Number(data.position_timeout_hours),
+        starting_balance: initialAmount,
         initial_amount: initialAmount,
         transaction_fee: data.transaction_fee ? Number(data.transaction_fee) : 0.0005,
         slippage: data.slippage ? Number(data.slippage) : 0.001,
@@ -326,6 +352,47 @@ export default function StrategyBuilder() {
   const selectedMarkets = Array.isArray(formValues.selected_markets)
     ? formValues.selected_markets
     : [];
+
+  const buildAIMarketCriteria = (preset: 'popular' | 'profitable' | 'ai') => {
+    const pairSelectionMode = String(formValues.pair_selection_mode || 'cointegration');
+    const objective =
+      preset === 'popular'
+        ? 'volume'
+        : preset === 'profitable'
+          ? 'future_gainers'
+          : aiMarketObjective === 'balanced'
+            ? pairSelectionMode
+            : aiMarketObjective;
+    const riskWeight = Math.min(
+      1,
+      Math.max(0.35, Number(formValues.max_drawdown_pct || 20) <= 15 ? 0.8 : 0.55)
+    );
+    const tradeSize = Number(formValues.usd_per_trade || 0);
+    const needsTradeability = tradeSize >= 250 || Number(formValues.max_positions || 0) >= 4;
+
+    return {
+      objective,
+      volume_weight: preset === 'popular' || objective === 'volume' ? 0.95 : 0.68,
+      liquidity_weight: needsTradeability || objective === 'tradeable' ? 0.92 : 0.75,
+      tradeability_weight: needsTradeability || objective === 'tradeable' ? 0.95 : 0.72,
+      momentum_weight: objective === 'future_gainers' ? 0.88 : preset === 'profitable' ? 0.72 : 0.35,
+      volatility_weight:
+        objective === 'volatility' || pairSelectionMode === 'volatility' ? 0.86 : 0.45,
+      cointegration_weight:
+        objective === 'cointegration' || pairSelectionMode === 'cointegration' ? 0.9 : 0.58,
+      risk_weight: riskWeight,
+      future_gainers: objective === 'future_gainers',
+      notes: [
+        `category=${formValues.category || 'pairs_trading'}`,
+        `resolution=${normalizeDydxCandleResolution(formValues.resolution || '1HOUR')}`,
+        `zscore=${formValues.zscore_threshold || 1.5}`,
+        `stats_window=${formValues.stats_window || 21}`,
+        `max_half_life=${formValues.max_half_life || 12}`,
+        `usd_per_trade=${formValues.usd_per_trade || 0}`,
+        `max_positions=${formValues.max_positions || 0}`,
+      ].join('; '),
+    };
+  };
   const selectedPairPreview = useMemo(() => {
     const pairs: string[] = [];
     for (let i = 0; i < selectedMarkets.length - 1; i += 1) {
@@ -333,15 +400,20 @@ export default function StrategyBuilder() {
         pairs.push(`${selectedMarkets[i]}/${selectedMarkets[j]}`);
       }
     }
-    return pairs.slice(0, 5);
+    return pairs.slice(0, 8);
   }, [selectedMarkets]);
+  const candidatePairCount = (selectedMarkets.length * (selectedMarkets.length - 1)) / 2;
 
   const applyMarketPreset = async (
-    preset: 'top20' | 'popular' | 'profitable',
+    preset: 'top20' | 'popular' | 'profitable' | 'ai',
     onChange: (_value: string[]) => void,
     currentSelection: string[]
   ) => {
     const normalizedCurrentSelection = Array.isArray(currentSelection) ? currentSelection : [];
+    const selectionLimit = Math.min(
+      MAX_SELECTED_MARKETS,
+      Math.max(2, Math.round(Number(autoMarketLimit) || DEFAULT_AUTO_SELECTED_MARKETS))
+    );
     const toRecord = (value: unknown): Record<string, unknown> =>
       typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 
@@ -365,7 +437,7 @@ export default function StrategyBuilder() {
             .filter((market) => availableMarkets.includes(market))
         )
       );
-      return unique.slice(0, MAX_SELECTED_MARKETS);
+      return unique.slice(0, selectionLimit);
     };
 
     setMarketFilterError(null);
@@ -377,6 +449,37 @@ export default function StrategyBuilder() {
 
     try {
       setMarketFilterLoading(preset);
+      const aiMode =
+        preset === 'popular'
+          ? 'most_popular'
+          : preset === 'profitable'
+            ? 'most_profitable'
+            : 'ai_recommended';
+      const aiResponse = await api.selectAIMarkets({
+        provider: aiMarketProvider,
+        mode: aiMode,
+        markets: availableMarkets,
+        limit: selectionLimit,
+        strategy: `${formValues.category || 'pairs_trading'} strategy using ${normalizeDydxCandleResolution(formValues.resolution || '1HOUR')} candles`,
+        criteria: buildAIMarketCriteria(preset),
+      });
+      const aiMarkets = normalizeTopMarkets(aiResponse.data?.selected_markets || []);
+      if (aiMarkets.length >= 2) {
+        onChange(aiMarkets);
+        setMarketFilterError(
+          aiResponse.data?.used_ai
+            ? aiResponse.data.rationale || null
+            : aiResponse.data?.fallback_reason || null
+        );
+        return;
+      }
+
+      if (preset === 'ai') {
+        setMarketFilterError('AI returned too few valid dYdX markets. Using current top markets.');
+        onChange(normalizeTopMarkets(availableMarkets));
+        return;
+      }
+
       const availableSet = new Set(availableMarkets);
       const scoreMap = new Map<string, number>();
 
@@ -584,22 +687,27 @@ export default function StrategyBuilder() {
               required: 'Candle resolution is required',
             }}
             render={({ field }) => (
-              <select {...field} className={`${compactInputClass} pr-10`}>
-                <option value="1MIN">1 Minute 🐢 (Very Slow - ~900K candles/90d)</option>
-                <option value="5MINS">5 Minutes 🐌 (Slow - ~180K candles/90d)</option>
-                <option value="15MINS">15 Minutes 🚶 (Moderate - ~60K candles/90d)</option>
-                <option value="1HOUR">1 Hour ✅ (Recommended - ~2,160 candles/90d)</option>
-                <option value="4HOURS">4 Hours ⚡ (Fast - ~540 candles/90d)</option>
-                <option value="1DAY">1 Day ⚡⚡ (Very Fast - ~90 candles/90d)</option>
+              <select
+                {...field}
+                value={normalizeDydxCandleResolution(field.value)}
+                onChange={(event) => field.onChange(normalizeDydxCandleResolution(event.target.value))}
+                className={`${compactInputClass} pr-10`}
+              >
+                {DYDX_CANDLE_RESOLUTION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                    {option.value === '1HOUR' ? ' (Recommended)' : ''}
+                  </option>
+                ))}
               </select>
             )}
           />
           <p className={helperTextClass}>
             Timeframe for candle data (1HOUR recommended for stable backtests)
           </p>
-          {formValues.resolution === '1MIN' || formValues.resolution === '5MINS' ? (
+          {['1MIN', '5MINS'].includes(normalizeDydxCandleResolution(formValues.resolution)) ? (
             <p className="mt-3 rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-3 py-2 text-xs leading-5 text-yellow-400">
-              ⚠️ High-frequency resolutions significantly increase backtest time. Consider using
+              High-frequency resolutions significantly increase backtest time. Consider using
               1HOUR or higher for faster results.
             </p>
           ) : null}
@@ -716,37 +824,127 @@ export default function StrategyBuilder() {
               render={({ field }) => {
                 const value = Array.isArray(field.value) ? field.value : [];
                 return (
-                  <div className="flex gap-2">
+                  <div className="flex w-full flex-wrap items-center justify-end gap-2 rounded-xl border border-slate-800/80 bg-slate-950/40 p-2 shadow-inner shadow-black/20">
+                    <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-950/70 px-3 text-xs font-semibold text-slate-300">
+                      <span>Auto select</span>
+                      <input
+                        type="number"
+                        min={2}
+                        max={MAX_SELECTED_MARKETS}
+                        value={autoMarketLimit}
+                        onChange={(event) => {
+                          const nextValue = Number(event.target.value);
+                          setAutoMarketLimit(
+                            Math.min(
+                              MAX_SELECTED_MARKETS,
+                              Math.max(
+                                2,
+                                Number.isFinite(nextValue)
+                                  ? Math.round(nextValue)
+                                  : DEFAULT_AUTO_SELECTED_MARKETS
+                              )
+                            )
+                          );
+                        }}
+                        className="h-7 w-14 rounded-md border border-slate-700 bg-slate-900 px-2 text-right text-xs text-cyan-100 outline-none focus:border-cyan-500"
+                        aria-label="Markets to auto select"
+                      />
+                    </label>
+                    <select
+                      value={aiMarketProvider}
+                      onChange={(event) =>
+                        setAIMarketProvider(event.target.value as AIMarketProvider)
+                      }
+                      className={marketToolbarSelectClass}
+                      aria-label="AI market filter provider"
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="deepseek">DeepSeek</option>
+                      <option value="claude">Claude</option>
+                    </select>
+                    <select
+                      value={aiMarketObjective}
+                      onChange={(event) =>
+                        setAIMarketObjective(event.target.value as AIMarketObjective)
+                      }
+                      className={marketToolbarSelectClass}
+                      aria-label="AI market ranking objective"
+                    >
+                      <option value="balanced">Strategy-aware</option>
+                      <option value="volume">Highest volume</option>
+                      <option value="tradeable">Most tradeable</option>
+                      <option value="future_gainers">Possible future gainers</option>
+                      <option value="volatility">Volatility</option>
+                      <option value="cointegration">Cointegration fit</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void applyMarketPreset('ai', field.onChange, value)}
+                      disabled={availableMarkets.length === 0 || marketFilterLoading !== null}
+                      className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {marketFilterLoading === 'ai' ? 'Thinking…' : 'AI Pick'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const limit = Math.min(availableMarkets.length, MAX_SELECTED_MARKETS);
+                        field.onChange(availableMarkets.slice(0, limit));
+                        if (availableMarkets.length > MAX_SELECTED_MARKETS) {
+                          setMarketFilterError(
+                            `Selected the maximum ${MAX_SELECTED_MARKETS} markets supported by this strategy.`
+                          );
+                        } else {
+                          setMarketFilterError(null);
+                        }
+                      }}
+                      disabled={
+                        availableMarkets.length === 0 ||
+                        value.length >= Math.min(availableMarkets.length, MAX_SELECTED_MARKETS)
+                      }
+                      className={marketToolbarButtonClass}
+                    >
+                      <CheckSquare className="h-3.5 w-3.5" />
+                      Select all
+                    </button>
                     <button
                       type="button"
                       onClick={() => void applyMarketPreset('top20', field.onChange, value)}
                       disabled={availableMarkets.length === 0}
-                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                      className={marketToolbarButtonClass}
                     >
-                      Top 20
+                      <ListChecks className="h-3.5 w-3.5" />
+                      Top Markets
                     </button>
                     <button
                       type="button"
                       onClick={() => void applyMarketPreset('popular', field.onChange, value)}
                       disabled={availableMarkets.length === 0 || marketFilterLoading !== null}
-                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                      className={marketToolbarButtonClass}
                     >
+                      <Star className="h-3.5 w-3.5" />
                       {marketFilterLoading === 'popular' ? 'Loading…' : 'Most Popular'}
                     </button>
                     <button
                       type="button"
                       onClick={() => void applyMarketPreset('profitable', field.onChange, value)}
                       disabled={availableMarkets.length === 0 || marketFilterLoading !== null}
-                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                      className={marketToolbarButtonClass}
                     >
+                      <Trophy className="h-3.5 w-3.5" />
                       {marketFilterLoading === 'profitable' ? 'Loading…' : 'Most Profitable'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => field.onChange([])}
+                      onClick={() => {
+                        field.onChange([]);
+                        setMarketFilterError(null);
+                      }}
                       disabled={value.length === 0}
-                      className="rounded border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/45 disabled:opacity-50"
+                      className={marketToolbarButtonClass}
                     >
+                      <X className="h-3.5 w-3.5" />
                       Clear
                     </button>
                   </div>
@@ -774,7 +972,15 @@ export default function StrategyBuilder() {
               };
 
               return (
-                <div className="rounded-xl border border-slate-800/80 bg-slate-950/45 p-3">
+                <div className="rounded-xl border border-slate-800/80 bg-slate-950/45 p-3 shadow-inner shadow-black/20">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase text-slate-500">
+                      Market list
+                    </span>
+                    <span className="rounded-full border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-xs text-slate-400">
+                      {value.length} selected
+                    </span>
+                  </div>
                   {marketsLoading ? (
                     <p className="text-sm text-slate-400">Loading dYdX markets...</p>
                   ) : marketsError ? (
@@ -811,7 +1017,27 @@ export default function StrategyBuilder() {
             }}
           />
 
-          {selectedPairPreview.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>
+              Selected markets: <span className={inlineValueClass}>{selectedMarkets.length}</span>{' '}
+              / {MAX_SELECTED_MARKETS}
+            </span>
+            <span>
+              Candidate pairs:{' '}
+              <span className={inlineValueClass}>{Math.max(0, candidatePairCount)}</span>
+            </span>
+            {candidatePairCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowPairPreview((value) => !value)}
+                className="text-cyan-300 transition hover:text-cyan-100"
+              >
+                {showPairPreview ? 'Hide preview' : 'Preview pairs'}
+              </button>
+            ) : null}
+          </div>
+
+          {showPairPreview && selectedPairPreview.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {selectedPairPreview.map((pair) => (
                 <span
@@ -821,12 +1047,13 @@ export default function StrategyBuilder() {
                   {pair}
                 </span>
               ))}
+              {candidatePairCount > selectedPairPreview.length ? (
+                <span className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-400">
+                  +{candidatePairCount - selectedPairPreview.length} more
+                </span>
+              ) : null}
             </div>
           )}
-          <p className={helperTextClass}>
-            Selected markets: <span className={inlineValueClass}>{selectedMarkets.length}</span> /{' '}
-            {MAX_SELECTED_MARKETS}
-          </p>
         </div>
 
         {/* Divider */}

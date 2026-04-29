@@ -7,16 +7,22 @@
 
 import {
   Activity,
+  Bot,
   CalendarRange,
   CandlestickChart,
   CircleDot,
   Clock3,
   Gauge,
+  Layers,
   Loader,
   Pause,
+  Percent,
   Play,
   Radar,
+  Rocket,
   RotateCcw,
+  Scale,
+  ShieldCheck,
   Square,
   TrendingDown,
   TrendingUp,
@@ -112,6 +118,8 @@ interface BacktestResponse {
   control_action?: string;
   worker_backend?: string;
   request?: Record<string, unknown>;
+  strategy_id?: number;
+  strategy_snapshot?: Record<string, unknown>;
 }
 
 interface BacktestLogEntry {
@@ -388,6 +396,10 @@ export const BacktestDetailsV2: React.FC = () => {
   const [liveLogs, setLiveLogs] = useState<BacktestLogEntry[]>([]);
   const [controlAction, setControlAction] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
+  const [runtimeNetwork, setRuntimeNetwork] = useState<'testnet' | 'mainnet'>('testnet');
+  const [promotionAction, setPromotionAction] = useState<'create' | 'start' | null>(null);
+  const [promotionMessage, setPromotionMessage] = useState<string | null>(null);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
   const liveLogCounterRef = useRef(0);
 
   const backtestStatus = normalizeStatus(backtest?.status);
@@ -988,6 +1000,11 @@ export const BacktestDetailsV2: React.FC = () => {
       firstMeaningfulString(liveRecord?.worker_backend, backtest.worker_backend) ??
       backtest.worker_backend,
     request: asRecord(liveRecord?.request) || backtest.request,
+    strategy_id:
+      firstFiniteNumber(liveRecord?.strategy_id, backtest.strategy_id) ??
+      backtest.strategy_id,
+    strategy_snapshot:
+      asRecord(liveRecord?.strategy_snapshot) || backtest.strategy_snapshot,
   };
 
   const liveStatusNorm = normalizeStatus(progressQuery.data?.status);
@@ -1108,6 +1125,108 @@ export const BacktestDetailsV2: React.FC = () => {
     return acc;
   }, []);
   const topPairs = pairBreakdown.sort((a, b) => b.count - a.count || b.pnl - a.pnl).slice(0, 5);
+  const requestPayload = asRecord(liveBacktest.request);
+  const requestParams = asRecord(requestPayload?.trading_parameters);
+  const requestedPairs = Array.isArray(requestPayload?.pairs)
+    ? requestPayload.pairs.map((pair) => String(pair)).filter(Boolean)
+    : [];
+  const selectedMarketsForRuntime =
+    requestedPairs.length > 0
+      ? requestedPairs
+      : markets.length > 0
+        ? markets
+        : Array.from(
+            new Set(
+              trades
+                .flatMap((trade) => [trade.market_1, trade.market_2])
+                .filter((market) => market && market !== '-')
+            )
+          );
+  const initialCapital = Math.max(
+    1,
+    firstFiniteNumber(
+      requestPayload?.initial_balance,
+      requestParams?.starting_balance,
+      requestParams?.initial_amount
+    ) ?? 1000
+  );
+  const avgPnlPerTrade =
+    trades.length > 0 ? trades.reduce((sum, trade) => sum + trade.pnl_usd, 0) / trades.length : 0;
+  const avgTradeDurationHours =
+    trades.length > 0
+      ? trades.reduce((sum, trade) => sum + Math.max(0, trade.duration_hours), 0) / trades.length
+      : 0;
+  const grossProfit = trades
+    .filter((trade) => trade.pnl_usd > 0)
+    .reduce((sum, trade) => sum + trade.pnl_usd, 0);
+  const grossLoss = Math.abs(
+    trades.filter((trade) => trade.pnl_usd < 0).reduce((sum, trade) => sum + trade.pnl_usd, 0)
+  );
+  const computedProfitFactor =
+    liveBacktest.profit_factor ??
+    (grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? grossProfit : 0);
+  const capitalEfficiencyPct = (totalPnl / initialCapital) * 100;
+  const topPairAbsPnl = topPairs.length > 0 ? Math.abs(topPairs[0].pnl) : 0;
+  const aggregatePairAbsPnl = pairBreakdown.reduce((sum, pair) => sum + Math.abs(pair.pnl), 0);
+  const pairConcentrationPct =
+    aggregatePairAbsPnl > 0 ? (topPairAbsPnl / aggregatePairAbsPnl) * 100 : 0;
+  const edgeQualityScore = Math.max(
+    0,
+    Math.min(
+      100,
+      computedProfitFactor * 18 +
+        Math.max(0, liveBacktest.sharpe_ratio || 0) * 12 +
+        winRatePercent * 0.35 -
+        Math.max(0, maxDrawdown) * 0.8 -
+        Math.max(0, pairConcentrationPct - 45) * 0.35
+    )
+  );
+  const candidatePairs =
+    selectedMarketsForRuntime.length > 1
+      ? (selectedMarketsForRuntime.length * (selectedMarketsForRuntime.length - 1)) / 2
+      : pairBreakdown.length;
+  const arbScorecards = [
+    {
+      label: 'Arb Edge Score',
+      value: `${edgeQualityScore.toFixed(0)}/100`,
+      detail: 'Profit factor, Sharpe, win rate, drawdown, concentration',
+      icon: ShieldCheck,
+      pct: edgeQualityScore,
+      tone: edgeQualityScore >= 70 ? 'emerald' : edgeQualityScore >= 45 ? 'amber' : 'rose',
+    },
+    {
+      label: 'Capital Efficiency',
+      value: `${capitalEfficiencyPct >= 0 ? '+' : ''}${capitalEfficiencyPct.toFixed(2)}%`,
+      detail: `${formatCurrency(totalPnl)} on ${formatCurrency(initialCapital)} test capital`,
+      icon: Percent,
+      pct: Math.min(100, Math.abs(capitalEfficiencyPct) * 5),
+      tone: capitalEfficiencyPct >= 0 ? 'emerald' : 'rose',
+    },
+    {
+      label: 'Pair Concentration',
+      value: `${pairConcentrationPct.toFixed(1)}%`,
+      detail: 'Share of absolute PnL from the leading pair',
+      icon: Scale,
+      pct: Math.min(100, pairConcentrationPct),
+      tone: pairConcentrationPct <= 45 ? 'emerald' : pairConcentrationPct <= 65 ? 'amber' : 'rose',
+    },
+    {
+      label: 'Execution Cadence',
+      value: `${avgTradeDurationHours.toFixed(1)}h`,
+      detail: `${formatSignedCurrency(avgPnlPerTrade)} average PnL per closed trade`,
+      icon: Activity,
+      pct: Math.min(100, Math.max(8, trades.length)),
+      tone: avgPnlPerTrade >= 0 ? 'emerald' : 'rose',
+    },
+    {
+      label: 'Market Coverage',
+      value: `${selectedMarketsForRuntime.length} markets`,
+      detail: `${candidatePairs} candidate pair${candidatePairs === 1 ? '' : 's'} for runtime discovery`,
+      icon: Layers,
+      pct: Math.min(100, selectedMarketsForRuntime.length * 5),
+      tone: selectedMarketsForRuntime.length >= 5 ? 'emerald' : 'amber',
+    },
+  ];
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -1278,6 +1397,86 @@ export const BacktestDetailsV2: React.FC = () => {
       setControlError(msg);
     } finally {
       setControlAction(null);
+    }
+  };
+
+  const buildStrategyConfigFromBacktest = (): Record<string, unknown> => {
+    const snapshot = asRecord(liveBacktest.strategy_snapshot);
+    const config: Record<string, unknown> = snapshot ? { ...snapshot } : {};
+
+    if (requestParams) {
+      Object.entries(requestParams).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          config[key] = value;
+        }
+      });
+    }
+
+    if (selectedMarketsForRuntime.length > 0) {
+      config.selected_markets = selectedMarketsForRuntime;
+    }
+    if (requestPayload?.initial_balance !== undefined) {
+      config.starting_balance = requestPayload.initial_balance;
+      config.initial_amount = requestPayload.initial_balance;
+    }
+    config.runtime_network = runtimeNetwork;
+    config.runtime_strategy = config.runtime_strategy || 'cointegration';
+    config.pair_selection_mode =
+      requestPayload?.pair_selection_mode || config.pair_selection_mode || 'liquidity';
+
+    return config;
+  };
+
+  const createStrategyFromCurrentBacktest = async (): Promise<number> => {
+    if (!runId) {
+      throw new Error('Backtest run id is unavailable');
+    }
+    const response = await api.createStrategyFromBacktest({
+      backtest_run_id: runId,
+      name: `Live candidate - ${runId.slice(0, 8)}`,
+      description: `Promoted from backtest ${runId}`,
+      config: buildStrategyConfigFromBacktest(),
+    });
+    const data = asRecord(response.data);
+    const strategyId = firstFiniteNumber(data?.id, data?.strategy_id);
+    if (!strategyId) {
+      throw new Error('Strategy was created but no strategy id was returned');
+    }
+    return strategyId;
+  };
+
+  const handlePromoteBacktest = async (startRuntime: boolean) => {
+    setPromotionAction(startRuntime ? 'start' : 'create');
+    setPromotionError(null);
+    setPromotionMessage(null);
+
+    try {
+      const existingStrategyId = firstFiniteNumber(liveBacktest.strategy_id);
+      const strategyId =
+        startRuntime && existingStrategyId ? existingStrategyId : await createStrategyFromCurrentBacktest();
+
+      if (startRuntime) {
+        const readiness = await api.getStrategyStartReadiness(strategyId, runtimeNetwork);
+        if (readiness.data && readiness.data.ready === false) {
+          const blockers = Array.isArray(readiness.data.blockers)
+            ? readiness.data.blockers.join(' ')
+            : 'Runtime readiness check failed';
+          throw new Error(blockers || 'Runtime readiness check failed');
+        }
+        const runtime = await api.startStrategyRuntime(strategyId, runtimeNetwork);
+        const runtimeData = asRecord(runtime.data);
+        setPromotionMessage(
+          `Live bot started for strategy #${strategyId}${
+            runtimeData?.instance_id ? ` (${runtimeData.instance_id})` : ''
+          }.`
+        );
+      } else {
+        setPromotionMessage(`Strategy #${strategyId} created from this backtest.`);
+      }
+    } catch (err: unknown) {
+      setPromotionError(err instanceof Error ? err.message : 'Unable to promote this backtest');
+    } finally {
+      setPromotionAction(null);
     }
   };
 
@@ -1604,6 +1803,131 @@ export const BacktestDetailsV2: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.45fr)_420px]">
+            <div className="rounded-[24px] border border-slate-800 bg-slate-950/50 p-4 sm:p-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase text-cyan-300">
+                    DeFi arbitrage stack
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-white">
+                    Runtime Readiness Metrics
+                  </h2>
+                </div>
+                <p className="max-w-xl text-sm text-slate-400">
+                  Built for pair-trading decisions: edge quality, capital efficiency,
+                  concentration risk, cadence, and live market coverage.
+                </p>
+              </div>
+              <div className="mt-5 grid gap-3 md:grid-cols-2 2xl:grid-cols-5">
+                {arbScorecards.map((item) => {
+                  const Icon = item.icon;
+                  const toneClass =
+                    item.tone === 'emerald'
+                      ? 'text-emerald-300 bg-emerald-500'
+                      : item.tone === 'amber'
+                        ? 'text-amber-300 bg-amber-500'
+                        : 'text-rose-300 bg-rose-500';
+                  return (
+                    <div
+                      key={item.label}
+                      className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase text-slate-500">
+                            {item.label}
+                          </p>
+                          <p className={`mt-2 text-lg font-semibold ${toneClass.split(' ')[0]}`}>
+                            {item.value}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-slate-800 bg-slate-950 p-2 text-cyan-200">
+                          <Icon className="h-4 w-4" />
+                        </div>
+                      </div>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                        <div
+                          className={`h-full ${toneClass.split(' ')[1]}`}
+                          style={{ width: `${Math.min(100, Math.max(0, item.pct))}%` }}
+                        />
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-slate-400">{item.detail}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-cyan-500/25 bg-cyan-950/20 p-4 sm:p-5">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-3 text-cyan-200">
+                  <Bot className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase text-cyan-300">
+                    Promote to live
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-white">Create Runtime Strategy</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    Save this backtest configuration as a strategy, then optionally start a managed
+                    live bot with the same markets, risk limits, timeframe, and execution settings.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <label className="col-span-2">
+                  <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">
+                    Runtime network
+                  </span>
+                  <select
+                    value={runtimeNetwork}
+                    onChange={(event) =>
+                      setRuntimeNetwork(event.target.value as 'testnet' | 'mainnet')
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                  >
+                    <option value="testnet">Testnet</option>
+                    <option value="mainnet">Mainnet</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void handlePromoteBacktest(false)}
+                  disabled={promotionAction !== null || !isCompleted}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  {promotionAction === 'create' ? 'Creating' : 'Save Strategy'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePromoteBacktest(true)}
+                  disabled={promotionAction !== null || !isCompleted}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <Rocket className="h-4 w-4" />
+                  {promotionAction === 'start' ? 'Starting' : 'Start Bot'}
+                </button>
+              </div>
+              {!isCompleted ? (
+                <p className="mt-3 text-xs text-amber-300">
+                  Promotion unlocks after the backtest completes successfully.
+                </p>
+              ) : null}
+              {promotionMessage ? (
+                <p className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+                  {promotionMessage}
+                </p>
+              ) : null}
+              {promotionError ? (
+                <p className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                  {promotionError}
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

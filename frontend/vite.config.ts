@@ -189,6 +189,11 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           ws: true,
         },
+        '/ws': {
+          target: env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:8888',
+          changeOrigin: true,
+          ws: true,
+        },
       },
     },
     build: {

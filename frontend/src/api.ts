@@ -923,6 +923,54 @@ export interface AIMarketSelectionResponse extends Record<string, unknown> {
   fallback_reason?: string;
 }
 
+// ---- AI text-generation types ----
+
+export interface AITextResponse extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  content: string;
+  used_ai: boolean;
+}
+
+export interface AIBacktestExplainRequest extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  win_rate: number;
+  total_pnl_usd: number;
+  sharpe_ratio: number;
+  max_drawdown_pct: number;
+  total_trades: number;
+  profit_factor: number;
+  markets: string[];
+  start_date: string;
+  end_date: string;
+}
+
+export interface AIBacktestSummary extends Record<string, unknown> {
+  win_rate: number;
+  total_pnl_usd: number;
+  sharpe_ratio: number;
+  max_drawdown_pct: number;
+  total_trades: number;
+}
+
+export interface AISuggestParamsRequest extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  strategy_name: string;
+  current_params: Record<string, unknown>;
+  last_error: string;
+  recent_backtests: AIBacktestSummary[];
+}
+
+export interface AIRuntimeDigestRequest extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  running_bots: number;
+  total_bots: number;
+  open_positions: number;
+  total_pnl_usd: number;
+  active_pairs: number;
+  error_count: number;
+  network: string;
+}
+
 export interface CoinDeskArticle extends Record<string, unknown> {
   id: string;
   title: string;
@@ -3376,6 +3424,33 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<AIMarketSelectionResponse>>(
       '/api/v1/ai/market-filters/select',
+      data
+    );
+    return response.data;
+  }
+
+  async explainBacktest(data: AIBacktestExplainRequest): Promise<ApiResponse<AITextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<AITextResponse>>(
+      '/api/v1/ai/backtests/explain',
+      data
+    );
+    return response.data;
+  }
+
+  async suggestStrategyParams(data: AISuggestParamsRequest): Promise<ApiResponse<AITextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<AITextResponse>>(
+      '/api/v1/ai/strategies/suggest-params',
+      data
+    );
+    return response.data;
+  }
+
+  async getRuntimeDigest(data: AIRuntimeDigestRequest): Promise<ApiResponse<AITextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<AITextResponse>>(
+      '/api/v1/ai/runtime/digest',
       data
     );
     return response.data;

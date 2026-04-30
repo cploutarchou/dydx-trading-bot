@@ -97,21 +97,33 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _build_trade_opened_notification(bot_open_dict: Dict[str, Any]) -> Dict[str, Any]:
+def _build_trade_opened_notification(
+        bot_open_dict: Dict[str, Any],
+        *,
+        fallback_base_market: str = "",
+        fallback_quote_market: str = "",
+        fallback_base_side: str = "",
+        fallback_quote_side: str = "",
+        fallback_base_size: Any = 0,
+        fallback_quote_size: Any = 0,
+        fallback_z_score: Any = 0,
+        fallback_hedge_ratio: Any = 0,
+        fallback_half_life: Any = 0,
+) -> Dict[str, Any]:
     """Map BotAgent.open_trades() fields into Telegram's opened-trade payload."""
-    base_market = bot_open_dict.get("market_1", "")
-    quote_market = bot_open_dict.get("market_2", "")
+    base_market = bot_open_dict.get("market_1", "") or fallback_base_market
+    quote_market = bot_open_dict.get("market_2", "") or fallback_quote_market
     return {
         "pair": f"{base_market} / {quote_market}",
         "base_market": base_market,
         "quote_market": quote_market,
-        "base_side": bot_open_dict.get("order_m1_side", "Unknown"),
-        "quote_side": bot_open_dict.get("order_m2_side", "Unknown"),
-        "base_size": bot_open_dict.get("order_m1_size", 0),
-        "quote_size": bot_open_dict.get("order_m2_size", 0),
-        "z_score": bot_open_dict.get("z_score", 0),
-        "hedge_ratio": bot_open_dict.get("hedge_ratio", 0),
-        "half_life": bot_open_dict.get("half_life", 0),
+        "base_side": bot_open_dict.get("order_m1_side", "") or fallback_base_side,
+        "quote_side": bot_open_dict.get("order_m2_side", "") or fallback_quote_side,
+        "base_size": bot_open_dict.get("order_m1_size", 0) or fallback_base_size,
+        "quote_size": bot_open_dict.get("order_m2_size", 0) or fallback_quote_size,
+        "z_score": bot_open_dict.get("z_score", 0) or fallback_z_score,
+        "hedge_ratio": bot_open_dict.get("hedge_ratio", 0) or fallback_hedge_ratio,
+        "half_life": bot_open_dict.get("half_life", 0) or fallback_half_life,
         "market_1_order_id": bot_open_dict.get("order_id_m1", ""),
         "market_2_order_id": bot_open_dict.get("order_id_m2", ""),
     }
@@ -221,10 +233,9 @@ async def _close_orphan_exchange_leg(
             price=close_price,
             attempts=3,
         )
-        messenger.send_error_message(
+        messenger.send_recovery_message(
             "Recovered Orphaned Position Leg",
             f"Submitted reduce-only close for orphaned {orphan_market} leg. Close order: {close_order_id}",
-            is_critical=True,
             category="execution_orphan_recovery",
         )
         logger.critical(
@@ -506,7 +517,18 @@ async def open_positions(client):
                         ):
                             _record_entry_success(pair_key)
                             # Send trade opened notification before deleting bot_open_dict
-                            trade_info = _build_trade_opened_notification(bot_open_dict)
+                            trade_info = _build_trade_opened_notification(
+                                bot_open_dict,
+                                fallback_base_market=base_market,
+                                fallback_quote_market=quote_market,
+                                fallback_base_side=base_side,
+                                fallback_quote_side=quote_side,
+                                fallback_base_size=base_size,
+                                fallback_quote_size=quote_size,
+                                fallback_z_score=z_score,
+                                fallback_hedge_ratio=hedge_ratio,
+                                fallback_half_life=half_life,
+                            )
                             messenger.send_trade_opened_message(trade_info)
 
                             # Save trade using atomic per-instance state update.

@@ -1,27 +1,27 @@
 import {
-  Activity,
-  ChevronDown,
-  ChevronUp,
-  Pause,
-  Play,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  Trash2,
-  Zap,
+    Activity,
+    ChevronDown,
+    ChevronUp,
+    Pause,
+    Play,
+    Plus,
+    RefreshCw,
+    ShieldCheck,
+    Trash2,
+    Zap,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { classifyApiError } from '../api';
 import {
-  useBotInstances,
-  useBotRuntimeStatsStream,
-  useBotStats,
-  useCreateBotInstance,
-  useDeleteBotInstance,
-  useRestartBotInstance,
-  useStartBotInstance,
-  useStopBotInstance,
+    useBotInstances,
+    useBotRuntimeStatsStream,
+    useBotStats,
+    useCreateBotInstance,
+    useDeleteBotInstance,
+    useRestartBotInstance,
+    useStartBotInstance,
+    useStopBotInstance,
 } from '../api/hooks';
 import { useToastStore } from './ErrorBoundary';
 import { PageContainer } from './PageContainer';
@@ -53,12 +53,10 @@ interface BotStats {
   warning?: string;
 }
 
-type PendingRuntimeAction =
-  | {
-      kind: 'stop' | 'restart' | 'delete';
-      instanceId: string;
-    }
-  | null;
+type PendingRuntimeAction = {
+  kind: 'stop' | 'restart' | 'delete';
+  instanceId: string;
+} | null;
 
 const normalizeStatus = (status: string | undefined): BotInstance['status'] => {
   const normalized = String(status || '').toUpperCase();
@@ -94,8 +92,7 @@ const mapBots = (data: unknown): BotInstance[] => {
         instance_id: typeof record.instance_id === 'string' ? record.instance_id : '',
         status: normalizeStatus(record.status as string | undefined),
         strategy: typeof record.strategy === 'string' ? record.strategy : undefined,
-        error_message:
-          typeof record.error_message === 'string' ? record.error_message : undefined,
+        error_message: typeof record.error_message === 'string' ? record.error_message : undefined,
       };
     })
     .filter((bot) => bot.instance_id.length > 0);
@@ -114,7 +111,10 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
 
   const totalTrades = toNumber(tradeStatistics.total_trades, toNumber(botStatistics.total_trades));
   const openPositions = toNumber(raw.open_positions, toNumber(raw.total_open_positions));
-  const closedPositions = toNumber(raw.closed_positions, toNumber(raw.daily_trades_closed, totalTrades));
+  const closedPositions = toNumber(
+    raw.closed_positions,
+    toNumber(raw.daily_trades_closed, totalTrades)
+  );
   const totalPnl = toNumber(
     tradeStatistics.net_profit,
     toNumber(
@@ -148,7 +148,9 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
 };
 
 const isManagedStrategyRuntime = (bot: BotInstance): boolean =>
-  /^strategy-\d+-\d+$/.test(bot.instance_id) || bot.strategy === 'cointegration' || bot.strategy === 'mean_reversion';
+  /^strategy-\d+-\d+$/.test(bot.instance_id) ||
+  bot.strategy === 'cointegration' ||
+  bot.strategy === 'mean_reversion';
 
 const EMPTY_BOT_STATS: BotStats = {
   total_positions: 0,
@@ -227,11 +229,16 @@ const BotCard: React.FC<BotCardProps> = ({
         ? statsQuery.data
         : null;
   const stats = rawStats ? mapBotStats(rawStats) : { ...EMPTY_BOT_STATS };
+  const hasStatsPayload = rawStats !== null;
+  const shouldShowStatsWarning =
+    stats.degraded === true || (!!liveStatsQuery.error && !hasStatsPayload);
   const statusTone = getStatusTone(bot.status, stats.degraded);
   const streamLabel = shouldStreamRuntime
     ? liveStatsQuery.isConnected
       ? 'Live runtime stream connected'
-      : 'Runtime stream reconnecting'
+      : hasStatsPayload
+        ? 'Runtime stream reconnecting (API fallback active)'
+        : 'Runtime stream reconnecting'
     : 'Polling runtime state';
 
   return (
@@ -271,23 +278,36 @@ const BotCard: React.FC<BotCardProps> = ({
             <p className="mt-2 text-sm text-slate-400">
               Started: {bot.started_at ? formatDateTime(bot.started_at) : 'Never'}
             </p>
-            <p className={`mt-1 text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : 'text-slate-500'}`}>
+            <p
+              className={`mt-1 text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : 'text-slate-500'}`}
+            >
               {streamLabel}
             </p>
-            {bot.error_message && <p className="mt-1 text-xs text-amber-300">{bot.error_message}</p>}
+            {bot.error_message && (
+              <p className="mt-1 text-xs text-amber-300">{bot.error_message}</p>
+            )}
           </div>
         </div>
 
-        <div className="grid min-w-full gap-3 xl:min-w-[360px]" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="grid min-w-full gap-3 xl:min-w-[360px]"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="operator-mini-grid">
             <div className="metric-tile px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Total P&amp;L</p>
-              <p className={`mt-2 text-sm font-semibold ${stats.total_pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                Total P&amp;L
+              </p>
+              <p
+                className={`mt-2 text-sm font-semibold ${stats.total_pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+              >
                 {formatUsd(stats.total_pnl)}
               </p>
             </div>
             <div className="metric-tile px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Open positions</p>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                Open positions
+              </p>
               <p className="mt-2 text-sm font-semibold text-white">{stats.open_positions}</p>
             </div>
             <div className="metric-tile px-4 py-4">
@@ -298,7 +318,7 @@ const BotCard: React.FC<BotCardProps> = ({
             </div>
           </div>
 
-          {(stats.degraded || liveStatsQuery.error) && (
+          {shouldShowStatsWarning && (
             <div className="rounded-2xl border border-amber-700/60 bg-amber-950/25 px-4 py-3 text-xs text-amber-200">
               {stats.warning || 'Runtime stats temporarily unavailable or reconnecting.'}
             </div>
@@ -392,7 +412,9 @@ const BotCard: React.FC<BotCardProps> = ({
             </div>
             <div className="metric-tile p-3">
               <p className="text-xs text-slate-400">Last runtime update</p>
-              <p className="text-sm font-semibold text-white">{formatDateTime(stats.last_update)}</p>
+              <p className="text-sm font-semibold text-white">
+                {formatDateTime(stats.last_update)}
+              </p>
             </div>
             <div className="metric-tile p-3">
               <p className="text-xs text-slate-400">Exposure state</p>
@@ -484,7 +506,10 @@ const BotManager: React.FC = () => {
   };
 
   const pendingBot = useMemo(
-    () => (pendingAction ? bots.find((bot) => bot.instance_id === pendingAction.instanceId) ?? null : null),
+    () =>
+      pendingAction
+        ? (bots.find((bot) => bot.instance_id === pendingAction.instanceId) ?? null)
+        : null,
     [bots, pendingAction]
   );
 
@@ -531,27 +556,25 @@ const BotManager: React.FC = () => {
       }
 
       setError(null);
-      await createBotMutation.mutateAsync(
-        {
-          instance_id: createForm.instance_id,
-          name: createForm.instance_id,
-          credentials: {
-            address: createForm.address,
-            mnemonic: createForm.mnemonic,
-            network: createForm.is_testnet ? 'testnet' : 'mainnet',
-            chain_id: createForm.chain_id,
-            secret_phrase: createForm.mnemonic,
-          },
-          trading_params: {
-            is_testnet: createForm.is_testnet,
-            zscore_threshold: createForm.zscore_threshold,
-            max_half_life: createForm.max_half_life,
-            usd_per_trade: createForm.usd_per_trade,
-          },
-          instance_name: createForm.instance_id,
-          strategy: 'default',
-        } as Parameters<typeof createBotMutation.mutateAsync>[0]
-      );
+      await createBotMutation.mutateAsync({
+        instance_id: createForm.instance_id,
+        name: createForm.instance_id,
+        credentials: {
+          address: createForm.address,
+          mnemonic: createForm.mnemonic,
+          network: createForm.is_testnet ? 'testnet' : 'mainnet',
+          chain_id: createForm.chain_id,
+          secret_phrase: createForm.mnemonic,
+        },
+        trading_params: {
+          is_testnet: createForm.is_testnet,
+          zscore_threshold: createForm.zscore_threshold,
+          max_half_life: createForm.max_half_life,
+          usd_per_trade: createForm.usd_per_trade,
+        },
+        instance_name: createForm.instance_id,
+        strategy: 'default',
+      } as Parameters<typeof createBotMutation.mutateAsync>[0]);
 
       setShowCreateForm(false);
       resetCreateForm();
@@ -649,7 +672,9 @@ const BotManager: React.FC = () => {
   const isRefreshing = botsQuery.isFetching && bots.length > 0;
   const isInitialLoading = botsQuery.isLoading && bots.length === 0;
   const runningBots = bots.filter((bot) => bot.status === 'RUNNING').length;
-  const erroredBots = bots.filter((bot) => bot.status === 'FAILED' || bot.status === 'ERROR').length;
+  const erroredBots = bots.filter(
+    (bot) => bot.status === 'FAILED' || bot.status === 'ERROR'
+  ).length;
   const transitioningBots = bots.filter(
     (bot) => bot.status === 'STARTING' || bot.status === 'STOPPING'
   ).length;
@@ -672,11 +697,17 @@ const BotManager: React.FC = () => {
             </p>
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <div className="operator-status-pill" data-tone={runningBots > 0 ? 'positive' : 'warning'}>
+              <div
+                className="operator-status-pill"
+                data-tone={runningBots > 0 ? 'positive' : 'warning'}
+              >
                 <Activity className="h-3.5 w-3.5" />
                 {runningBots > 0 ? `${runningBots} running` : 'No active bots'}
               </div>
-              <div className="operator-status-pill" data-tone={erroredBots > 0 ? 'danger' : 'accent'}>
+              <div
+                className="operator-status-pill"
+                data-tone={erroredBots > 0 ? 'danger' : 'accent'}
+              >
                 <ShieldCheck className="h-3.5 w-3.5" />
                 {erroredBots > 0 ? `${erroredBots} need attention` : 'No runtime failures'}
               </div>
@@ -693,19 +724,25 @@ const BotManager: React.FC = () => {
               <p className="mt-1 text-xs text-slate-500">Known bot runtimes</p>
             </div>
             <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Transitioning</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Transitioning
+              </p>
               <p className="mt-2 text-xl font-semibold text-white">{transitioningBots}</p>
               <p className="mt-1 text-xs text-slate-500">Starting or stopping</p>
             </div>
             <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Refresh cadence</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Refresh cadence
+              </p>
               <p className="mt-2 text-xl font-semibold text-white">30s</p>
               <p className="mt-1 text-xs text-slate-500">Automatic desk refresh</p>
             </div>
             <div className="operator-hero-panel px-4 py-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Boundary</p>
               <p className="mt-2 text-xl font-semibold text-white">Backend-only</p>
-              <p className="mt-1 text-xs text-slate-500">No direct bot API access from the browser</p>
+              <p className="mt-1 text-xs text-slate-500">
+                No direct bot API access from the browser
+              </p>
             </div>
           </div>
         </div>
@@ -729,7 +766,9 @@ const BotManager: React.FC = () => {
         </div>
         <div className="operator-stat-card p-5">
           <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Attention needed</p>
-          <p className={`mt-2 text-2xl font-semibold ${erroredBots > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+          <p
+            className={`mt-2 text-2xl font-semibold ${erroredBots > 0 ? 'text-rose-300' : 'text-emerald-300'}`}
+          >
             {erroredBots}
           </p>
           <p className="mt-1 text-xs text-slate-500">Failed or error state runtimes</p>
@@ -737,11 +776,7 @@ const BotManager: React.FC = () => {
       </section>
 
       {error && (
-        <InlineNotice
-          tone="danger"
-          title="Runtime action needs attention"
-          description={error}
-        />
+        <InlineNotice tone="danger" title="Runtime action needs attention" description={error} />
       )}
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr,1.05fr]">
@@ -980,7 +1015,8 @@ const BotManager: React.FC = () => {
           <div>
             <h2 className="text-xl font-semibold text-white">Runtime instances</h2>
             <p className="text-sm text-slate-400">
-              Review each instance with live stream state, action controls, and expanded runtime detail.
+              Review each instance with live stream state, action controls, and expanded runtime
+              detail.
             </p>
           </div>
           <span className="operator-status-pill" data-tone={bots.length > 0 ? 'accent' : 'warning'}>
@@ -989,7 +1025,9 @@ const BotManager: React.FC = () => {
         </div>
 
         {isInitialLoading ? (
-          <div className="operator-section-card py-10 text-center text-slate-400">Loading bots...</div>
+          <div className="operator-section-card py-10 text-center text-slate-400">
+            Loading bots...
+          </div>
         ) : bots.length === 0 ? (
           <div className="operator-section-card p-8">
             <EmptyState
@@ -1048,7 +1086,9 @@ const BotManager: React.FC = () => {
           details={
             pendingBot && (
               <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Runtime context</p>
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                  Runtime context
+                </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div>
                     <p className="text-xs text-slate-500">Instance</p>

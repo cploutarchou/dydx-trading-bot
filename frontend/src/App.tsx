@@ -8,12 +8,12 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-d
 import { QueryProvider } from './api/QueryProvider';
 import { getCurrentPortalType } from './app/portal';
 import {
-  BACKOFFICE_ROLES,
-  CLIENT_ROLES,
-  IB_ROLES,
-  getUserWorkspaceRole,
-  roleMatches,
-  type WorkspaceRole,
+    BACKOFFICE_ROLES,
+    CLIENT_ROLES,
+    IB_ROLES,
+    getUserWorkspaceRole,
+    roleMatches,
+    type WorkspaceRole,
 } from './auth/roles';
 import {
     ErrorBoundary as EnhancedErrorBoundary,
@@ -258,7 +258,9 @@ export const App: React.FC = () => {
             <Routes>
               <Route
                 path="/"
-                element={portal === 'client' ? <LandingPage /> : <Navigate to="/dashboard" replace />}
+                element={
+                  portal === 'client' ? <LandingPage /> : <Navigate to="/dashboard" replace />
+                }
               />
               <Route path="/services/:slug" element={<PublicServicePage />} />
               <Route path="/pricing" element={<PricingPage />} />

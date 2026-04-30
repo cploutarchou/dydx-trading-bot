@@ -6,35 +6,36 @@
  */
 
 import {
-  Activity,
-  Bot,
-  CalendarRange,
-  CandlestickChart,
-  CircleDot,
-  Clock3,
-  Gauge,
-  Layers,
-  Loader,
-  Pause,
-  Percent,
-  Play,
-  Radar,
-  Rocket,
-  RotateCcw,
-  Scale,
-  ShieldCheck,
-  Square,
-  TrendingDown,
-  TrendingUp,
-  Waves,
+    Activity,
+    Bot,
+    CalendarRange,
+    CandlestickChart,
+    CircleDot,
+    Clock3,
+    Gauge,
+    Layers,
+    Loader,
+    Pause,
+    Percent,
+    Play,
+    Radar,
+    Rocket,
+    RotateCcw,
+    Scale,
+    ShieldCheck,
+    Square,
+    TrendingDown,
+    TrendingUp,
+    Waves,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { useBacktestProgress } from '../api/hooks';
+import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
 import BacktestLightweightChart, {
-  type BacktestChartMarker,
-  type BacktestChartPoint,
+    type BacktestChartMarker,
+    type BacktestChartPoint,
 } from '../components/BacktestLightweightChart';
 import BacktestPositionsPanel from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
@@ -1001,10 +1002,8 @@ export const BacktestDetailsV2: React.FC = () => {
       backtest.worker_backend,
     request: asRecord(liveRecord?.request) || backtest.request,
     strategy_id:
-      firstFiniteNumber(liveRecord?.strategy_id, backtest.strategy_id) ??
-      backtest.strategy_id,
-    strategy_snapshot:
-      asRecord(liveRecord?.strategy_snapshot) || backtest.strategy_snapshot,
+      firstFiniteNumber(liveRecord?.strategy_id, backtest.strategy_id) ?? backtest.strategy_id,
+    strategy_snapshot: asRecord(liveRecord?.strategy_snapshot) || backtest.strategy_snapshot,
   };
 
   const liveStatusNorm = normalizeStatus(progressQuery.data?.status);
@@ -1392,8 +1391,7 @@ export const BacktestDetailsV2: React.FC = () => {
           return;
         }
       }
-      const msg =
-        err instanceof Error ? err.message : `Failed to ${action} backtest ${runId}`;
+      const msg = err instanceof Error ? err.message : `Failed to ${action} backtest ${runId}`;
       setControlError(msg);
     } finally {
       setControlAction(null);
@@ -1453,7 +1451,9 @@ export const BacktestDetailsV2: React.FC = () => {
     try {
       const existingStrategyId = firstFiniteNumber(liveBacktest.strategy_id);
       const strategyId =
-        startRuntime && existingStrategyId ? existingStrategyId : await createStrategyFromCurrentBacktest();
+        startRuntime && existingStrategyId
+          ? existingStrategyId
+          : await createStrategyFromCurrentBacktest();
 
       if (startRuntime) {
         const readiness = await api.getStrategyStartReadiness(strategyId, runtimeNetwork);
@@ -1817,8 +1817,8 @@ export const BacktestDetailsV2: React.FC = () => {
                   </h2>
                 </div>
                 <p className="max-w-xl text-sm text-slate-400">
-                  Built for pair-trading decisions: edge quality, capital efficiency,
-                  concentration risk, cadence, and live market coverage.
+                  Built for pair-trading decisions: edge quality, capital efficiency, concentration
+                  risk, cadence, and live market coverage.
                 </p>
               </div>
               <div className="mt-5 grid gap-3 md:grid-cols-2 2xl:grid-cols-5">
@@ -2050,6 +2050,21 @@ export const BacktestDetailsV2: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* AI Backtest Explainer — full width below the two snapshot cards */}
+          <div className="xl:col-span-2">
+            <AIBacktestExplainer
+              winRate={liveBacktest.win_rate}
+              totalPnlUsd={liveBacktest.total_pnl_usd}
+              sharpeRatio={liveBacktest.sharpe_ratio}
+              maxDrawdownPct={liveBacktest.max_drawdown_pct}
+              totalTrades={liveBacktest.total_trades ?? 0}
+              profitFactor={liveBacktest.profit_factor ?? 0}
+              markets={markets}
+              startDate={backtest.start_date ?? ''}
+              endDate={backtest.end_date ?? ''}
+            />
           </div>
         </div>
       )}

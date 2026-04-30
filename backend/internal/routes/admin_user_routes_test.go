@@ -244,17 +244,13 @@ func TestAdminUserRoutes_PreventLastAdminRemoval(t *testing.T) {
 	}
 }
 
-func TestAdminUserRoutes_SeedDummyClients(t *testing.T) {
+func TestAdminUserRoutes_SeedDummyClientsRouteDisabled(t *testing.T) {
 	router, dbConn := setupAdminUserRouter(t)
 	t.Cleanup(func() {
 		if err := dbConn.Close(); err != nil {
 			t.Errorf("close db: %v", err)
 		}
 	})
-
-	createPartnerApplicationsSchema(t, dbConn)
-	createPartnerRelationshipsSchema(t, dbConn)
-	createPartnerCommissionMetricsSchema(t, dbConn)
 
 	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
 
@@ -263,45 +259,8 @@ func TestAdminUserRoutes_SeedDummyClients(t *testing.T) {
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
-	if res.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d body=%s", res.Code, res.Body.String())
-	}
-
-	var body struct {
-		Data struct {
-			CreatedUsers            []UserResponse `json:"created_users"`
-			ExistingUsernames       []string       `json:"existing_usernames"`
-			SeededRelationships     int            `json:"seeded_relationships"`
-			SeededCommissionMetrics int            `json:"seeded_commission_metrics"`
-			SeededApplications      int            `json:"seeded_applications"`
-			SharedPassword          string         `json:"shared_development_secret"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(body.Data.CreatedUsers) == 0 {
-		t.Fatalf("expected dummy users to be created")
-	}
-	if body.Data.SharedPassword != "DevClient123!" {
-		t.Fatalf("unexpected shared password: %q", body.Data.SharedPassword)
-	}
-	if body.Data.SeededRelationships == 0 {
-		t.Fatalf("expected seeded relationships")
-	}
-	if body.Data.SeededCommissionMetrics == 0 {
-		t.Fatalf("expected seeded commission metrics")
-	}
-	if body.Data.SeededApplications == 0 {
-		t.Fatalf("expected seeded applications")
-	}
-
-	var clientCount int
-	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM users WHERE username IN (?, ?, ?, ?, ?, ?)`, "atlas_ib", "delta_subib", "client_alpha", "client_beta", "client_gamma", "client_pending").Scan(&clientCount); err != nil {
-		t.Fatalf("count dummy users: %v", err)
-	}
-	if clientCount != 6 {
-		t.Fatalf("expected 6 dummy users, got %d", clientCount)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected disabled dummy seed route to return 404, got %d body=%s", res.Code, res.Body.String())
 	}
 }
 

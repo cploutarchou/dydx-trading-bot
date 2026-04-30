@@ -14,7 +14,6 @@ import api, {
   AdminUser,
   CreateAdminUserPayload,
   ResetAdminUserMFAResponse,
-  SeedDummyClientsResponse,
   UpdateAdminUserPayload,
 } from '../api';
 import { ibPortalHref } from '../pages/ib/paths';
@@ -314,26 +313,6 @@ export function AdminAccessControlSettings() {
     },
     onError: (error: unknown) => {
       errorToast('Failed to update MFA policy', getErrorMessage(error));
-    },
-  });
-
-  const seedDummyClientsMutation = useMutation({
-    mutationFn: async () => api.seedDummyClients(),
-    onSuccess: (response) => {
-      const data = response.data as SeedDummyClientsResponse | undefined;
-      successToast(
-        'Dummy CRM clients ready',
-        `Created ${data?.created_users?.length || 0} users. Shared password: ${data?.shared_development_secret || 'DevClient123!'}`
-      );
-      if (data?.existing_usernames?.length) {
-        successToast('Existing dummy users reused', data.existing_usernames.join(', '));
-      }
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      void queryClient.invalidateQueries({ queryKey: ['crm'] });
-      void queryClient.invalidateQueries({ queryKey: ['portal'] });
-    },
-    onError: (error: unknown) => {
-      errorToast('Failed to seed dummy clients', getErrorMessage(error));
     },
   });
 
@@ -880,30 +859,6 @@ export function AdminAccessControlSettings() {
               Create platform user
             </button>
 
-            <div className="mt-6 rounded-2xl border border-dashed border-slate-700/60 bg-slate-950/40 p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-white">Development dummy CRM clients</p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Seed sample IB, sub-IB, clients, relationships, commission metrics, and one
-                    pending application for CRM testing.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => seedDummyClientsMutation.mutate()}
-                  disabled={seedDummyClientsMutation.isPending}
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
-                >
-                  {seedDummyClientsMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Users className="h-4 w-4" />
-                  )}
-                  Seed dummy clients
-                </button>
-              </div>
-            </div>
           </div>
         </div>
 

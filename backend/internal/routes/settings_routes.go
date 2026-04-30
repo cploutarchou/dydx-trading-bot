@@ -19,6 +19,8 @@ func RegisterSettingsRoutes(router *gin.Engine, database *db.Database) {
 	{
 		settings := v1.Group("/settings")
 		settings.Use(middleware.RequireAuth())
+		settings.Use(middleware.RequireMFA(database.DB))
+		settings.Use(middleware.RequirePermission(database.DB, "crm.admin.manage"))
 		{
 			// Initialization and schema are admin-level operations; require auth.
 			settings.POST("/initialize", settingsHandler.Initialize)

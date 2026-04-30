@@ -51,15 +51,19 @@ var fallbackPermissionsByRole = map[string]map[string]struct{}{
 		"crm.admin.manage":     {},
 		"users.read":           {},
 		"users.update":         {},
+		"users.disable":        {},
 		"kyc.read":             {},
 		"kyc.review":           {},
 		"audit.read":           {},
 		"security.events.read": {},
+		"roles.manage":         {},
 	},
 	"operations_admin": {
 		"crm.read":             {},
+		"crm.admin.manage":     {},
 		"users.read":           {},
 		"users.update":         {},
+		"users.disable":        {},
 		"kyc.read":             {},
 		"kyc.review":           {},
 		"audit.read":           {},
@@ -99,6 +103,21 @@ var fallbackPermissionsByRole = map[string]map[string]struct{}{
 		"users.read":           {},
 		"audit.read":           {},
 		"security.events.read": {},
+	},
+	"accounting": {
+		"crm.read":     {},
+		"users.read":   {},
+		"finance.read": {},
+		"audit.read":   {},
+	},
+	"marketing": {
+		"crm.read":   {},
+		"users.read": {},
+	},
+	"agent": {
+		"crm.read":     {},
+		"users.read":   {},
+		"users.update": {},
 	},
 }
 

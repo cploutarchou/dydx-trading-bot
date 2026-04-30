@@ -3138,6 +3138,9 @@ class ApiClient {
 
   // WebSocket connection for real-time updates
   connectSocket(path: string, token?: string): WebSocket {
+    if (!token && !this.accessToken) {
+      this.loadTokenFromStorage();
+    }
     const useToken = token || this.accessToken || '';
     return new WebSocket(resolveBackendWebSocketUrl(path, useToken, API_BASE_URL));
   }

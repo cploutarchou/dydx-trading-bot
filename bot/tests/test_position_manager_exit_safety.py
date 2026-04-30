@@ -4,9 +4,7 @@ import asyncio
 import json
 
 import pandas as pd
-
-from src.trading import position_manager
-from src.trading import bot_agents_state
+from src.trading import bot_agents_state, position_manager
 
 
 def test_trade_opened_notification_maps_bot_agent_order_dict_keys():
@@ -40,6 +38,33 @@ def test_trade_opened_notification_maps_bot_agent_order_dict_keys():
         "market_1_order_id": "base-order",
         "market_2_order_id": "quote-order",
     }
+
+
+def test_trade_opened_notification_uses_fallback_context_when_payload_is_sparse():
+    payload = position_manager._build_trade_opened_notification(
+        {
+            "z_score": -2.245,
+            "hedge_ratio": -0.2032,
+        },
+        fallback_base_market="BCH-USD",
+        fallback_quote_market="MET-USD",
+        fallback_base_side="BUY",
+        fallback_quote_side="SELL",
+        fallback_base_size="0.02",
+        fallback_quote_size="60",
+        fallback_z_score=-2.245,
+        fallback_hedge_ratio=-0.2032,
+    )
+
+    assert payload["pair"] == "BCH-USD / MET-USD"
+    assert payload["base_market"] == "BCH-USD"
+    assert payload["quote_market"] == "MET-USD"
+    assert payload["base_side"] == "BUY"
+    assert payload["quote_side"] == "SELL"
+    assert payload["base_size"] == "0.02"
+    assert payload["quote_size"] == "60"
+    assert payload["z_score"] == -2.245
+    assert payload["hedge_ratio"] == -0.2032
 
 
 def test_manage_trade_exits_retries_second_leg_after_partial_close(monkeypatch, tmp_path):

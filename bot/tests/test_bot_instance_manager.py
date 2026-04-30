@@ -5,10 +5,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-import yaml
 import pytest
-
 import src.bot_instance_manager as bot_instance_manager_module
+import yaml
 from src.bot_instance_manager import BotInstanceManager
 from src.infrastructure.domain.bot_api_models import (
     BacktestingParameters,
@@ -331,6 +330,36 @@ def test_create_instance_persists_runtime_and_backtest_parameters_to_yaml(tmp_pa
     assert "maxPositions: 3" in contents
     assert "startingBalance: 5000.0" in contents
     assert "benchmarkSymbol: ETH-USD" in contents
+
+
+def test_dev_environment_defaults_to_unlimited_instances(monkeypatch, tmp_path):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("BOT_MAX_INSTANCES", raising=False)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    assert manager.max_instances == 0
+
+    for idx in range(12):
+        result = asyncio.run(manager.create_instance(_strategy_config(f"strategy-1-{100 + idx}")))
+        assert result.success is True
+
+
+def test_production_environment_uses_default_limit(monkeypatch, tmp_path):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("BOT_MAX_INSTANCES", raising=False)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    assert manager.max_instances == 10
+
+    for idx in range(10):
+        result = asyncio.run(manager.create_instance(_strategy_config(f"strategy-2-{200 + idx}")))
+        assert result.success is True
+
+    blocked = asyncio.run(manager.create_instance(_strategy_config("strategy-2-999")))
+    assert blocked.success is False
+    assert blocked.message == "Maximum instances limit reached (10)"
 
 
 def test_instance_config_uses_structured_defaults_instead_of_legacy_env(monkeypatch, tmp_path):

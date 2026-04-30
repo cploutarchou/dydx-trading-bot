@@ -2,10 +2,8 @@
 
 import asyncio
 
-import numpy as np
 import pandas as pd
 from loguru import logger
-
 from src.constants import RESOLUTION
 from src.shared.utils import get_ISO_times
 
@@ -61,17 +59,19 @@ def normalize_resolution(resolution):
 DYDX_RESOLUTION = normalize_resolution(RESOLUTION)
 
 
-async def get_candles_recent(client, market):
+async def get_candles_recent(client, market, resolution=None):
     """Get recent candles for a market."""
     # Define output
     close_prices = []
+
+    effective_resolution = normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
 
     # Protect API
     await asyncio.sleep(0.2)
 
     # Get Prices from DYDX V4
     response = await client.indexer.markets.get_perpetual_market_candles(
-        market=market, resolution=DYDX_RESOLUTION
+        market=market, resolution=effective_resolution
     )
 
     # Candles
@@ -83,29 +83,32 @@ async def get_candles_recent(client, market):
 
     # Construct and return close price series
     close_prices.reverse()
-    prices_result = np.array(close_prices).astype(np.float64)
-    return prices_result
+    return pd.Series(close_prices, dtype=float)
 
 
-async def get_candles_historical(client, market):
+async def get_candles_historical(client, market, resolution=None):
     """Get historical candles for a market across timeframes."""
     # Define output
     close_prices = []
 
-    # Extract historical price data for each timeframe
-    for timeframe in ISO_TIMES.keys():
+    effective_resolution = normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
+    # Refresh time windows each call so long-running processes use current timestamps
+    iso_times = get_ISO_times()
 
-        # Confirm times needed
-        tf_obj = ISO_TIMES[timeframe]
-        from_iso = tf_obj["from_iso"] + ".000Z"
-        to_iso = tf_obj["to_iso"] + ".000Z"
+    # Extract historical price data for each timeframe
+    for timeframe in iso_times.keys():
+
+        # Confirm times needed — format_time now emits clean UTC Z strings
+        tf_obj = iso_times[timeframe]
+        from_iso = tf_obj["from_iso"]
+        to_iso = tf_obj["to_iso"]
 
         # Protect rate limits
         await asyncio.sleep(0.2)
 
         response = await client.indexer.markets.get_perpetual_market_candles(
             market=market,
-            resolution=DYDX_RESOLUTION,
+            resolution=effective_resolution,
             from_iso=from_iso,
             to_iso=to_iso,
             limit=100,
@@ -127,9 +130,14 @@ async def get_markets(client):
     return await client.indexer.markets.get_perpetual_markets()
 
 
-async def construct_market_prices(client, selected_markets=None):
+async def construct_market_prices(client, selected_markets=None, resolution=None):
     """
     Construct a DataFrame of market prices for all tradeable markets.
+
+    Args:
+        client: dYdX client
+        selected_markets: optional list of markets to include
+        resolution: candle resolution override (e.g. '5MINS'); defaults to DYDX_RESOLUTION
 
     Returns:
         DataFrame with datetime index and market prices as columns
@@ -159,7 +167,7 @@ async def construct_market_prices(client, selected_markets=None):
         )
 
     # Set initial DataFrame
-    close_prices = await get_candles_historical(client, tradeable_markets[0])
+    close_prices = await get_candles_historical(client, tradeable_markets[0], resolution=resolution)
     df = pd.DataFrame(close_prices)
     df.set_index("datetime", inplace=True)
 
@@ -172,7 +180,7 @@ async def construct_market_prices(client, selected_markets=None):
             len(tradeable_markets),
             market,
         )
-        close_prices_add = await get_candles_historical(client, market)
+        close_prices_add = await get_candles_historical(client, market, resolution=resolution)
         df_add = pd.DataFrame(close_prices_add)
         try:
             df_add.set_index("datetime", inplace=True)

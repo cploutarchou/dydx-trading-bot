@@ -38,6 +38,7 @@ import {
   useState,
 } from 'react';
 import apiClient from '../api';
+import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
 import { AIMarketSettings } from '../components/AIMarketSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
@@ -336,6 +337,7 @@ const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
 
 export default function Settings() {
   const user = useAuthStore((state) => state.user);
+  const canManageBackofficeSettings = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
   const [schema, setSchema] = useState<SettingsSchema | null>(null);
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
   const [initialFormValues, setInitialFormValues] = useState<
@@ -373,7 +375,7 @@ export default function Settings() {
         description: 'OpenAI, DeepSeek, Claude',
       },
       { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
-      ...(user?.is_admin
+      ...(canManageBackofficeSettings
         ? [
             {
               section: 'access_control',
@@ -395,7 +397,7 @@ export default function Settings() {
         description: section.description,
       })),
     ];
-  }, [user?.is_admin, visibleSchemaSections]);
+  }, [canManageBackofficeSettings, visibleSchemaSections]);
 
   const filteredSidebarSections = useMemo(() => {
     const query = deferredSectionSearchQuery.trim().toLowerCase();
@@ -831,10 +833,14 @@ export default function Settings() {
           {activeSection === 'dydx_keys' && <DYDXKeyManager />}
           {activeSection === 'ai_market_filters' && <AIMarketSettings />}
           {activeSection === 'codex_io' && <CodexSettings />}
-          {activeSection === 'access_control' && user?.is_admin && <AdminAccessControlSettings />}
-          {activeSection === 'mailgun' && user?.is_admin && <MailgunSettings />}
-          {activeSection === 'telegram' && user?.is_admin && <TelegramSettings />}
-          {activeSection === 'market_news' && user?.is_admin && <CoinDeskNewsSettings />}
+          {activeSection === 'access_control' && canManageBackofficeSettings && (
+            <AdminAccessControlSettings />
+          )}
+          {activeSection === 'mailgun' && canManageBackofficeSettings && <MailgunSettings />}
+          {activeSection === 'telegram' && canManageBackofficeSettings && <TelegramSettings />}
+          {activeSection === 'market_news' && canManageBackofficeSettings && (
+            <CoinDeskNewsSettings />
+          )}
           {activeSection === 'security' && <AuthSettingsComponent />}
 
           {/* Schema-driven sections */}

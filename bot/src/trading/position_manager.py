@@ -1,12 +1,13 @@
 """Position entry and exit management for pairs trading."""
 
 import asyncio
+import os
+import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 from loguru import logger
-
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
     USD_MIN_COLLATERAL,
@@ -24,13 +25,13 @@ from src.trading.account_manager import (
     place_market_order,
 )
 from src.trading.analysis.cointegration import calculate_zscore
+from src.trading.bot_agent import BotAgent
 from src.trading.bot_agents_state import (
     BOT_AGENTS_PATH,
     append_tracked_position,
     load_tracked_positions,
     save_processed_positions,
 )
-from src.trading.bot_agent import BotAgent
 from src.trading.market_data import get_candles_recent, get_markets
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
@@ -41,6 +42,54 @@ IGNORE_ASSETS = [
     "BTC-USD_x",
     "BTC-USD_y",
 ]  # Ignore these assets which are not trading on testnet
+
+
+# Per-pair entry failure backoff state to avoid hammering failing markets.
+# key: "BASE|QUOTE" -> {"failure_count": int, "next_retry_at": float, "last_error": str}
+_ENTRY_FAILURE_STATE: Dict[str, Dict[str, Any]] = {}
+
+
+def _entry_backoff_now() -> float:
+    return time.monotonic()
+
+
+def _entry_pair_key(base_market: str, quote_market: str) -> str:
+    return f"{base_market}|{quote_market}"
+
+
+def _entry_backoff_seconds(failure_count: int) -> float:
+    base = float(os.getenv("ENTRY_FAILURE_BACKOFF_BASE_SECONDS", "15") or "15")
+    mult = float(os.getenv("ENTRY_FAILURE_BACKOFF_MULTIPLIER", "2") or "2")
+    max_seconds = float(os.getenv("ENTRY_FAILURE_BACKOFF_MAX_SECONDS", "180") or "180")
+    exponent = max(0, int(failure_count) - 1)
+    delay = base * (mult ** exponent)
+    return min(max_seconds, max(base, delay))
+
+
+def _entry_should_skip_pair(pair_key: str) -> tuple[bool, float]:
+    state = _ENTRY_FAILURE_STATE.get(pair_key)
+    if not state:
+        return False, 0.0
+    next_retry_at = float(state.get("next_retry_at", 0.0) or 0.0)
+    remaining = next_retry_at - _entry_backoff_now()
+    return (remaining > 0), max(0.0, remaining)
+
+
+def _record_entry_failure(pair_key: str, error: Any):
+    current = _ENTRY_FAILURE_STATE.get(pair_key, {})
+    failure_count = int(current.get("failure_count", 0) or 0) + 1
+    cooldown = _entry_backoff_seconds(failure_count)
+    _ENTRY_FAILURE_STATE[pair_key] = {
+        "failure_count": failure_count,
+        "next_retry_at": _entry_backoff_now() + cooldown,
+        "last_error": str(error),
+        "last_failure_at": _utc_now_iso(),
+    }
+
+
+def _record_entry_success(pair_key: str):
+    if pair_key in _ENTRY_FAILURE_STATE:
+        _ENTRY_FAILURE_STATE.pop(pair_key, None)
 
 
 def _utc_now_iso() -> str:
@@ -237,11 +286,22 @@ async def open_positions(client):
         # Extract variables
         base_market = row["base_market"]
         quote_market = row["quote_market"]
+        pair_key = _entry_pair_key(base_market, quote_market)
         hedge_ratio = row["hedge_ratio"]
         half_life = row["half_life"]
 
         # Continue if ignore asset
         if base_market in IGNORE_ASSETS or quote_market in IGNORE_ASSETS:
+            continue
+
+        skip_pair, remaining = _entry_should_skip_pair(pair_key)
+        if skip_pair:
+            logger.debug(
+                "Skipping {} / {} entry attempt during cooldown ({:.1f}s remaining)",
+                base_market,
+                quote_market,
+                remaining,
+            )
             continue
 
         # Get prices
@@ -364,10 +424,20 @@ async def open_positions(client):
                         )
 
                         # Open Trades
-                        bot_open_dict = await bot_agent.open_trades()
+                        try:
+                            bot_open_dict = await bot_agent.open_trades()
+                        except Exception as exc:
+                            _record_entry_failure(pair_key, exc)
+                            logger.exception(
+                                "Entry execution failed for {} / {}; applying cooldown",
+                                base_market,
+                                quote_market,
+                            )
+                            continue
 
                         # Guard: Handle failure
                         if bot_open_dict == "failed":
+                            _record_entry_failure(pair_key, "bot_agent returned failed")
                             logger.warning(
                                 "Bot agent failed to open trades for {} / {}",
                                 base_market,
@@ -380,6 +450,7 @@ async def open_positions(client):
                                 isinstance(bot_open_dict, dict)
                                 and bot_open_dict.get("pair_status") == "LIVE"
                         ):
+                            _record_entry_success(pair_key)
                             # Send trade opened notification before deleting bot_open_dict
                             trade_info = _build_trade_opened_notification(bot_open_dict)
                             messenger.send_trade_opened_message(trade_info)
@@ -394,6 +465,11 @@ async def open_positions(client):
                                 "Trade status: Live for {} / {}",
                                 base_market,
                                 quote_market,
+                            )
+                        elif isinstance(bot_open_dict, dict):
+                            _record_entry_failure(
+                                pair_key,
+                                f"bot_agent pair_status={bot_open_dict.get('pair_status', 'unknown')}",
                             )
 
     # Save agents

@@ -30,7 +30,6 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-
 from src.shared.env_loader import load_repo_env
 
 # Load structured config BEFORE importing project modules that initialize config/database.
@@ -110,8 +109,8 @@ from src.infrastructure.domain.models_backtest import (
 )
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
-from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
+from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
@@ -2225,7 +2224,11 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                 "bot_instances": {
                     "total": total_instances,
                     "running": running_instances,
-                    "max_allowed": bot_manager.max_instances,
+                    "max_allowed": (
+                        bot_manager.max_instances
+                        if bot_manager.max_instances > 0
+                        else None
+                    ),
                 },
                 "system_resources": {
                     "cpu_usage_percent": cpu_usage,
@@ -2252,6 +2255,28 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
 # ============================================================================
 # REAL-TIME DATA ENDPOINTS
 # ============================================================================
+
+
+def _resolve_realtime_bot_id(session, bot_instance_id: str) -> Optional[int]:
+    raw_id = str(bot_instance_id or "").strip()
+    if not raw_id:
+        return None
+    try:
+        return int(raw_id)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        uow_core = UnitOfWork(session)
+        bot = uow_core.bots.get_by_instance_id(raw_id)
+        return int(bot.id) if bot else None
+    except Exception as exc:
+        logger.warning(
+            "Failed to resolve realtime bot id for {}: {}",
+            raw_id,
+            exc,
+        )
+        return None
 
 
 @app.get("/api/v1/bots/{bot_instance_id}/positions/current")
@@ -2293,7 +2318,7 @@ async def get_current_positions(
 
 @app.get("/api/v1/bots/{bot_instance_id}/positions/{position_id}")
 async def get_position(
-        bot_instance_id: int,
+    bot_instance_id: str,
         position_id: str,
         current_user: User = Depends(get_current_active_user)
 ):
@@ -2302,9 +2327,15 @@ async def get_position(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
+        resolved_bot_id = _resolve_realtime_bot_id(session, bot_instance_id)
+        if resolved_bot_id is None:
+            return api_response(
+                success=False, message="Bot instance not found", status_code=404
+            )
+
         position = uow.positions.get_position_by_id(position_id)
 
-        if not position or position.bot_instance_id != bot_instance_id:
+        if not position or position.bot_instance_id != resolved_bot_id:
             return api_response(
                 success=False, message="Position not found", status_code=404
             )
@@ -2365,7 +2396,7 @@ async def get_position(
 
 @app.get("/api/v1/bots/{bot_instance_id}/market-data")
 async def get_market_data(
-        bot_instance_id: int,
+    bot_instance_id: str,
         current_user: User = Depends(get_current_active_user)
 ):
     """Get latest market data for all symbols tracked by bot"""
@@ -2373,11 +2404,13 @@ async def get_market_data(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        # Convert to int for database query if needed
-        try:
-            bot_id_int = int(bot_instance_id)
-        except (ValueError, TypeError):
-            bot_id_int = bot_instance_id
+        bot_id_int = _resolve_realtime_bot_id(session, bot_instance_id)
+        if bot_id_int is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{bot_instance_id}' not found",
+                status_code=404,
+            )
 
         market_data = uow.market_data.get_all_market_data(bot_id_int)
 
@@ -2416,7 +2449,7 @@ async def get_market_data(
 
 @app.get("/api/v1/bots/{bot_instance_id}/realtime-stats")
 async def get_realtime_stats(
-        bot_instance_id: int,
+    bot_instance_id: str,
         current_user: User = Depends(get_current_active_user)
 ):
     """Get real-time bot statistics"""
@@ -2424,11 +2457,13 @@ async def get_realtime_stats(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        # Convert to int for database query if needed
-        try:
-            bot_id_int = int(bot_instance_id)
-        except (ValueError, TypeError):
-            bot_id_int = bot_instance_id
+        bot_id_int = _resolve_realtime_bot_id(session, bot_instance_id)
+        if bot_id_int is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{bot_instance_id}' not found",
+                status_code=404,
+            )
 
         stats = uow.stats.get_stats(bot_id_int)
 
@@ -2500,7 +2535,7 @@ async def get_realtime_stats(
 
 @app.get("/api/v1/bots/{bot_instance_id}/alerts")
 async def get_alerts(
-        bot_instance_id: int,
+    bot_instance_id: str,
         limit: int = 50,
         current_user: User = Depends(get_current_active_user)
 ):
@@ -2509,11 +2544,13 @@ async def get_alerts(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        # Convert to int for database query if needed
-        try:
-            bot_id_int = int(bot_instance_id)
-        except (ValueError, TypeError):
-            bot_id_int = bot_instance_id
+        bot_id_int = _resolve_realtime_bot_id(session, bot_instance_id)
+        if bot_id_int is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{bot_instance_id}' not found",
+                status_code=404,
+            )
 
         alerts = uow.alerts.get_unnotified_alerts(bot_id_int)
         # Limit to most recent
@@ -2549,7 +2586,7 @@ async def get_alerts(
 
 @app.get("/api/v1/bots/{bot_instance_id}/position-history/{position_id}")
 async def get_position_history(
-        bot_instance_id: int,
+    bot_instance_id: str,
         position_id: str,
         hours: int = 24,
         current_user: User = Depends(get_current_active_user)
@@ -2559,11 +2596,13 @@ async def get_position_history(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        # Convert to int for database query if needed
-        try:
-            bot_id_int = int(bot_instance_id)
-        except (ValueError, TypeError):
-            bot_id_int = bot_instance_id
+        bot_id_int = _resolve_realtime_bot_id(session, bot_instance_id)
+        if bot_id_int is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{bot_instance_id}' not found",
+                status_code=404,
+            )
 
         snapshots = uow.snapshots.get_position_history(position_id, hours=hours)
 
@@ -2607,7 +2646,7 @@ async def get_position_history(
 
 
 @app.websocket("/api/v1/bots/{bot_instance_id}/positions/live")
-async def websocket_positions(websocket: WebSocket, bot_instance_id: int):
+async def websocket_positions(websocket: WebSocket, bot_instance_id: str):
     """WebSocket endpoint for live position updates"""
     if not await _authorize_websocket_connection(websocket):
         return
@@ -2615,7 +2654,7 @@ async def websocket_positions(websocket: WebSocket, bot_instance_id: int):
 
 
 @app.websocket("/api/v1/bots/{bot_instance_id}/market/live")
-async def websocket_market(websocket: WebSocket, bot_instance_id: int):
+async def websocket_market(websocket: WebSocket, bot_instance_id: str):
     """WebSocket endpoint for live market data"""
     if not await _authorize_websocket_connection(websocket):
         return
@@ -2623,7 +2662,7 @@ async def websocket_market(websocket: WebSocket, bot_instance_id: int):
 
 
 @app.websocket("/api/v1/bots/{bot_instance_id}/alerts/live")
-async def websocket_alerts(websocket: WebSocket, bot_instance_id: int):
+async def websocket_alerts(websocket: WebSocket, bot_instance_id: str):
     """WebSocket endpoint for live alerts"""
     if not await _authorize_websocket_connection(websocket):
         return
@@ -2639,7 +2678,7 @@ async def websocket_backtest_progress(websocket: WebSocket, run_id: str):
 
 
 @app.websocket("/ws/bots/{bot_instance_id}")
-async def websocket_bot_runtime(websocket: WebSocket, bot_instance_id: int):
+async def websocket_bot_runtime(websocket: WebSocket, bot_instance_id: str):
     """Alias websocket channel for backend integrations consuming bot runtime events."""
     if not await _authorize_websocket_connection(websocket):
         return

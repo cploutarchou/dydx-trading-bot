@@ -45,10 +45,10 @@ class BotInstanceManager:
         BotStatus.SAFEGUARDED,
     }
 
-    def __init__(self, state_dir: str = "./bot_states", max_instances: int = 10):
+    def __init__(self, state_dir: str = "./bot_states", max_instances: Optional[int] = None):
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(exist_ok=True)
-        self.max_instances = max_instances
+        self.max_instances = self._resolve_max_instances(max_instances)
 
         # In-memory instance tracking
         self.instances: Dict[str, BotInstanceState] = {}
@@ -72,6 +72,51 @@ class BotInstanceManager:
 
         # Load existing instances from disk
         self._load_existing_instances()
+
+    @staticmethod
+    def _resolved_environment() -> str:
+        return (
+            os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or os.getenv("APP_CONFIG_ENV")
+            or "development"
+        ).strip().lower()
+
+    @classmethod
+    def _is_dev_like_environment(cls) -> bool:
+        return cls._resolved_environment() in {
+            "development",
+            "dev",
+            "test",
+            "testing",
+            "local",
+        }
+
+    @classmethod
+    def _resolve_max_instances(cls, configured_max_instances: Optional[int]) -> int:
+        """Resolve runtime instance cap.
+
+        - Explicit constructor value wins.
+        - BOT_MAX_INSTANCES env override wins next.
+        - Dev/test/local defaults to unlimited (0).
+        - Production-like defaults to 10.
+        """
+        if configured_max_instances is not None:
+            return int(configured_max_instances)
+
+        raw_env = os.getenv("BOT_MAX_INSTANCES", "").strip()
+        if raw_env:
+            try:
+                return int(raw_env)
+            except ValueError:
+                logger.warning(
+                    "Invalid BOT_MAX_INSTANCES value '{}' ; falling back to environment default",
+                    raw_env,
+                )
+
+        if cls._is_dev_like_environment():
+            return 0
+        return 10
 
     def _get_instance_lock(self, instance_id: str) -> asyncio.Lock:
         lock = self.instance_locks.get(instance_id)
@@ -996,7 +1041,7 @@ class BotInstanceManager:
         """Create new bot instance"""
         try:
             # Validate instance limit
-            if len(self.instances) >= self.max_instances:
+            if self.max_instances > 0 and len(self.instances) >= self.max_instances:
                 return BotOperationResult(
                     success=False,
                     message=f"Maximum instances limit reached ({self.max_instances})",

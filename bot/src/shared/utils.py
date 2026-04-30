@@ -25,8 +25,13 @@ def format_number(curr_num, match_num):
 
 
 def format_time(timestamp):
-    """Format timestamp to ISO format without microseconds."""
-    return timestamp.replace(microsecond=0).isoformat()
+    """Format timestamp to ISO 8601 UTC string with Z suffix and no microseconds."""
+    return (
+        timestamp.replace(microsecond=0)
+        .astimezone(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def get_ISO_times():

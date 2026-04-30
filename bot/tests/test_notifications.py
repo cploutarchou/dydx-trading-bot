@@ -178,3 +178,31 @@ def test_trade_closed_message_supports_normalized_trade_payload_keys(monkeypatch
     assert "Pair:</b> IMX-USD / ETH-USD" in captured["text"]
     assert "Final Z-Score:</b> -0.741" in captured["text"]
     assert "Reason:</b> Z-score reversion after orphan retry" in captured["text"]
+
+
+def test_recovery_message_uses_non_critical_template(monkeypatch):
+    notifications = _load_notifications_module()
+    messenger = notifications.TelegramMessenger()
+
+    captured = {}
+
+    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+        captured["text"] = text
+        captured["parse_mode"] = parse_mode
+        captured["dedupe_key"] = dedupe_key
+        captured["dedupe_window_seconds"] = dedupe_window_seconds
+        return True
+
+    monkeypatch.setattr(messenger, "send_message", _fake_send_message)
+
+    sent = messenger.send_recovery_message(
+        "Recovered Orphaned Position Leg",
+        "Submitted reduce-only close for orphaned MET-USD leg. Close order: oid-123",
+        category="execution_orphan_recovery",
+    )
+
+    assert sent is True
+    assert "RECOVERY ACTION APPLIED" in captured["text"]
+    assert "Recovered Orphaned Position Leg" in captured["text"]
+    assert "execution_orphan_recovery" in captured["text"]
+    assert "CRITICAL ERROR" not in captured["text"]

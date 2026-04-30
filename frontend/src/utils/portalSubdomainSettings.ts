@@ -1,4 +1,4 @@
-export type PortalKind = 'crm' | 'ib';
+export type PortalKind = 'crm' | 'ib' | 'client';
 
 interface PortalSubdomainConfig {
   enabled: boolean;
@@ -14,16 +14,24 @@ const STORAGE_KEYS = {
     enabled: 'platform.ib_subdomain_enabled',
     host: 'platform.ib_subdomain_host',
   },
+  client: {
+    enabled: 'platform.client_subdomain_enabled',
+    host: 'platform.client_subdomain_host',
+  },
 } as const;
 
 const DEFAULTS: Record<PortalKind, PortalSubdomainConfig> = {
   crm: {
     enabled: true,
-    host: 'crm.localhost',
+    host: import.meta.env.VITE_CRM_HOST || 'crm.localhost',
   },
   ib: {
     enabled: true,
-    host: 'ib-portal.localhost',
+    host: import.meta.env.VITE_IB_PORTAL_HOST || 'ib.localhost',
+  },
+  client: {
+    enabled: true,
+    host: import.meta.env.VITE_CLIENT_HOST || 'app.localhost',
   },
 };
 

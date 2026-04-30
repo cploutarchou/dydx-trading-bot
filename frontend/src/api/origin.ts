@@ -1,4 +1,7 @@
-const configuredApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const configuredApiBase = (
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+  (import.meta.env.VITE_API_URL as string | undefined)
+)?.trim();
 
 export const preferBackendDevProxy =
   import.meta.env.DEV &&

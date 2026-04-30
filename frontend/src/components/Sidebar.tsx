@@ -5,11 +5,12 @@ import { getUserWorkspaceRole } from '../auth/roles';
 import { useI18n } from '../i18n/useI18n';
 import {
   filterNavItemsForRole,
+  getWorkspaceNavItems,
+  getWorkspaceQuickActions,
   isNavItemActive,
-  workspaceNavItems,
-  workspaceQuickActions,
   workspaceSections,
 } from '../navigation/workspaceNav';
+import { getCurrentPortalType, getPortalLabel } from '../app/portal';
 import { useAuthStore } from '../store/auth';
 
 interface SidebarProps {
@@ -24,8 +25,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
   const { user, logout } = useAuthStore();
   const { t, tr } = useI18n();
   const role = getUserWorkspaceRole(user);
-  const visibleNavItems = filterNavItemsForRole(workspaceNavItems, role);
-  const visibleQuickActions = filterNavItemsForRole(workspaceQuickActions, role);
+  const portal = getCurrentPortalType();
+  const visibleNavItems = filterNavItemsForRole(getWorkspaceNavItems(portal), role);
+  const visibleQuickActions = filterNavItemsForRole(getWorkspaceQuickActions(portal), role);
   const sectionLabel = (section: (typeof workspaceSections)[number]) => {
     const labels = {
       Overview: t('Overview', 'Επισκόπηση'),
@@ -33,6 +35,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
       'Live Trading': t('Live Trading', 'Ζωντανές Συναλλαγές'),
       Intelligence: t('Intelligence', 'Πληροφόρηση'),
       Administration: t('Administration', 'Διαχείριση'),
+      'IB Portal': t('IB Portal', 'Πύλη IB'),
+      Account: t('Account', 'Λογαριασμός'),
     };
 
     return labels[section];
@@ -83,8 +87,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
               </div>
               <p className="truncate text-xs text-slate-500">
                 {t(
-                  'Research, backtests, bots, and controls',
-                  'Έρευνα, backtests, bots και έλεγχοι'
+                  getPortalLabel(portal),
+                  getPortalLabel(portal)
                 )}
               </p>
             </div>

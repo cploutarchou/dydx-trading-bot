@@ -15,11 +15,23 @@ RUN cd frontend && npm ci
 # Copy frontend source
 COPY frontend/ ./frontend/
 
-# VITE_API_URL is baked into the JS bundle at build time.
-# Override with --build-arg VITE_API_URL=... for custom deployments.
+# VITE_* values are baked into the JS bundle at build time.
+# Set VITE_APP_PORTAL_TYPE to client, backoffice, or ib for separate portal images.
 ARG VITE_API_URL=https://api.cydevcloud.com
+ARG VITE_API_BASE_URL=$VITE_API_URL
+ARG VITE_AUTH_BASE_URL=$VITE_API_BASE_URL
+ARG VITE_APP_PORTAL_TYPE=client
+ARG VITE_CLIENT_HOST=app.example.com
+ARG VITE_CRM_HOST=crm.example.com
+ARG VITE_IB_PORTAL_HOST=ib.example.com
 ARG VITE_FORCE_MOCK_DATA=false
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_AUTH_BASE_URL=$VITE_AUTH_BASE_URL
+ENV VITE_APP_PORTAL_TYPE=$VITE_APP_PORTAL_TYPE
+ENV VITE_CLIENT_HOST=$VITE_CLIENT_HOST
+ENV VITE_CRM_HOST=$VITE_CRM_HOST
+ENV VITE_IB_PORTAL_HOST=$VITE_IB_PORTAL_HOST
 ENV VITE_FORCE_MOCK_DATA=$VITE_FORCE_MOCK_DATA
 
 RUN cd frontend && npm run build

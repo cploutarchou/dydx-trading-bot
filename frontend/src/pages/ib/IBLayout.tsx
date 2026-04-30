@@ -7,6 +7,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../../auth/roles';
 import { PortalSubnav, type PortalTab } from '../../components/ui/PlatformUI';
 import { useAuthStore } from '../../store/auth';
 import { ibPortalHref, ibPortalPath, isIBPortalHost } from './paths';
@@ -32,7 +33,7 @@ export const IBLayout = ({ children }: IBLayoutProps) => {
   const showSubdomainAction = !isIBPortalHost();
   const subdomainHref = ibPortalHref('dashboard');
 
-  const canSeeAdminTabs = user?.is_admin === true || user?.role === 'backoffice';
+  const canSeeAdminTabs = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
   const tabs = canSeeAdminTabs ? [...baseTabs, ...adminTabs] : baseTabs;
 
   return (

@@ -1,12 +1,14 @@
 # Frontend Service
 
-The frontend is the React application for the public website, authentication flows, and operator workspace.
+The frontend is a Vite/React workspace that now builds three independent authenticated portals from the same design system and API/auth foundations.
 
 ## Responsibilities
 
 - render the public marketing site and pricing pages
 - handle login, registration, 2FA, and account flows
-- provide the authenticated trading workspace
+- provide the authenticated Client Portal
+- provide the CRM / Backoffice operator workspace
+- provide the IB Portal workspace
 - display live backtests, strategies, bots, and market views
 - consume backend HTTP and websocket routes only
 
@@ -38,14 +40,76 @@ Not allowed:
 ```bash
 npm install
 npm run dev
+npm run dev:client
+npm run dev:backoffice
+npm run dev:ib
 npm run build
+npm run build:client
+npm run build:backoffice
+npm run build:ib
 npm run lint
 npm run preview
 npm run test:contracts
 ```
 
+## Portal Architecture
+
+The portal shell is selected with `VITE_APP_PORTAL_TYPE=client|backoffice|ib`.
+
+- Client Portal (`apps/client-portal`): dashboard, client area, strategies, backtests, bot operations, profile, security, and wallet/API key management. It does not register CRM, IB admin, Admin Hub, global settings, access-control, or integration routes.
+- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, and operator settings for access control, registration policy, Mailgun, Telegram, Market News, API, Redis, and trading configuration.
+- IB Portal (`apps/ib-portal`): IB dashboard, client tree, applications/invitations, commission metrics, reports, referral tokens where role-authorized, profile, and security.
+
+Shared boundaries are exposed under:
+
+- `packages/shared-ui`
+- `packages/shared-api`
+- `packages/shared-auth`
+- `packages/shared-types`
+
+The current implementation keeps the original source modules in `src/*` and exports them through those package folders to avoid duplicating business logic while the repo moves toward a fuller workspace-package layout.
+
+## Domains and Environment
+
+Use these variables for local or deployed builds:
+
+```bash
+VITE_APP_PORTAL_TYPE=client
+VITE_API_BASE_URL=http://localhost:8888
+VITE_AUTH_BASE_URL=http://localhost:8888
+VITE_CLIENT_HOST=app.example.com
+VITE_CRM_HOST=crm.example.com
+VITE_IB_PORTAL_HOST=ib.example.com
+```
+
+Suggested deployment mapping:
+
+- `app.example.com` -> `npm run build:client`
+- `crm.example.com` -> `npm run build:backoffice`
+- `ib.example.com` -> `npm run build:ib`
+
+`VITE_API_URL` is still supported as a compatibility fallback, but new deployments should use `VITE_API_BASE_URL`.
+
+## Role Guards
+
+Client routes allow `client` and `user`. IB routes allow `ib` and `sub_ib`; admin/backoffice roles can also enter for operational oversight. Backoffice routes allow `admin`, `super_admin`, `backoffice`, `operations_admin`, `finance_admin`, and `support_agent`.
+
+Unauthorized authenticated users land on `/unauthorized`. Backend endpoints must continue to enforce the same role boundaries; frontend guards are a UX and accidental-access layer, not the source of authorization truth.
+
+## Backend/API Notes
+
+Existing backend contracts are reused:
+
+- client/portal: `/api/v1/portal/*`
+- CRM/backoffice: `/api/v1/admin/crm/*`, `/api/v1/admin/users`, `/api/v1/settings/*`
+- IB administration/metrics: `/api/v1/admin/ib/*`, `/api/v1/portal/hierarchy*`, `/api/v1/portal/commission-metrics`
+
+No backend contract changes are required by this split. Backend role checks should verify the same portal assumptions listed above, especially for `/api/v1/settings/*`, `/api/v1/admin/crm/*`, and `/api/v1/admin/ib/*`.
+
 ## Key Directories
 
+- `apps` for portal app boundaries
+- `packages` for shared UI/API/auth/types exports
 - `src/pages` for route-level screens
 - `src/components` for reusable UI blocks
 - `src/api` for API and websocket helpers
@@ -84,6 +148,7 @@ The current UI direction is production DeFi:
 ## Supporting Docs
 
 - [Frontend Architecture Notes](/home/chris/workspace/dydx-trading-bot/frontend/docs/architecture/README.md)
+- [Multi-Portal Frontend](/home/chris/workspace/dydx-trading-bot/frontend/docs/architecture/MULTI_PORTAL_FRONTEND.md)
 - [Fintech UI Standards](/home/chris/workspace/dydx-trading-bot/frontend/docs/architecture/FINTECH_UI_STANDARDS.md)
 - [Troubleshooting](/home/chris/workspace/dydx-trading-bot/frontend/docs/guides/TROUBLESHOOTING.md)
 - [Root Wiki Home](/home/chris/workspace/dydx-trading-bot/docs/README.md)

@@ -1,16 +1,17 @@
 import { Clock3, Command, CornerDownLeft, Search } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getCurrentPortalType } from '../app/portal';
 import { getUserWorkspaceRole } from '../auth/roles';
 import {
   filterNavItemsForRole,
+  getWorkspaceNavItems,
+  getWorkspaceQuickActions,
   type WorkspaceNavItem,
-  workspaceNavItems,
-  workspaceQuickActions,
 } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 
-const RECENT_ROUTES_STORAGE_KEY = 'workspace_recent_routes';
+const getRecentRoutesStorageKey = () => `workspace_recent_routes:${getCurrentPortalType()}`;
 
 interface WorkspaceCommandPaletteProps {
   isOpen: boolean;
@@ -24,12 +25,12 @@ export const persistRecentPath = (path: string) => {
   if (!path.startsWith('/')) return;
   const current = getRecentPaths();
   const next = uniquePaths([path, ...current]);
-  window.localStorage.setItem(RECENT_ROUTES_STORAGE_KEY, JSON.stringify(next));
+  window.localStorage.setItem(getRecentRoutesStorageKey(), JSON.stringify(next));
 };
 
 export const getRecentPaths = (): string[] => {
   try {
-    const raw = window.localStorage.getItem(RECENT_ROUTES_STORAGE_KEY);
+    const raw = window.localStorage.getItem(getRecentRoutesStorageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
@@ -53,10 +54,14 @@ export const WorkspaceCommandPalette: React.FC<WorkspaceCommandPaletteProps> = (
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const role = getUserWorkspaceRole(user);
-  const visibleNavItems = useMemo(() => filterNavItemsForRole(workspaceNavItems, role), [role]);
+  const portal = getCurrentPortalType();
+  const visibleNavItems = useMemo(
+    () => filterNavItemsForRole(getWorkspaceNavItems(portal), role),
+    [portal, role]
+  );
   const visibleQuickActions = useMemo(
-    () => filterNavItemsForRole(workspaceQuickActions, role),
-    [role]
+    () => filterNavItemsForRole(getWorkspaceQuickActions(portal), role),
+    [portal, role]
   );
 
   useEffect(() => {

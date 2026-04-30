@@ -10,8 +10,9 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { getWorkspaceBreadcrumbs, workspaceNavItems } from '../navigation/workspaceNav';
+import { getCurrentPortalType } from '../app/portal';
 import { useI18n } from '../i18n/useI18n';
+import { getWorkspaceBreadcrumbs, getWorkspaceNavItems } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 import { useUIPreferencesStore } from '../store/uiPreferences';
 
@@ -33,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
   const environmentTone = import.meta.env.DEV ? 'text-amber-300' : 'text-emerald-300';
   const [now, setNow] = useState(() => new Date());
   const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
+  const portal = getCurrentPortalType();
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 1000);
@@ -47,14 +49,14 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
     };
   }, []);
 
-  const breadcrumbs = getWorkspaceBreadcrumbs(location.pathname);
+  const breadcrumbs = getWorkspaceBreadcrumbs(location.pathname, portal);
   const pageTitle = tr(breadcrumbs[breadcrumbs.length - 1]?.label || 'Dashboard');
   const routeMeta = useMemo(
     () =>
-      workspaceNavItems.find((item) =>
+      getWorkspaceNavItems(portal).find((item) =>
         item.exact ? item.path === location.pathname : location.pathname.startsWith(item.path)
       ),
-    [location.pathname]
+    [location.pathname, portal]
   );
 
   return (

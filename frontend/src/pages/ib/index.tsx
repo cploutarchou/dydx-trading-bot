@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../../auth/roles';
 import { useAuthStore } from '../../store/auth';
 import { IBApplications } from './IBApplications';
 import { IBCommissions } from './IBCommissions';
@@ -10,7 +11,7 @@ import { IBTokens } from './IBTokens';
 
 export const IBRouter = () => {
   const user = useAuthStore((state) => state.user);
-  const canSeeAdminTabs = user?.is_admin === true || user?.role === 'backoffice';
+  const canSeeAdminTabs = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
 
   return (
     <IBLayout>

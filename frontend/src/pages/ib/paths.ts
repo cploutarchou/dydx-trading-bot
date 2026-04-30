@@ -1,21 +1,22 @@
+import { getCurrentPortalType } from '../../app/portal';
 import { getPortalSubdomainConfig } from '../../utils/portalSubdomainSettings';
 
-const IB_PORTAL_SUBDOMAIN_PREFIX = 'ib-portal.';
+const IB_PORTAL_SUBDOMAIN_PREFIXES = ['ib.', 'ib-portal.'] as const;
 
 const toIBPortalHost = (hostname: string): string => {
   const host = hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost')) {
     return 'ib-portal.localhost';
   }
-  if (host.startsWith(IB_PORTAL_SUBDOMAIN_PREFIX)) {
+  if (IB_PORTAL_SUBDOMAIN_PREFIXES.some((prefix) => host.startsWith(prefix))) {
     return host;
   }
 
   const parts = host.split('.');
   if (parts.length >= 2) {
-    return `ib-portal.${parts.slice(-2).join('.')}`;
+    return `ib.${parts.slice(-2).join('.')}`;
   }
-  return `ib-portal.${host}`;
+  return `ib.${host}`;
 };
 
 export const isIBPortalHost = (hostname?: string): boolean => {
@@ -25,12 +26,17 @@ export const isIBPortalHost = (hostname?: string): boolean => {
 
   const config = getPortalSubdomainConfig('ib');
   const host = String(hostname ?? window.location.hostname).toLowerCase();
-  return host === config.host.toLowerCase() || host.startsWith(IB_PORTAL_SUBDOMAIN_PREFIX);
+  return (
+    host === config.host.toLowerCase() ||
+    IB_PORTAL_SUBDOMAIN_PREFIXES.some((prefix) => host.startsWith(prefix))
+  );
 };
 
 export const ibPortalPath = (section: string): string => {
   const normalized = section.replace(/^\/+/, '');
-  return isIBPortalHost() ? `/${normalized}` : `/ib-portal/${normalized}`;
+  return getCurrentPortalType() === 'ib' || isIBPortalHost()
+    ? `/${normalized}`
+    : `/ib-portal/${normalized}`;
 };
 
 export const ibPortalSectionFromPath = (pathname: string): string | null => {
@@ -43,7 +49,7 @@ export const ibPortalSectionFromPath = (pathname: string): string | null => {
     return parts[1] ?? 'dashboard';
   }
 
-  return isIBPortalHost() ? parts[0] : null;
+  return getCurrentPortalType() === 'ib' || isIBPortalHost() ? parts[0] : null;
 };
 
 export const ibPortalHref = (section: string): string => {

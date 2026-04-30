@@ -44,7 +44,13 @@
 	},
 	"scripts": {
 		"dev": "vite",
+		"dev:client": "VITE_APP_PORTAL_TYPE=client vite",
+		"dev:backoffice": "VITE_APP_PORTAL_TYPE=backoffice vite --port 5174",
+		"dev:ib": "VITE_APP_PORTAL_TYPE=ib vite --port 5175",
 		"build": "vite build",
+		"build:client": "VITE_APP_PORTAL_TYPE=client vite build --outDir dist/client-portal",
+		"build:backoffice": "VITE_APP_PORTAL_TYPE=backoffice vite build --outDir dist/backoffice",
+		"build:ib": "VITE_APP_PORTAL_TYPE=ib vite build --outDir dist/ib-portal",
 		"preview": "vite preview",
 		"lint": "eslint src --ext .ts,.tsx",
 		"test:contracts": "vitest run src/api/contractGuards.test.ts",

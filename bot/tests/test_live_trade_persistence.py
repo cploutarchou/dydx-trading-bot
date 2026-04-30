@@ -89,3 +89,46 @@ def test_live_trade_open_and_close_use_existing_trade_and_realtime_repositories(
     assert calls["update_exit"][0][0] == (trade_id,)
     assert calls["update_exit"][0][1]["exit_price1"] == 101000.0
     assert calls["close_position"] == [trade_id]
+
+
+def test_trade_activity_event_persists_for_runtime_instance(monkeypatch):
+    calls = {"events": []}
+
+    class FakeBots:
+        def get_by_instance_id(self, instance_id):
+            assert instance_id == "strategy-1-101"
+            return SimpleNamespace(id=77)
+
+    class FakeEvents:
+        def log_event(self, **kwargs):
+            calls["events"].append(kwargs)
+
+    class FakeUOW:
+        def __init__(self, _session):
+            self.bots = FakeBots()
+            self.events = FakeEvents()
+
+    class FakeSession:
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setenv("BOT_INSTANCE_ID", "strategy-1-101")
+    monkeypatch.setattr(trade_persistence, "_db_persistence_enabled", lambda: True)
+    monkeypatch.setattr(trade_persistence.db, "get_session", lambda: FakeSession())
+    monkeypatch.setattr(trade_persistence, "UnitOfWork", FakeUOW)
+
+    ok = trade_persistence.persist_trade_activity_event(
+        "trade_entry_attempt_started",
+        "Entry attempt for BTC-USD / ETH-USD",
+        details={"market_1": "BTC-USD", "market_2": "ETH-USD"},
+        related_trade_id="live-abcd1234",
+    )
+
+    assert ok is True
+    assert len(calls["events"]) == 1
+    assert calls["events"][0]["bot_instance_id"] == 77
+    assert calls["events"][0]["event_type"] == "trade_entry_attempt_started"
+    assert calls["events"][0]["related_trade_id"] == "live-abcd1234"

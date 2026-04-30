@@ -286,6 +286,102 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 	return users, rows.Err()
 }
 
+type UserListFilters struct {
+	Search string
+	Role   string
+	Active *bool
+	Limit  int
+	Offset int
+}
+
+// ListFiltered retrieves users with simple CRM/backoffice search and filters.
+func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, int, error) {
+	limit := filters.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	offset := filters.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	where := []string{"1=1"}
+	args := []interface{}{}
+	nextArg := func(value interface{}) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	if search := strings.TrimSpace(strings.ToLower(filters.Search)); search != "" {
+		placeholder := nextArg("%" + search + "%")
+		where = append(where, fmt.Sprintf(
+			`(LOWER(username) LIKE %s OR LOWER(email) LIKE %s OR LOWER(COALESCE(full_name, '')) LIKE %s)`,
+			placeholder,
+			placeholder,
+			placeholder,
+		))
+	}
+	if role := strings.TrimSpace(strings.ToLower(filters.Role)); role != "" && role != "all" {
+		where = append(where, fmt.Sprintf(`LOWER(COALESCE(role, 'client')) = %s`, nextArg(models.NormalizeUserRole(role, false))))
+	}
+	if filters.Active != nil {
+		where = append(where, fmt.Sprintf(`is_active = %s`, nextArg(*filters.Active)))
+	}
+
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM users WHERE %s`, whereSQL)
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count filtered users: %w", err)
+	}
+
+	queryArgs := append([]interface{}{}, args...)
+	queryArgs = append(queryArgs, limit, offset)
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM users
+		WHERE %s
+		ORDER BY created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, r.selectUserColumns(), whereSQL, len(queryArgs)-1, len(queryArgs))
+
+	rows, err := r.db.Query(query, queryArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list filtered users: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close filtered user rows: %v", closeErr)
+		}
+	}()
+
+	users := []*models.User{}
+	for rows.Next() {
+		user := &models.User{}
+		if err := rows.Scan(
+			&user.ID,
+			&user.Username,
+			&user.Email,
+			&user.Role,
+			&user.FullName,
+			&user.Avatar,
+			&user.Password,
+			&user.IsActive,
+			&user.IsAdmin,
+			&user.MFAEnabled,
+			&user.PasswordChangeRequired,
+			&user.LastLogin,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan filtered user: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	return users, total, rows.Err()
+}
+
 // CountActiveAdmins returns the number of active admin users.
 func (r *UserRepository) CountActiveAdmins() (int, error) {
 	query := `

@@ -45,6 +45,47 @@ make verify
 - delegated bot responses may be normalized before reaching the frontend
 - websocket proxying must preserve auth and trace propagation
 
+## Portal API Boundaries
+
+The separated React portals use first-class API namespaces:
+
+- Client/session: `GET /api/v1/me`, `GET /api/v1/auth/session`
+- Backoffice/CRM: `/api/v1/backoffice/*`
+- IB Portal: `/api/v1/ib/*`
+
+Backoffice routes require authentication, privileged MFA when enabled, and RBAC permissions such as `users.read`, `roles.manage`, `crm.admin.manage`, `finance.manage`, and `audit.read`. IB routes require `ib`, `sub_ib`, or a backoffice/admin role. Admin and super admin retain override access through RBAC mappings.
+
+Core Backoffice endpoints:
+
+- `GET|POST /api/v1/backoffice/users`
+- `GET|PUT /api/v1/backoffice/users/:id`
+- `PUT /api/v1/backoffice/users/:id/role`
+- `PUT /api/v1/backoffice/users/:id/status`
+- `POST /api/v1/backoffice/users/:id/reset-password`
+- `POST /api/v1/backoffice/users/:id/reset-mfa`
+- `GET /api/v1/backoffice/access-control`
+- `GET|PUT /api/v1/backoffice/registration-policy`
+- `GET|PUT /api/v1/backoffice/settings`
+- `GET /api/v1/backoffice/crm/summary`
+- `GET /api/v1/backoffice/crm/clients`
+- `GET /api/v1/backoffice/crm/clients/:id`
+- `GET /api/v1/backoffice/audit-logs`
+
+Core IB endpoints:
+
+- `GET /api/v1/ib/profile`
+- `GET /api/v1/ib/dashboard`
+- `GET|POST /api/v1/ib/sub-ibs`
+- `GET|POST /api/v1/ib/clients`
+- `GET|POST /api/v1/ib/invitations`
+- `GET /api/v1/ib/invitations/:id`
+- `POST /api/v1/ib/invitations/:id/revoke`
+- `GET /api/v1/ib/referral-links`
+- `GET /api/v1/ib/commissions`
+- `GET /api/v1/ib/reports`
+
+The legacy dummy CRM seeding route is no longer registered. Production portal flows should use real users, invitation tokens, partner relationships, and commission records.
+
 ## Health and Validation
 
 - liveness: `GET /health`

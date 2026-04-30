@@ -107,6 +107,76 @@ func (r *InvitationTokenRepository) Count() (int, error) {
 	return count, nil
 }
 
+func (r *InvitationTokenRepository) GetByID(id int) (*models.InvitationToken, error) {
+	query := `
+		SELECT id, token_code, label, ib_name, campaign_name, max_uses, used_count,
+		       created_by_user_id, last_used_by_user_id, expires_at, last_used_at, revoked_at,
+		       created_at, updated_at
+		FROM invitation_tokens
+		WHERE id = $1
+		LIMIT 1
+	`
+
+	token := &models.InvitationToken{}
+	if err := r.db.QueryRow(query, id).Scan(
+		&token.ID,
+		&token.TokenCode,
+		&token.Label,
+		&token.IBName,
+		&token.CampaignName,
+		&token.MaxUses,
+		&token.UsedCount,
+		&token.CreatedByUserID,
+		&token.LastUsedByUserID,
+		&token.ExpiresAt,
+		&token.LastUsedAt,
+		&token.RevokedAt,
+		&token.CreatedAt,
+		&token.UpdatedAt,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get invitation token: %w", err)
+	}
+	return token, nil
+}
+
+func (r *InvitationTokenRepository) GetByTokenCode(tokenCode string) (*models.InvitationToken, error) {
+	query := `
+		SELECT id, token_code, label, ib_name, campaign_name, max_uses, used_count,
+		       created_by_user_id, last_used_by_user_id, expires_at, last_used_at, revoked_at,
+		       created_at, updated_at
+		FROM invitation_tokens
+		WHERE token_code = $1
+		LIMIT 1
+	`
+
+	token := &models.InvitationToken{}
+	if err := r.db.QueryRow(query, tokenCode).Scan(
+		&token.ID,
+		&token.TokenCode,
+		&token.Label,
+		&token.IBName,
+		&token.CampaignName,
+		&token.MaxUses,
+		&token.UsedCount,
+		&token.CreatedByUserID,
+		&token.LastUsedByUserID,
+		&token.ExpiresAt,
+		&token.LastUsedAt,
+		&token.RevokedAt,
+		&token.CreatedAt,
+		&token.UpdatedAt,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get invitation token by code: %w", err)
+	}
+	return token, nil
+}
+
 func (r *InvitationTokenRepository) RevokeByTokenCode(tokenCode string) error {
 	query := `
 		UPDATE invitation_tokens

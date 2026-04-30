@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -103,6 +104,55 @@ func (r *PartnerCommissionMetricRepository) GetLatestByUser(userID int) (*models
 	}
 
 	return metric, nil
+}
+
+func (r *PartnerCommissionMetricRepository) ListByUser(userID int, limit int, offset int) ([]*models.PartnerCommissionMetric, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := r.db.Query(`
+		SELECT id, user_id, period_start, period_end, direct_clients, sub_ib_count,
+		       notional_volume_usd, gross_commission_usd, rebate_usd, net_commission_usd,
+		       created_at, updated_at
+		FROM partner_commission_metrics
+		WHERE user_id = $1
+		ORDER BY period_end DESC, updated_at DESC
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list commission metrics: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close commission metric rows: %v", closeErr)
+		}
+	}()
+
+	metrics := []*models.PartnerCommissionMetric{}
+	for rows.Next() {
+		metric := &models.PartnerCommissionMetric{}
+		if err := rows.Scan(
+			&metric.ID,
+			&metric.UserID,
+			&metric.PeriodStart,
+			&metric.PeriodEnd,
+			&metric.DirectClients,
+			&metric.SubIBCount,
+			&metric.NotionalVolumeUSD,
+			&metric.GrossCommissionUSD,
+			&metric.RebateUSD,
+			&metric.NetCommissionUSD,
+			&metric.CreatedAt,
+			&metric.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan commission metric: %w", err)
+		}
+		metrics = append(metrics, metric)
+	}
+	return metrics, rows.Err()
 }
 
 func (r *PartnerCommissionMetricRepository) AggregateByUsers(userIDs []int) (*models.PartnerCommissionMetric, error) {

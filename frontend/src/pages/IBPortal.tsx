@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, GitBranchPlus, KeyRound, Loader2, ShieldX, Users, WalletCards } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import api, { CreateIBInvitationTokenPayload, IBInvitationToken } from '../api';
-import { getUserWorkspaceRole } from '../auth/roles';
+import {
+  BACKOFFICE_ROLES,
+  IB_ROLES,
+  getUserWorkspaceRole,
+  roleMatches,
+} from '../auth/roles';
 import { useToastStore } from '../components/ErrorBoundary';
 import { PageContainer } from '../components/PageContainer';
 import { useAuthStore } from '../store/auth';
@@ -37,6 +42,8 @@ const isTokenActive = (token: IBInvitationToken) => {
 export const IBPortalPage = () => {
   const user = useAuthStore((state) => state.user);
   const role = getUserWorkspaceRole(user);
+  const canUseIBPortal = roleMatches(role, [...IB_ROLES, ...BACKOFFICE_ROLES]);
+  const canManageIB = roleMatches(role, BACKOFFICE_ROLES);
   const queryClient = useQueryClient();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
@@ -57,7 +64,7 @@ export const IBPortalPage = () => {
     },
     staleTime: 20_000,
     refetchInterval: 30_000,
-    enabled: user?.is_admin === true,
+    enabled: canManageIB,
   });
 
   const overviewQuery = useQuery({
@@ -133,7 +140,7 @@ export const IBPortalPage = () => {
     return { total: tokens.length, active, consumed };
   }, [tokens]);
 
-  if (!(user?.is_admin || role === 'ib' || role === 'sub_ib' || role === 'backoffice')) {
+  if (!canUseIBPortal) {
     return (
       <PageContainer size="wide" className="space-y-6">
         <div className="rounded-2xl border border-red-700/60 bg-red-900/25 p-6">
@@ -174,7 +181,7 @@ export const IBPortalPage = () => {
             <KeyRound className="h-4 w-4 text-emerald-300" /> Active tokens
           </div>
           <p className="mt-3 text-2xl font-semibold text-white">
-            {user?.is_admin ? stats.active : (overview?.counts?.ibs ?? 0)}
+            {canManageIB ? stats.active : (overview?.counts?.ibs ?? 0)}
           </p>
         </div>
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4">
@@ -368,7 +375,7 @@ export const IBPortalPage = () => {
         )}
       </div>
 
-      {user?.is_admin && (
+      {canManageIB && (
         <div className="grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">
           <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-5">
             <h2 className="text-lg font-semibold text-white">Create invitation token</h2>

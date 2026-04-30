@@ -363,6 +363,32 @@ class TelegramMessenger:
             dedupe_window_seconds=dedupe_window_seconds,
         )
 
+    def send_recovery_message(
+            self,
+            recovery_type: str,
+            recovery_details: str,
+            category: str = "execution_recovery",
+    ) -> bool:
+        """Send a successful recovery/auto-heal notification (non-error)."""
+        safe_type = self._escape_html(recovery_type)
+        safe_details = self._escape_html(recovery_details)
+        safe_category = self._escape_html(self._normalize_error_category(category, recovery_type))
+
+        message = f"""
+🛠️ <b>RECOVERY ACTION APPLIED</b>
+
+{self._instance_prefix()}{self._environment_prefix()}
+
+🔍 <b>Type:</b> {safe_type}
+📝 <b>Details:</b> {safe_details}
+🏷️ <b>Category:</b> {safe_category}
+⏰ <b>Time:</b> {self._format_timestamp()}
+
+<i>Recovery succeeded. Continue monitoring runtime health and exposure.</i>
+        """.strip()
+
+        return self.send_message(message, dedupe_window_seconds=0)
+
     def send_trade_opened_message(self, trade_info: Dict[str, Any]) -> bool:
         """Send notification when new trade is opened."""
         market_1 = (

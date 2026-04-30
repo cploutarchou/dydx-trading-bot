@@ -36,6 +36,7 @@ from src.trading.market_data import get_candles_recent, get_markets
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
     persist_live_trade_opened,
+    persist_trade_activity_event,
 )
 
 IGNORE_ASSETS = [
@@ -233,6 +234,17 @@ async def _close_orphan_exchange_leg(
             tracked_position.get("market_2"),
             close_order_id,
         )
+        persist_trade_activity_event(
+            "trade_exit_orphan_recovered",
+            f"Recovered orphaned {orphan_market} leg with reduce-only close",
+            severity="warning",
+            details={
+                "market_1": tracked_position.get("market_1"),
+                "market_2": tracked_position.get("market_2"),
+                "orphan_market": orphan_market,
+                "close_order_id": close_order_id,
+            },
+        )
         return True
     except Exception as exc:
         tracked_position["pair_status"] = "ORPHANED_EXIT_FAILED"
@@ -251,6 +263,17 @@ async def _close_orphan_exchange_leg(
             tracked_position.get("market_1"),
             tracked_position.get("market_2"),
             exc,
+        )
+        persist_trade_activity_event(
+            "trade_exit_orphan_recovery_failed",
+            f"Failed orphaned leg recovery for {orphan_market}: {exc}",
+            severity="critical",
+            details={
+                "market_1": tracked_position.get("market_1"),
+                "market_2": tracked_position.get("market_2"),
+                "orphan_market": orphan_market,
+                "error": str(exc),
+            },
         )
         return False
 
@@ -424,10 +447,31 @@ async def open_positions(client):
                         )
 
                         # Open Trades
+                        persist_trade_activity_event(
+                            "trade_entry_attempt_started",
+                            f"Entry attempt for {base_market} / {quote_market}",
+                            details={
+                                "market_1": base_market,
+                                "market_2": quote_market,
+                                "z_score": float(z_score),
+                                "hedge_ratio": float(hedge_ratio),
+                            },
+                        )
                         try:
                             bot_open_dict = await bot_agent.open_trades()
                         except Exception as exc:
                             _record_entry_failure(pair_key, exc)
+                            persist_trade_activity_event(
+                                "trade_entry_attempt_failed",
+                                f"Entry execution failed for {base_market} / {quote_market}: {exc}",
+                                severity="error",
+                                details={
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "error": str(exc),
+                                    "failure_count": int(_ENTRY_FAILURE_STATE.get(pair_key, {}).get("failure_count", 0)),
+                                },
+                            )
                             logger.exception(
                                 "Entry execution failed for {} / {}; applying cooldown",
                                 base_market,
@@ -438,6 +482,16 @@ async def open_positions(client):
                         # Guard: Handle failure
                         if bot_open_dict == "failed":
                             _record_entry_failure(pair_key, "bot_agent returned failed")
+                            persist_trade_activity_event(
+                                "trade_entry_attempt_failed",
+                                f"Bot agent returned failed for {base_market} / {quote_market}",
+                                severity="error",
+                                details={
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "failure_count": int(_ENTRY_FAILURE_STATE.get(pair_key, {}).get("failure_count", 0)),
+                                },
+                            )
                             logger.warning(
                                 "Bot agent failed to open trades for {} / {}",
                                 base_market,
@@ -457,7 +511,19 @@ async def open_positions(client):
 
                             # Save trade using atomic per-instance state update.
                             await append_tracked_position(bot_open_dict)
-                            persist_live_trade_opened(bot_open_dict)
+                            persisted_trade_id = persist_live_trade_opened(bot_open_dict)
+                            persist_trade_activity_event(
+                                "trade_entry_opened",
+                                f"Opened live trade for {base_market} / {quote_market}",
+                                details={
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "z_score": float(bot_open_dict.get("z_score", z_score)),
+                                    "order_id_m1": bot_open_dict.get("order_id_m1"),
+                                    "order_id_m2": bot_open_dict.get("order_id_m2"),
+                                },
+                                related_trade_id=persisted_trade_id,
+                            )
                             del bot_open_dict
 
                             # Confirm live status in print
@@ -470,6 +536,18 @@ async def open_positions(client):
                             _record_entry_failure(
                                 pair_key,
                                 f"bot_agent pair_status={bot_open_dict.get('pair_status', 'unknown')}",
+                            )
+                            persist_trade_activity_event(
+                                "trade_entry_attempt_failed",
+                                f"Bot agent returned non-live status for {base_market} / {quote_market}",
+                                severity="warning",
+                                details={
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "pair_status": bot_open_dict.get("pair_status", "unknown"),
+                                    "comments": bot_open_dict.get("comments", ""),
+                                    "failure_count": int(_ENTRY_FAILURE_STATE.get(pair_key, {}).get("failure_count", 0)),
+                                },
                             )
 
     # Save agents
@@ -671,6 +749,16 @@ async def manage_trade_exits(client):
             close_order_m2 = None
             close_order_m1_id = ""
             close_order_m2_id = ""
+            persist_trade_activity_event(
+                "trade_exit_attempt_started",
+                f"Exit trigger for {position_market_m1} / {position_market_m2}",
+                details={
+                    "market_1": position_market_m1,
+                    "market_2": position_market_m2,
+                    "z_score_current": float(z_score_current),
+                    "z_score_traded": float(z_score_traded),
+                },
+            )
             try:
 
                 # Close position for market 1
@@ -724,12 +812,24 @@ async def manage_trade_exits(client):
                     "close_order_m2_id": close_order_m2_id,
                 }
                 messenger.send_trade_closed_message(trade_info, "Z-score reversion")
-                persist_live_trade_closed(
+                persisted_trade_id = persist_live_trade_closed(
                     position,
                     exit_price1=accept_price_m1,
                     exit_price2=accept_price_m2,
                     exit_size1=position_size_m1,
                     exit_size2=position_size_m2,
+                )
+                persist_trade_activity_event(
+                    "trade_exit_closed",
+                    f"Closed trade for {position_market_m1} / {position_market_m2}",
+                    details={
+                        "market_1": position_market_m1,
+                        "market_2": position_market_m2,
+                        "close_order_m1_id": close_order_m1_id,
+                        "close_order_m2_id": close_order_m2_id,
+                        "z_score": float(z_score_current),
+                    },
+                    related_trade_id=persisted_trade_id,
                 )
 
             except Exception as exc:
@@ -769,12 +869,25 @@ async def manage_trade_exits(client):
                             },
                             "Z-score reversion after orphan retry",
                         )
-                        persist_live_trade_closed(
+                        persisted_trade_id = persist_live_trade_closed(
                             position,
                             exit_price1=accept_price_m1,
                             exit_price2=accept_price_m2,
                             exit_size1=position_size_m1,
                             exit_size2=position_size_m2,
+                        )
+                        persist_trade_activity_event(
+                            "trade_exit_closed_after_orphan_retry",
+                            f"Closed trade for {position_market_m1} / {position_market_m2} after orphan retry",
+                            severity="warning",
+                            details={
+                                "market_1": position_market_m1,
+                                "market_2": position_market_m2,
+                                "close_order_m1_id": close_order_m1_id,
+                                "close_order_m2_id": close_order_m2_id,
+                                "z_score": float(z_score_current),
+                            },
+                            related_trade_id=persisted_trade_id,
                         )
                         continue
                     except Exception as retry_exc:
@@ -789,11 +902,32 @@ async def manage_trade_exits(client):
                             is_critical=True,
                             category="execution_partial_close_failed",
                         )
+                        persist_trade_activity_event(
+                            "trade_exit_orphan_retry_failed",
+                            f"Partial close exposure: failed to close {position_market_m2} after closing {position_market_m1}",
+                            severity="critical",
+                            details={
+                                "market_1": position_market_m1,
+                                "market_2": position_market_m2,
+                                "close_order_m1_id": close_order_m1_id,
+                                "error": str(retry_exc),
+                            },
+                        )
                         save_output.append(position)
                         continue
 
                 position["last_exit_error"] = str(exc)
                 position["last_exit_error_at"] = _utc_now_iso()
+                persist_trade_activity_event(
+                    "trade_exit_attempt_failed",
+                    f"Exit failed for {position_market_m1} / {position_market_m2}: {exc}",
+                    severity="error",
+                    details={
+                        "market_1": position_market_m1,
+                        "market_2": position_market_m2,
+                        "error": str(exc),
+                    },
+                )
                 save_output.append(position)
 
         # Keep record if items and save

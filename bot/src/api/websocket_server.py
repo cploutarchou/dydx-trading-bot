@@ -7,13 +7,15 @@ import json
 from typing import Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
-from loguru import logger
-
 from internal.repository.repository_realtime import UnitOfWorkRealtime
-from src.api.realtime_serializers import (serialize_market_core,
-                                          serialize_realtime_position,
-                                          serialize_stats_risk_fields)
+from loguru import logger
+from src.api.realtime_serializers import (
+    serialize_market_core,
+    serialize_realtime_position,
+    serialize_stats_risk_fields,
+)
 from src.infrastructure.database import db
+from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.shared.time_utils import utc_now_iso
 
@@ -154,6 +156,28 @@ class WebSocketServer:
     """WebSocket connection handler"""
 
     @staticmethod
+    def _resolve_realtime_bot_id(session, bot_instance_id: str) -> int | None:
+        raw = str(bot_instance_id or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            core_uow = UnitOfWork(session)
+            bot = core_uow.bots.get_by_instance_id(raw)
+            return int(bot.id) if bot else None
+        except Exception as exc:
+            logger.warning(
+                "Failed resolving websocket bot instance '{}' to numeric id: {}",
+                raw,
+                exc,
+            )
+            return None
+
+    @staticmethod
     def _is_backtest_channel(channel_id: str) -> bool:
         return channel_id.startswith("backtest-")
 
@@ -255,6 +279,7 @@ class WebSocketServer:
     @staticmethod
     async def send_initial_state(websocket: WebSocket, bot_instance_id: str):
         """Send current bot state when client connects"""
+        session = None
         try:
             if WebSocketServer._is_backtest_channel(bot_instance_id):
                 await WebSocketServer.send_backtest_status(
@@ -265,7 +290,18 @@ class WebSocketServer:
             session = db.get_session()
             uow = UnitOfWorkRealtime(session)
 
-            bot_id = int(bot_instance_id)
+            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
+            if bot_id is None:
+                await manager.send_personal_message(
+                    {
+                        "type": "initial_state",
+                        "timestamp": utc_now_iso(),
+                        "data": {"positions": [], "market_data": [], "stats": {}},
+                        "warning": f"Unknown bot instance id: {bot_instance_id}",
+                    },
+                    websocket,
+                )
+                return
             # Get open positions
             positions = uow.positions.get_open_positions(bot_id)
             # Get market data
@@ -315,10 +351,12 @@ class WebSocketServer:
             }
 
             await manager.send_personal_message(message, websocket)
-            session.close()
 
         except Exception as e:
             logger.error(f"Error sending initial state: {e}")
+        finally:
+            if session is not None:
+                session.close()
 
     @staticmethod
     async def handle_message(websocket: WebSocket, bot_instance_id: str, message: Dict):
@@ -357,11 +395,18 @@ class WebSocketServer:
     @staticmethod
     async def send_positions(websocket: WebSocket, bot_instance_id: str):
         """Send all positions to client"""
+        session = None
         try:
             session = db.get_session()
             uow = UnitOfWorkRealtime(session)
 
-            bot_id = int(bot_instance_id)
+            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
+            if bot_id is None:
+                await manager.send_personal_message(
+                    {"type": "positions_list", "timestamp": utc_now_iso(), "data": []},
+                    websocket,
+                )
+                return
             positions = uow.positions.get_open_positions(bot_id)
 
             message = {
@@ -380,19 +425,28 @@ class WebSocketServer:
             }
 
             await manager.send_personal_message(message, websocket)
-            session.close()
 
         except Exception as e:
             logger.error(f"Error sending positions: {e}")
+        finally:
+            if session is not None:
+                session.close()
 
     @staticmethod
     async def send_stats(websocket: WebSocket, bot_instance_id: str):
         """Send statistics to client"""
+        session = None
         try:
             session = db.get_session()
             uow = UnitOfWorkRealtime(session)
 
-            bot_id = int(bot_instance_id)
+            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
+            if bot_id is None:
+                await manager.send_personal_message(
+                    {"type": "stats", "timestamp": utc_now_iso(), "data": {}},
+                    websocket,
+                )
+                return
             stats = uow.stats.get_stats(bot_id)
 
             message = {
@@ -417,19 +471,28 @@ class WebSocketServer:
             }
 
             await manager.send_personal_message(message, websocket)
-            session.close()
 
         except Exception as e:
             logger.error(f"Error sending stats: {e}")
+        finally:
+            if session is not None:
+                session.close()
 
     @staticmethod
     async def send_market_data(websocket: WebSocket, bot_instance_id: str):
         """Send market data to client"""
+        session = None
         try:
             session = db.get_session()
             uow = UnitOfWorkRealtime(session)
 
-            bot_id = int(bot_instance_id)
+            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
+            if bot_id is None:
+                await manager.send_personal_message(
+                    {"type": "market_data", "timestamp": utc_now_iso(), "data": []},
+                    websocket,
+                )
+                return
             market_data = uow.market_data.get_all_market_data(bot_id)
 
             message = {
@@ -449,10 +512,12 @@ class WebSocketServer:
             }
 
             await manager.send_personal_message(message, websocket)
-            session.close()
 
         except Exception as e:
             logger.error(f"Error sending market data: {e}")
+        finally:
+            if session is not None:
+                session.close()
 
     @staticmethod
     async def send_backtest_status(websocket: WebSocket, run_id: str):

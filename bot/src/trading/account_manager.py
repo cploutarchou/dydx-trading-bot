@@ -2,23 +2,34 @@
 
 import asyncio
 import random
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
 from loguru import logger
-from v4_proto.dydxprotocol.clob.order_pb2 import Order
-
 from src.constants import DYDX_ADDRESS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
 from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.market_data import get_markets
+from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 
 def _resolve_client_address(client) -> str:
     """Resolve the best available wallet address as a concrete string."""
-    return str(getattr(client.wallet, "address", DYDX_ADDRESS) or DYDX_ADDRESS)
+    # Prefer the live wallet address on the client (set when connect_dydx_runtime succeeds)
+    if client.wallet is not None:
+        addr = str(getattr(client.wallet, "address", "") or "").strip()
+        if addr:
+            return addr
+    # Fall back to the module-level constant (global config, single-instance mode)
+    addr = str(DYDX_ADDRESS or "").strip()
+    if not addr:
+        raise RuntimeError(
+            "No dYdX address available: client wallet is unset and DYDX_ADDRESS is empty. "
+            "Ensure the instance config contains a valid dydx_chain_address."
+        )
+    return addr
 
 
 def _resolve_subaccount_number() -> int:
@@ -221,34 +232,16 @@ async def place_market_order(client, market, side, size, price, reduce_only):
         ),
     )
 
-    # Get Recent Orders
-    # We do this as in the current V4 version at the time of developing this,
-    # the order response does not return the order number
-    await asyncio.sleep(1.5)
     order_lookup_address = _resolve_client_address(client)
-    orders = await client.indexer_account.account.get_subaccount_orders(
-        order_lookup_address,
-        _resolve_subaccount_number(),
-        ticker,
-        return_latest_orders="true",
+    order_id = await _resolve_recent_order_id(
+        client=client,
+        order_lookup_address=order_lookup_address,
+        ticker=ticker,
+        market_order_id=market_order_id,
+        expected_side=side,
+        expected_size=size,
+        expected_reduce_only=reduce_only,
     )
-
-    # Get latest order id
-    order_id = ""
-    for order in orders:
-        client_id = int(order["clientId"])
-        clob_pair_id = int(order["clobPairId"])
-        order["createdAtHeight"] = int(order["createdAtHeight"])
-        if client_id == market_order_id.client_id and clob_pair_id == market_order_id.clob_pair_id:
-            order_id = order["id"]
-            break
-
-    # Ensure latest order
-    if order_id == "":
-        sorted_orders = sorted(orders, key=lambda x: x["createdAtHeight"], reverse=True)
-        logger.error("Unable to detect latest order; most recent entry: {}", sorted_orders[0])
-        logger.error("Please verify the order status on the dashboard")
-        raise RuntimeError("Unable to detect latest exchange order id after placement")
 
     # Print something if error returned
     if "code" in str(order):
@@ -256,6 +249,166 @@ async def place_market_order(client, market, side, size, price, reduce_only):
 
     # Return result
     return (order, order_id)
+
+
+def _normalize_orders_payload(raw_orders: Any) -> list[dict[str, Any]]:
+    """Normalize indexer order payloads to a homogeneous list of dicts."""
+    if isinstance(raw_orders, dict):
+        raw_orders = raw_orders.get("orders", [])
+    if not isinstance(raw_orders, list):
+        return []
+    return [order for order in raw_orders if isinstance(order, dict)]
+
+
+def _safe_int(value: Any, default: int = -1) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _resolve_order_from_snapshot(
+        orders: list[dict[str, Any]],
+        *,
+        market_order_id,
+        expected_side: str,
+        expected_size: Any,
+        expected_reduce_only: bool,
+    allow_fallback: bool = False,
+) -> Optional[str]:
+    """Resolve placed order ID from a recent indexer snapshot."""
+    expected_client_id = int(market_order_id.client_id)
+    expected_clob_pair_id = int(market_order_id.clob_pair_id)
+
+    # Primary deterministic match: clientId + clobPairId.
+    for order in orders:
+        client_id = _safe_int(order.get("clientId"))
+        clob_pair_id = _safe_int(order.get("clobPairId"))
+        if client_id == expected_client_id and clob_pair_id == expected_clob_pair_id:
+            return str(order.get("id", "")) or None
+
+    if not allow_fallback:
+        return None
+
+    # Fallback: latest order with same pair + side + reduceOnly + compatible size.
+    normalized_side = str(expected_side or "").upper()
+    normalized_reduce_only = bool(expected_reduce_only)
+    expected_size_value = abs(_safe_float(expected_size, 0.0))
+
+    candidates = []
+    for order in orders:
+        clob_pair_id = _safe_int(order.get("clobPairId"))
+        if clob_pair_id != expected_clob_pair_id:
+            continue
+
+        order_side = str(order.get("side", "")).upper()
+        if order_side and normalized_side and order_side != normalized_side:
+            continue
+
+        order_reduce_only = bool(order.get("reduceOnly", False))
+        if order_reduce_only != normalized_reduce_only:
+            continue
+
+        order_size = abs(_safe_float(order.get("size"), 0.0))
+        if expected_size_value > 0 and order_size > 0:
+            # Accept tiny rounding differences.
+            if abs(order_size - expected_size_value) > max(1e-9, expected_size_value * 1e-6):
+                continue
+
+        candidates.append(order)
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda item: _safe_int(item.get("createdAtHeight"), default=0),
+        reverse=True,
+    )
+    return str(candidates[0].get("id", "")) or None
+
+
+async def _resolve_recent_order_id(
+        *,
+        client,
+        order_lookup_address: str,
+        ticker: str,
+        market_order_id,
+        expected_side: str,
+        expected_size: Any,
+        expected_reduce_only: bool,
+        max_attempts: int = 5,
+        initial_delay_seconds: float = 1.2,
+        retry_delay_seconds: float = 0.75,
+) -> str:
+    """Retry indexer lookups to resolve recently placed order ID."""
+    latest_snapshot: list[dict[str, Any]] = []
+
+    for attempt in range(1, max_attempts + 1):
+        delay = initial_delay_seconds if attempt == 1 else min(2.5, retry_delay_seconds * attempt)
+        await asyncio.sleep(delay)
+
+        try:
+            raw_orders = await client.indexer_account.account.get_subaccount_orders(
+                order_lookup_address,
+                _resolve_subaccount_number(),
+                ticker,
+                return_latest_orders="true",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Order lookup attempt {}/{} failed for {}: {}",
+                attempt,
+                max_attempts,
+                ticker,
+                exc,
+            )
+            continue
+
+        orders = _normalize_orders_payload(raw_orders)
+        if orders:
+            latest_snapshot = orders
+
+        order_id = _resolve_order_from_snapshot(
+            orders,
+            market_order_id=market_order_id,
+            expected_side=expected_side,
+            expected_size=expected_size,
+            expected_reduce_only=expected_reduce_only,
+            allow_fallback=(attempt == max_attempts),
+        )
+        if order_id:
+            return order_id
+
+        logger.warning(
+            "Order lookup attempt {}/{} for {} found {} orders but no deterministic match yet",
+            attempt,
+            max_attempts,
+            ticker,
+            len(orders),
+        )
+
+    if latest_snapshot:
+        sorted_orders = sorted(
+            latest_snapshot,
+            key=lambda item: _safe_int(item.get("createdAtHeight"), default=0),
+            reverse=True,
+        )
+        logger.error("Unable to detect latest order; most recent entry: {}", sorted_orders[0])
+    else:
+        logger.error("Unable to detect latest order; indexer returned no orders for {}", ticker)
+
+    logger.error("Please verify the order status on the dashboard")
+    raise RuntimeError(
+        "Unable to detect latest exchange order id after placement "
+        "(indexer lookup lag or payload mismatch)"
+    )
 
 
 async def cancel_all_orders(client):

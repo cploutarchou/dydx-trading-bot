@@ -1,27 +1,27 @@
 import {
-    Activity,
-    ChevronDown,
-    ChevronUp,
-    Pause,
-    Play,
-    Plus,
-    RefreshCw,
-    ShieldCheck,
-    Trash2,
-    Zap,
+	Activity,
+	ChevronDown,
+	ChevronUp,
+	Pause,
+	Play,
+	Plus,
+	RefreshCw,
+	ShieldCheck,
+	Trash2,
+	Zap,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { classifyApiError } from '../api';
 import {
-    useBotInstances,
-    useBotRuntimeStatsStream,
-    useBotStats,
-    useCreateBotInstance,
-    useDeleteBotInstance,
-    useRestartBotInstance,
-    useStartBotInstance,
-    useStopBotInstance,
+	useBotInstances,
+	useBotRuntimeStatsStream,
+	useBotStats,
+	useCreateBotInstance,
+	useDeleteBotInstance,
+	useRestartBotInstance,
+	useStartBotInstance,
+	useStopBotInstance,
 } from '../api/hooks';
 import { useToastStore } from './ErrorBoundary';
 import { PageContainer } from './PageContainer';
@@ -164,6 +164,14 @@ const EMPTY_BOT_STATS: BotStats = {
   last_update: undefined,
 };
 
+const MANAGED_RUNTIMES_VISIBILITY_KEY = 'botManager.showManagedRuntimes';
+
+const getInitialManagedRuntimeVisibility = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const stored = window.localStorage.getItem(MANAGED_RUNTIMES_VISIBILITY_KEY);
+  return stored === 'true';
+};
+
 const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
   const failure = classifyApiError(error);
   if (failure.kind === 'transport') {
@@ -233,12 +241,16 @@ const BotCard: React.FC<BotCardProps> = ({
   const shouldShowStatsWarning =
     stats.degraded === true || (!!liveStatsQuery.error && !hasStatsPayload);
   const statusTone = getStatusTone(bot.status, stats.degraded);
+  const reconnectingWithFallback =
+    shouldStreamRuntime && !liveStatsQuery.isConnected && hasStatsPayload;
   const streamLabel = shouldStreamRuntime
     ? liveStatsQuery.isConnected
       ? 'Live runtime stream connected'
-      : hasStatsPayload
-        ? 'Runtime stream reconnecting (API fallback active)'
-        : 'Runtime stream reconnecting'
+      : bot.status === 'RUNNING' && hasStatsPayload
+        ? 'Running (live metrics channel reconnecting)'
+        : hasStatsPayload
+          ? 'Runtime stream reconnecting (API fallback active)'
+          : 'Runtime stream reconnecting'
     : 'Polling runtime state';
 
   return (
@@ -273,13 +285,22 @@ const BotCard: React.FC<BotCardProps> = ({
             </div>
             <p className="mt-2 text-xs text-slate-500">ID: {bot.instance_id}</p>
             {isManagedStrategyRuntime(bot) && (
-              <p className="mt-1 text-xs text-cyan-400">Managed by strategy runtime workflow</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-cyan-400">Managed by strategy runtime workflow</span>
+                <Link
+                  to="/strategies/manage"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-cyan-300 underline decoration-cyan-600/70 underline-offset-2 hover:text-cyan-200"
+                >
+                  Open Strategy Runtime
+                </Link>
+              </div>
             )}
             <p className="mt-2 text-sm text-slate-400">
               Started: {bot.started_at ? formatDateTime(bot.started_at) : 'Never'}
             </p>
             <p
-              className={`mt-1 text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : 'text-slate-500'}`}
+              className={`mt-1 text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : reconnectingWithFallback ? 'text-amber-300' : 'text-slate-500'}`}
             >
               {streamLabel}
             </p>
@@ -331,7 +352,7 @@ const BotCard: React.FC<BotCardProps> = ({
                   type="button"
                   onClick={() => onStop(bot.instance_id)}
                   disabled={actionLoading === `stop:${bot.instance_id}`}
-                  className="rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
+                  className="rounded-2xl bg-amber-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
                   title="Stop bot"
                 >
                   <span className="inline-flex items-center gap-2">
@@ -343,7 +364,7 @@ const BotCard: React.FC<BotCardProps> = ({
                   type="button"
                   onClick={() => onRestart(bot.instance_id)}
                   disabled={actionLoading === `restart:${bot.instance_id}`}
-                  className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-60"
+                  className="rounded-2xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-60"
                   title="Restart bot"
                 >
                   <span className="inline-flex items-center gap-2">
@@ -357,7 +378,7 @@ const BotCard: React.FC<BotCardProps> = ({
                 type="button"
                 onClick={() => onStart(bot.instance_id)}
                 disabled={actionLoading === `start:${bot.instance_id}`}
-                className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                className="rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
                 title="Start bot"
               >
                 <span className="inline-flex items-center gap-2">
@@ -370,7 +391,7 @@ const BotCard: React.FC<BotCardProps> = ({
               type="button"
               onClick={() => onDelete(bot.instance_id)}
               disabled={actionLoading === `delete:${bot.instance_id}`}
-              className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
+              className="rounded-2xl bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
               title="Delete bot"
             >
               <span className="inline-flex items-center gap-2">
@@ -438,9 +459,23 @@ const BotCard: React.FC<BotCardProps> = ({
   );
 };
 
-const BotManager: React.FC = () => {
+interface BotManagerProps {
+  embedded?: boolean;
+  onStatusMetricsChange?: (_metrics: BotRuntimeStatusMetrics) => void;
+}
+
+interface BotRuntimeStatusMetrics {
+  activeBotRuntimes: number;
+  reconnectingBotStreams: number;
+  degradedBotRuntimes: number;
+}
+
+const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetricsChange }) => {
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showManagedRuntimes, setShowManagedRuntimes] = useState(
+    getInitialManagedRuntimeVisibility
+  );
   const [expandedBot, setExpandedBot] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingRuntimeAction>(null);
@@ -486,6 +521,11 @@ const BotManager: React.FC = () => {
       clearInterval(interval);
     };
   }, [botsQuery.refetch]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(MANAGED_RUNTIMES_VISIBILITY_KEY, String(showManagedRuntimes));
+  }, [showManagedRuntimes]);
 
   const refreshBots = async () => {
     setError(null);
@@ -679,113 +719,138 @@ const BotManager: React.FC = () => {
     (bot) => bot.status === 'STARTING' || bot.status === 'STOPPING'
   ).length;
   const managedBots = bots.filter((bot) => isManagedStrategyRuntime(bot)).length;
+  const directBots = bots.filter((bot) => !isManagedStrategyRuntime(bot));
+  const strategyManagedBots = bots.filter((bot) => isManagedStrategyRuntime(bot));
 
-  return (
-    <PageContainer size="wide" className="space-y-6">
-      <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
-        <div className="relative grid gap-6 xl:grid-cols-[1.12fr,0.88fr]">
-          <div>
-            <div className="surface-label">
-              <Zap className="h-3.5 w-3.5" />
-              Runtime desk
+  useEffect(() => {
+    if (!onStatusMetricsChange) return;
+    onStatusMetricsChange({
+      activeBotRuntimes: runningBots,
+      reconnectingBotStreams: transitioningBots,
+      degradedBotRuntimes: erroredBots,
+    });
+  }, [erroredBots, onStatusMetricsChange, runningBots, transitioningBots]);
+
+  const content = (
+    <>
+      {!embedded && (
+        <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
+          <div className="relative grid gap-6 xl:grid-cols-[1.12fr,0.88fr]">
+            <div>
+              <div className="surface-label">
+                <Zap className="h-3.5 w-3.5" />
+                Bot Manager desk
+              </div>
+              <h1 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bot Manager</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
+                Manage live instances like an operator surface, not a settings form: health and
+                degraded-state signals first, actions close to each runtime, and clearer create-flow
+                context before credentials are submitted.
+              </p>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <div
+                  className="operator-status-pill"
+                  data-tone={runningBots > 0 ? 'positive' : 'warning'}
+                >
+                  <Activity className="h-3.5 w-3.5" />
+                  {runningBots > 0 ? `${runningBots} running` : 'No active bots'}
+                </div>
+                <div
+                  className="operator-status-pill"
+                  data-tone={erroredBots > 0 ? 'danger' : 'accent'}
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  {erroredBots > 0 ? `${erroredBots} need attention` : 'No runtime failures'}
+                </div>
+                <div className="operator-status-pill" data-tone="accent">
+                  {managedBots} managed strategy runtime{managedBots === 1 ? '' : 's'}
+                </div>
+              </div>
             </div>
-            <h1 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bot manager</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-              Manage live instances like an operator surface, not a settings form: health and
-              degraded-state signals first, actions close to each runtime, and clearer create-flow
-              context before credentials are submitted.
+
+            <div className="operator-mini-grid">
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Instances</p>
+                <p className="mt-2 text-xl font-semibold text-white">{bots.length}</p>
+                <p className="mt-1 text-xs text-slate-500">Known runtime instances</p>
+              </div>
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Transitioning
+                </p>
+                <p className="mt-2 text-xl font-semibold text-white">{transitioningBots}</p>
+                <p className="mt-1 text-xs text-slate-500">Starting or stopping</p>
+              </div>
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Refresh cadence
+                </p>
+                <p className="mt-2 text-xl font-semibold text-white">30s</p>
+                <p className="mt-1 text-xs text-slate-500">Automatic desk refresh</p>
+              </div>
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Boundary</p>
+                <p className="mt-2 text-xl font-semibold text-white">Backend-only</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  No direct bot API access from the browser
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!embedded && (
+        <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          <div className="operator-stat-card p-5">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Running</p>
+            <p className="mt-2 text-2xl font-semibold text-emerald-300">{runningBots}</p>
+            <p className="mt-1 text-xs text-slate-500">Instances currently live</p>
+          </div>
+          <div className="operator-stat-card p-5">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+              Managed runtimes
             </p>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <div
-                className="operator-status-pill"
-                data-tone={runningBots > 0 ? 'positive' : 'warning'}
-              >
-                <Activity className="h-3.5 w-3.5" />
-                {runningBots > 0 ? `${runningBots} running` : 'No active bots'}
-              </div>
-              <div
-                className="operator-status-pill"
-                data-tone={erroredBots > 0 ? 'danger' : 'accent'}
-              >
-                <ShieldCheck className="h-3.5 w-3.5" />
-                {erroredBots > 0 ? `${erroredBots} need attention` : 'No runtime failures'}
-              </div>
-              <div className="operator-status-pill" data-tone="accent">
-                {managedBots} managed strategy runtime{managedBots === 1 ? '' : 's'}
-              </div>
-            </div>
+            <p className="mt-2 text-2xl font-semibold text-cyan-300">{managedBots}</p>
+            <p className="mt-1 text-xs text-slate-500">Strategy-linked operators</p>
           </div>
-
-          <div className="operator-mini-grid">
-            <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Instances</p>
-              <p className="mt-2 text-xl font-semibold text-white">{bots.length}</p>
-              <p className="mt-1 text-xs text-slate-500">Known bot runtimes</p>
-            </div>
-            <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                Transitioning
-              </p>
-              <p className="mt-2 text-xl font-semibold text-white">{transitioningBots}</p>
-              <p className="mt-1 text-xs text-slate-500">Starting or stopping</p>
-            </div>
-            <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                Refresh cadence
-              </p>
-              <p className="mt-2 text-xl font-semibold text-white">30s</p>
-              <p className="mt-1 text-xs text-slate-500">Automatic desk refresh</p>
-            </div>
-            <div className="operator-hero-panel px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Boundary</p>
-              <p className="mt-2 text-xl font-semibold text-white">Backend-only</p>
-              <p className="mt-1 text-xs text-slate-500">
-                No direct bot API access from the browser
-              </p>
-            </div>
+          <div className="operator-stat-card p-5">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Transitioning</p>
+            <p className="mt-2 text-2xl font-semibold text-blue-300">{transitioningBots}</p>
+            <p className="mt-1 text-xs text-slate-500">Starting or stopping now</p>
           </div>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <div className="operator-stat-card p-5">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Running</p>
-          <p className="mt-2 text-2xl font-semibold text-emerald-300">{runningBots}</p>
-          <p className="mt-1 text-xs text-slate-500">Instances currently live</p>
-        </div>
-        <div className="operator-stat-card p-5">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Managed runtimes</p>
-          <p className="mt-2 text-2xl font-semibold text-cyan-300">{managedBots}</p>
-          <p className="mt-1 text-xs text-slate-500">Strategy-linked operators</p>
-        </div>
-        <div className="operator-stat-card p-5">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Transitioning</p>
-          <p className="mt-2 text-2xl font-semibold text-blue-300">{transitioningBots}</p>
-          <p className="mt-1 text-xs text-slate-500">Starting or stopping now</p>
-        </div>
-        <div className="operator-stat-card p-5">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Attention needed</p>
-          <p
-            className={`mt-2 text-2xl font-semibold ${erroredBots > 0 ? 'text-rose-300' : 'text-emerald-300'}`}
-          >
-            {erroredBots}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">Failed or error state runtimes</p>
-        </div>
-      </section>
+          <div className="operator-stat-card p-5">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+              Attention needed
+            </p>
+            <p
+              className={`mt-2 text-2xl font-semibold ${erroredBots > 0 ? 'text-rose-300' : 'text-emerald-300'}`}
+            >
+              {erroredBots}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">Failed or error state runtimes</p>
+          </div>
+        </section>
+      )}
 
       {error && (
         <InlineNotice tone="danger" title="Runtime action needs attention" description={error} />
       )}
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr,1.05fr]">
+      <section
+        className={`grid grid-cols-1 gap-6 ${embedded ? '' : 'xl:grid-cols-[0.95fr,1.05fr]'}`}
+      >
         <div className="operator-section-card p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-white">Runtime actions</h2>
+              <h2 className="text-lg font-semibold text-white">
+                {embedded ? 'Runtime Control actions' : 'Runtime Control actions'}
+              </h2>
               <p className="mt-1 text-sm text-slate-400">
-                Refresh runtime state, create a new instance, or move into strategy runtime.
+                {embedded
+                  ? 'Refresh runtime state and create bot instances without leaving Strategy Runtime.'
+                  : 'Refresh runtime state, create a new instance, or move into strategy runtime.'}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -810,12 +875,14 @@ const BotManager: React.FC = () => {
           </div>
 
           <div className="mt-5 grid gap-3">
-            <Link to="/strategies/manage" className="operator-action-card p-4">
-              <p className="text-sm font-semibold text-white">Open strategy runtime</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Monitor managed strategy processes beside direct bot instances.
-              </p>
-            </Link>
+            {!embedded && (
+              <Link to="/strategies/manage" className="operator-action-card p-4">
+                <p className="text-sm font-semibold text-white">Open strategy runtime</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Monitor managed strategy processes beside direct bot instances.
+                </p>
+              </Link>
+            )}
             <Link to="/settings" className="operator-action-card p-4">
               <p className="text-sm font-semibold text-white">Review credentials and settings</p>
               <p className="mt-1 text-xs text-slate-500">
@@ -825,25 +892,29 @@ const BotManager: React.FC = () => {
           </div>
         </div>
 
-        <div className="operator-section-card p-5">
-          <h2 className="text-lg font-semibold text-white">Operator notes</h2>
-          <div className="mt-4 space-y-3">
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
-              <p className="text-sm font-semibold text-white">Degraded state should be explicit</p>
-              <p className="mt-1 text-sm leading-6 text-slate-400">
-                Live runtime stats can reconnect independently of the instance lifecycle. Treat a
-                reconnecting stream as an operator signal, not a silent failure.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
-              <p className="text-sm font-semibold text-white">Instance creation is operational</p>
-              <p className="mt-1 text-sm leading-6 text-slate-400">
-                The create flow now sits inside the runtime desk so credential, network, and
-                trading-parameter choices feel part of one controlled setup workflow.
-              </p>
+        {!embedded && (
+          <div className="operator-section-card p-5">
+            <h2 className="text-lg font-semibold text-white">Operator notes</h2>
+            <div className="mt-4 space-y-3">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
+                <p className="text-sm font-semibold text-white">
+                  Degraded state should be explicit
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-400">
+                  Live runtime stats can reconnect independently of the instance lifecycle. Treat a
+                  reconnecting stream as an operator signal, not a silent failure.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
+                <p className="text-sm font-semibold text-white">Instance creation is operational</p>
+                <p className="mt-1 text-sm leading-6 text-slate-400">
+                  The create flow now sits inside the Bot Manager desk so credential, network, and
+                  trading-parameter choices feel part of one controlled setup workflow.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </section>
 
       {showCreateForm && (
@@ -1015,8 +1086,8 @@ const BotManager: React.FC = () => {
           <div>
             <h2 className="text-xl font-semibold text-white">Runtime instances</h2>
             <p className="text-sm text-slate-400">
-              Review each instance with live stream state, action controls, and expanded runtime
-              detail.
+              Unified monitoring view: direct runtimes stay fully actionable here, while
+              strategy-managed runtimes can be shown on demand.
             </p>
           </div>
           <span className="operator-status-pill" data-tone={bots.length > 0 ? 'accent' : 'warning'}>
@@ -1052,24 +1123,115 @@ const BotManager: React.FC = () => {
             />
           </div>
         ) : (
-          bots.map((bot) => {
-            const isExpanded = expandedBot === bot.instance_id;
-            return (
-              <BotCard
-                key={bot.instance_id}
-                bot={bot}
-                isExpanded={isExpanded}
-                actionLoading={actionLoading}
-                onToggleExpand={(instanceId) =>
-                  setExpandedBot((current) => (current === instanceId ? null : instanceId))
-                }
-                onStart={(instanceId) => void handleStartBot(instanceId)}
-                onStop={(instanceId) => setPendingAction({ kind: 'stop', instanceId })}
-                onRestart={(instanceId) => setPendingAction({ kind: 'restart', instanceId })}
-                onDelete={(instanceId) => setPendingAction({ kind: 'delete', instanceId })}
-              />
-            );
-          })
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/28 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Direct runtime instances</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Primary controls live here for start, stop, restart, and delete actions.
+                  </p>
+                </div>
+                <span
+                  className="operator-status-pill"
+                  data-tone={directBots.length > 0 ? 'positive' : 'warning'}
+                >
+                  {directBots.length} direct
+                </span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {directBots.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-3 text-xs text-slate-400">
+                    No direct runtimes found.
+                  </div>
+                ) : (
+                  directBots.map((bot) => {
+                    const isExpanded = expandedBot === bot.instance_id;
+                    return (
+                      <BotCard
+                        key={bot.instance_id}
+                        bot={bot}
+                        isExpanded={isExpanded}
+                        actionLoading={actionLoading}
+                        onToggleExpand={(instanceId) =>
+                          setExpandedBot((current) => (current === instanceId ? null : instanceId))
+                        }
+                        onStart={(instanceId) => void handleStartBot(instanceId)}
+                        onStop={(instanceId) => setPendingAction({ kind: 'stop', instanceId })}
+                        onRestart={(instanceId) =>
+                          setPendingAction({ kind: 'restart', instanceId })
+                        }
+                        onDelete={(instanceId) => setPendingAction({ kind: 'delete', instanceId })}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-cyan-900/70 bg-cyan-950/12 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-cyan-100">Strategy-managed runtimes</h3>
+                  <p className="mt-1 text-xs text-cyan-300/80">
+                    Primary controls are in Strategy Runtime. Expand below when you need a unified
+                    monitoring view.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManagedRuntimes((current) => !current)}
+                  className="rounded-xl border border-cyan-800/70 bg-cyan-950/45 px-3 py-2 text-xs font-medium text-cyan-200 transition hover:bg-cyan-900/40"
+                >
+                  {showManagedRuntimes
+                    ? `Hide managed runtimes (${strategyManagedBots.length})`
+                    : `Show managed runtimes (${strategyManagedBots.length})`}
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-cyan-300/70">
+                Preference is saved for this browser.
+              </p>
+
+              {showManagedRuntimes ? (
+                <div className="mt-4 space-y-3">
+                  {strategyManagedBots.length === 0 ? (
+                    <div className="rounded-2xl border border-cyan-900/50 bg-slate-950/35 px-4 py-3 text-xs text-cyan-100/80">
+                      No strategy-managed runtimes are currently visible.
+                    </div>
+                  ) : (
+                    strategyManagedBots.map((bot) => {
+                      const isExpanded = expandedBot === bot.instance_id;
+                      return (
+                        <BotCard
+                          key={bot.instance_id}
+                          bot={bot}
+                          isExpanded={isExpanded}
+                          actionLoading={actionLoading}
+                          onToggleExpand={(instanceId) =>
+                            setExpandedBot((current) =>
+                              current === instanceId ? null : instanceId
+                            )
+                          }
+                          onStart={(instanceId) => void handleStartBot(instanceId)}
+                          onStop={(instanceId) => setPendingAction({ kind: 'stop', instanceId })}
+                          onRestart={(instanceId) =>
+                            setPendingAction({ kind: 'restart', instanceId })
+                          }
+                          onDelete={(instanceId) =>
+                            setPendingAction({ kind: 'delete', instanceId })
+                          }
+                        />
+                      );
+                    })
+                  )}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-cyan-900/45 bg-slate-950/35 px-4 py-3 text-xs text-cyan-100/80">
+                  Managed runtimes are hidden by default to keep this desk focused.
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </section>
 
@@ -1104,6 +1266,16 @@ const BotManager: React.FC = () => {
           }
         />
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-6">{content}</div>;
+  }
+
+  return (
+    <PageContainer size="wide" className="space-y-6">
+      {content}
     </PageContainer>
   );
 };

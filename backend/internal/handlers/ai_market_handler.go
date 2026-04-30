@@ -93,6 +93,66 @@ func (h *AIMarketHandler) SelectMarkets(c *gin.Context, markets []string) {
 	})
 }
 
+func (h *AIMarketHandler) ExplainBacktest(c *gin.Context) {
+	var req services.AIBacktestExplainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondError(c, http.StatusBadRequest, err, "Invalid backtest explain request")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	defer cancel()
+	result, err := h.service.ExplainBacktest(ctx, getUserID(c), req)
+	if err != nil {
+		h.respondError(c, http.StatusBadGateway, err, "Failed to explain backtest with AI")
+		return
+	}
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      result,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *AIMarketHandler) SuggestStrategyParams(c *gin.Context) {
+	var req services.AISuggestParamsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondError(c, http.StatusBadRequest, err, "Invalid parameter suggestion request")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	defer cancel()
+	result, err := h.service.SuggestStrategyParams(ctx, getUserID(c), req)
+	if err != nil {
+		h.respondError(c, http.StatusBadGateway, err, "Failed to suggest strategy parameters with AI")
+		return
+	}
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      result,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *AIMarketHandler) RuntimeDigest(c *gin.Context) {
+	var req services.AIRuntimeDigestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondError(c, http.StatusBadRequest, err, "Invalid runtime digest request")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	result, err := h.service.RuntimeDigest(ctx, getUserID(c), req)
+	if err != nil {
+		h.respondError(c, http.StatusBadGateway, err, "Failed to generate runtime digest with AI")
+		return
+	}
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      result,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 func (h *AIMarketHandler) respondError(c *gin.Context, status int, err error, fallback string) {
 	message := fallback
 	if err != nil {

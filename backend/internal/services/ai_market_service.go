@@ -619,3 +619,260 @@ func envWithDefault(key string, fallback string) string {
 	}
 	return value
 }
+
+// ==================== AI TEXT GENERATION ====================
+
+// AITextResponse is the shared response shape for free-text AI endpoints.
+type AITextResponse struct {
+	Provider string `json:"provider"`
+	Content  string `json:"content"`
+	UsedAI   bool   `json:"used_ai"`
+}
+
+// AIBacktestExplainRequest carries completed backtest metrics.
+type AIBacktestExplainRequest struct {
+	Provider     string   `json:"provider"`
+	WinRate      float64  `json:"win_rate"`
+	TotalPnlUSD  float64  `json:"total_pnl_usd"`
+	SharpeRatio  float64  `json:"sharpe_ratio"`
+	MaxDrawdown  float64  `json:"max_drawdown_pct"`
+	TotalTrades  int      `json:"total_trades"`
+	ProfitFactor float64  `json:"profit_factor"`
+	Markets      []string `json:"markets"`
+	StartDate    string   `json:"start_date"`
+	EndDate      string   `json:"end_date"`
+}
+
+// AIBacktestSummary is a compact result used in parameter suggestion requests.
+type AIBacktestSummary struct {
+	WinRate     float64 `json:"win_rate"`
+	TotalPnlUSD float64 `json:"total_pnl_usd"`
+	SharpeRatio float64 `json:"sharpe_ratio"`
+	MaxDrawdown float64 `json:"max_drawdown_pct"`
+	TotalTrades int     `json:"total_trades"`
+}
+
+// AISuggestParamsRequest carries strategy config and recent backtest results.
+type AISuggestParamsRequest struct {
+	Provider        string              `json:"provider"`
+	StrategyName    string              `json:"strategy_name"`
+	CurrentParams   map[string]any      `json:"current_params"`
+	LastError       string              `json:"last_error"`
+	RecentBacktests []AIBacktestSummary `json:"recent_backtests"`
+}
+
+// AIRuntimeDigestRequest carries a live runtime snapshot.
+type AIRuntimeDigestRequest struct {
+	Provider      string  `json:"provider"`
+	RunningBots   int     `json:"running_bots"`
+	TotalBots     int     `json:"total_bots"`
+	OpenPositions int     `json:"open_positions"`
+	TotalPnlUSD   float64 `json:"total_pnl_usd"`
+	ActivePairs   int     `json:"active_pairs"`
+	ErrorCount    int     `json:"error_count"`
+	Network       string  `json:"network"`
+}
+
+// ExplainBacktest generates a plain-language narrative for a completed backtest.
+func (s *AIMarketService) ExplainBacktest(ctx context.Context, userID int, req AIBacktestExplainRequest) (*AITextResponse, error) {
+	provider, err := normalizeAIProvider(req.Provider)
+	if err != nil {
+		provider = ExternalAPIProviderDeepSeek
+	}
+	resolved, err := s.resolveKey(userID, provider)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(resolved.key) == "" {
+		return &AITextResponse{
+			Provider: provider,
+			Content:  "No AI key configured. Add a DeepSeek, OpenAI, or Claude key in Settings → AI Providers to enable AI explanations.",
+			UsedAI:   false,
+		}, nil
+	}
+
+	markets := strings.Join(req.Markets, ", ")
+	if markets == "" {
+		markets = "not specified"
+	}
+	systemPrompt := "You are a quantitative trading analyst. Explain backtest results in plain language. No markdown headings. No bullet lists. Write in flowing prose."
+	userPrompt := fmt.Sprintf(
+		`Backtest period: %s to %s
+Markets traded: %s
+Win rate: %.1f%%
+Total PnL: $%.2f
+Sharpe ratio: %.2f
+Max drawdown: %.1f%%
+Total trades: %d
+Profit factor: %.2f
+
+Write 3–5 sentences explaining what these results mean for a trader. Then on a new line write exactly "Improvements:" followed by 3 numbered, specific, actionable parameter or strategy improvements.`,
+		req.StartDate, req.EndDate, markets,
+		req.WinRate*100, req.TotalPnlUSD, req.SharpeRatio,
+		req.MaxDrawdown*100, req.TotalTrades, req.ProfitFactor,
+	)
+	content, err := s.callAIForText(ctx, resolved.key, provider, systemPrompt, userPrompt)
+	if err != nil {
+		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
+	}
+	return &AITextResponse{Provider: provider, Content: content, UsedAI: true}, nil
+}
+
+// SuggestStrategyParams suggests parameter adjustments based on config and backtest history.
+func (s *AIMarketService) SuggestStrategyParams(ctx context.Context, userID int, req AISuggestParamsRequest) (*AITextResponse, error) {
+	provider, err := normalizeAIProvider(req.Provider)
+	if err != nil {
+		provider = ExternalAPIProviderDeepSeek
+	}
+	resolved, err := s.resolveKey(userID, provider)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(resolved.key) == "" {
+		return &AITextResponse{Provider: provider, Content: "No AI key configured.", UsedAI: false}, nil
+	}
+
+	paramsJSON, _ := json.Marshal(req.CurrentParams)
+
+	backtestsSummary := "No recent backtests available."
+	if len(req.RecentBacktests) > 0 {
+		lines := make([]string, 0, len(req.RecentBacktests))
+		for i, bt := range req.RecentBacktests {
+			lines = append(lines, fmt.Sprintf(
+				"  Run %d: win_rate=%.1f%%, pnl=$%.2f, sharpe=%.2f, drawdown=%.1f%%",
+				i+1, bt.WinRate*100, bt.TotalPnlUSD, bt.SharpeRatio, bt.MaxDrawdown*100,
+			))
+		}
+		backtestsSummary = strings.Join(lines, "\n")
+	}
+
+	errorSection := ""
+	if lastError := strings.TrimSpace(req.LastError); lastError != "" {
+		errorSection = "\nLast runtime error: " + lastError
+	}
+
+	systemPrompt := "You are a quantitative DeFi trading system parameter advisor. Provide specific numbered recommendations. Be concise and actionable."
+	userPrompt := fmt.Sprintf(
+		`Strategy "%s" parameter review.
+
+Current parameters:
+%s%s
+
+Recent backtest results:
+%s
+
+Give exactly 3 numbered, specific parameter adjustments to improve performance or reduce risk. For each state: parameter name, current value (if known), suggested new value, and one sentence of rationale.`,
+		req.StrategyName, string(paramsJSON), errorSection, backtestsSummary,
+	)
+	content, err := s.callAIForText(ctx, resolved.key, provider, systemPrompt, userPrompt)
+	if err != nil {
+		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
+	}
+	return &AITextResponse{Provider: provider, Content: content, UsedAI: true}, nil
+}
+
+// RuntimeDigest generates a 2-sentence live operational health verdict.
+func (s *AIMarketService) RuntimeDigest(ctx context.Context, userID int, req AIRuntimeDigestRequest) (*AITextResponse, error) {
+	provider, err := normalizeAIProvider(req.Provider)
+	if err != nil {
+		provider = ExternalAPIProviderDeepSeek
+	}
+	resolved, err := s.resolveKey(userID, provider)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(resolved.key) == "" {
+		return &AITextResponse{Provider: provider, Content: "No AI key configured.", UsedAI: false}, nil
+	}
+
+	network := req.Network
+	if network == "" {
+		network = "unknown"
+	}
+
+	systemPrompt := "You are a trading operations assistant monitoring a live DeFi pairs trading system. Be very concise. No markdown. Respond in exactly 2 sentences: first a health verdict, second a recommended action."
+	userPrompt := fmt.Sprintf(
+		`Live runtime snapshot (network: %s):
+- Running bots: %d of %d total
+- Open positions: %d
+- Active pairs: %d
+- Unrealised PnL: $%.2f
+- Bots in error state: %d
+
+Give a 2-sentence operational health verdict and recommended action.`,
+		network, req.RunningBots, req.TotalBots,
+		req.OpenPositions, req.ActivePairs,
+		req.TotalPnlUSD, req.ErrorCount,
+	)
+	content, err := s.callAIForText(ctx, resolved.key, provider, systemPrompt, userPrompt)
+	if err != nil {
+		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
+	}
+	return &AITextResponse{Provider: provider, Content: content, UsedAI: true}, nil
+}
+
+// callAIForText calls the selected provider and returns a plain-text response.
+func (s *AIMarketService) callAIForText(ctx context.Context, apiKey string, provider string, systemPrompt string, userPrompt string) (string, error) {
+	config := s.providerConfig(provider)
+	switch provider {
+	case ExternalAPIProviderClaude:
+		return s.callClaudeForText(ctx, apiKey, config, systemPrompt, userPrompt)
+	default:
+		return s.callOpenAICompatibleForText(ctx, apiKey, config, systemPrompt, userPrompt)
+	}
+}
+
+func (s *AIMarketService) callOpenAICompatibleForText(ctx context.Context, apiKey string, config aiProviderConfig, systemPrompt string, userPrompt string) (string, error) {
+	body := map[string]any{
+		"model": config.model,
+		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": userPrompt},
+		},
+		"temperature": 0.3,
+	}
+	var response struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := s.executeJSON(ctx, config.baseURL, apiKey, body, &response, nil); err != nil {
+		return "", err
+	}
+	if len(response.Choices) == 0 {
+		return "", fmt.Errorf("%s returned no response", providerDisplayName(config.provider))
+	}
+	return strings.TrimSpace(response.Choices[0].Message.Content), nil
+}
+
+func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, config aiProviderConfig, systemPrompt string, userPrompt string) (string, error) {
+	body := map[string]any{
+		"model":       config.model,
+		"max_tokens":  700,
+		"temperature": 0.3,
+		"system":      systemPrompt,
+		"messages": []map[string]string{
+			{"role": "user", "content": userPrompt},
+		},
+	}
+	var response struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	headers := map[string]string{
+		"x-api-key":         apiKey,
+		"anthropic-version": "2023-06-01",
+	}
+	if err := s.executeJSON(ctx, config.baseURL, "", body, &response, headers); err != nil {
+		return "", err
+	}
+	for _, part := range response.Content {
+		if t := strings.TrimSpace(part.Text); t != "" {
+			return t, nil
+		}
+	}
+	return "", fmt.Errorf("Claude returned no content")
+}

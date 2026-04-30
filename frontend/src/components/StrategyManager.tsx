@@ -11,12 +11,13 @@
  */
 
 import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
+import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
 import { PageContainer } from './PageContainer';
 
@@ -877,6 +878,30 @@ export default function StrategyManager() {
     }
   };
 
+  // Computed values for AI Runtime Digest
+  const digestTotalPnl = useMemo(
+    () => Array.from(strategyStatuses.values()).reduce((sum, s) => sum + (s.pnl ?? 0), 0),
+    [strategyStatuses]
+  );
+  const digestErrorCount = useMemo(
+    () => Array.from(strategyStatuses.values()).filter((s) => s.status === 'error').length,
+    [strategyStatuses]
+  );
+  const digestActivePairs = useMemo(() => {
+    const markets = new Set<string>();
+    strategies.forEach((s) => {
+      if (s.market_1) markets.add(s.market_1);
+      if (s.market_2) markets.add(s.market_2);
+    });
+    return Math.floor(markets.size / 2);
+  }, [strategies]);
+  const digestNetwork = useMemo(() => {
+    const nets = Array.from(strategyStatuses.values())
+      .map((s) => s.network)
+      .filter(Boolean);
+    return (nets[0] ?? strategies[0]?.runtime_network ?? 'testnet') as string;
+  }, [strategyStatuses, strategies]);
+
   if (loading) {
     return (
       <PageContainer size="wide" className="flex h-96 items-center justify-center">
@@ -957,6 +982,17 @@ export default function StrategyManager() {
         title="Strategy Benchmark Context"
         request={buildStrategyIntelRequest(strategies, 1)}
         compact
+      />
+
+      {/* AI Runtime Digest */}
+      <AIRuntimeDigest
+        runningBots={runningCount}
+        totalBots={strategies.length}
+        openPositions={0}
+        totalPnlUsd={digestTotalPnl}
+        activePairs={digestActivePairs}
+        errorCount={digestErrorCount}
+        network={digestNetwork}
       />
 
       {/* Messages */}
@@ -1226,6 +1262,9 @@ export default function StrategyManager() {
                     </button>
                   )}
                 </div>
+
+                {/* AI Parameter Advisor */}
+                <AIStrategyAdvisor strategy={strategy} lastError={status.lastError} />
               </div>
             );
           })
@@ -1634,11 +1673,9 @@ export default function StrategyManager() {
                     <div>
                       <label className="mb-2 block text-white font-medium">Resolution</label>
                       <select
-                        value={
-                          normalizeDydxCandleResolution(
-                            editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
-                          )
-                        }
+                        value={normalizeDydxCandleResolution(
+                          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
+                        )}
                         onChange={(e) =>
                           updateEditingConfig({
                             resolution: normalizeDydxCandleResolution(e.target.value),

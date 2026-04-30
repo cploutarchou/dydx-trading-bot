@@ -25,6 +25,7 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 	{
 		authRoutes.POST("/register", registerHandler(database))
 		authRoutes.GET("/registration-status", registrationStatusHandler(database))
+		authRoutes.GET("/session", middleware.RequireAuth(), authSessionHandler(database))
 		authRoutes.POST("/login", loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
 		authRoutes.POST("/logout", logoutHandler())
@@ -40,11 +41,23 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		userRoutes.GET("/me", getCurrentUserHandler(database))
 	}
 
+	meRoutes := router.Group("/api/v1")
+	{
+		meRoutes.Use(middleware.RequireAuth())
+		meRoutes.GET("/me", getCurrentUserHandler(database))
+	}
+
 	// Profile routes (require authentication)
 	profileRoutes := router.Group("/api/v1/profile")
 	{
 		profileRoutes.Use(middleware.RequireAuth())
 		profileRoutes.PUT("", updateProfileHandler(database))
+	}
+}
+
+func authSessionHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		getCurrentUserHandler(database)(c)
 	}
 }
 

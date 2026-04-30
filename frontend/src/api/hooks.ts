@@ -903,9 +903,15 @@ export function useBacktestProgress(runId: string) {
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
   const [lastSocketEvent, setLastSocketEvent] = useState<Record<string, unknown> | null>(null);
   const isTerminalStatus = useCallback((status: unknown): boolean => {
-    return ['COMPLETED', 'FAILED', 'TIMEOUT', 'TIMED_OUT', 'CANCELLED', 'STALE', 'STALLED'].includes(
-      normalizeStatus(status)
-    );
+    return [
+      'COMPLETED',
+      'FAILED',
+      'TIMEOUT',
+      'TIMED_OUT',
+      'CANCELLED',
+      'STALE',
+      'STALLED',
+    ].includes(normalizeStatus(status));
   }, []);
 
   const normalizeProgressPercent = useCallback((data: unknown): number => {
@@ -1083,7 +1089,9 @@ export function useBacktestProgress(runId: string) {
   }, [runId]);
 
   const { isConnected, socketError } = useManagedWebSocket({
-    enabled: !!runId,
+    // Stop connecting once the backtest reaches a terminal state — avoids an infinite
+    // reconnect storm where the server closes idle sockets every ~15 s.
+    enabled: !!runId && !isTerminalStatus(data?.status),
     connectSocket: useCallback(() => api.connectBacktestSocket(runId), [runId]),
     onMessage: useCallback(
       (parsed: unknown) => {

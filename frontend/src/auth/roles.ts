@@ -3,8 +3,11 @@ export type WorkspaceRole =
   | 'super_admin'
   | 'backoffice'
   | 'operations_admin'
+  | 'compliance_admin'
   | 'finance_admin'
   | 'support_agent'
+  | 'read_only_auditor'
+  | 'security_analyst'
   | 'ib'
   | 'sub_ib'
   | 'client'
@@ -23,8 +26,14 @@ export const BACKOFFICE_ROLES: WorkspaceRole[] = [
   'super_admin',
   'backoffice',
   'operations_admin',
+  'compliance_admin',
   'finance_admin',
   'support_agent',
+  'read_only_auditor',
+  'security_analyst',
+  'accounting',
+  'marketing',
+  'agent',
 ];
 
 export const CLIENT_ROLES: WorkspaceRole[] = ['client', 'user'];
@@ -51,8 +60,11 @@ export const normalizeWorkspaceRole = (role?: string, isAdmin?: boolean): Worksp
     case 'admin':
     case 'super_admin':
     case 'operations_admin':
+    case 'compliance_admin':
     case 'finance_admin':
     case 'support_agent':
+    case 'read_only_auditor':
+    case 'security_analyst':
     case 'ib':
     case 'sub_ib':
     case 'client':

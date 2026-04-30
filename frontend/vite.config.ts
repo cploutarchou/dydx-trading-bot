@@ -157,7 +157,15 @@ const loadStructuredEnvironment = (repoRoot: string, mode: string) => {
 
 export default defineConfig(({ mode }) => {
   const repoRoot = findRepoRoot(__dirname);
-  const env = loadStructuredEnvironment(repoRoot, mode);
+  const processViteEnv = Object.fromEntries(
+    Object.entries(process.env)
+      .filter(([key, value]) => key.startsWith('VITE_') && value !== undefined)
+      .map(([key, value]) => [key, String(value)])
+  );
+  const env = {
+    ...loadStructuredEnvironment(repoRoot, mode),
+    ...processViteEnv,
+  };
   const viteDefine = Object.fromEntries(
     Object.entries(env)
       .filter(([key]) => key.startsWith('VITE_'))
@@ -177,7 +185,12 @@ export default defineConfig(({ mode }) => {
       },
       proxy: {
         '/api': {
-          target: env.VITE_API_URL || 'http://localhost:8888',
+          target: env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:8888',
+          changeOrigin: true,
+          ws: true,
+        },
+        '/ws': {
+          target: env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:8888',
           changeOrigin: true,
           ws: true,
         },

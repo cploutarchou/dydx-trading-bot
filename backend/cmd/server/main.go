@@ -523,7 +523,9 @@ func main() {
 	// Register auth routes (bypasses strict validation)
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
+	routes.RegisterBackofficeRoutes(router, database.DB)
 	routes.RegisterPortalRoutes(router, database.DB)
+	routes.RegisterIBPortalRoutes(router, database.DB)
 	routes.RegisterIBTierRatesRoutes(router, database.DB)
 
 	// Initialize bot API client for delegating calls to Python bot API

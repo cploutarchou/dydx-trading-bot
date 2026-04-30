@@ -457,12 +457,14 @@ func (r *BacktestRepository) getTableColumns(tableName string) (_ map[string]str
 }
 
 func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([]models.BacktestRun, error) {
+	// Excludes heavy JSON blobs (config, strategy_snapshot) — these are only needed on the detail
+	// view and can easily double/triple per-row payload size for large backtests.
 	query := `
 		SELECT id, user_id, strategy_id, strategy_version_id, run_id, status, start_date, end_date,
 		       num_pairs, total_markets, resolution, total_trades, profitable_trades, losing_trades,
 		       win_rate, total_pnl, total_pnl_usd, sharpe_ratio, sortino_ratio, calmar_ratio,
 		       max_drawdown, profit_factor, starting_balance, ending_balance, max_balance, min_balance,
-		       error_message, started_at, completed_at, duration_seconds, config, strategy_snapshot,
+		       error_message, started_at, completed_at, duration_seconds,
 		       created_at
 		FROM backtest_runs
 		WHERE user_id = $1
@@ -514,8 +516,6 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 			&run.StartedAt,
 			&run.CompletedAt,
 			&run.DurationSeconds,
-			&run.Config,
-			&run.StrategySnapshot,
 			&run.CreatedAt,
 		)
 		if err != nil {

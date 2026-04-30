@@ -43,6 +43,9 @@ func RegisterAIMarketRoutes(router *gin.Engine, database *db.Database, apiClient
 
 			handler.SelectMarkets(c, markets)
 		})
+		group.POST("/backtests/explain", handler.ExplainBacktest)
+		group.POST("/strategies/suggest-params", handler.SuggestStrategyParams)
+		group.POST("/runtime/digest", handler.RuntimeDigest)
 	}
 }
 

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Filter, Loader2, Search, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api, { type IBPyramidNode } from '../../api';
+import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../../auth/roles';
 import { PageContainer } from '../../components/PageContainer';
 import { useAuthStore } from '../../store/auth';
 import { crmPath } from '../crm/paths';
@@ -119,7 +120,7 @@ export const IBNetwork = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const canOpenCRM = user?.is_admin === true || user?.role === 'backoffice';
+  const canOpenCRM = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
 
   const treeQuery = useQuery({
     queryKey: ['portal', 'hierarchy', 'tree'],

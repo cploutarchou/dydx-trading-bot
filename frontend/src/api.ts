@@ -11,6 +11,7 @@ import {
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
+import { getCurrentPortalType } from './app/portal';
 
 const API_BASE_URL = getBackendHttpBase();
 
@@ -27,7 +28,9 @@ export const DYDX_CANDLE_RESOLUTION_OPTIONS = [
 export type DydxCandleResolution = (typeof DYDX_CANDLE_RESOLUTION_OPTIONS)[number]['value'];
 
 export const normalizeDydxCandleResolution = (value?: string | null): DydxCandleResolution => {
-  const normalized = String(value || '').trim().toUpperCase();
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
   switch (normalized) {
     case 'M1':
     case '1M':
@@ -311,15 +314,6 @@ export interface CreateIBInvitationTokenPayload extends Record<string, unknown> 
   campaign_name?: string;
   max_uses?: number;
   expires_in_hours?: number;
-}
-
-export interface SeedDummyClientsResponse extends Record<string, unknown> {
-  created_users: AdminUser[];
-  existing_usernames: string[];
-  seeded_relationships: number;
-  seeded_commission_metrics: number;
-  seeded_applications: number;
-  shared_development_secret: string;
 }
 
 export interface ResetAdminUserMFAResponse extends Record<string, unknown> {
@@ -927,6 +921,54 @@ export interface AIMarketSelectionResponse extends Record<string, unknown> {
   confidence: number;
   used_ai: boolean;
   fallback_reason?: string;
+}
+
+// ---- AI text-generation types ----
+
+export interface AITextResponse extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  content: string;
+  used_ai: boolean;
+}
+
+export interface AIBacktestExplainRequest extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  win_rate: number;
+  total_pnl_usd: number;
+  sharpe_ratio: number;
+  max_drawdown_pct: number;
+  total_trades: number;
+  profit_factor: number;
+  markets: string[];
+  start_date: string;
+  end_date: string;
+}
+
+export interface AIBacktestSummary extends Record<string, unknown> {
+  win_rate: number;
+  total_pnl_usd: number;
+  sharpe_ratio: number;
+  max_drawdown_pct: number;
+  total_trades: number;
+}
+
+export interface AISuggestParamsRequest extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  strategy_name: string;
+  current_params: Record<string, unknown>;
+  last_error: string;
+  recent_backtests: AIBacktestSummary[];
+}
+
+export interface AIRuntimeDigestRequest extends Record<string, unknown> {
+  provider: AIMarketProvider;
+  running_bots: number;
+  total_bots: number;
+  open_positions: number;
+  total_pnl_usd: number;
+  active_pairs: number;
+  error_count: number;
+  network: string;
 }
 
 export interface CoinDeskArticle extends Record<string, unknown> {
@@ -1994,25 +2036,162 @@ class ApiClient {
     }
   }
 
+  private shouldUseLegacyRouteFallback(error: unknown): boolean {
+    if (!(error instanceof AxiosError)) {
+      return false;
+    }
+    const status = error.response?.status;
+    return status === 404 || status === 405 || status === 501;
+  }
+
+  private logLegacyRouteFallback(
+    primaryRoute: string,
+    fallbackRoute: string,
+    error: unknown
+  ): void {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
+    const debugLegacyFallbacks = String(import.meta.env.VITE_DEBUG_LEGACY_FALLBACKS || '')
+      .trim()
+      .toLowerCase();
+    if (
+      debugLegacyFallbacks !== 'true' &&
+      debugLegacyFallbacks !== '1' &&
+      debugLegacyFallbacks !== 'yes'
+    ) {
+      return;
+    }
+
+    const status = error instanceof AxiosError ? error.response?.status : undefined;
+    console.warn('⚠️ api.ts: Legacy route fallback engaged', {
+      primaryRoute,
+      fallbackRoute,
+      status,
+    });
+  }
+
   async listAdminUsers(): Promise<ApiResponse<AdminUserListResponse>> {
-    const response =
-      await this.client.get<ApiResponse<AdminUserListResponse>>('/api/v1/admin/users');
-    return response.data;
+    try {
+      const response = await this.client.get<ApiResponse<AdminUserListResponse>>(
+        '/api/v1/backoffice/users'
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback('/api/v1/backoffice/users', '/api/v1/admin/users', error);
+      const fallback =
+        await this.client.get<ApiResponse<AdminUserListResponse>>('/api/v1/admin/users');
+      return fallback.data;
+    }
   }
 
   async getAdminUser(userId: number): Promise<ApiResponse<{ user: AdminUser }>> {
-    const response = await this.client.get<ApiResponse<{ user: AdminUser }>>(
-      `/api/v1/admin/users/${userId}`
-    );
-    return response.data;
+    try {
+      const response = await this.client.get<ApiResponse<{ user: AdminUser }>>(
+        `/api/v1/backoffice/users/${userId}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/users/${userId}`,
+        `/api/v1/admin/users/${userId}`,
+        error
+      );
+      const fallback = await this.client.get<ApiResponse<{ user: AdminUser }>>(
+        `/api/v1/admin/users/${userId}`
+      );
+      return fallback.data;
+    }
   }
 
   async createAdminUser(
     data: CreateAdminUserPayload
   ): Promise<ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>> {
+    try {
+      const response = await this.client.post<
+        ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>
+      >('/api/v1/backoffice/users', data);
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback('/api/v1/backoffice/users', '/api/v1/admin/users', error);
+      const fallback = await this.client.post<
+        ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>
+      >('/api/v1/admin/users', data);
+      return fallback.data;
+    }
+  }
+
+  async updateAdminUserRole(
+    userId: number,
+    role: string
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
+    try {
+      const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+        `/api/v1/backoffice/users/${userId}/role`,
+        { role }
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/users/${userId}/role`,
+        `/api/v1/admin/users/${userId}`,
+        error
+      );
+      const fallback = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+        `/api/v1/admin/users/${userId}`,
+        { role }
+      );
+      return fallback.data;
+    }
+  }
+
+  async updateAdminUserStatus(
+    userId: number,
+    isActive: boolean
+  ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
+    try {
+      const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+        `/api/v1/backoffice/users/${userId}/status`,
+        { is_active: isActive }
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/users/${userId}/status`,
+        `/api/v1/admin/users/${userId}`,
+        error
+      );
+      const fallback = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+        `/api/v1/admin/users/${userId}`,
+        { is_active: isActive }
+      );
+      return fallback.data;
+    }
+  }
+
+  async resetAdminUserPassword(
+    userId: number,
+    password?: string
+  ): Promise<ApiResponse<{ user: AdminUser; temporary_password?: string; notice: string }>> {
     const response = await this.client.post<
-      ApiResponse<{ user: AdminUser; roles: string[]; onboarding_notice?: string }>
-    >('/api/v1/admin/users', data);
+      ApiResponse<{ user: AdminUser; temporary_password?: string; notice: string }>
+    >(`/api/v1/backoffice/users/${userId}/reset-password`, password ? { password } : {});
     return response.data;
   }
 
@@ -2020,27 +2199,51 @@ class ApiClient {
     userId: number,
     data: UpdateAdminUserPayload
   ): Promise<ApiResponse<{ user: AdminUser; roles: string[] }>> {
-    const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
-      `/api/v1/admin/users/${userId}`,
-      data
-    );
-    return response.data;
-  }
-
-  async seedDummyClients(): Promise<ApiResponse<SeedDummyClientsResponse>> {
-    const response = await this.client.post<ApiResponse<SeedDummyClientsResponse>>(
-      '/api/v1/admin/users/seed-dummy-clients',
-      {}
-    );
-    return response.data;
+    try {
+      const response = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+        `/api/v1/backoffice/users/${userId}`,
+        data
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/users/${userId}`,
+        `/api/v1/admin/users/${userId}`,
+        error
+      );
+      const fallback = await this.client.put<ApiResponse<{ user: AdminUser; roles: string[] }>>(
+        `/api/v1/admin/users/${userId}`,
+        data
+      );
+      return fallback.data;
+    }
   }
 
   async resetAdminUserMFA(userId: number): Promise<ApiResponse<ResetAdminUserMFAResponse>> {
-    const response = await this.client.post<ApiResponse<ResetAdminUserMFAResponse>>(
-      `/api/v1/admin/users/${userId}/reset-mfa`,
-      {}
-    );
-    return response.data;
+    try {
+      const response = await this.client.post<ApiResponse<ResetAdminUserMFAResponse>>(
+        `/api/v1/backoffice/users/${userId}/reset-mfa`,
+        {}
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/users/${userId}/reset-mfa`,
+        `/api/v1/admin/users/${userId}/reset-mfa`,
+        error
+      );
+      const fallback = await this.client.post<ApiResponse<ResetAdminUserMFAResponse>>(
+        `/api/v1/admin/users/${userId}/reset-mfa`,
+        {}
+      );
+      return fallback.data;
+    }
   }
 
   async initializeSettings(): Promise<ApiResponse> {
@@ -2052,8 +2255,9 @@ class ApiClient {
     limit: number = 100,
     offset: number = 0
   ): Promise<ApiResponse<IBInvitationTokenListResponse>> {
+    const base = getCurrentPortalType() === 'ib' ? '/api/v1/ib' : '/api/v1/admin/ib';
     const response = await this.client.get<ApiResponse<IBInvitationTokenListResponse>>(
-      `/api/v1/admin/ib/invitations?limit=${limit}&offset=${offset}`
+      `${base}/invitations?limit=${limit}&offset=${offset}`
     );
     return response.data;
   }
@@ -2061,16 +2265,18 @@ class ApiClient {
   async createIBInvitationToken(
     payload: CreateIBInvitationTokenPayload
   ): Promise<ApiResponse<{ token: IBInvitationToken }>> {
+    const base = getCurrentPortalType() === 'ib' ? '/api/v1/ib' : '/api/v1/admin/ib';
     const response = await this.client.post<ApiResponse<{ token: IBInvitationToken }>>(
-      '/api/v1/admin/ib/invitations',
+      `${base}/invitations`,
       payload
     );
     return response.data;
   }
 
   async revokeIBInvitationToken(tokenCode: string): Promise<ApiResponse<Record<string, unknown>>> {
+    const base = getCurrentPortalType() === 'ib' ? '/api/v1/ib' : '/api/v1/admin/ib';
     const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
-      `/api/v1/admin/ib/invitations/${encodeURIComponent(tokenCode)}/revoke`,
+      `${base}/invitations/${encodeURIComponent(tokenCode)}/revoke`,
       {}
     );
     return response.data;
@@ -2080,6 +2286,22 @@ class ApiClient {
     const response =
       await this.client.get<ApiResponse<PortalOverviewResponse>>('/api/v1/portal/overview');
     return response.data;
+  }
+
+  async getIBDashboard(): Promise<ApiResponse<PortalOverviewResponse>> {
+    try {
+      const response =
+        await this.client.get<ApiResponse<PortalOverviewResponse>>('/api/v1/ib/dashboard');
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback('/api/v1/ib/dashboard', '/api/v1/portal/overview', error);
+      const fallback =
+        await this.client.get<ApiResponse<PortalOverviewResponse>>('/api/v1/portal/overview');
+      return fallback.data;
+    }
   }
 
   async listPartnerApplications(
@@ -2103,44 +2325,120 @@ class ApiClient {
   }
 
   async getCRMSummary(): Promise<ApiResponse<CRMSummaryResponse>> {
-    const response = await this.client.get<ApiResponse<CRMSummaryResponse>>(
-      '/api/v1/admin/crm/summary'
-    );
-    return response.data;
+    try {
+      const response = await this.client.get<ApiResponse<CRMSummaryResponse>>(
+        '/api/v1/backoffice/crm/summary'
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        '/api/v1/backoffice/crm/summary',
+        '/api/v1/admin/crm/summary',
+        error
+      );
+      const fallback = await this.client.get<ApiResponse<CRMSummaryResponse>>(
+        '/api/v1/admin/crm/summary'
+      );
+      return fallback.data;
+    }
   }
 
   async getCRMUsersTable(): Promise<ApiResponse<CRMUsersTableResponse>> {
-    const response =
-      await this.client.get<ApiResponse<CRMUsersTableResponse>>('/api/v1/admin/crm/users');
-    return response.data;
+    try {
+      const response = await this.client.get<ApiResponse<CRMUsersTableResponse>>(
+        '/api/v1/backoffice/crm/clients'
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        '/api/v1/backoffice/crm/clients',
+        '/api/v1/admin/crm/users',
+        error
+      );
+      const fallback =
+        await this.client.get<ApiResponse<CRMUsersTableResponse>>('/api/v1/admin/crm/users');
+      return fallback.data;
+    }
   }
 
   async getCRMHierarchyTable(): Promise<ApiResponse<PartnerHierarchyResponse>> {
-    const response = await this.client.get<ApiResponse<PartnerHierarchyResponse>>(
-      '/api/v1/admin/crm/hierarchy'
-    );
-    return response.data;
+    try {
+      const response = await this.client.get<ApiResponse<PartnerHierarchyResponse>>(
+        '/api/v1/backoffice/crm/hierarchy'
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        '/api/v1/backoffice/crm/hierarchy',
+        '/api/v1/admin/crm/hierarchy',
+        error
+      );
+      const fallback = await this.client.get<ApiResponse<PartnerHierarchyResponse>>(
+        '/api/v1/admin/crm/hierarchy'
+      );
+      return fallback.data;
+    }
   }
 
   async getCRMSecurityEvents(
     limit: number = 50,
     offset: number = 0
   ): Promise<ApiResponse<CRMSecurityEventsResponse>> {
-    const response = await this.client.get<ApiResponse<CRMSecurityEventsResponse>>(
-      `/api/v1/admin/crm/security-events?limit=${limit}&offset=${offset}`
-    );
-    return response.data;
+    try {
+      const response = await this.client.get<ApiResponse<CRMSecurityEventsResponse>>(
+        `/api/v1/backoffice/crm/security-events?limit=${limit}&offset=${offset}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        '/api/v1/backoffice/crm/security-events',
+        '/api/v1/admin/crm/security-events',
+        error
+      );
+      const fallback = await this.client.get<ApiResponse<CRMSecurityEventsResponse>>(
+        `/api/v1/admin/crm/security-events?limit=${limit}&offset=${offset}`
+      );
+      return fallback.data;
+    }
   }
 
   async reviewPartnerApplication(
     applicationId: number,
     payload: ReviewPartnerApplicationPayload
   ): Promise<ApiResponse<{ application: PartnerApplication }>> {
-    const response = await this.client.post<ApiResponse<{ application: PartnerApplication }>>(
-      `/api/v1/admin/crm/applications/${applicationId}/review`,
-      payload
-    );
-    return response.data;
+    try {
+      const response = await this.client.post<ApiResponse<{ application: PartnerApplication }>>(
+        `/api/v1/backoffice/crm/applications/${applicationId}/review`,
+        payload
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/crm/applications/${applicationId}/review`,
+        `/api/v1/admin/crm/applications/${applicationId}/review`,
+        error
+      );
+      const fallback = await this.client.post<ApiResponse<{ application: PartnerApplication }>>(
+        `/api/v1/admin/crm/applications/${applicationId}/review`,
+        payload
+      );
+      return fallback.data;
+    }
   }
 
   async getPartnerHierarchy(): Promise<ApiResponse<PartnerHierarchyResponse>> {
@@ -2165,11 +2463,27 @@ class ApiClient {
     userId: number,
     payload: UpsertPartnerCommissionMetricPayload
   ): Promise<ApiResponse<{ metric: PartnerCommissionMetric }>> {
-    const response = await this.client.put<ApiResponse<{ metric: PartnerCommissionMetric }>>(
-      `/api/v1/admin/crm/commission-metrics/${userId}`,
-      payload
-    );
-    return response.data;
+    try {
+      const response = await this.client.put<ApiResponse<{ metric: PartnerCommissionMetric }>>(
+        `/api/v1/backoffice/crm/commission-metrics/${userId}`,
+        payload
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/crm/commission-metrics/${userId}`,
+        `/api/v1/admin/crm/commission-metrics/${userId}`,
+        error
+      );
+      const fallback = await this.client.put<ApiResponse<{ metric: PartnerCommissionMetric }>>(
+        `/api/v1/admin/crm/commission-metrics/${userId}`,
+        payload
+      );
+      return fallback.data;
+    }
   }
 
   // ==================== IB TIER COMMISSION RATE METHODS ====================
@@ -2872,6 +3186,9 @@ class ApiClient {
 
   // WebSocket connection for real-time updates
   connectSocket(path: string, token?: string): WebSocket {
+    if (!token && !this.accessToken) {
+      this.loadTokenFromStorage();
+    }
     const useToken = token || this.accessToken || '';
     return new WebSocket(resolveBackendWebSocketUrl(path, useToken, API_BASE_URL));
   }
@@ -3091,7 +3408,9 @@ class ApiClient {
     return response.data;
   }
 
-  async deleteAIMarketKey(provider: AIMarketProvider): Promise<ApiResponse<Record<string, unknown>>> {
+  async deleteAIMarketKey(
+    provider: AIMarketProvider
+  ): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
       `/api/v1/ai/market-filters/key/${encodeURIComponent(provider)}`
@@ -3105,6 +3424,33 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<AIMarketSelectionResponse>>(
       '/api/v1/ai/market-filters/select',
+      data
+    );
+    return response.data;
+  }
+
+  async explainBacktest(data: AIBacktestExplainRequest): Promise<ApiResponse<AITextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<AITextResponse>>(
+      '/api/v1/ai/backtests/explain',
+      data
+    );
+    return response.data;
+  }
+
+  async suggestStrategyParams(data: AISuggestParamsRequest): Promise<ApiResponse<AITextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<AITextResponse>>(
+      '/api/v1/ai/strategies/suggest-params',
+      data
+    );
+    return response.data;
+  }
+
+  async getRuntimeDigest(data: AIRuntimeDigestRequest): Promise<ApiResponse<AITextResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<AITextResponse>>(
+      '/api/v1/ai/runtime/digest',
       data
     );
     return response.data;

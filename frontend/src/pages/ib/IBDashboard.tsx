@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { GitBranch, KeyRound, Loader2, ScrollText, Users, WalletCards } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
-import { getUserWorkspaceRole } from '../../auth/roles';
+import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../../auth/roles';
 import { PageContainer } from '../../components/PageContainer';
 import {
   EmptyState,
@@ -23,10 +23,11 @@ const formatCurrency = (value?: number) => {
 export const IBDashboard = () => {
   const user = useAuthStore((state) => state.user);
   const role = getUserWorkspaceRole(user);
+  const canManageIB = roleMatches(role, BACKOFFICE_ROLES);
 
   const overviewQuery = useQuery({
-    queryKey: ['portal', 'overview', 'ib'],
-    queryFn: async () => (await api.getPortalOverview()).data,
+    queryKey: ['ib', 'dashboard'],
+    queryFn: async () => (await api.getIBDashboard()).data,
     staleTime: 20_000,
   });
 
@@ -165,7 +166,7 @@ export const IBDashboard = () => {
               <WalletCards className="mr-1.5 inline h-3.5 w-3.5" />
               Commission metrics
             </Link>
-            {(user?.is_admin || role === 'backoffice') && (
+            {canManageIB && (
               <Link
                 to={ibPortalPath('tokens')}
                 className="platform-button platform-button-primary"

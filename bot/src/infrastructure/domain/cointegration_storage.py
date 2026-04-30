@@ -121,12 +121,16 @@ def calculate_confidence_score(
         return 0.5  # Default to neutral score on error
 
 
+def _get_instance_id() -> str:
+    return os.getenv("BOT_INSTANCE_ID", "default")
+
+
 class PairStorage:
     """
     Manages persistence of cointegration analysis results.
 
-    Handles saving and loading cointegrated pairs with enhanced metrics
-    to a JSON-based storage system.
+    Database is the primary store; the JSON file is kept as a fallback for
+    environments without a reachable database.
     """
 
     def __init__(self, storage_path: Optional[str] = None):
@@ -145,9 +149,98 @@ class PairStorage:
         """Ensure a storage directory exists."""
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # ------------------------------------------------------------------
+    # DB helpers
+    # ------------------------------------------------------------------
+
+    def _db_save(self, storage_data: dict) -> bool:
+        """Upsert cointegration results into the database. Returns True on success."""
+        try:
+            from sqlalchemy import text
+            from src.infrastructure.database import db
+            instance_id = _get_instance_id()
+            pairs_count = storage_data.get("total_pairs", 0)
+            high_confidence_count = storage_data.get("high_confidence_pairs", 0)
+            analyzed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            session = db.get_session()
+            try:
+                existing = session.execute(
+                    text("SELECT id FROM cointegrated_pairs WHERE instance_id = :iid"),
+                    {"iid": instance_id},
+                ).fetchone()
+                if existing:
+                    session.execute(
+                        text(
+                            "UPDATE cointegrated_pairs "
+                            "SET pairs_json = :pj, pairs_count = :pc, "
+                            "high_confidence_count = :hc, analyzed_at = :aa "
+                            "WHERE instance_id = :iid"
+                        ),
+                        {
+                            "pj": json.dumps(storage_data),
+                            "pc": pairs_count,
+                            "hc": high_confidence_count,
+                            "aa": analyzed_at,
+                            "iid": instance_id,
+                        },
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "INSERT INTO cointegrated_pairs "
+                            "(instance_id, pairs_json, pairs_count, high_confidence_count, analyzed_at) "
+                            "VALUES (:iid, :pj, :pc, :hc, :aa)"
+                        ),
+                        {
+                            "iid": instance_id,
+                            "pj": json.dumps(storage_data),
+                            "pc": pairs_count,
+                            "hc": high_confidence_count,
+                            "aa": analyzed_at,
+                        },
+                    )
+                session.commit()
+                return True
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+        except Exception as exc:
+            logger.debug(f"DB save cointegrated pairs failed ({exc}); falling back to file")
+            return False
+
+    def _db_load(self) -> Optional[dict]:
+        """Load cointegration results from the database. Returns None if unavailable."""
+        try:
+            from sqlalchemy import text
+            from src.infrastructure.database import db
+            instance_id = _get_instance_id()
+            session = db.get_session()
+            try:
+                result = session.execute(
+                    text("SELECT pairs_json FROM cointegrated_pairs WHERE instance_id = :iid"),
+                    {"iid": instance_id},
+                ).fetchone()
+                if result is None:
+                    return None
+                data = result[0]
+                if isinstance(data, str):
+                    data = json.loads(data)
+                return data if isinstance(data, dict) else None
+            finally:
+                session.close()
+        except Exception as exc:
+            logger.debug(f"DB load cointegrated pairs failed ({exc}); using file fallback")
+            return None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def save_pairs(self, pairs: List[CointegrationResult]) -> dict:
         """
-        Save cointegration results to storage.
+        Save cointegration results to storage (DB primary, file fallback).
 
         Args:
             pairs: List of CointegrationResult objects
@@ -155,75 +248,87 @@ class PairStorage:
         Returns:
             dict: Result metadata including number of pairs saved
         """
-        try:
-            # Convert to list of dictionaries for JSON serialization
-            pairs_data = [pair.to_dict() for pair in pairs]
+        pairs_data = [pair.to_dict() for pair in pairs]
+        high_confidence = len([p for p in pairs if p.is_high_confidence])
+        storage_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_pairs": len(pairs),
+            "high_confidence_pairs": high_confidence,
+            "pairs": pairs_data,
+        }
 
-            # Add metadata
-            storage_data = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "total_pairs": len(pairs),
-                "high_confidence_pairs": len([p for p in pairs if p.is_high_confidence]),
-                "pairs": pairs_data,
-            }
+        if self._db_save(storage_data):
+            logger.info(f"Saved {len(pairs)} cointegration results to database (instance={_get_instance_id()})")
+        else:
+            # File fallback
+            try:
+                with open(self.storage_path, "w") as f:
+                    json.dump(storage_data, f, indent=2)
+                logger.info(f"Saved {len(pairs)} cointegration results to {self.storage_path}")
+            except Exception as e:
+                logger.error(f"Error saving pairs to {self.storage_path}: {e}")
+                return {"success": False, "error": str(e)}
 
-            # Write to file
-            with open(self.storage_path, "w") as f:
-                json.dump(storage_data, f, indent=2)
-
-            logger.info(f"Saved {len(pairs)} cointegration results to {self.storage_path}")
-
-            return {
-                "success": True,
-                "pairs_saved": len(pairs),
-                "high_confidence": len([p for p in pairs if p.is_high_confidence]),
-                "path": str(self.storage_path),
-            }
-
-        except Exception as e:
-            logger.error(f"Error saving pairs to {self.storage_path}: {e}")
-            return {"success": False, "error": str(e)}
+        return {
+            "success": True,
+            "pairs_saved": len(pairs),
+            "high_confidence": high_confidence,
+        }
 
     def load_pairs(self) -> List[CointegrationResult]:
         """
-        Load cointegration results from storage.
+        Load cointegration results from storage (DB primary, file fallback).
 
         Returns:
-            List of CointegrationResult objects, or empty list if file doesn't exist
+            List of CointegrationResult objects, or empty list if not found
         """
-        try:
-            if not self.storage_path.exists():
-                logger.debug(f"No pairs file found at {self.storage_path}")
+        # Try DB first
+        storage_data = self._db_load()
+
+        # Fall back to file
+        if storage_data is None:
+            try:
+                if not self.storage_path.exists():
+                    logger.debug(f"No pairs file found at {self.storage_path}")
+                    return []
+                with open(self.storage_path, "r") as f:
+                    storage_data = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading pairs from {self.storage_path}: {e}")
                 return []
 
-            with open(self.storage_path, "r") as f:
-                storage_data = json.load(f)
-
-            # Convert dictionaries to CointegrationResult objects
-            pairs = [
-                CointegrationResult.from_dict(pair_data)
-                for pair_data in storage_data.get("pairs", [])
-            ]
-
-            logger.info(f"Loaded {len(pairs)} cointegration results from {self.storage_path}")
-            return pairs
-
-        except Exception as e:
-            logger.error(f"Error loading pairs from {self.storage_path}: {e}")
-            return []
+        pairs = [
+            CointegrationResult.from_dict(pair_data)
+            for pair_data in storage_data.get("pairs", [])
+        ]
+        logger.info(f"Loaded {len(pairs)} cointegration results")
+        return pairs
 
     def get_high_confidence_pairs(self) -> List[CointegrationResult]:
-        """
-        Load and filter for high-confidence pairs only.
-
-        Returns:
-            List of high-confidence CointegrationResult objects
-        """
-        all_pairs = self.load_pairs()
-        return [pair for pair in all_pairs if pair.is_high_confidence]
+        """Load and filter for high-confidence pairs only."""
+        return [pair for pair in self.load_pairs() if pair.is_high_confidence]
 
     def clear_pairs(self):
-        """Clear all stored pairs."""
+        """Clear all stored pairs (both DB and file)."""
+        try:
+            from sqlalchemy import text
+            from src.infrastructure.database import db
+            instance_id = _get_instance_id()
+            session = db.get_session()
+            try:
+                session.execute(
+                    text("DELETE FROM cointegrated_pairs WHERE instance_id = :iid"),
+                    {"iid": instance_id},
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+        except Exception as exc:
+            logger.debug(f"DB clear cointegrated pairs failed ({exc})")
+
         try:
             if self.storage_path.exists():
                 self.storage_path.unlink()

@@ -22,7 +22,7 @@ from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
-from src.trading.dydx_client import connect_dydx
+from src.trading.dydx_client import connect_dydx_runtime
 from src.trading.market_data import construct_market_prices
 from src.trading.position_manager import manage_trade_exits, open_positions
 
@@ -84,9 +84,16 @@ class BotInstance:
                     config_data = yaml.safe_load(f)
                     if config_data:
                         # Config loaded from file; build minimal DydxConfig from YAML
-                        from config.config import DydxConfig, BotSettings, TelegramSettings, DYDXTestnetSettings, \
-                            DYDXMainnetSettings, LoggingSettings, BacktestSettings, DatabaseSettings, RedisSettings, \
-                            LokiSettings
+                        from config.config import (
+                            BacktestSettings,
+                            BotSettings,
+                            DydxConfig,
+                            DYDXMainnetSettings,
+                            DYDXTestnetSettings,
+                            LoggingSettings,
+                            LokiSettings,
+                            TelegramSettings,
+                        )
 
                         self.config = DydxConfig(
                             is_testnet=config_data.get("is_testnet", True),
@@ -220,10 +227,34 @@ class BotInstance:
             }
             self.messenger.send_startup_message(config_dict)
 
-            # Connect to dYdX client
+            # Connect to dYdX client using per-instance credentials
             self.logger.info("Connecting to dYdX client...")
-            self.client = await connect_dydx()
-            self.logger.info("Successfully connected to dYdX")
+            if self.config.is_testnet and self.config.dydx_testnet:
+                instance_address = self.config.dydx_testnet.dydx_chain_address
+                instance_mnemonic = self.config.dydx_testnet.dydx_chain_secret
+            else:
+                instance_address = (
+                    self.config.dydx_mainnet.dydx_chain_address
+                    if self.config.dydx_mainnet
+                    else ""
+                )
+                instance_mnemonic = (
+                    self.config.dydx_mainnet.dydx_chain_secret
+                    if self.config.dydx_mainnet
+                    else ""
+                )
+            if not instance_address:
+                raise RuntimeError(
+                    f"No dYdX chain address configured for instance {self.instance_id}"
+                )
+            self.client = await connect_dydx_runtime(
+                address=instance_address,
+                mnemonic=instance_mnemonic,
+                is_testnet=self.config.is_testnet,
+            )
+            self.logger.info(
+                "Successfully connected to dYdX as {}", instance_address
+            )
 
         except Exception as e:
             error_detail = self._describe_exception(e)
@@ -254,14 +285,17 @@ class BotInstance:
             if bot_settings.findCointegratedPairs:
                 self.logger.info("Starting cointegration analysis...")
                 selected_markets = getattr(bot_settings, "selectedMarkets", [])
+                instance_resolution = getattr(bot_settings, "resolutionTimeframe", None)
                 signature = inspect.signature(construct_market_prices)
+                kwargs = {}
                 if "selected_markets" in signature.parameters:
-                    df_market_prices = await construct_market_prices(
-                        self.client,
-                        selected_markets=selected_markets,
+                    kwargs["selected_markets"] = selected_markets
+                if "resolution" in signature.parameters and instance_resolution:
+                    kwargs["resolution"] = instance_resolution
+                    self.logger.info(
+                        f"Using strategy resolution for cointegration: {instance_resolution}"
                     )
-                else:
-                    df_market_prices = await construct_market_prices(self.client)
+                df_market_prices = await construct_market_prices(self.client, **kwargs)
 
                 # Store results in instance-specific file
                 stores_result = store_cointegration_results(df_market_prices)

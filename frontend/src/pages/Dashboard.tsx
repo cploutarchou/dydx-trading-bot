@@ -74,6 +74,8 @@ interface DashboardStats {
   pnlTimeSeries: PnlPoint[];
 }
 
+const DASHBOARD_STATS_TIMEOUT_MS = 30000;
+
 // ── useCountUp ────────────────────────────────────────────────────────────────
 
 function useCountUp(target: number, duration = 900): number {
@@ -386,6 +388,7 @@ export const DashboardPage: React.FC = () => {
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const [statsWarning, setStatsWarning] = useState<string | null>(null);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isComputingRef = useRef(false);
@@ -407,7 +410,7 @@ export const DashboardPage: React.FC = () => {
         (_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Timed out while loading dashboard stats')),
-            12000
+            DASHBOARD_STATS_TIMEOUT_MS
           );
         }
       );
@@ -432,6 +435,7 @@ export const DashboardPage: React.FC = () => {
       setRuns(rawRuns);
       setStats(buildDashboardStats(rawRuns));
       setStatsError(null);
+      setStatsWarning(null);
     } catch (error) {
       if (activeComputeIdRef.current !== computeId) {
         return;
@@ -444,6 +448,9 @@ export const DashboardPage: React.FC = () => {
         );
       } else if (classification.statusCode === 401) {
         setStatsError('Your session appears to be unauthorized. Please sign in again.');
+      } else if (error instanceof Error && error.message.toLowerCase().includes('timed out')) {
+        // Non-fatal: backend is slow — keep last-good data visible, show warning badge only
+        setStatsWarning('Backend is responding slowly — showing last available data.');
       } else {
         setStatsError(error instanceof Error ? error.message : 'Failed to load dashboard stats.');
       }
@@ -480,7 +487,6 @@ export const DashboardPage: React.FC = () => {
   // Animated counters
   const countTotal = useCountUp(stats.total);
   const countComplete = useCountUp(stats.completed);
-  const countRunning = useCountUp(stats.running);
   const countFailed = useCountUp(stats.failed);
   const countTrades = useCountUp(stats.totalTrades);
 
@@ -494,6 +500,7 @@ export const DashboardPage: React.FC = () => {
 
   const pnlTimeSeries = useMemo(() => stats.pnlTimeSeries, [stats.pnlTimeSeries]);
   const pnlColor = stats.totalPnl >= 0 ? '#22c55e' : '#ef4444';
+
   const strategiesQuery = useQuery({
     queryKey: ['strategies', 'dashboard-lookup'],
     queryFn: async (): Promise<Array<{ id: number; name?: string; benchmark_symbol?: string }>> => {
@@ -508,6 +515,29 @@ export const DashboardPage: React.FC = () => {
     },
     staleTime: 60_000,
   });
+
+  // Fetch how many strategy runtimes are currently live so the Active Now KPI
+  // reflects real trading activity, not just active backtest runs.
+  const strategyRuntimesQuery = useQuery({
+    queryKey: ['strategy-runtimes', 'dashboard-active'],
+    queryFn: async (): Promise<number> => {
+      const strategies = strategiesQuery.data;
+      if (!strategies || strategies.length === 0) return 0;
+      const results = await Promise.allSettled(strategies.map((s) => api.getStrategyRuntime(s.id)));
+      return results.filter(
+        (r) =>
+          r.status === 'fulfilled' &&
+          String((r.value as { data?: { status?: string } }).data?.status ?? '').toLowerCase() ===
+            'running'
+      ).length;
+    },
+    enabled: (strategiesQuery.data?.length ?? 0) > 0,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+  const runningStrategyCount = strategyRuntimesQuery.data ?? 0;
+  const totalActiveCount = stats.running + runningStrategyCount;
+  const countRunning = useCountUp(totalActiveCount);
   const intelligence = useMemo(() => buildIntelligence(runs, new Map<number, string>()), [runs]);
   const spotlightIntelRequest = useMemo(() => {
     const strategiesById = new Map(
@@ -565,13 +595,13 @@ export const DashboardPage: React.FC = () => {
               </div>
               <div
                 className="operator-status-pill"
-                data-tone={stats.running > 0 ? 'accent' : 'positive'}
+                data-tone={totalActiveCount > 0 ? 'accent' : 'positive'}
               >
                 <span
-                  className={`h-2 w-2 rounded-full ${stats.running > 0 ? 'bg-cyan-300 animate-pulse' : 'bg-emerald-300'}`}
+                  className={`h-2 w-2 rounded-full ${totalActiveCount > 0 ? 'bg-cyan-300 animate-pulse' : 'bg-emerald-300'}`}
                 />
-                {stats.running > 0
-                  ? `${stats.running} active ${stats.running === 1 ? 'run' : 'runs'}`
+                {totalActiveCount > 0
+                  ? `${totalActiveCount} active${runningStrategyCount > 0 ? ` (${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'})` : ''}`
                   : 'No active runs'}
               </div>
               <div
@@ -694,9 +724,10 @@ export const DashboardPage: React.FC = () => {
                     <Play className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">Bot runtime</p>
+                    <p className="text-sm font-semibold text-white">Bot Manager</p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Monitor health, degraded state, and instance actions from the runtime desk.
+                      Monitor health, degraded state, and instance actions from the Bot Manager
+                      desk.
                     </p>
                   </div>
                 </div>
@@ -722,6 +753,12 @@ export const DashboardPage: React.FC = () => {
       {statsError && (
         <div className="rounded-lg border border-red-700/60 bg-red-950/30 px-4 py-3 text-sm text-red-200">
           {statsError}
+        </div>
+      )}
+      {!statsError && statsWarning && (
+        <div className="rounded-lg border border-yellow-700/50 bg-yellow-950/20 px-4 py-2 text-xs text-yellow-300 flex items-center gap-2">
+          <span className="inline-block h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
+          {statsWarning}
         </div>
       )}
 
@@ -750,9 +787,15 @@ export const DashboardPage: React.FC = () => {
           label="Active Now"
           icon={<Activity className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countRunning)}
-          subtitle={stats.running > 0 ? 'In progress' : 'All idle'}
-          color={stats.running > 0 ? 'cyan' : 'teal'}
-          trend={stats.running > 0 ? 'up' : 'neutral'}
+          subtitle={
+            runningStrategyCount > 0
+              ? `${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'} live`
+              : stats.running > 0
+                ? 'Backtest in progress'
+                : 'All idle'
+          }
+          color={totalActiveCount > 0 ? 'cyan' : 'teal'}
+          trend={totalActiveCount > 0 ? 'up' : 'neutral'}
           animDelay={120}
         />
         <KpiCard

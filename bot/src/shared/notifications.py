@@ -8,7 +8,6 @@ from typing import Any, Dict, Optional
 
 import requests
 from loguru import logger
-
 from src.constants import DYDX_ADDRESS, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 
 
@@ -364,16 +363,78 @@ class TelegramMessenger:
             dedupe_window_seconds=dedupe_window_seconds,
         )
 
+    def send_recovery_message(
+            self,
+            recovery_type: str,
+            recovery_details: str,
+            category: str = "execution_recovery",
+    ) -> bool:
+        """Send a successful recovery/auto-heal notification (non-error)."""
+        safe_type = self._escape_html(recovery_type)
+        safe_details = self._escape_html(recovery_details)
+        safe_category = self._escape_html(self._normalize_error_category(category, recovery_type))
+
+        message = f"""
+🛠️ <b>RECOVERY ACTION APPLIED</b>
+
+{self._instance_prefix()}{self._environment_prefix()}
+
+🔍 <b>Type:</b> {safe_type}
+📝 <b>Details:</b> {safe_details}
+🏷️ <b>Category:</b> {safe_category}
+⏰ <b>Time:</b> {self._format_timestamp()}
+
+<i>Recovery succeeded. Continue monitoring runtime health and exposure.</i>
+        """.strip()
+
+        return self.send_message(message, dedupe_window_seconds=0)
+
     def send_trade_opened_message(self, trade_info: Dict[str, Any]) -> bool:
         """Send notification when new trade is opened."""
-        market_1 = trade_info.get("market_1", "Unknown")
-        market_2 = trade_info.get("market_2", "Unknown")
+        market_1 = (
+            trade_info.get("market_1")
+            or trade_info.get("base_market")
+            or trade_info.get("pair1")
+            or ""
+        )
+        market_2 = (
+            trade_info.get("market_2")
+            or trade_info.get("quote_market")
+            or trade_info.get("pair2")
+            or ""
+        )
+        if (not market_1 or not market_2) and isinstance(trade_info.get("pair"), str):
+            pair_parts = [part.strip() for part in str(trade_info.get("pair", "")).split("/")]
+            if len(pair_parts) == 2:
+                market_1 = market_1 or pair_parts[0]
+                market_2 = market_2 or pair_parts[1]
+        market_1 = market_1 or "Unknown"
+        market_2 = market_2 or "Unknown"
         z_score = trade_info.get("z_score", 0.0)
         hedge_ratio = trade_info.get("hedge_ratio", 0.0)
-        size_1 = trade_info.get("size_1", 0.0)
-        size_2 = trade_info.get("size_2", 0.0)
-        side_1 = trade_info.get("side_1", "")
-        side_2 = trade_info.get("side_2", "")
+        size_1 = trade_info.get(
+            "size_1",
+            trade_info.get("base_size", trade_info.get("entry_size1", 0.0)),
+        )
+        size_2 = trade_info.get(
+            "size_2",
+            trade_info.get("quote_size", trade_info.get("entry_size2", 0.0)),
+        )
+        side_1 = trade_info.get(
+            "side_1",
+            trade_info.get("base_side", trade_info.get("side1", "")),
+        )
+        side_2 = trade_info.get(
+            "side_2",
+            trade_info.get("quote_side", trade_info.get("side2", "")),
+        )
+
+        if market_1 == "Unknown" and market_2 == "Unknown":
+            logger.warning(
+                "Trade opened notification received unresolved market fields; payload keys={} payload={}",
+                sorted(list(trade_info.keys())),
+                trade_info,
+            )
 
         direction_emoji = "📈" if z_score > 0 else "📉"
 
@@ -399,9 +460,41 @@ class TelegramMessenger:
             self, trade_info: Dict[str, Any], reason: str = "Z-score reversion"
     ) -> bool:
         """Send notification when trade is closed."""
-        market_1 = trade_info.get("market_1", "Unknown")
-        market_2 = trade_info.get("market_2", "Unknown")
-        z_score = trade_info.get("current_zscore", 0.0)
+        market_1 = (
+            trade_info.get("market_1")
+            or trade_info.get("base_market")
+            or trade_info.get("pair1")
+            or ""
+        )
+        market_2 = (
+            trade_info.get("market_2")
+            or trade_info.get("quote_market")
+            or trade_info.get("pair2")
+            or ""
+        )
+        if (not market_1 or not market_2) and isinstance(trade_info.get("pair"), str):
+            pair_parts = [part.strip() for part in str(trade_info.get("pair", "")).split("/")]
+            if len(pair_parts) == 2:
+                market_1 = market_1 or pair_parts[0]
+                market_2 = market_2 or pair_parts[1]
+        market_1 = market_1 or "Unknown"
+        market_2 = market_2 or "Unknown"
+
+        raw_z_score = trade_info.get(
+            "current_zscore",
+            trade_info.get("z_score", trade_info.get("final_z_score", 0.0)),
+        )
+        try:
+            z_score = float(raw_z_score)
+        except (TypeError, ValueError):
+            z_score = 0.0
+
+        if market_1 == "Unknown" and market_2 == "Unknown":
+            logger.warning(
+                "Trade closed notification received unresolved market fields; payload keys={} payload={}",
+                sorted(list(trade_info.keys())),
+                trade_info,
+            )
 
         reason_emoji = {
             "Z-score reversion": "🎯",

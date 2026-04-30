@@ -809,7 +809,10 @@ func canManageCRM(role string) bool {
 		role == "support_agent" ||
 		role == "finance_admin" ||
 		role == "read_only_auditor" ||
-		role == "security_analyst"
+		role == "security_analyst" ||
+		role == "accounting" ||
+		role == "marketing" ||
+		role == "agent"
 }
 
 func portalModulesForRole(role string) []portalOverviewModule {
@@ -841,7 +844,7 @@ func portalModulesForRole(role string) []portalOverviewModule {
 	switch role {
 	case "admin", "super_admin":
 		return []portalOverviewModule{adminHub, crm, ibPortal, baseClient}
-	case "backoffice", "operations_admin", "compliance_admin", "support_agent", "finance_admin", "read_only_auditor", "security_analyst":
+	case "backoffice", "operations_admin", "compliance_admin", "support_agent", "finance_admin", "read_only_auditor", "security_analyst", "accounting", "marketing", "agent":
 		return []portalOverviewModule{crm, baseClient}
 	case "ib", "sub_ib":
 		return []portalOverviewModule{ibPortal, baseClient}

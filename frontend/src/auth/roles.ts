@@ -74,12 +74,7 @@ export const roleMatches = (role: WorkspaceRole, allowedRoles?: WorkspaceRole[])
     return true;
   }
   if (role === 'admin' || role === 'super_admin') {
-    return (
-      allowedRoles.includes(role) ||
-      allowedRoles.includes('admin') ||
-      allowedRoles.includes('super_admin') ||
-      allowedRoles.includes('backoffice')
-    );
+    return true;
   }
   if (allowedRoles.includes('backoffice') && BACKOFFICE_ROLES.includes(role)) {
     return true;

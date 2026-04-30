@@ -5,7 +5,6 @@ import os
 from typing import Any, Dict, Optional
 
 from loguru import logger
-
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
@@ -29,6 +28,58 @@ def _db_persistence_enabled() -> bool:
 def _runtime_instance_id() -> Optional[str]:
     instance_id = os.getenv("BOT_INSTANCE_ID", "").strip()
     return instance_id or None
+
+
+def persist_trade_activity_event(
+        event_type: str,
+        message: str,
+        *,
+        severity: str = "info",
+        details: Optional[Dict[str, Any]] = None,
+        related_trade_id: Optional[str] = None,
+) -> bool:
+    """
+    Persist structured trade activity events to the bot event log.
+
+    Best-effort and non-blocking by design. This is environment-agnostic and
+    applies to any runtime instance that has a DB bot record.
+    """
+    instance_id = _runtime_instance_id()
+    if not instance_id or not _db_persistence_enabled():
+        return False
+
+    session = None
+    try:
+        session = db.get_session()
+        uow = UnitOfWork(session)
+        bot = uow.bots.get_by_instance_id(instance_id)
+        if bot is None:
+            logger.debug(
+                "Skipping trade activity event persistence; no bot row for {}",
+                instance_id,
+            )
+            return False
+
+        event_details = dict(details or {})
+        event_details.setdefault("instance_id", instance_id)
+
+        uow.events.log_event(
+            bot_instance_id=bot.id,
+            event_type=str(event_type or "trade_activity"),
+            severity=str(severity or "info"),
+            message=str(message or "trade activity"),
+            details=event_details,
+            related_trade_id=(str(related_trade_id) if related_trade_id else None),
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Failed to persist trade activity event {}: {}", event_type, exc)
+        if session is not None:
+            session.rollback()
+        return False
+    finally:
+        if session is not None:
+            session.close()
 
 
 def live_trade_id(position: Dict[str, Any], instance_id: Optional[str] = None) -> str:

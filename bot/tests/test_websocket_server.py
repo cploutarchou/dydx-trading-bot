@@ -85,3 +85,57 @@ def test_handle_message_request_status_uses_backtest_run_id(monkeypatch):
     )
 
     assert calls == [(ws, "run-456")]
+
+
+def test_send_stats_resolves_string_instance_id_to_numeric_bot_id(monkeypatch):
+    class _DummyStats:
+        total_open_positions = 2
+        total_unrealized_pnl = 11.5
+        total_unrealized_pnl_pct = 0.7
+        daily_pnl = 3.2
+        daily_pnl_pct = 0.2
+        daily_trades_opened = 1
+        daily_trades_closed = 1
+        daily_win_rate = 1.0
+        max_drawdown_session = 0
+        current_drawdown = 0
+
+    class _FakeRealtimeUow:
+        def __init__(self, _session):
+            class _StatsRepo:
+                def get_stats(self, bot_id):
+                    assert bot_id == 42
+                    return _DummyStats()
+
+            self.stats = _StatsRepo()
+
+    class _FakeCoreUow:
+        def __init__(self, _session):
+            class _BotsRepo:
+                def get_by_instance_id(self, instance_id):
+                    assert instance_id == "strategy-1-9"
+
+                    class _Bot:
+                        id = 42
+
+                    return _Bot()
+
+            self.bots = _BotsRepo()
+
+    sent_messages = []
+
+    async def _fake_send_personal_message(message, _websocket):
+        sent_messages.append(message)
+
+    monkeypatch.setattr(websocket_server.db, "get_session", lambda: _DummySession())
+    monkeypatch.setattr(websocket_server, "UnitOfWork", _FakeCoreUow)
+    monkeypatch.setattr(websocket_server, "UnitOfWorkRealtime", _FakeRealtimeUow)
+    monkeypatch.setattr(websocket_server.manager, "send_personal_message", _fake_send_personal_message)
+
+    ws = _DummyWebSocket()
+    asyncio.run(websocket_server.WebSocketServer.send_stats(ws, "strategy-1-9"))
+
+    assert len(sent_messages) == 1
+    assert sent_messages[0]["type"] == "stats"
+    assert sent_messages[0]["data"]["total_open_positions"] == 2
+    assert sent_messages[0]["data"]["daily_trades_opened"] == 1

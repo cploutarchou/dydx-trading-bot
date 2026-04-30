@@ -1,16 +1,17 @@
 """Bot agent for managing trade execution and monitoring."""
 
 import asyncio
+import json
 from datetime import datetime, timezone
 
 from loguru import logger
-
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
     cancel_order,
     check_order_status,
     get_order,
     get_order_fills,
+    is_open_positions,
     place_market_order,
 )
 
@@ -91,40 +92,82 @@ class BotAgent:
             return "BUY"
         raise ValueError(f"Unsupported order side: {side}")
 
+    @staticmethod
+    def _telemetry_fragment(**fields) -> str:
+        payload = {k: v for k, v in fields.items()}
+        return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
     async def _emergency_close_first_leg(self):
+        close_size = self.order_dict.get("order_m1_size") or self.base_size
         close_side = self._opposite_side(self.base_side)
-        (close_order, order_id) = await place_market_order(
-            self.client,
-            market=self.market_1,
-            side=close_side,
-            size=self.base_size,
-            price=self.accept_failsafe_base_price,
-            reduce_only=True,
+        retries = 3
+        last_status = "unknown"
+        for attempt in range(1, retries + 1):
+            (close_order, order_id) = await place_market_order(
+                self.client,
+                market=self.market_1,
+                side=close_side,
+                size=close_size,
+                price=self.accept_failsafe_base_price,
+                reduce_only=True,
+            )
+            _ = close_order
+
+            await asyncio.sleep(2)
+            order_status_close_order = await check_order_status(self.client, order_id)
+            last_status = str(order_status_close_order)
+
+            # Primary success state from indexer order lifecycle.
+            if order_status_close_order == "FILLED":
+                return order_id
+
+            # Secondary success state: position is already closed despite non-filled status.
+            try:
+                still_open = await is_open_positions(self.client, self.market_1)
+            except Exception as e:
+                still_open = True
+                logger.warning(
+                    "Could not verify emergency closure position state for {}: {}",
+                    self.market_1,
+                    e,
+                )
+
+            if not still_open:
+                logger.warning(
+                    "Emergency close order for {} returned status {} but position is no longer open; treating as closed",
+                    self.market_1,
+                    order_status_close_order,
+                )
+                return order_id
+
+            if attempt < retries:
+                logger.warning(
+                    "Emergency close retry {}/{} for {} after status {}",
+                    attempt,
+                    retries,
+                    self.market_1,
+                    order_status_close_order,
+                )
+                await asyncio.sleep(1)
+
+        logger.critical("ABORT PROGRAM - Failed to close hedged position")
+        logger.critical(
+            "Unexpected error closing {} -> status {}",
+            self.market_1,
+            last_status,
         )
-        _ = close_order
 
-        await asyncio.sleep(2)
-        order_status_close_order = await check_order_status(self.client, order_id)
-        if order_status_close_order != "FILLED":
-            logger.critical("ABORT PROGRAM - Failed to close hedged position")
-            logger.critical(
-                "Unexpected error closing {} -> status {}",
-                self.market_1,
-                order_status_close_order,
-            )
+        self.messenger.send_error_message(
+            "CRITICAL: Position Closure Failed",
+            f"Failed to close hedged position for {self.market_1}. Status: {last_status}. Emergency intervention required!",
+            is_critical=True,
+            category="execution_emergency_cleanup",
+        )
 
-            self.messenger.send_error_message(
-                "CRITICAL: Position Closure Failed",
-                f"Failed to close hedged position for {self.market_1}. Status: {order_status_close_order}. Emergency intervention required!",
-                is_critical=True,
-                category="execution_emergency_cleanup",
-            )
-
-            raise RuntimeError(
-                f"Failed emergency closure for {self.market_1}; status={order_status_close_order}"
-            )
-
-        return order_id
+        raise RuntimeError(
+            f"Failed emergency closure for {self.market_1}; "
+            f"telemetry={self._telemetry_fragment(cleanup_status='failed', close_order_status=last_status, position_open_after_cleanup=True)}"
+        )
 
     async def check_order_status_by_id(self, order_id):
         """Check order status by order ID with retry logic."""
@@ -339,7 +382,8 @@ class BotAgent:
                     f"Close Market 1 {self.market_1}: {close_error}"
                 )
                 raise RuntimeError(
-                    f"Unexpected emergency closure error for {self.market_1}"
+                    f"Unexpected emergency closure error for {self.market_1}; "
+                    f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_error=str(close_error), position_open_after_cleanup='unknown')}"
                 ) from close_error
             return self.order_dict
 
@@ -371,7 +415,8 @@ class BotAgent:
                 )
 
                 raise RuntimeError(
-                    f"Unexpected emergency closure error for {self.market_1}; status={status_snapshot}"
+                    f"Unexpected emergency closure error for {self.market_1}; "
+                    f"telemetry={self._telemetry_fragment(cleanup_status='failed', close_order_status=status_snapshot, position_open_after_cleanup=True)}"
                 ) from e
 
             # Return failure state after emergency cleanup

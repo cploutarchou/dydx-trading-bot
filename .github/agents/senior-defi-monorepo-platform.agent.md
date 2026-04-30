@@ -51,7 +51,103 @@ Before implementing, verify:
 
 ## Validation expectations
 
-- Frontend: lint/build when touched.
-- Backend: targeted Go tests when touched.
-- Bot: targeted Python tests or compile checks when touched.
-- Docs: update canonical service README/wiki pages when behavior changes.
+- Frontend: `npm run lint && npm run build` (from `frontend/`)
+- Backend: `make test` and `make lint` (from `backend/`)
+- Bot: `python -m pytest bot/tests/ -v`
+- Cross-service: verify contract assumptions and any API schema changes
+
+## Service map
+
+### Bot (`bot/`) — Python FastAPI, port 8889
+
+Runtime data flow: `API request → BotInstanceManager → worker subprocess → trading runtime → exchange + persistence`
+
+Key files:
+
+- `bot/src/api/server.py` — FastAPI assembly and router registration
+- `bot/src/api/websocket_server.py` — WebSocket streams
+- `bot/src/bot_instance_manager.py` — lifecycle manager (start/stop/delete/status)
+- `bot/src/main_instance.py` — worker subprocess entry point
+- `bot/src/trading/bot_agent.py` — atomic pair execution + emergency cleanup
+- `bot/src/trading/dydx_client.py` — exchange client wrapper
+- `bot/src/trading/analysis/` — cointegration + signal analysis
+- `bot/src/constants.py` — runtime config constants (import, don't re-parse in hot paths)
+- `bot/src/infrastructure/database.py` — DB layer
+- `bot/src/infrastructure/domain/` — domain models and cointegration storage
+- `bot/src/infrastructure/persistence/` — persistence layer
+- `bot/src/infrastructure/use_cases/` — use case layer
+- `bot/src/infrastructure/workers/` — worker helpers
+- `bot/config/config.py` — config loader
+
+### Backend (`backend/`) — Go, port 8888
+
+Request flow: `gin.Router → CORSMiddleware → AuthMiddleware → RateLimitMiddleware → Handler → Service → Repository → DB`
+
+Key files:
+
+- `backend/cmd/server/` — application entry point
+- `backend/config/config.go` — env-based config loading
+- `backend/internal/handlers/` — HTTP handlers (ai_market, auditlog, backtest, bot_instance, codex, key, mailgun, news, pair_storage, settings, strategy, telegram, tradelog)
+- `backend/internal/services/` — business logic (bot_api_client.go, bot_api_client_extended.go, backtest_sync_service.go, strategy_runtime_service.go, rbac_service.go, mfa_service.go, cache_service.go, etc.)
+- `backend/internal/repository/` — DB operations with prepared statements
+- `backend/internal/routes/` — route registration
+- `backend/internal/auth/` — JWT middleware
+- `backend/internal/middleware/` — CORS, rate limiting
+- `backend/migrations/postgres/` and `backend/migrations/sqlite/` — dual DB migration sets
+
+### Frontend (`frontend/`) — React 19 + TypeScript + Vite, port 5173
+
+The frontend is a **single codebase** that renders three distinct portal apps selected at build time via `VITE_APP_PORTAL_TYPE`, or at runtime via hostname detection (`crm.*` → backoffice, `ib.*` → ib, default → client). Portal resolution lives in `frontend/src/app/portal.ts`.
+
+#### Portal apps (`frontend/apps/`)
+
+| App shell             | Build flag                        | Purpose                                                                                                    |
+| --------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `apps/backoffice/`    | `VITE_APP_PORTAL_TYPE=backoffice` | CRM/Backoffice — Admin Hub, CRM clients, pipeline, hierarchy, commissions, IB oversight, operator settings |
+| `apps/client-portal/` | `VITE_APP_PORTAL_TYPE=client`     | Client Portal — dashboard, strategies, backtests, bot ops, profile, wallet/key mgmt                        |
+| `apps/ib-portal/`     | `VITE_APP_PORTAL_TYPE=ib`         | IB Portal — IB dashboard, client tree, applications, commissions, tier rates, tokens                       |
+
+Each app shell re-exports from `src/App.tsx`; the main source tree is shared. Role guards enforce portal access: `BACKOFFICE_ROLES`, `IB_ROLES`, `CLIENT_ROLES` defined in `frontend/src/auth/roles.ts`.
+
+#### Page routes per portal
+
+- **Backoffice pages** (`frontend/src/pages/crm/`): `CRMDashboard`, `CRMClients`, `CRMClientDetail`, `CRMPipeline`, `CRMHierarchy`, `CRMCommissions`, `CRMSecurity`, `CRMLayout`
+- **IB pages** (`frontend/src/pages/ib/`): `IBDashboard`, `IBNetwork`, `IBApplications`, `IBCommissions`, `IBTierRates`, `IBTokens`, `IBLayout`
+- **Client pages** (`frontend/src/pages/client/`): `ClientAccountPages`
+- **Shared pages** (`frontend/src/pages/`): `Dashboard`, `BotDashboard`, `Backtests`, `BacktestDetails`, `BacktestDetailsV2`, `Settings`, `AdminHub`, `Codex`, `News`, `Landing`, `Login`, `Register`, `IBPortal`, `ClientArea`, `Pricing`, `TwoFactorAuth`, `ForcePasswordChange`, `Unauthorized`, `PublicServicePage`
+
+#### Key source files
+
+- `frontend/src/app/portal.ts` — portal type detection, role filtering, portal labels
+- `frontend/src/auth/roles.ts` — `WorkspaceRole` type, `BACKOFFICE_ROLES`, `CLIENT_ROLES`, `IB_ROLES`
+- `frontend/src/navigation/workspaceNav.ts` — nav items scoped per portal + role
+- `frontend/src/api.ts` — base Axios client, JWT injection, 401 handling
+- `frontend/src/api/client.ts` — enhanced client with bot/backtest methods
+- `frontend/src/api/hooks.ts` — React Query hooks
+- `frontend/src/store/` — Zustand auth state
+- `frontend/src/components/` — shared components (BotManager, StrategyManager, StrategyBuilder, TradeHistory, BacktestRunner, BacktestList, DYDXKeyManager, SyncHealthPanel, WorkspaceCommandPalette, AdminAccessControlSettings, etc.)
+- `frontend/src/features/` — feature modules (backtests/, codex/)
+- `frontend/packages/` — shared libraries (shared-api, shared-auth, shared-types, shared-ui)
+
+#### Portal invariants
+
+- Never add backoffice/IB-only routes to the client portal without a role guard.
+- Never add client-only routes to the backoffice portal.
+- Portal type detection is `getCurrentPortalType()` from `src/app/portal.ts` — do not duplicate it.
+- CRM and IB route path helpers live in `src/pages/crm/paths.ts` and `src/pages/ib/paths.ts`.
+
+Tech stack: React 19, TypeScript 5, Vite, TanStack Query v5, Zustand 5, Tailwind CSS v4, Recharts 3, Axios 1, React Router v7.
+
+### Config and infra
+
+- `config/profiles/*.config.enc.json` — encrypted runtime profiles (source of truth)
+- `run.json` — generated runtime config (do not edit directly)
+- `platform.yml` — Docker Compose stack definition
+- `docker/` — per-service Dockerfiles
+- `Makefile` — canonical stack commands: `make stack-up-dev`, `make infra-up`, `make dev-config`, `make config-keygen`
+
+## Startup checklist (always first)
+
+1. Read `.github/copilot-instructions.md`
+2. Read `.github/CUSTOMIZATION_INDEX.md`
+3. Read service-level instructions for touched scope

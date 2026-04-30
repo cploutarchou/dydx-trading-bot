@@ -67,12 +67,12 @@ Legacy + fintech CRM roles:
 
 ## Deployment/routing strategy recommendation
 
-### Preferred now: `domain.com/crm` (incremental, low-risk)
-- Already implemented in frontend and integrated with current shell/auth.
-- Enables rapid rollout without DNS/app split risk.
-
-### Planned target: `crm.domain.com` (stronger isolation)
-- Move to dedicated CRM frontend build and stricter cookie/session boundaries after permission and MFA hardening are validated in production-like staging.
+### Current target: separated portal builds
+- Client Portal: `app.example.com` or the current main application host.
+- CRM / Backoffice: `crm.example.com`.
+- IB Portal: `ib.example.com`.
+- Frontend builds select their route tree with `VITE_APP_PORTAL_TYPE=client|backoffice|ib`.
+- Backend authorization remains the source of truth; hidden frontend routes are not treated as security.
 
 ## Migration and rollout strategy
 
@@ -99,6 +99,11 @@ Legacy + fintech CRM roles:
 
 - RBAC persistence foundation: **implemented**
 - Route-level permission middleware foundation: **implemented**
-- CRM/admin route adoption of granular permissions: **implemented (initial)**
-- Mandatory MFA for CRM users: **pending next milestone**
-- Security events/session device visibility: **pending next milestone**
+- First-class Backoffice API namespace: **implemented**
+- First-class IB Portal API namespace: **implemented**
+- CRM/admin route adoption of granular permissions: **implemented**
+- Portal-aware IB ownership checks: **implemented for invitation token access and IB relationship visibility**
+- Admin/super admin override access: **implemented through role normalization and RBAC mappings**
+- Mandatory MFA for privileged backoffice routes: **implemented when `platform.require_privileged_mfa` is enabled**
+- Security events/session device visibility: **implemented where existing backend schema supports it**
+- Client notes/KYC provider integration: **not configured; CRM detail responses expose explicit placeholders instead of dummy data**

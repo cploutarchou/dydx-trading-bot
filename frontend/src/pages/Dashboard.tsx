@@ -74,6 +74,8 @@ interface DashboardStats {
   pnlTimeSeries: PnlPoint[];
 }
 
+const DASHBOARD_STATS_TIMEOUT_MS = 30000;
+
 // ── useCountUp ────────────────────────────────────────────────────────────────
 
 function useCountUp(target: number, duration = 900): number {
@@ -386,6 +388,7 @@ export const DashboardPage: React.FC = () => {
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const [statsWarning, setStatsWarning] = useState<string | null>(null);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isComputingRef = useRef(false);
@@ -407,7 +410,7 @@ export const DashboardPage: React.FC = () => {
         (_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Timed out while loading dashboard stats')),
-            12000
+            DASHBOARD_STATS_TIMEOUT_MS
           );
         }
       );
@@ -432,6 +435,7 @@ export const DashboardPage: React.FC = () => {
       setRuns(rawRuns);
       setStats(buildDashboardStats(rawRuns));
       setStatsError(null);
+      setStatsWarning(null);
     } catch (error) {
       if (activeComputeIdRef.current !== computeId) {
         return;
@@ -444,6 +448,9 @@ export const DashboardPage: React.FC = () => {
         );
       } else if (classification.statusCode === 401) {
         setStatsError('Your session appears to be unauthorized. Please sign in again.');
+      } else if (error instanceof Error && error.message.toLowerCase().includes('timed out')) {
+        // Non-fatal: backend is slow — keep last-good data visible, show warning badge only
+        setStatsWarning('Backend is responding slowly — showing last available data.');
       } else {
         setStatsError(error instanceof Error ? error.message : 'Failed to load dashboard stats.');
       }
@@ -722,6 +729,12 @@ export const DashboardPage: React.FC = () => {
       {statsError && (
         <div className="rounded-lg border border-red-700/60 bg-red-950/30 px-4 py-3 text-sm text-red-200">
           {statsError}
+        </div>
+      )}
+      {!statsError && statsWarning && (
+        <div className="rounded-lg border border-yellow-700/50 bg-yellow-950/20 px-4 py-2 text-xs text-yellow-300 flex items-center gap-2">
+          <span className="inline-block h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
+          {statsWarning}
         </div>
       )}
 

@@ -112,6 +112,25 @@ func (r *PartnerRelationshipRepository) CountDirectPartners(sponsorUserID int) (
 	return count, nil
 }
 
+func (r *PartnerRelationshipRepository) DeactivateByPartner(partnerUserID int) error {
+	result, err := r.db.Exec(
+		`UPDATE partner_relationships SET is_active = FALSE, updated_at = $1 WHERE partner_user_id = $2 AND is_active = TRUE`,
+		time.Now().UTC(),
+		partnerUserID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to deactivate partner relationship: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to read relationship rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("active partner relationship not found")
+	}
+	return nil
+}
+
 func (r *PartnerRelationshipRepository) queryMany(query string, args ...interface{}) ([]*models.PartnerRelationship, error) {
 	rows, err := r.db.Query(query, args...)
 	if err != nil {

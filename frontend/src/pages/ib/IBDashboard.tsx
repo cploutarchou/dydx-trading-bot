@@ -26,8 +26,8 @@ export const IBDashboard = () => {
   const canManageIB = roleMatches(role, BACKOFFICE_ROLES);
 
   const overviewQuery = useQuery({
-    queryKey: ['portal', 'overview', 'ib'],
-    queryFn: async () => (await api.getPortalOverview()).data,
+    queryKey: ['ib', 'dashboard'],
+    queryFn: async () => (await api.getIBDashboard()).data,
     staleTime: 20_000,
   });
 

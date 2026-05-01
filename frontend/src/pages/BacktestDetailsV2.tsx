@@ -130,6 +130,18 @@ interface BacktestLogEntry {
   created_at: string;
 }
 
+interface StrategySummary {
+  id: number;
+  name: string;
+  category?: string;
+  description?: string;
+  updated_at?: string;
+  selected_markets?: string[];
+  runtime_network?: 'testnet' | 'mainnet';
+  zscore_threshold?: number;
+  stats_window?: number;
+}
+
 interface SocketLogPayload {
   type?: string;
   timestamp?: string;
@@ -401,9 +413,16 @@ export const BacktestDetailsV2: React.FC = () => {
   const [promotionAction, setPromotionAction] = useState<'create' | 'start' | null>(null);
   const [promotionMessage, setPromotionMessage] = useState<string | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
+  const [linkedStrategy, setLinkedStrategy] = useState<StrategySummary | null>(null);
+  const [linkedStrategyLoading, setLinkedStrategyLoading] = useState(false);
+  const [linkedStrategyError, setLinkedStrategyError] = useState<string | null>(null);
   const liveLogCounterRef = useRef(0);
 
   const backtestStatus = normalizeStatus(backtest?.status);
+  const linkedStrategyId = useMemo(() => {
+    const request = asRecord(backtest?.request);
+    return firstFiniteNumber(backtest?.strategy_id, request?.strategy_id);
+  }, [backtest?.request, backtest?.strategy_id]);
 
   const fetchBacktestMetadata = useCallback(
     async (showLoading: boolean = true) => {
@@ -439,6 +458,46 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     fetchBacktestMetadata();
   }, [fetchBacktestMetadata]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!linkedStrategyId) {
+      setLinkedStrategy(null);
+      setLinkedStrategyError(null);
+      setLinkedStrategyLoading(false);
+      return;
+    }
+
+    const loadLinkedStrategy = async () => {
+      setLinkedStrategyLoading(true);
+      setLinkedStrategyError(null);
+      try {
+        const response = await api.getStrategy(linkedStrategyId);
+        const data = response.data as StrategySummary | undefined;
+        if (!cancelled) {
+          setLinkedStrategy(data ?? null);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setLinkedStrategy(null);
+          setLinkedStrategyError(
+            err instanceof Error ? err.message : 'Unable to load linked strategy'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLinkedStrategyLoading(false);
+        }
+      }
+    };
+
+    void loadLinkedStrategy();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedStrategyId]);
 
   useEffect(() => {
     setCandles([]);
@@ -1352,7 +1411,7 @@ export const BacktestDetailsV2: React.FC = () => {
       if (!newRunId) {
         throw new Error('Retry started but did not return a run id');
       }
-      navigate(`/backtests/${newRunId}`);
+      navigate(`/backtest/${newRunId}`);
     };
 
     try {
@@ -1370,7 +1429,7 @@ export const BacktestDetailsV2: React.FC = () => {
       const payload = asRecord(response?.data || response);
       const newRunId = toStringValue(payload?.new_run_id);
       if ((action === 'restart' || action === 'retry') && newRunId) {
-        navigate(`/backtests/${newRunId}`);
+        navigate(`/backtest/${newRunId}`);
         return;
       }
 
@@ -1421,6 +1480,10 @@ export const BacktestDetailsV2: React.FC = () => {
     config.runtime_strategy = config.runtime_strategy || 'cointegration';
     config.pair_selection_mode =
       requestPayload?.pair_selection_mode || config.pair_selection_mode || 'liquidity';
+    config.source_backtest_run_id = runId;
+    if (liveBacktest.strategy_id) {
+      config.source_strategy_id = liveBacktest.strategy_id;
+    }
 
     return config;
   };
@@ -1440,6 +1503,7 @@ export const BacktestDetailsV2: React.FC = () => {
     if (!strategyId) {
       throw new Error('Strategy was created but no strategy id was returned');
     }
+    setBacktest((current) => (current ? { ...current, strategy_id: strategyId } : current));
     return strategyId;
   };
 
@@ -1472,6 +1536,13 @@ export const BacktestDetailsV2: React.FC = () => {
         );
       } else {
         setPromotionMessage(`Strategy #${strategyId} created from this backtest.`);
+      }
+
+      try {
+        const strategyResponse = await api.getStrategy(strategyId);
+        setLinkedStrategy((strategyResponse.data as StrategySummary | undefined) ?? null);
+      } catch {
+        setLinkedStrategy(null);
       }
     } catch (err: unknown) {
       setPromotionError(err instanceof Error ? err.message : 'Unable to promote this backtest');
@@ -1775,6 +1846,72 @@ export const BacktestDetailsV2: React.FC = () => {
               </p>
             </div>
           )}
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4 sm:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-300">
+                  Strategy relationship
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-white">
+                  {linkedStrategyId
+                    ? linkedStrategy?.name || `Strategy #${linkedStrategyId}`
+                    : 'Manual backtest ticket'}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  {linkedStrategyId
+                    ? 'This backtest is linked to a saved strategy. Use the relationship to return to the strategy, create another validation run, or keep the report attached to the source setup.'
+                    : 'This run was launched without a saved strategy relation. Save it as a strategy when the result is strong enough to reuse.'}
+                </p>
+                {linkedStrategyLoading && (
+                  <p className="mt-2 text-xs text-slate-500">Loading strategy metadata...</p>
+                )}
+                {linkedStrategyError && (
+                  <p className="mt-2 text-xs text-amber-300">{linkedStrategyError}</p>
+                )}
+              </div>
+
+              <div className="grid min-w-full gap-2 sm:grid-cols-2 xl:min-w-[420px]">
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Relation
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">
+                    {linkedStrategyId ? `Strategy #${linkedStrategyId}` : 'Unlinked'}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Mode</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">
+                    {linkedStrategyId ? 'Strategy-triggered' : 'Backtest-created'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    linkedStrategyId
+                      ? navigate(`/strategies/${linkedStrategyId}/edit`)
+                      : void handlePromoteBacktest(false)
+                  }
+                  disabled={!linkedStrategyId && (promotionAction !== null || !isCompleted)}
+                  className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-400/60 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {linkedStrategyId ? 'Open Strategy' : 'Create Strategy'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    linkedStrategyId
+                      ? navigate(`/backtests/new?strategy_id=${linkedStrategyId}`)
+                      : navigate('/backtests/new')
+                  }
+                  className="rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-slate-500"
+                >
+                  New Linked Backtest
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {metrics.map((metric) => {

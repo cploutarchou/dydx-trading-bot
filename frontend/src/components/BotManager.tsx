@@ -254,109 +254,101 @@ const BotCard: React.FC<BotCardProps> = ({
     : 'Polling runtime state';
 
   return (
-    <div className="operator-section-card overflow-hidden">
+    <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950/45">
       <div
-        className="flex cursor-pointer flex-col gap-4 p-5 transition hover:bg-slate-900/20 xl:flex-row xl:items-start xl:justify-between"
+        className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-900/35 xl:grid-cols-[minmax(0,1fr)_minmax(420px,auto)] xl:items-center"
         onClick={() => onToggleExpand(bot.instance_id)}
       >
-        <div className="flex flex-1 items-start gap-4">
+        <div className="flex min-w-0 items-start gap-3">
           <button
             type="button"
-            className="rounded-xl border border-slate-800 bg-slate-950/70 p-2 text-slate-400 hover:text-white"
+            className="mt-0.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2 text-slate-400 hover:text-white"
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(bot.instance_id);
             }}
+            aria-label={isExpanded ? 'Collapse runtime details' : 'Expand runtime details'}
           >
-            {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
           </button>
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold text-white">{bot.instance_name || bot.instance_id}</h3>
+              <h3 className="truncate font-semibold text-white">
+                {bot.instance_name || bot.instance_id}
+              </h3>
               <span className="operator-status-pill" data-tone={statusTone}>
                 {bot.status}
               </span>
               {isManagedStrategyRuntime(bot) && (
-                <span className="operator-status-pill" data-tone="accent">
-                  Managed runtime
-                </span>
-              )}
-            </div>
-            <p className="mt-2 text-xs text-slate-500">ID: {bot.instance_id}</p>
-            {isManagedStrategyRuntime(bot) && (
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                <span className="text-cyan-400">Managed by strategy runtime workflow</span>
                 <Link
                   to="/strategies/manage"
                   onClick={(e) => e.stopPropagation()}
-                  className="text-cyan-300 underline decoration-cyan-600/70 underline-offset-2 hover:text-cyan-200"
+                  className="operator-status-pill hover:border-cyan-500/60"
+                  data-tone="accent"
                 >
-                  Open managed runtimes
+                  Managed
                 </Link>
-              </div>
-            )}
-            <p className="mt-2 text-sm text-slate-400">
-              Started: {bot.started_at ? formatDateTime(bot.started_at) : 'Never'}
-            </p>
-            <p
-              className={`mt-1 text-xs ${liveStatsQuery.isConnected ? 'text-emerald-400' : reconnectingWithFallback ? 'text-amber-300' : 'text-slate-500'}`}
-            >
-              {streamLabel}
-            </p>
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              <span className="font-mono">ID: {bot.instance_id}</span>
+              <span>Started: {bot.started_at ? formatDateTime(bot.started_at) : 'Never'}</span>
+              <span
+                className={
+                  liveStatsQuery.isConnected
+                    ? 'text-emerald-400'
+                    : reconnectingWithFallback
+                      ? 'text-amber-300'
+                      : 'text-slate-500'
+                }
+              >
+                {streamLabel}
+              </span>
+            </div>
             {bot.error_message && (
-              <p className="mt-1 text-xs text-amber-300">{bot.error_message}</p>
+              <p className="mt-2 text-xs text-amber-300">{bot.error_message}</p>
             )}
           </div>
         </div>
 
         <div
-          className="grid min-w-full gap-3 xl:min-w-[360px]"
+          className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="operator-mini-grid">
-            <div className="metric-tile px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                Total P&amp;L
-              </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">P&amp;L</p>
               <p
-                className={`mt-2 text-sm font-semibold ${stats.total_pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                className={`mt-1 text-sm font-semibold ${stats.total_pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
               >
                 {formatUsd(stats.total_pnl)}
               </p>
             </div>
-            <div className="metric-tile px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                Open positions
-              </p>
-              <p className="mt-2 text-sm font-semibold text-white">{stats.open_positions}</p>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Open</p>
+              <p className="mt-1 text-sm font-semibold text-white">{stats.open_positions}</p>
             </div>
-            <div className="metric-tile px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Win rate</p>
-              <p className="mt-2 text-sm font-semibold text-white">
+            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Win</p>
+              <p className="mt-1 text-sm font-semibold text-white">
                 {(stats.win_rate * 100).toFixed(1)}%
               </p>
             </div>
           </div>
 
-          {shouldShowStatsWarning && (
-            <div className="rounded-2xl border border-amber-700/60 bg-amber-950/25 px-4 py-3 text-xs text-amber-200">
-              {stats.warning || 'Runtime stats temporarily unavailable or reconnecting.'}
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
             {bot.status === 'RUNNING' ? (
               <>
                 <button
                   type="button"
                   onClick={() => onStop(bot.instance_id)}
                   disabled={actionLoading === `stop:${bot.instance_id}`}
-                  className="rounded-2xl bg-amber-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
+                  className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
                   title="Stop bot"
                 >
                   <span className="inline-flex items-center gap-2">
-                    <Pause size={16} />
+                    <Pause size={15} />
                     Stop
                   </span>
                 </button>
@@ -364,11 +356,11 @@ const BotCard: React.FC<BotCardProps> = ({
                   type="button"
                   onClick={() => onRestart(bot.instance_id)}
                   disabled={actionLoading === `restart:${bot.instance_id}`}
-                  className="rounded-2xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-60"
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-60"
                   title="Restart bot"
                 >
                   <span className="inline-flex items-center gap-2">
-                    <RefreshCw size={16} />
+                    <RefreshCw size={15} />
                     Restart
                   </span>
                 </button>
@@ -378,11 +370,11 @@ const BotCard: React.FC<BotCardProps> = ({
                 type="button"
                 onClick={() => onStart(bot.instance_id)}
                 disabled={actionLoading === `start:${bot.instance_id}`}
-                className="rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
                 title="Start bot"
               >
                 <span className="inline-flex items-center gap-2">
-                  <Play size={16} />
+                  <Play size={15} />
                   Start
                 </span>
               </button>
@@ -391,17 +383,23 @@ const BotCard: React.FC<BotCardProps> = ({
               type="button"
               onClick={() => onDelete(bot.instance_id)}
               disabled={actionLoading === `delete:${bot.instance_id}`}
-              className="rounded-2xl bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
+              className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
               title="Delete bot"
             >
               <span className="inline-flex items-center gap-2">
-                <Trash2 size={16} />
+                <Trash2 size={15} />
                 Delete
               </span>
             </button>
           </div>
         </div>
       </div>
+
+      {shouldShowStatsWarning && (
+        <div className="mx-4 mb-4 rounded-lg border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs text-amber-200">
+          {stats.warning || 'Runtime stats temporarily unavailable or reconnecting.'}
+        </div>
+      )}
 
       {isExpanded && (
         <div className="border-t border-slate-800/80 bg-slate-950/28 p-5 space-y-4">
@@ -1138,7 +1136,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           </div>
         ) : (
           <div className="space-y-5">
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/28 p-4">
+            <div className="rounded-lg border border-slate-800 bg-slate-950/28 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-white">Direct runtime instances</h3>
@@ -1155,7 +1153,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               </div>
               <div className="mt-4 space-y-3">
                 {directBots.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-3 text-xs text-slate-400">
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/45 px-4 py-3 text-xs text-slate-400">
                     No direct runtimes found.
                   </div>
                 ) : (
@@ -1183,13 +1181,13 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               </div>
             </div>
 
-            <div className="rounded-2xl border border-cyan-900/70 bg-cyan-950/12 p-4">
+            <div className="rounded-lg border border-cyan-900/70 bg-cyan-950/12 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-cyan-100">Strategy-managed runtimes</h3>
                   <p className="mt-1 text-xs text-cyan-300/80">
-                    Primary controls are in the managed runtime workflow. Expand below when you need a unified
-                    monitoring view.
+                    Hidden by default to keep Bots focused. Show them when you need a combined
+                    runtime check.
                   </p>
                 </div>
                 <button
@@ -1209,7 +1207,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               {showManagedRuntimes ? (
                 <div className="mt-4 space-y-3">
                   {strategyManagedBots.length === 0 ? (
-                    <div className="rounded-2xl border border-cyan-900/50 bg-slate-950/35 px-4 py-3 text-xs text-cyan-100/80">
+                    <div className="rounded-lg border border-cyan-900/50 bg-slate-950/35 px-4 py-3 text-xs text-cyan-100/80">
                       No strategy-managed runtimes are currently visible.
                     </div>
                   ) : (
@@ -1240,7 +1238,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                   )}
                 </div>
               ) : (
-                <div className="mt-4 rounded-2xl border border-cyan-900/45 bg-slate-950/35 px-4 py-3 text-xs text-cyan-100/80">
+                <div className="mt-4 rounded-lg border border-cyan-900/45 bg-slate-950/35 px-4 py-3 text-xs text-cyan-100/80">
                   Managed runtimes are hidden by default to keep this desk focused.
                 </div>
               )}

@@ -106,3 +106,10 @@ When editing `bot/src/**`, follow these rules:
   - `bot/.github/copilot-instructions.md`
   - `frontend/.github/copilot-instructions.md`
   - `backend/.github/copilot-instructions.md`
+
+## Recent implementation snapshot (2026-05)
+
+- Frontend backtest UX now emphasizes a dedicated dashboard flow in `frontend/src/pages/Backtests.tsx` with live active-run quick access (status + progress + freshness cues).
+- Frontend strategy runtime UX in `frontend/src/components/StrategyManager.tsx` includes heartbeat-driven runtime health surfaces and activity cues for operators.
+- Backend delegated backtest contract normalization is centralized in `backend/internal/routes/bot_api_delegate_routes.go` (status/progress aliasing and envelope normalization).
+- Backend migration posture assumes transaction-safe SQL for startup migrations; avoid `CONCURRENTLY`-only operations in migration files used by standard startup flow.

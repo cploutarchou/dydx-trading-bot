@@ -28,6 +28,11 @@ interface StrategyStatus {
   lastError?: string;
   tradesExecuted?: number;
   pnl?: number;
+  winRate?: number;
+  openPositions?: number;
+  uptimeSeconds?: number;
+  startedAt?: string;
+  runtimeUpdatedAt?: string;
   updatedAt: string;
   botStatus?: string;
   instanceId?: string;
@@ -59,6 +64,11 @@ interface StrategyStartReadiness {
   warnings: string[];
 }
 
+interface StrategyActivityEntry {
+  label: 'Runtime started' | 'Runtime stopped' | 'Backtest started';
+  at: string;
+}
+
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error) return error.message;
   if (typeof error === 'object' && error !== null) {
@@ -69,6 +79,129 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
     return err.response?.data?.detail || err.message || fallback;
   }
   return fallback;
+};
+
+const asNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+};
+
+const formatRuntimeDuration = (seconds?: number): string => {
+  if (seconds === undefined || Number.isNaN(seconds) || seconds < 0) return '—';
+
+  const totalSeconds = Math.floor(seconds);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+};
+
+const formatRuntimeTime = (value?: string): string => {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleTimeString();
+};
+
+const formatRelativeTime = (value?: string): string => {
+  if (!value) return 'No update yet';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'No update yet';
+
+  const secondsAgo = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000));
+  if (secondsAgo < 60) {
+    return `${secondsAgo}s ago`;
+  }
+
+  const minutesAgo = Math.floor(secondsAgo / 60);
+  if (minutesAgo < 60) {
+    return `${minutesAgo}m ago`;
+  }
+
+  const hoursAgo = Math.floor(minutesAgo / 60);
+  return `${hoursAgo}h ago`;
+};
+
+const HEARTBEAT_LIVE_THRESHOLD_MS = 30_000;
+const HEARTBEAT_DELAYED_THRESHOLD_MS = 120_000;
+const HEARTBEAT_TREND_MAX_POINTS = 14;
+const HEARTBEAT_TREND_MAX_SECONDS = 180;
+
+type HeartbeatTone = 'live' | 'delayed' | 'stale' | 'unknown';
+
+const resolveHeartbeatTone = (
+  heartbeatAt: string | undefined,
+  webSocketConnected: boolean
+): { tone: HeartbeatTone; label: string } => {
+  if (!heartbeatAt) {
+    return {
+      tone: webSocketConnected ? 'unknown' : 'delayed',
+      label: webSocketConnected ? 'Awaiting first heartbeat' : 'Waiting for stream',
+    };
+  }
+
+  const parsed = new Date(heartbeatAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return { tone: 'unknown', label: 'Invalid heartbeat timestamp' };
+  }
+
+  const ageMs = Date.now() - parsed.getTime();
+  if (ageMs <= HEARTBEAT_LIVE_THRESHOLD_MS && webSocketConnected) {
+    return { tone: 'live', label: 'Live updates healthy' };
+  }
+
+  if (ageMs <= HEARTBEAT_DELAYED_THRESHOLD_MS) {
+    return { tone: 'delayed', label: 'Updates slightly delayed' };
+  }
+
+  return { tone: 'stale', label: 'Updates stale, check runtime' };
+};
+
+const toHeartbeatAgeSeconds = (heartbeatAt?: string): number | null => {
+  if (!heartbeatAt) {
+    return null;
+  }
+
+  const parsed = new Date(heartbeatAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000));
+};
+
+const buildSparklinePoints = (values: number[], width: number, height: number): string => {
+  if (values.length === 0) {
+    return '';
+  }
+
+  const max = HEARTBEAT_TREND_MAX_SECONDS;
+  const stepX = values.length > 1 ? width / (values.length - 1) : width;
+
+  return values
+    .map((value, index) => {
+      const clamped = Math.min(Math.max(value, 0), max);
+      const x = index * stepX;
+      const y = (clamped / max) * height;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
 };
 
 const RUNTIME_STRATEGY_OPTIONS = [
@@ -119,11 +252,29 @@ export default function StrategyManager() {
   const [startDialogLoading, setStartDialogLoading] = useState(false);
   const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
   const [startDialogError, setStartDialogError] = useState<string | null>(null);
-  const [compactCards, setCompactCards] = useState(false);
+  const [viewPreset, setViewPreset] = useState<'operator' | 'analyst'>('analyst');
   const [focusedCardId, setFocusedCardId] = useState<number | null>(null);
   const [startDialogReadiness, setStartDialogReadiness] = useState<StrategyStartReadiness | null>(
     null
   );
+  const [strategyActivity, setStrategyActivity] = useState<Map<number, StrategyActivityEntry>>(
+    new Map()
+  );
+  const [heartbeatTrend, setHeartbeatTrend] = useState<Map<number, number[]>>(new Map());
+
+  const compactCards = viewPreset === 'operator';
+
+  const recordSuccessfulAction = (
+    strategyId: number,
+    label: StrategyActivityEntry['label'],
+    at: string = new Date().toISOString()
+  ) => {
+    setStrategyActivity((prev) => {
+      const next = new Map(prev);
+      next.set(strategyId, { label, at });
+      return next;
+    });
+  };
 
   const updateEditingConfig = (patch: Partial<Strategy>) => {
     setEditingConfig((current) => (current ? { ...current, ...patch } : current));
@@ -144,6 +295,20 @@ export default function StrategyManager() {
       setRunningCount(running);
       return nextMap;
     });
+
+    setHeartbeatTrend((prev) => {
+      const next = new Map(prev);
+      nextStatuses.forEach((status) => {
+        const ageSeconds = toHeartbeatAgeSeconds(status.runtimeUpdatedAt || status.updatedAt);
+        if (ageSeconds === null) {
+          return;
+        }
+
+        const existing = next.get(status.strategyId) || [];
+        next.set(status.strategyId, [...existing, ageSeconds].slice(-HEARTBEAT_TREND_MAX_POINTS));
+      });
+      return next;
+    });
   };
 
   const mergeStrategyStatus = (nextStatus: StrategyStatus) => {
@@ -155,6 +320,18 @@ export default function StrategyManager() {
       ).length;
       setRunningCount(running);
       return nextMap;
+    });
+
+    setHeartbeatTrend((prev) => {
+      const next = new Map(prev);
+      const ageSeconds = toHeartbeatAgeSeconds(nextStatus.runtimeUpdatedAt || nextStatus.updatedAt);
+      if (ageSeconds === null) {
+        return next;
+      }
+
+      const existing = next.get(nextStatus.strategyId) || [];
+      next.set(nextStatus.strategyId, [...existing, ageSeconds].slice(-HEARTBEAT_TREND_MAX_POINTS));
+      return next;
     });
   };
 
@@ -173,6 +350,21 @@ export default function StrategyManager() {
         ? normalizedStatus
         : 'stopped';
 
+    const startedAt =
+      typeof runtimeData?.started_at === 'string' ? runtimeData.started_at : undefined;
+    const rawPnl = asNumber(runtimeData?.pnl);
+    const rawTrades = asNumber(runtimeData?.trades_executed);
+    const rawOpenPositions = asNumber(runtimeData?.open_positions);
+    const rawWinRate = asNumber(runtimeData?.win_rate);
+    const rawUptimeSeconds = asNumber(runtimeData?.uptime_seconds);
+
+    const computedUptimeSeconds =
+      rawUptimeSeconds !== undefined
+        ? rawUptimeSeconds
+        : startedAt && status === 'running'
+          ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000))
+          : undefined;
+
     return {
       strategyId,
       status,
@@ -183,6 +375,25 @@ export default function StrategyManager() {
           : typeof runtimeData?.updated_at === 'string'
             ? runtimeData.updated_at
             : new Date().toISOString(),
+      runtimeUpdatedAt:
+        typeof runtimeData?.runtime_updated_at === 'string'
+          ? runtimeData.runtime_updated_at
+          : typeof runtimeData?.last_synced_at === 'string'
+            ? runtimeData.last_synced_at
+            : typeof runtimeData?.updated_at === 'string'
+              ? runtimeData.updated_at
+              : undefined,
+      startedAt,
+      tradesExecuted: rawTrades !== undefined ? Math.max(0, Math.floor(rawTrades)) : undefined,
+      pnl: rawPnl,
+      winRate:
+        rawWinRate !== undefined ? (rawWinRate <= 1 ? rawWinRate * 100 : rawWinRate) : undefined,
+      openPositions:
+        rawOpenPositions !== undefined ? Math.max(0, Math.floor(rawOpenPositions)) : undefined,
+      uptimeSeconds:
+        computedUptimeSeconds !== undefined
+          ? Math.max(0, Math.floor(computedUptimeSeconds))
+          : undefined,
       botStatus: typeof runtimeData?.bot_status === 'string' ? runtimeData.bot_status : undefined,
       instanceId:
         typeof runtimeData?.instance_id === 'string' ? runtimeData.instance_id : undefined,
@@ -504,6 +715,7 @@ export default function StrategyManager() {
       }
 
       mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
+      recordSuccessfulAction(strategy.id, 'Runtime started');
       showTransientMessage(
         {
           type: 'success',
@@ -526,6 +738,7 @@ export default function StrategyManager() {
               true
             );
             mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
+            recordSuccessfulAction(strategy.id, 'Runtime started');
             showTransientMessage(
               {
                 type: 'success',
@@ -627,6 +840,7 @@ export default function StrategyManager() {
       const response = await apiClient.stopStrategyRuntime(strategy.id);
 
       mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
+      recordSuccessfulAction(strategy.id, 'Runtime stopped');
       showTransientMessage(
         {
           type: 'success',
@@ -835,6 +1049,7 @@ export default function StrategyManager() {
 
       const runId = response.data?.run_id;
       if (response.success || runId) {
+        recordSuccessfulAction(strategy.id, 'Backtest started');
         showTransientMessage(
           {
             type: 'success',
@@ -1009,6 +1224,67 @@ export default function StrategyManager() {
       .filter(Boolean);
     return (nets[0] ?? safeStrategies[0]?.runtime_network ?? 'testnet') as string;
   }, [strategyStatuses, safeStrategies]);
+  const digestOpenPositions = useMemo(
+    () => Array.from(strategyStatuses.values()).reduce((sum, s) => sum + (s.openPositions ?? 0), 0),
+    [strategyStatuses]
+  );
+
+  const runtimeHealthSummary = useMemo(() => {
+    const statuses = Array.from(strategyStatuses.values());
+    const activeStatuses = statuses.filter(
+      (status) => status.status === 'running' || status.status === 'starting'
+    );
+    const targetStatuses = activeStatuses.length > 0 ? activeStatuses : statuses;
+
+    const hasPnlData = targetStatuses.some((status) => status.pnl !== undefined);
+    const hasOpenPositionData = targetStatuses.some((status) => status.openPositions !== undefined);
+    const hasUptimeData = targetStatuses.some((status) => status.uptimeSeconds !== undefined);
+
+    const totalPnl = targetStatuses.reduce((sum, status) => sum + (status.pnl ?? 0), 0);
+    const totalOpenPositions = targetStatuses.reduce(
+      (sum, status) => sum + (status.openPositions ?? 0),
+      0
+    );
+    const longestUptimeSeconds = targetStatuses.reduce(
+      (max, status) => Math.max(max, status.uptimeSeconds ?? 0),
+      0
+    );
+
+    const latestUpdateMs = targetStatuses.reduce<number | null>((latest, status) => {
+      const candidate = status.runtimeUpdatedAt || status.updatedAt;
+      if (!candidate) return latest;
+      const parsedMs = new Date(candidate).getTime();
+      if (Number.isNaN(parsedMs)) return latest;
+      if (latest === null || parsedMs > latest) return parsedMs;
+      return latest;
+    }, null);
+
+    return {
+      scopedCount: targetStatuses.length,
+      totalPnl: hasPnlData ? totalPnl : undefined,
+      totalOpenPositions: hasOpenPositionData ? totalOpenPositions : undefined,
+      longestUptimeSeconds: hasUptimeData ? longestUptimeSeconds : undefined,
+      latestRuntimeUpdate:
+        latestUpdateMs !== null ? new Date(latestUpdateMs).toISOString() : undefined,
+      staleRuntimeCount: activeStatuses.filter((status) => {
+        const candidate = status.runtimeUpdatedAt || status.updatedAt;
+        if (!candidate) {
+          return true;
+        }
+        const parsedMs = new Date(candidate).getTime();
+        if (Number.isNaN(parsedMs)) {
+          return true;
+        }
+        return Date.now() - parsedMs > HEARTBEAT_DELAYED_THRESHOLD_MS;
+      }).length,
+    };
+  }, [strategyStatuses]);
+
+  const heartbeatTone = useMemo(
+    () => resolveHeartbeatTone(runtimeHealthSummary.latestRuntimeUpdate, webSocketConnected),
+    [runtimeHealthSummary.latestRuntimeUpdate, webSocketConnected]
+  );
+  const attentionCount = digestErrorCount + runtimeHealthSummary.staleRuntimeCount;
 
   if (loading) {
     return (
@@ -1038,13 +1314,35 @@ export default function StrategyManager() {
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:min-w-75">
-            <button
-              type="button"
-              onClick={() => setCompactCards((prev) => !prev)}
-              className="col-span-2 rounded-2xl border border-slate-700/70 bg-slate-950/55 px-4 py-2 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-300 transition hover:border-cyan-500/35 hover:text-cyan-200"
-            >
-              {compactCards ? 'Expanded cards' : 'Compact cards'}
-            </button>
+            <div className="col-span-2 rounded-2xl border border-slate-700/70 bg-slate-950/55 p-2">
+              <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Density preset
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViewPreset('operator')}
+                  className={`rounded-xl px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] transition ${
+                    viewPreset === 'operator'
+                      ? 'border border-cyan-500/40 bg-cyan-500/20 text-cyan-100'
+                      : 'border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-cyan-500/30 hover:text-cyan-200'
+                  }`}
+                >
+                  Operator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewPreset('analyst')}
+                  className={`rounded-xl px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] transition ${
+                    viewPreset === 'analyst'
+                      ? 'border border-cyan-500/40 bg-cyan-500/20 text-cyan-100'
+                      : 'border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-cyan-500/30 hover:text-cyan-200'
+                  }`}
+                >
+                  Analyst
+                </button>
+              </div>
+            </div>
             <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Active</p>
               <p className="mt-1 text-3xl font-semibold text-emerald-300">{runningCount}</p>
@@ -1080,6 +1378,11 @@ export default function StrategyManager() {
                   ? 'WebSocket connected and streaming updates'
                   : 'Connecting to live runtime events'}
               </p>
+              <p className="mt-1 text-xs text-slate-400">
+                {attentionCount > 0
+                  ? `${attentionCount} runtime signal${attentionCount === 1 ? '' : 's'} need attention`
+                  : 'No runtime attention flags right now'}
+              </p>
             </div>
           </div>
         </div>
@@ -1089,6 +1392,88 @@ export default function StrategyManager() {
             Runtime control is live through the backend strategy execution service. An active dYdX
             key is still required before a strategy can start, and statuses are reconciled every 15
             seconds for safety.
+          </p>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div
+          className={`premium-panel border ${
+            runtimeHealthSummary.totalPnl !== undefined
+              ? runtimeHealthSummary.totalPnl >= 0
+                ? 'border-emerald-500/25'
+                : 'border-rose-500/25'
+              : 'border-slate-700/70'
+          }`}
+        >
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Runtime P&amp;L</p>
+          <p
+            className={`mt-1 text-2xl font-semibold ${
+              runtimeHealthSummary.totalPnl !== undefined
+                ? runtimeHealthSummary.totalPnl >= 0
+                  ? 'text-emerald-300'
+                  : 'text-rose-300'
+                : 'text-slate-200'
+            }`}
+          >
+            {runtimeHealthSummary.totalPnl !== undefined
+              ? `$${runtimeHealthSummary.totalPnl.toFixed(2)}`
+              : '—'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Scope: {runtimeHealthSummary.scopedCount > 0 ? runtimeHealthSummary.scopedCount : 0}{' '}
+            runtime{runtimeHealthSummary.scopedCount === 1 ? '' : 's'}
+          </p>
+        </div>
+
+        <div className="premium-panel border border-slate-700/70">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Open Positions</p>
+          <p className="mt-1 text-2xl font-semibold text-cyan-200">
+            {runtimeHealthSummary.totalOpenPositions !== undefined
+              ? runtimeHealthSummary.totalOpenPositions
+              : '—'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Aggregated across active runtime scope</p>
+        </div>
+
+        <div className="premium-panel border border-slate-700/70">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Longest Uptime</p>
+          <p className="mt-1 text-2xl font-semibold text-white">
+            {formatRuntimeDuration(runtimeHealthSummary.longestUptimeSeconds)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Longest live runtime currently tracked</p>
+        </div>
+
+        <div
+          className={`premium-panel border ${
+            heartbeatTone.tone === 'live'
+              ? 'border-emerald-500/30'
+              : heartbeatTone.tone === 'delayed'
+                ? 'border-amber-500/30'
+                : heartbeatTone.tone === 'stale'
+                  ? 'border-rose-500/30'
+                  : 'border-slate-700/70'
+          }`}
+        >
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Last Heartbeat</p>
+          <p className="mt-1 text-2xl font-semibold text-white">
+            {formatRuntimeTime(runtimeHealthSummary.latestRuntimeUpdate)}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            {formatRelativeTime(runtimeHealthSummary.latestRuntimeUpdate)}
+          </p>
+          <p
+            className={`mt-1 text-xs font-medium ${
+              heartbeatTone.tone === 'live'
+                ? 'text-emerald-300'
+                : heartbeatTone.tone === 'delayed'
+                  ? 'text-amber-300'
+                  : heartbeatTone.tone === 'stale'
+                    ? 'text-rose-300'
+                    : 'text-slate-400'
+            }`}
+          >
+            {heartbeatTone.label}
           </p>
         </div>
       </section>
@@ -1103,7 +1488,7 @@ export default function StrategyManager() {
       <AIRuntimeDigest
         runningBots={runningCount}
         totalBots={safeStrategies.length}
-        openPositions={0}
+        openPositions={digestOpenPositions}
         totalPnlUsd={digestTotalPnl}
         activePairs={digestActivePairs}
         errorCount={digestErrorCount}
@@ -1137,6 +1522,19 @@ export default function StrategyManager() {
               status: 'stopped' as const,
               updatedAt: new Date().toISOString(),
             };
+            const strategyHeartbeatAt = status.runtimeUpdatedAt || status.updatedAt;
+            const strategyHeartbeat = resolveHeartbeatTone(strategyHeartbeatAt, webSocketConnected);
+            const showStaleHeartbeatBadge =
+              (status.status === 'running' || status.status === 'starting') &&
+              strategyHeartbeat.tone === 'stale';
+            const lastAction = strategyActivity.get(strategy.id);
+            const trendPoints = heartbeatTrend.get(strategy.id) || [];
+            const trendSvgPoints = buildSparklinePoints(trendPoints, 76, 18);
+            const lastActionLabel = lastAction
+              ? `${lastAction.label} · ${formatRelativeTime(lastAction.at)}`
+              : status.startedAt
+                ? `Runtime started · ${formatRelativeTime(status.startedAt)}`
+                : 'No successful action recorded';
 
             return (
               <div
@@ -1145,7 +1543,7 @@ export default function StrategyManager() {
                 onFocus={() => setFocusedCardId(strategy.id)}
                 onBlur={() => setFocusedCardId(null)}
                 onKeyDown={(event) => handleStrategyCardKeyDown(event, strategy, status)}
-                className={`premium-panel premium-panel-hover p-6 transition-all duration-300 focus:outline-none ${
+                className={`premium-panel premium-panel-hover ${compactCards ? 'p-4' : 'p-6'} transition-all duration-300 focus:outline-none ${
                   status.status === 'running'
                     ? 'border-emerald-500/40 shadow-lg shadow-emerald-900/20'
                     : ''
@@ -1190,6 +1588,92 @@ export default function StrategyManager() {
                       {status.status.toUpperCase()}
                     </span>
                   </div>
+                </div>
+
+                <div
+                  className={`mb-4 flex flex-wrap items-center gap-2 ${compactCards ? '' : 'mt-1'}`}
+                >
+                  {showStaleHeartbeatBadge && (
+                    <span className="rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-200">
+                      Stale heartbeat
+                    </span>
+                  )}
+                  {strategyHeartbeat.tone === 'delayed' &&
+                    (status.status === 'running' || status.status === 'starting') && (
+                      <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200">
+                        Delayed heartbeat
+                      </span>
+                    )}
+                  <span className="rounded-full border border-slate-700/70 bg-slate-950/55 px-2.5 py-1 text-[11px] font-medium text-slate-300">
+                    {lastActionLabel}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 ${
+                      strategyHeartbeat.tone === 'live'
+                        ? 'border-emerald-500/35 bg-emerald-500/10'
+                        : strategyHeartbeat.tone === 'delayed'
+                          ? 'border-amber-500/35 bg-amber-500/10'
+                          : strategyHeartbeat.tone === 'stale'
+                            ? 'border-rose-500/35 bg-rose-500/10'
+                            : 'border-slate-700/70 bg-slate-950/55'
+                    }`}
+                    title="Heartbeat freshness trend (newest point is right-most)"
+                  >
+                    <svg
+                      viewBox="0 0 76 18"
+                      className="h-3.5 w-19"
+                      role="img"
+                      aria-label="Heartbeat latency trend"
+                    >
+                      <line x1="0" y1="17.5" x2="76" y2="17.5" stroke="rgba(148,163,184,0.24)" />
+                      {trendSvgPoints ? (
+                        <>
+                          <polyline
+                            fill="none"
+                            stroke={
+                              strategyHeartbeat.tone === 'live'
+                                ? 'rgba(74,222,128,0.95)'
+                                : strategyHeartbeat.tone === 'delayed'
+                                  ? 'rgba(251,191,36,0.95)'
+                                  : strategyHeartbeat.tone === 'stale'
+                                    ? 'rgba(251,113,133,0.95)'
+                                    : 'rgba(148,163,184,0.85)'
+                            }
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={trendSvgPoints}
+                          />
+                          {trendPoints.map((point, index) => {
+                            const clamped = Math.min(
+                              Math.max(point, 0),
+                              HEARTBEAT_TREND_MAX_SECONDS
+                            );
+                            const stepX =
+                              trendPoints.length > 1 ? 76 / (trendPoints.length - 1) : 76;
+                            const x = index * stepX;
+                            const y = (clamped / HEARTBEAT_TREND_MAX_SECONDS) * 18;
+
+                            return (
+                              <circle
+                                key={`${strategy.id}-trend-${index}`}
+                                cx={x}
+                                cy={y}
+                                r="1.7"
+                                fill="rgba(248,250,252,0.95)"
+                                opacity="0.92"
+                              >
+                                <title>{`Heartbeat sample ${index + 1}: ${clamped}s latency`}</title>
+                              </circle>
+                            );
+                          })}
+                        </>
+                      ) : null}
+                    </svg>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+                      {strategyHeartbeat.tone}
+                    </span>
+                  </span>
                 </div>
 
                 {/* Error Display */}
@@ -1277,42 +1761,100 @@ export default function StrategyManager() {
                 </div>
 
                 {/* Stats */}
-                {!compactCards && status.tradesExecuted !== undefined && (
-                  <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {!compactCards && (
+                  <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-3.5">
                       <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-200">
                         Trades
                       </p>
                       <p className="mt-1 text-lg font-semibold text-cyan-50">
-                        {status.tradesExecuted}
+                        {status.tradesExecuted ?? '—'}
                       </p>
                     </div>
                     <div
                       className={`rounded-xl border p-3.5 ${
-                        status.pnl && status.pnl > 0
-                          ? 'border-emerald-600/40 bg-emerald-900/15'
-                          : 'border-rose-600/40 bg-rose-900/15'
+                        status.pnl !== undefined
+                          ? status.pnl > 0
+                            ? 'border-emerald-600/40 bg-emerald-900/15'
+                            : status.pnl < 0
+                              ? 'border-rose-600/40 bg-rose-900/15'
+                              : 'border-slate-700/60 bg-slate-900/45'
+                          : 'border-slate-700/60 bg-slate-900/45'
                       }`}
                     >
                       <p
-                        className={`text-[11px] uppercase tracking-[0.16em] ${status.pnl && status.pnl > 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                        className={`text-[11px] uppercase tracking-[0.16em] ${
+                          status.pnl !== undefined
+                            ? status.pnl > 0
+                              ? 'text-emerald-300'
+                              : status.pnl < 0
+                                ? 'text-rose-300'
+                                : 'text-slate-300'
+                            : 'text-slate-400'
+                        }`}
                       >
-                        P&L
+                        Live P&amp;L
                       </p>
                       <p
                         className={`mt-1 text-lg font-semibold ${
-                          status.pnl && status.pnl > 0 ? 'text-emerald-100' : 'text-rose-100'
+                          status.pnl !== undefined
+                            ? status.pnl > 0
+                              ? 'text-emerald-100'
+                              : status.pnl < 0
+                                ? 'text-rose-100'
+                                : 'text-slate-100'
+                            : 'text-slate-400'
                         }`}
                       >
-                        {status.pnl ? `$${status.pnl.toFixed(2)}` : '-'}
+                        {status.pnl !== undefined ? `$${status.pnl.toFixed(2)}` : '—'}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
                       <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
-                        Last Updated
+                        Win Rate
                       </p>
                       <p className="mt-1 font-mono text-sm text-slate-100">
-                        {new Date(status.updatedAt).toLocaleTimeString()}
+                        {status.winRate !== undefined ? `${status.winRate.toFixed(1)}%` : '—'}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        Open Positions
+                      </p>
+                      <p className="mt-1 font-mono text-sm text-slate-100">
+                        {status.openPositions ?? '—'}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        Runtime Uptime
+                      </p>
+                      <p className="mt-1 font-mono text-sm text-slate-100">
+                        {formatRuntimeDuration(status.uptimeSeconds)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        Last Runtime Update
+                      </p>
+                      <p className="mt-1 font-mono text-sm text-slate-100">
+                        {formatRuntimeTime(status.runtimeUpdatedAt || status.updatedAt)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        Started At
+                      </p>
+                      <p className="mt-1 font-mono text-sm text-slate-100">
+                        {status.startedAt ? formatRuntimeTime(status.startedAt) : '—'}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        Status Sync
+                      </p>
+                      <p className="mt-1 font-mono text-sm text-slate-100">
+                        {formatRuntimeTime(status.updatedAt)}
                       </p>
                     </div>
                   </div>

@@ -2,9 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import api, { type AIMarketProvider, type AIProviderStatus } from '../../api';
 
 export const AI_PROVIDER_LABELS: Record<AIMarketProvider, string> = {
-  openai: 'OpenAI',
-  deepseek: 'DeepSeek',
-  claude: 'Claude',
+  openai: 'General reasoning',
+  deepseek: 'Fast reasoning',
+  claude: 'Long-context reasoning',
 };
 
 export const AI_PROVIDER_ORDER: AIMarketProvider[] = ['deepseek', 'openai', 'claude'];

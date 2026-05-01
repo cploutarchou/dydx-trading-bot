@@ -73,3 +73,12 @@ For each new task, review:
 
 - `.github/git-commit-instructions.md`  
   Commit message, branch naming, and PR hygiene guidance.
+
+## Latest high-impact context (2026-05)
+
+- Frontend backtest operational UX is concentrated in `frontend/src/pages/Backtests.tsx` and `frontend/src/components/StrategyManager.tsx`.
+- Backend backtest delegation and normalization behavior is concentrated in `backend/internal/routes/bot_api_delegate_routes.go`.
+- Recent index migrations were adjusted for transaction-safe execution in:
+  - `backend/migrations/postgres/000047_backtest_list_perf_index.up.sql`
+  - `backend/migrations/postgres/000051_phase1_missing_indexes.{up,down}.sql`
+  - `backend/migrations/postgres/000053_phase4_drop_redundant_indexes.up.sql`

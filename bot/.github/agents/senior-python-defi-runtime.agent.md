@@ -49,3 +49,9 @@ recovery matter more than elegance.
 - Run targeted Python tests or compile checks.
 - Validate one lifecycle or backtest flow for runtime changes.
 - Update `bot/README.md`, `docs/OPERATIONS.md`, and `openapi.json` when applicable.
+
+## Latest context snapshot (2026-05)
+
+- Canonical API entrypoint remains `src/api/server.py`; keep wrappers compatibility-only.
+- Preserve backend-facing status/progress compatibility for delegated backtest/runtime contracts.
+- Preserve service-token overlap auth and strict readiness behavior in runtime/API changes.

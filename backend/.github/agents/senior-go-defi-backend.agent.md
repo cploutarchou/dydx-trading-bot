@@ -46,3 +46,9 @@ This service is the only public application API for the frontend. Your job is to
 - Run targeted `go test` for touched packages.
 - Check route registration and middleware expectations.
 - Update `backend/README.md` or root docs when platform behavior changes.
+
+## Latest context snapshot (2026-05)
+
+- Backtest list route ownership is DB-backed in backend (`GetRunsByUserID`/`CountRunsByUserID`) for frontend dashboard usage.
+- Delegated backtest payload/status/progress normalization remains centralized in `internal/routes/bot_api_delegate_routes.go`.
+- PostgreSQL migration changes should remain transaction-safe in standard startup migration paths.

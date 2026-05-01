@@ -151,3 +151,9 @@ Tech stack: React 19, TypeScript 5, Vite, TanStack Query v5, Zustand 5, Tailwind
 1. Read `.github/copilot-instructions.md`
 2. Read `.github/CUSTOMIZATION_INDEX.md`
 3. Read service-level instructions for touched scope
+
+## Latest context snapshot (2026-05)
+
+- Frontend backtest operations are centered in `frontend/src/pages/Backtests.tsx` and `frontend/src/components/StrategyManager.tsx`.
+- Backend delegated normalization + backtest list ownership is centered in `backend/internal/routes/bot_api_delegate_routes.go` and repository-backed list queries.
+- Migration safety currently assumes transaction-safe SQL in startup flow for PostgreSQL migrations.

@@ -23,8 +23,19 @@ func RegisterAIMarketRoutes(router *gin.Engine, database *db.Database, apiClient
 	{
 		group.GET("/market-filters/status", handler.GetStatus)
 		group.PUT("/market-filters/key", handler.SaveKey)
+		group.PUT("/market-filters/shared-key", handler.SaveSharedKey)
 		group.DELETE("/market-filters/key/:provider", handler.DeleteKey)
+		group.DELETE("/market-filters/shared-key/:provider", handler.DeleteSharedKey)
 		group.POST("/market-filters/select", func(c *gin.Context) {
+			if apiClient == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"success":   false,
+					"error":     "bot market client is not configured",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
 			payload, err := apiClient.GetPerpetualMarkets(0)
 			if err != nil {
 				respondBotAPIError(c, err)

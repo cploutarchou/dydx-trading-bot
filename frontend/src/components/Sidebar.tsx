@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
     const labels = {
       Overview: t('Overview', 'Επισκόπηση'),
       'Strategy Lab': t('Strategy Lab', 'Εργαστήριο Στρατηγικής'),
+      Backtests: t('Backtests', 'Backtests'),
       'Live Trading': t('Live Trading', 'Ζωντανές Συναλλαγές'),
       Intelligence: t('Intelligence', 'Πληροφόρηση'),
       Administration: t('Administration', 'Διαχείριση'),

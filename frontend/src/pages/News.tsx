@@ -5,7 +5,13 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import { CoinDeskNewsPanel } from '../components/CoinDeskNewsPanel';
 import { PageContainer } from '../components/PageContainer';
+import { PortalSubnav } from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
+
+const MARKET_INTEL_TABS = [
+  { path: '/market-intel', label: 'Token Intel', icon: Sparkles },
+  { path: '/market-intel/news', label: 'Market News', icon: Newspaper },
+] as const;
 
 const formatPublishedAt = (value?: string): string => {
   if (!value) return 'Awaiting latest feed pull';
@@ -35,6 +41,7 @@ export const NewsPage: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
+      <PortalSubnav tabs={MARKET_INTEL_TABS} label="Market Intel" />
       <section className="premium-hero px-6 py-7 sm:px-8">
         <div className="premium-orb -right-10 top-0 h-44 w-44 bg-cyan-500/10" />
         <div className="premium-orb -left-8 bottom-0 h-36 w-36 bg-emerald-500/10" />
@@ -43,10 +50,10 @@ export const NewsPage: React.FC = () => {
           <div className="max-w-3xl">
             <div className="premium-kicker">
               <Newspaper className="h-3.5 w-3.5" />
-              Market Newsroom
+              Market Intel / Newsroom
             </div>
             <h1 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              Daily crypto coverage that feels curated for operators, not buried in another widget.
+              Daily crypto coverage curated beside token intelligence and strategy research.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               The backend fetches and caches CoinDesk updates so every user sees the latest market context

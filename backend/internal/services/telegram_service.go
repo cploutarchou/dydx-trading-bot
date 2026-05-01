@@ -9,6 +9,7 @@ import (
 )
 
 const telegramChatIDSettingKey = "chat_id"
+const telegramChatIDUserSettingKeyPrefix = "chat_id_user_"
 
 type TelegramStatus struct {
 	Provider           string `json:"provider"`
@@ -49,6 +50,57 @@ func NewTelegramService(
 }
 
 func (s *TelegramService) GetStatus() (*TelegramStatus, error) {
+	return s.GetStatusForUser(SharedCredentialUserID)
+}
+
+func (s *TelegramService) GetStatusForUser(userID int) (*TelegramStatus, error) {
+	if userID < 0 {
+		return nil, fmt.Errorf("user id is required")
+	}
+
+	if userID == SharedCredentialUserID {
+		return s.getSharedStatus()
+	}
+
+	info, err := s.credentials.Get(userID, ExternalAPIProviderTelegramBot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Telegram credential info: %w", err)
+	}
+
+	token, tokenPresent, err := s.credentials.ResolveKey(userID, ExternalAPIProviderTelegramBot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve Telegram bot token: %w", err)
+	}
+
+	chatID, err := s.getSettingValue(userTelegramChatIDSettingKey(userID), "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Telegram chat id: %w", err)
+	}
+
+	configured := strings.TrimSpace(token) != "" && strings.TrimSpace(chatID) != ""
+	message := "Telegram notifications are not configured yet for this user."
+	if configured {
+		message = "Telegram delivery is configured for this user and will be injected into managed runtime launches."
+	} else if tokenPresent {
+		message = "Telegram bot token is saved for this user, but chat ID is still required."
+	} else if strings.TrimSpace(chatID) != "" {
+		message = "Telegram chat ID is saved for this user, but bot token is still required."
+	}
+
+	return &TelegramStatus{
+		Provider:           "telegram",
+		Configured:         configured,
+		SharedTokenPresent: tokenPresent,
+		SharedTokenMasked:  valueOrEmpty(info, func(i *ExternalAPICredentialInfo) string { return i.MaskedValue }),
+		SharedTokenLabel:   valueOrEmpty(info, func(i *ExternalAPICredentialInfo) string { return i.Label }),
+		ChatID:             chatID,
+		ChatIDMasked:       maskSecretValue(chatID),
+		DeliveryMode:       "user",
+		Message:            message,
+	}, nil
+}
+
+func (s *TelegramService) getSharedStatus() (*TelegramStatus, error) {
 	info, err := s.credentials.GetShared(ExternalAPIProviderTelegramBot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Telegram credential info: %w", err)
@@ -88,7 +140,15 @@ func (s *TelegramService) GetStatus() (*TelegramStatus, error) {
 }
 
 func (s *TelegramService) SaveSharedConfig(payload TelegramConfigPayload) (*TelegramStatus, error) {
-	status, err := s.GetStatus()
+	return s.SaveConfigForUser(SharedCredentialUserID, payload)
+}
+
+func (s *TelegramService) SaveConfigForUser(userID int, payload TelegramConfigPayload) (*TelegramStatus, error) {
+	if userID < 0 {
+		return nil, fmt.Errorf("user id is required")
+	}
+
+	status, err := s.GetStatusForUser(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,23 +163,37 @@ func (s *TelegramService) SaveSharedConfig(payload TelegramConfigPayload) (*Tele
 		return nil, fmt.Errorf("bot token is required")
 	}
 	if token != "" {
-		if _, err := s.credentials.SaveShared(ExternalAPIProviderTelegramBot, token, payload.Label); err != nil {
+		if _, err := s.credentials.Save(userID, ExternalAPIProviderTelegramBot, token, payload.Label); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := s.upsertSetting(telegramChatIDSettingKey, chatID, "Telegram chat id for shared platform notifications"); err != nil {
+	chatDescription := "Telegram chat id for user notifications"
+	if userID == SharedCredentialUserID {
+		chatDescription = "Telegram chat id for shared platform notifications"
+	}
+
+	if err := s.upsertSetting(userTelegramChatIDSettingKey(userID), chatID, chatDescription); err != nil {
 		return nil, err
 	}
 
-	return s.GetStatus()
+	return s.GetStatusForUser(userID)
 }
 
 func (s *TelegramService) DeleteSharedConfig() error {
-	if err := s.credentials.DeleteShared(ExternalAPIProviderTelegramBot); err != nil {
+	return s.DeleteConfigForUser(SharedCredentialUserID)
+}
+
+func (s *TelegramService) DeleteConfigForUser(userID int) error {
+	if userID < 0 {
+		return fmt.Errorf("user id is required")
+	}
+
+	if err := s.credentials.Delete(userID, ExternalAPIProviderTelegramBot); err != nil && !isCredentialNotFoundError(err) {
 		return err
 	}
-	existing, err := s.settings.GetBotSettingBySectionAndKey("telegram", telegramChatIDSettingKey)
+
+	existing, err := s.settings.GetBotSettingBySectionAndKey("telegram", userTelegramChatIDSettingKey(userID))
 	if err != nil {
 		if isMissingTableError(err) {
 			return nil
@@ -136,11 +210,19 @@ func (s *TelegramService) DeleteSharedConfig() error {
 }
 
 func (s *TelegramService) ResolveSharedConfig() (*TelegramSharedConfig, bool, error) {
-	token, tokenPresent, err := s.credentials.ResolveSharedKey(ExternalAPIProviderTelegramBot)
+	return s.ResolveConfigForUser(SharedCredentialUserID)
+}
+
+func (s *TelegramService) ResolveConfigForUser(userID int) (*TelegramSharedConfig, bool, error) {
+	if userID < 0 {
+		return nil, false, fmt.Errorf("user id is required")
+	}
+
+	token, tokenPresent, err := s.credentials.ResolveKey(userID, ExternalAPIProviderTelegramBot)
 	if err != nil {
 		return nil, false, err
 	}
-	chatID, err := s.getSettingValue(telegramChatIDSettingKey, "")
+	chatID, err := s.getSettingValue(userTelegramChatIDSettingKey(userID), "")
 	if err != nil {
 		return nil, false, err
 	}
@@ -154,6 +236,20 @@ func (s *TelegramService) ResolveSharedConfig() (*TelegramSharedConfig, bool, er
 		BotToken: strings.TrimSpace(token),
 		ChatID:   strings.TrimSpace(chatID),
 	}, true, nil
+}
+
+func userTelegramChatIDSettingKey(userID int) string {
+	if userID <= 0 {
+		return telegramChatIDSettingKey
+	}
+	return fmt.Sprintf("%s%d", telegramChatIDUserSettingKeyPrefix, userID)
+}
+
+func isCredentialNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "credential not found")
 }
 
 func (s *TelegramService) getSettingValue(key string, fallback string) (string, error) {

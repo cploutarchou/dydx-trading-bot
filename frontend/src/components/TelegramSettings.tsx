@@ -19,7 +19,7 @@ const getMutationErrorMessage = (error: unknown): string => {
 export function TelegramSettings() {
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
-  const [label, setLabel] = useState('Shared trading desk bot');
+  const [label, setLabel] = useState('My trading bot');
   const queryClient = useQueryClient();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
@@ -44,8 +44,8 @@ export function TelegramSettings() {
     },
     onSuccess: (data) => {
       setBotToken('');
-      setChatId(data.chat_id ?? '');
-      successToast('Telegram saved', 'Shared Telegram delivery is ready for runtime-managed bots.');
+      setChatId(typeof data?.chat_id === 'string' ? data.chat_id : '');
+      successToast('Telegram saved', 'Your Telegram delivery is ready for runtime-managed bots.');
       void queryClient.invalidateQueries({ queryKey: ['telegram'] });
     },
     onError: (error: unknown) => {
@@ -61,7 +61,7 @@ export function TelegramSettings() {
     onSuccess: () => {
       setBotToken('');
       setChatId('');
-      successToast('Telegram removed', 'Shared Telegram notifications have been cleared.');
+      successToast('Telegram removed', 'Your Telegram notifications have been cleared.');
       void queryClient.invalidateQueries({ queryKey: ['telegram'] });
     },
     onError: (error: unknown) => {
@@ -90,7 +90,8 @@ export function TelegramSettings() {
         <div>
           <h2 className="text-2xl font-semibold text-white">Telegram</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Manage the shared Telegram bot token and destination chat used by runtime-managed bot notifications.
+            Manage your Telegram bot token and destination chat used by your runtime-managed bot
+            notifications.
           </p>
         </div>
       </div>
@@ -104,19 +105,23 @@ export function TelegramSettings() {
           <p className="text-lg font-semibold text-white">
             {status?.configured ? 'Configured' : 'Not configured'}
           </p>
-          <p className="mt-1 text-xs text-slate-500">{status?.message || 'Telegram is currently disabled.'}</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {status?.message || 'Telegram is currently disabled.'}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4">
           <div className="mb-2 flex items-center gap-2 text-slate-200">
             <KeyRound className="h-4 w-4 text-amber-300" />
-            Shared token
+            Bot token
           </div>
           <p className="text-lg font-semibold text-white">
             {status?.shared_token_present ? 'Saved on backend' : 'Missing'}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            {status?.shared_token_label ? `Label: ${status.shared_token_label}` : 'The token never leaves the backend.'}
+            {status?.shared_token_label
+              ? `Label: ${status.shared_token_label}`
+              : 'The token never leaves the backend.'}
           </p>
         </div>
 
@@ -128,24 +133,35 @@ export function TelegramSettings() {
           <p className="text-lg font-semibold text-white">
             {status?.chat_id ? status.chat_id_masked || status.chat_id : 'Not set'}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Applies to new runtime-managed bot instances and restarts after re-create.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Applies to your runtime-managed bot instances.
+          </p>
         </div>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
         <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-5">
           <h3 className="text-lg font-semibold text-white">
-            {status?.shared_token_present ? 'Update Telegram delivery' : 'Save Telegram delivery'}
+            {status?.shared_token_present
+              ? 'Update your Telegram delivery'
+              : 'Save your Telegram delivery'}
           </h3>
           <div className="mt-5 space-y-4">
             {status?.shared_token_present && (
               <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Current bot token</p>
-                <p className="mt-2 font-mono text-sm text-slate-200">{status.shared_token_masked || 'Masked token on file'}</p>
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                  Current bot token
+                </p>
+                <p className="mt-2 font-mono text-sm text-slate-200">
+                  {status.shared_token_masked || 'Masked token on file'}
+                </p>
               </div>
             )}
             <div>
-              <label htmlFor="telegram-label" className="mb-2 block text-sm font-medium text-slate-200">
+              <label
+                htmlFor="telegram-label"
+                className="mb-2 block text-sm font-medium text-slate-200"
+              >
                 Label
               </label>
               <input
@@ -156,7 +172,10 @@ export function TelegramSettings() {
               />
             </div>
             <div>
-              <label htmlFor="telegram-token" className="mb-2 block text-sm font-medium text-slate-200">
+              <label
+                htmlFor="telegram-token"
+                className="mb-2 block text-sm font-medium text-slate-200"
+              >
                 Bot token
               </label>
               <input
@@ -165,11 +184,18 @@ export function TelegramSettings() {
                 value={botToken}
                 onChange={(event) => setBotToken(event.target.value)}
                 className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-500/60"
-                placeholder={status?.shared_token_present ? 'Leave blank to keep the current token, or paste a replacement' : 'Paste your Telegram bot token'}
+                placeholder={
+                  status?.shared_token_present
+                    ? 'Leave blank to keep the current token, or paste a replacement'
+                    : 'Paste your Telegram bot token'
+                }
               />
             </div>
             <div>
-              <label htmlFor="telegram-chat-id" className="mb-2 block text-sm font-medium text-slate-200">
+              <label
+                htmlFor="telegram-chat-id"
+                className="mb-2 block text-sm font-medium text-slate-200"
+              >
                 Chat ID
               </label>
               <input
@@ -186,7 +212,11 @@ export function TelegramSettings() {
               onClick={() => saveMutation.mutate()}
               className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
-              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+              {saveMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <KeyRound className="h-4 w-4" />
+              )}
               {status?.shared_token_present ? 'Update Telegram' : 'Save Telegram'}
             </button>
           </div>
@@ -195,9 +225,18 @@ export function TelegramSettings() {
         <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-5">
           <h3 className="text-lg font-semibold text-white">Operational notes</h3>
           <ul className="mt-4 space-y-3 text-sm text-slate-300">
-            <li>Telegram stays server-side and is injected into runtime-managed bot instance configs when those instances are created.</li>
-            <li>The current token is always masked in the UI, and you can update the chat without retyping the token.</li>
-            <li>If you change Telegram after a runtime already exists, recreate that instance so the new delivery target is applied.</li>
+            <li>
+              Telegram stays server-side and is injected into your runtime-managed bot instance
+              configs when those instances are created.
+            </li>
+            <li>
+              The current token is always masked in the UI, and you can update the chat without
+              retyping the token.
+            </li>
+            <li>
+              If you change Telegram after a runtime already exists, the next runtime launch
+              refreshes config automatically so the new delivery target is applied.
+            </li>
           </ul>
           <button
             type="button"
@@ -205,7 +244,11 @@ export function TelegramSettings() {
             onClick={() => deleteMutation.mutate()}
             className="mt-6 inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
           >
-            {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            {deleteMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
             Remove Telegram
           </button>
         </div>

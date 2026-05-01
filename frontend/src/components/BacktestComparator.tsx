@@ -1,6 +1,16 @@
-import { Download, Trash2 } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
-import api from '../api';
+import {
+	BrainCircuit,
+	CircleHelp,
+	Download,
+	Loader,
+	Search,
+	Settings,
+	Sparkles,
+	Trash2,
+	TrendingUp,
+} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import api, { type AIBacktestExplainRequest } from '../api';
 import { PageContainer } from './PageContainer';
 
 interface BacktestResult {
@@ -69,7 +79,79 @@ interface SelectedBacktest {
   data: BacktestResult;
 }
 
+interface ComparisonAggregate {
+  avgWinRate: number;
+  avgSharpe: number;
+  avgReturnPct: number;
+  avgPnl: number;
+  avgDrawdown: number;
+  totalTrades: number;
+  dateStart: string;
+  dateEnd: string;
+}
+
+interface MetricRaceDefinition {
+  key: keyof BacktestResult;
+  label: string;
+  lowerIsBetter?: boolean;
+  formatter: (value: number) => string;
+}
+
+interface WinnerSummaryItem {
+  title: string;
+  subtitle: string;
+  runId: string;
+  value: string;
+  toneClass: string;
+  pulseClass: string;
+}
+
+type SortOption = 'recent' | 'return' | 'sharpe' | 'pnl';
+
 const ITEMS_PER_PAGE = 10;
+const SHORTCUT_DISCOVERY_STORAGE_KEY = 'backtestComparatorShortcutDiscoverySeen';
+const HIDE_SHORTCUT_TIPS_STORAGE_KEY = 'backtestComparatorHideShortcutTips';
+const SHOW_UX_HINTS_STORAGE_KEY = 'backtestComparatorShowUxHints';
+const HINT_DOT_POP_DURATION_MS = 300; // aligns with Tailwind duration-300 token
+
+const METRIC_RACE_DEFINITIONS: MetricRaceDefinition[] = [
+  {
+    key: 'total_return_pct',
+    label: 'Total Return',
+    formatter: (value) => `${value.toFixed(2)}%`,
+  },
+  {
+    key: 'total_pnl',
+    label: 'Total PnL',
+    formatter: (value) => `$${value.toFixed(2)}`,
+  },
+  {
+    key: 'sharpe_ratio',
+    label: 'Sharpe Ratio',
+    formatter: (value) => value.toFixed(2),
+  },
+  {
+    key: 'win_rate',
+    label: 'Win Rate',
+    formatter: (value) => `${value.toFixed(1)}%`,
+  },
+  {
+    key: 'max_drawdown',
+    label: 'Max Drawdown',
+    lowerIsBetter: true,
+    formatter: (value) => `${value.toFixed(1)}%`,
+  },
+  {
+    key: 'num_trades',
+    label: 'Number of Trades',
+    formatter: (value) => value.toFixed(0),
+  },
+  {
+    key: 'avg_trade_duration',
+    label: 'Avg Trade Duration (hrs)',
+    formatter: (value) => value.toFixed(1),
+  },
+];
 
 export const BacktestComparator: React.FC = () => {
   const [backtests, setBacktests] = useState<BacktestResult[]>([]);
@@ -77,6 +159,22 @@ export const BacktestComparator: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('recent');
+  const [aiInsight, setAiInsight] = useState<string | null>(null);
+  const [aiUsed, setAiUsed] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [winnerAnimationKey, setWinnerAnimationKey] = useState(0);
+  const [raceAnimationKey, setRaceAnimationKey] = useState(0);
+  const [pulsingWinners, setPulsingWinners] = useState<Record<string, boolean>>({});
+  const [showShortcutToast, setShowShortcutToast] = useState(false);
+  const [showUxHints, setShowUxHints] = useState(true);
+  const [hintDotPop, setHintDotPop] = useState(false);
+  const previousWinnerByTitleRef = useRef<Record<string, string>>({});
+  const legendHelpChipRef = useRef<HTMLButtonElement | null>(null);
+  const shortcutDiscoverySeenRef = useRef(false);
+  const hintDotPopTimeoutRef = useRef<number | null>(null);
 
   // Fetch available backtests
   useEffect(() => {
@@ -114,13 +212,42 @@ export const BacktestComparator: React.FC = () => {
     fetchBacktests();
   }, []);
 
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  const filteredAndSortedBacktests = useMemo(() => {
+    const filtered = backtests.filter((bt) => {
+      if (!normalizedSearch) return true;
+      return (
+        bt.run_id.toLowerCase().includes(normalizedSearch) ||
+        bt.start_date.toLowerCase().includes(normalizedSearch) ||
+        bt.end_date.toLowerCase().includes(normalizedSearch)
+      );
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === 'return') return (b.total_return_pct ?? 0) - (a.total_return_pct ?? 0);
+      if (sortBy === 'sharpe') return (b.sharpe_ratio ?? 0) - (a.sharpe_ratio ?? 0);
+      if (sortBy === 'pnl') return (b.total_pnl ?? 0) - (a.total_pnl ?? 0);
+      if (!a.created_at || !b.created_at) return 0;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    return sorted;
+  }, [backtests, normalizedSearch, sortBy]);
+
   // Pagination logic
   const paginatedBacktests = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return backtests.slice(start, start + ITEMS_PER_PAGE);
-  }, [backtests, currentPage]);
+    return filteredAndSortedBacktests.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredAndSortedBacktests, currentPage]);
 
-  const totalPages = Math.ceil(backtests.length / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(filteredAndSortedBacktests.length / ITEMS_PER_PAGE));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Toggle backtest selection
   const toggleBacktest = (backtest: BacktestResult) => {
@@ -158,7 +285,7 @@ export const BacktestComparator: React.FC = () => {
     const baseline = selectedBacktests[0].data[metric] as number;
     const current = selectedBacktests[index].data[metric] as number;
     const delta = current - baseline;
-    const deltaPercent = (delta / Math.abs(baseline)) * 100;
+    const deltaPercent = Math.abs(baseline) > 0 ? (delta / Math.abs(baseline)) * 100 : 0;
     return { delta, deltaPercent };
   };
 
@@ -232,26 +359,423 @@ export const BacktestComparator: React.FC = () => {
     return 'Today';
   };
 
+  const comparisonAggregate = useMemo<ComparisonAggregate | null>(() => {
+    if (selectedBacktests.length === 0) return null;
+
+    const total = selectedBacktests.length;
+    const sum = selectedBacktests.reduce(
+      (acc, item) => {
+        acc.winRate += item.data.win_rate ?? 0;
+        acc.sharpe += item.data.sharpe_ratio ?? 0;
+        acc.returnPct += item.data.total_return_pct ?? 0;
+        acc.pnl += item.data.total_pnl ?? 0;
+        acc.drawdown += item.data.max_drawdown ?? 0;
+        acc.trades += item.data.num_trades ?? 0;
+        return acc;
+      },
+      { winRate: 0, sharpe: 0, returnPct: 0, pnl: 0, drawdown: 0, trades: 0 }
+    );
+
+    const sortedStarts = selectedBacktests
+      .map((item) => item.data.start_date)
+      .filter(Boolean)
+      .sort();
+    const sortedEnds = selectedBacktests
+      .map((item) => item.data.end_date)
+      .filter(Boolean)
+      .sort();
+
+    return {
+      avgWinRate: sum.winRate / total,
+      avgSharpe: sum.sharpe / total,
+      avgReturnPct: sum.returnPct / total,
+      avgPnl: sum.pnl / total,
+      avgDrawdown: sum.drawdown / total,
+      totalTrades: sum.trades,
+      dateStart: sortedStarts[0] ?? '',
+      dateEnd: sortedEnds[sortedEnds.length - 1] ?? '',
+    };
+  }, [selectedBacktests]);
+
+  const autoSelectTopThree = () => {
+    const topThree = filteredAndSortedBacktests.slice(0, 3);
+    setSelectedBacktests(topThree.map((entry) => ({ run_id: entry.run_id, data: entry })));
+  };
+
+  const winnerSummary = useMemo<WinnerSummaryItem[]>(() => {
+    if (selectedBacktests.length < 2) return [];
+
+    const bestReturn = selectedBacktests.reduce((best, current) =>
+      current.data.total_return_pct > best.data.total_return_pct ? current : best
+    );
+
+    const mostStable = selectedBacktests.reduce((best, current) =>
+      current.data.max_drawdown < best.data.max_drawdown ? current : best
+    );
+
+    const bestRiskAdjusted = selectedBacktests
+      .map((entry) => {
+        const score =
+          entry.data.sharpe_ratio * 100 -
+          entry.data.max_drawdown +
+          entry.data.win_rate * 0.35 +
+          entry.data.total_return_pct * 0.2;
+        return { entry, score };
+      })
+      .sort((a, b) => b.score - a.score)[0]?.entry;
+
+    if (!bestRiskAdjusted) return [];
+
+    return [
+      {
+        title: 'Best Absolute Return',
+        subtitle: 'Highest total return',
+        runId: bestReturn.run_id,
+        value: `${bestReturn.data.total_return_pct.toFixed(2)}%`,
+        toneClass: 'text-emerald-300 border-emerald-500/40 bg-emerald-900/15',
+        pulseClass: 'ring-emerald-300/65 shadow-[0_0_32px_rgba(16,185,129,0.4)]',
+      },
+      {
+        title: 'Best Risk-Adjusted',
+        subtitle: 'Sharpe + drawdown + consistency',
+        runId: bestRiskAdjusted.run_id,
+        value: `${bestRiskAdjusted.data.sharpe_ratio.toFixed(2)} Sharpe`,
+        toneClass: 'text-cyan-300 border-cyan-500/40 bg-cyan-900/15',
+        pulseClass: 'ring-cyan-300/65 shadow-[0_0_32px_rgba(34,211,238,0.35)]',
+      },
+      {
+        title: 'Most Stable Run',
+        subtitle: 'Lowest max drawdown',
+        runId: mostStable.run_id,
+        value: `${mostStable.data.max_drawdown.toFixed(2)}% DD`,
+        toneClass: 'text-violet-300 border-violet-500/40 bg-violet-900/15',
+        pulseClass: 'ring-violet-300/65 shadow-[0_0_32px_rgba(167,139,250,0.38)]',
+      },
+    ];
+  }, [selectedBacktests]);
+
+  const winnerSummarySignature = useMemo(
+    () => winnerSummary.map((item) => `${item.title}:${item.runId}:${item.value}`).join('|'),
+    [winnerSummary]
+  );
+
+  const selectionSignature = useMemo(
+    () => selectedBacktests.map((item) => item.run_id).join('|'),
+    [selectedBacktests]
+  );
+
+  useEffect(() => {
+    if (winnerSummary.length > 0) {
+      setWinnerAnimationKey((prev) => prev + 1);
+    }
+  }, [winnerSummary.length, winnerSummarySignature]);
+
+  useEffect(() => {
+    if (winnerSummary.length === 0) {
+      previousWinnerByTitleRef.current = {};
+      setPulsingWinners({});
+      return;
+    }
+
+    const nextPrevious: Record<string, string> = {};
+    const changedTitles: string[] = [];
+
+    winnerSummary.forEach((item) => {
+      const previousRunId = previousWinnerByTitleRef.current[item.title];
+      nextPrevious[item.title] = item.runId;
+
+      if (previousRunId && previousRunId !== item.runId) {
+        changedTitles.push(item.title);
+      }
+    });
+
+    previousWinnerByTitleRef.current = nextPrevious;
+
+    if (changedTitles.length === 0) {
+      return;
+    }
+
+    setPulsingWinners((prev) => {
+      const next = { ...prev };
+      changedTitles.forEach((title) => {
+        next[title] = true;
+      });
+      return next;
+    });
+
+    const timeoutId = window.setTimeout(() => {
+      setPulsingWinners((prev) => {
+        const next = { ...prev };
+        changedTitles.forEach((title) => {
+          delete next[title];
+        });
+        return next;
+      });
+    }, 1400);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [winnerSummary]);
+
+  useEffect(() => {
+    if (selectedBacktests.length > 0) {
+      setRaceAnimationKey((prev) => prev + 1);
+    }
+  }, [selectedBacktests.length, selectionSignature]);
+
+  useEffect(() => {
+    try {
+      shortcutDiscoverySeenRef.current =
+        window.localStorage.getItem(SHORTCUT_DISCOVERY_STORAGE_KEY) === '1';
+
+      const savedShowUxHints = window.localStorage.getItem(SHOW_UX_HINTS_STORAGE_KEY);
+      if (savedShowUxHints === '1' || savedShowUxHints === '0') {
+        setShowUxHints(savedShowUxHints === '1');
+      } else {
+        // Backward compatibility with previous "hide shortcut tips" preference
+        const legacyHideShortcutTips =
+          window.localStorage.getItem(HIDE_SHORTCUT_TIPS_STORAGE_KEY) === '1';
+        setShowUxHints(!legacyHideShortcutTips);
+      }
+    } catch {
+      shortcutDiscoverySeenRef.current = false;
+      setShowUxHints(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleLegendHelpShortcut = (event: KeyboardEvent) => {
+      const isQuestionShortcut = event.key === '?' || (event.key === '/' && event.shiftKey);
+      if (!isQuestionShortcut) return;
+
+      const target = event.target as HTMLElement | null;
+      const isTypingElement =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        Boolean(target?.isContentEditable);
+
+      if (isTypingElement || selectedBacktests.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      legendHelpChipRef.current?.focus();
+
+      if (!shortcutDiscoverySeenRef.current && showUxHints) {
+        shortcutDiscoverySeenRef.current = true;
+        setShowShortcutToast(true);
+        try {
+          window.localStorage.setItem(SHORTCUT_DISCOVERY_STORAGE_KEY, '1');
+        } catch {
+          // Ignore storage access errors (e.g., privacy mode)
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleLegendHelpShortcut);
+    return () => {
+      window.removeEventListener('keydown', handleLegendHelpShortcut);
+    };
+  }, [selectedBacktests.length, showUxHints]);
+
+  useEffect(() => {
+    if (!showShortcutToast) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setShowShortcutToast(false);
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [showShortcutToast]);
+
+  useEffect(() => {
+    return () => {
+      if (hintDotPopTimeoutRef.current !== null) {
+        window.clearTimeout(hintDotPopTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const clearSelection = () => {
+    setSelectedBacktests([]);
+    setAiInsight(null);
+    setAiError(null);
+  };
+
+  const toggleUxHints = () => {
+    const nextShowUxHints = !showUxHints;
+    setShowUxHints(nextShowUxHints);
+    setHintDotPop(true);
+
+    if (hintDotPopTimeoutRef.current !== null) {
+      window.clearTimeout(hintDotPopTimeoutRef.current);
+    }
+    hintDotPopTimeoutRef.current = window.setTimeout(() => {
+      setHintDotPop(false);
+      hintDotPopTimeoutRef.current = null;
+    }, HINT_DOT_POP_DURATION_MS);
+
+    if (!nextShowUxHints) {
+      setShowShortcutToast(false);
+    }
+
+    try {
+      window.localStorage.setItem(SHOW_UX_HINTS_STORAGE_KEY, nextShowUxHints ? '1' : '0');
+    } catch {
+      // Ignore storage access errors
+    }
+  };
+
+  const requestAIInsight = useCallback(async () => {
+    if (!comparisonAggregate || selectedBacktests.length < 2) return;
+
+    setAiLoading(true);
+    setAiError(null);
+
+    const payload: AIBacktestExplainRequest = {
+      provider: 'deepseek',
+      win_rate: comparisonAggregate.avgWinRate,
+      total_pnl_usd: comparisonAggregate.avgPnl,
+      sharpe_ratio: comparisonAggregate.avgSharpe,
+      max_drawdown_pct: comparisonAggregate.avgDrawdown,
+      total_trades: comparisonAggregate.totalTrades,
+      profit_factor: Math.max(0.1, 1 + comparisonAggregate.avgReturnPct / 100),
+      markets: selectedBacktests.map((item) => `run:${item.run_id.slice(0, 8)}`),
+      start_date: comparisonAggregate.dateStart,
+      end_date: comparisonAggregate.dateEnd,
+    };
+
+    try {
+      const response = await api.explainBacktest(payload);
+      const responseData =
+        response?.data ??
+        (response as unknown as { data?: { content?: string; used_ai?: boolean } })?.data;
+      const content = typeof responseData?.content === 'string' ? responseData.content : '';
+      setAiInsight(content || 'DeepSeek returned no narrative. Try refreshing insights.');
+      setAiUsed(Boolean(responseData?.used_ai));
+    } catch (err) {
+      setAiError(getErrorMessage(err, 'Failed to generate AI insight'));
+    } finally {
+      setAiLoading(false);
+    }
+  }, [comparisonAggregate, selectedBacktests]);
+
+  useEffect(() => {
+    if (selectedBacktests.length >= 2) {
+      void requestAIInsight();
+    } else {
+      setAiInsight(null);
+      setAiError(null);
+      setAiUsed(false);
+    }
+  }, [requestAIInsight, selectedBacktests.length]);
+
   return (
-    <PageContainer size="wide" className="space-y-6">
+    <PageContainer size="wide" className="space-y-6 page-reveal">
+      <section className="platform-hero p-5 sm:p-6 lg:p-7">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-2">
+            <p className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-200">
+              <Sparkles className="h-3.5 w-3.5" />
+              AI-Enhanced Compare Lab
+            </p>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">Compare Backtests</h1>
+            <p className="max-w-2xl text-sm text-slate-300">
+              Scan, select, and compare up to 5 runs with instant metric deltas and automatic
+              DeepSeek commentary to help you decide faster.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="platform-stat-card min-w-30">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Total Runs</p>
+              <p className="mt-1 text-lg font-semibold text-white">{backtests.length}</p>
+            </div>
+            <div className="platform-stat-card min-w-30">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Visible</p>
+              <p className="mt-1 text-lg font-semibold text-cyan-300">
+                {filteredAndSortedBacktests.length}
+              </p>
+            </div>
+            <div className="platform-stat-card min-w-30">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Selected</p>
+              <p className="mt-1 text-lg font-semibold text-emerald-300">
+                {selectedBacktests.length} / 5
+              </p>
+            </div>
+            <div className="platform-stat-card min-w-30">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">AI Provider</p>
+              <p className="mt-1 text-lg font-semibold text-violet-300">DeepSeek</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Backtest Selection - Card View */}
-      <div className="bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-700">
+      <div className="platform-panel space-y-5">
         <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-white">Compare Backtests</h2>
+            <h2 className="text-2xl font-bold text-white">Select Runs</h2>
             <p className="text-sm text-gray-400 mt-1">
-              Select up to 5 backtests to compare side by side
+              Pick at least 2 runs (up to 5).
+              {showUxHints ? ' Tip: use auto-pick for fast triage.' : ''}
             </p>
           </div>
           <div className="text-left md:text-right">
             <div className="text-sm text-gray-400">
               Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} -{' '}
-              {Math.min(currentPage * ITEMS_PER_PAGE, backtests.length)} of {backtests.length}
+              {Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedBacktests.length)} of{' '}
+              {filteredAndSortedBacktests.length}
             </div>
             <div className="text-sm font-semibold text-blue-400 mt-1">
               Selected: {selectedBacktests.length} / 5
             </div>
           </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]">
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search by run ID or date..."
+              className="w-full rounded-lg border border-slate-700 bg-slate-900/80 py-2.5 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-500 focus:outline-none"
+            />
+          </label>
+
+          <select
+            value={sortBy}
+            onChange={(e) => {
+              setSortBy(e.target.value as SortOption);
+              setCurrentPage(1);
+            }}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none"
+          >
+            <option value="recent">Sort: Most Recent</option>
+            <option value="return">Sort: Highest Return</option>
+            <option value="sharpe">Sort: Best Sharpe</option>
+            <option value="pnl">Sort: Highest PnL</option>
+          </select>
+
+          <button
+            onClick={autoSelectTopThree}
+            className="platform-button platform-button-secondary"
+          >
+            <TrendingUp className="h-4 w-4" />
+            Auto-pick Top 3
+          </button>
+
+          <button onClick={clearSelection} className="platform-button platform-button-secondary">
+            Clear Selection
+          </button>
         </div>
 
         {error && (
@@ -262,11 +786,13 @@ export const BacktestComparator: React.FC = () => {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="text-gray-400">Loading backtests...</div>
+            <div className="flex items-center justify-center gap-2 text-gray-400">
+              <Loader className="h-4 w-4 animate-spin" /> Loading backtests...
+            </div>
           </div>
-        ) : backtests.length === 0 ? (
+        ) : filteredAndSortedBacktests.length === 0 ? (
           <div className="text-center py-12">
-            <div className="text-gray-400">No backtests available</div>
+            <div className="text-gray-400">No backtests match your search</div>
           </div>
         ) : (
           <>
@@ -284,9 +810,9 @@ export const BacktestComparator: React.FC = () => {
                     disabled={!isClickable}
                     className={`relative p-4 rounded-lg border-2 transition-all text-left ${
                       isSelected
-                        ? 'bg-blue-900 border-blue-500 shadow-lg shadow-blue-500/20'
+                        ? 'bg-linear-to-br from-blue-900 to-cyan-900 border-cyan-400 shadow-xl shadow-cyan-500/20 scale-[1.01]'
                         : isClickable
-                          ? 'bg-slate-700 border-slate-600 hover:border-slate-500 hover:bg-slate-600'
+                          ? 'bg-slate-800/90 border-slate-700 hover:border-cyan-600 hover:bg-slate-700/90 hover:-translate-y-0.5'
                           : 'bg-slate-700 border-slate-600 opacity-50 cursor-not-allowed'
                     }`}
                   >
@@ -396,7 +922,7 @@ export const BacktestComparator: React.FC = () => {
                       onClick={() => setCurrentPage(page)}
                       className={`px-3 py-1 rounded text-sm font-medium ${
                         currentPage === page
-                          ? 'bg-blue-600 text-white'
+                          ? 'bg-cyan-600 text-white'
                           : 'text-gray-400 hover:text-white hover:bg-slate-700'
                       }`}
                     >
@@ -418,212 +944,352 @@ export const BacktestComparator: React.FC = () => {
         )}
       </div>
 
-      {/* Comparison Table */}
-      {selectedBacktests.length > 0 && (
-        <div className="bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-700 overflow-x-auto">
+      {selectedBacktests.length >= 2 && comparisonAggregate && (
+        <section className="platform-panel border-violet-500/30 bg-linear-to-br from-violet-950/30 via-slate-900/80 to-slate-900/80">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h3 className="text-lg font-bold text-white">Comparison Results</h3>
+            <div className="space-y-1">
+              <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-violet-300">
+                <BrainCircuit className="h-4 w-4" />
+                DeepSeek Market Narrative
+              </p>
+              <p className="text-sm text-slate-300">
+                Auto-generated comparative insight based on selected runs.
+              </p>
+            </div>
             <button
-              onClick={exportToCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded"
+              onClick={() => void requestAIInsight()}
+              disabled={aiLoading}
+              className="platform-button bg-violet-600 text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
+              {aiLoading ? (
+                <Loader className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {aiLoading ? 'Refreshing insight...' : 'Refresh AI Insight'}
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="platform-stat-card border-violet-500/20">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Avg Return</p>
+              <p
+                className={`mt-1 text-lg font-semibold ${
+                  comparisonAggregate.avgReturnPct >= 0 ? 'text-emerald-300' : 'text-red-300'
+                }`}
+              >
+                {comparisonAggregate.avgReturnPct.toFixed(2)}%
+              </p>
+            </div>
+            <div className="platform-stat-card border-violet-500/20">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Avg Sharpe</p>
+              <p className="mt-1 text-lg font-semibold text-cyan-300">
+                {comparisonAggregate.avgSharpe.toFixed(2)}
+              </p>
+            </div>
+            <div className="platform-stat-card border-violet-500/20">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Total Trades</p>
+              <p className="mt-1 text-lg font-semibold text-amber-300">
+                {comparisonAggregate.totalTrades}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-violet-500/30 bg-slate-950/50 p-4 text-sm leading-relaxed text-slate-200">
+            {aiLoading && (
+              <p className="text-slate-400">DeepSeek is analyzing the selected set...</p>
+            )}
+            {!aiLoading && aiError && <p className="text-red-300">{aiError}</p>}
+            {!aiLoading && !aiError && aiInsight && (
+              <p className="whitespace-pre-line">{aiInsight}</p>
+            )}
+            {!aiLoading && !aiError && !aiInsight && (
+              <p className="text-slate-400">
+                Select at least 2 runs to unlock AI comparative guidance.
+              </p>
+            )}
+            {!aiLoading && !aiError && aiInsight && !aiUsed && (
+              <p className="mt-3 text-xs text-slate-500">
+                DeepSeek key not configured, fallback narrative was used.
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Comparison Metric Race */}
+      {selectedBacktests.length > 0 && (
+        <div className="platform-panel space-y-5">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-white">Metric Race</h3>
+                <button
+                  type="button"
+                  onClick={toggleUxHints}
+                  aria-pressed={showUxHints}
+                  aria-label={showUxHints ? 'Disable UX hints' : 'Enable UX hints'}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] text-slate-300 transition-all duration-200 hover:border-cyan-500/60 hover:text-cyan-300"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-1.5 w-1.5 rounded-full transition-all duration-200 ${
+                      showUxHints
+                        ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.75)]'
+                        : 'bg-slate-500 shadow-none'
+                    } ${hintDotPop ? 'scale-150 ring-2 ring-cyan-300/40' : 'scale-100'}`}
+                  />
+                  <Settings className="h-3.5 w-3.5" />
+                  {showUxHints ? 'Hints on' : 'Hints off'}
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Card-based leaderboard view for faster pattern spotting and premium readability.
+              </p>
+              {showUxHints ? (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  <span>
+                    Tip: press{' '}
+                    <kbd className="rounded border border-slate-600 bg-slate-800/70 px-1.5 py-0.5 text-slate-300">
+                      ?
+                    </kbd>{' '}
+                    to preview winner formulas.
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  UX hints are hidden. Use the settings toggle next to Metric Race to re-enable.
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  ref={legendHelpChipRef}
+                  type="button"
+                  className="group relative inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-900/20 px-3 py-1 text-[11px] font-medium text-emerald-200"
+                  aria-label="Return Winner formula"
+                  aria-keyshortcuts="?"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-300" />
+                  Return Winner
+                  <CircleHelp className="h-3 w-3 opacity-80" />
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-64 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950/95 px-3 py-2 text-left text-[11px] leading-relaxed text-slate-200 shadow-xl group-hover:block group-focus-visible:block">
+                    Highest <strong className="text-emerald-300">Total Return %</strong> among
+                    selected runs.
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className="group relative inline-flex items-center gap-2 rounded-full border border-cyan-500/40 bg-cyan-900/20 px-3 py-1 text-[11px] font-medium text-cyan-200"
+                  aria-label="Risk-Adjusted Winner formula"
+                >
+                  <span className="h-2 w-2 rounded-full bg-cyan-300" />
+                  Risk-Adjusted Winner
+                  <CircleHelp className="h-3 w-3 opacity-80" />
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950/95 px-3 py-2 text-left text-[11px] leading-relaxed text-slate-200 shadow-xl group-hover:block group-focus-visible:block">
+                    Best composite score:
+                    <br />
+                    <strong className="text-cyan-300">
+                      Sharpe×100 − Drawdown + WinRate×0.35 + Return×0.2
+                    </strong>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className="group relative inline-flex items-center gap-2 rounded-full border border-violet-500/40 bg-violet-900/20 px-3 py-1 text-[11px] font-medium text-violet-200"
+                  aria-label="Stability Winner formula"
+                >
+                  <span className="h-2 w-2 rounded-full bg-violet-300" />
+                  Stability Winner
+                  <CircleHelp className="h-3 w-3 opacity-80" />
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-64 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950/95 px-3 py-2 text-left text-[11px] leading-relaxed text-slate-200 shadow-xl group-hover:block group-focus-visible:block">
+                    Lowest <strong className="text-violet-300">Max Drawdown %</strong> among
+                    selected runs.
+                  </span>
+                </button>
+              </div>
+            </div>
+            <button onClick={exportToCSV} className="platform-button platform-button-primary">
               <Download className="w-4 h-4" />
               Export CSV
             </button>
           </div>
 
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-600">
-                <th className="text-left px-4 py-2 text-gray-300 font-medium">Metric</th>
-                {selectedBacktests.map((bt) => (
-                  <th key={bt.run_id} className="text-left px-4 py-2 text-gray-300 font-medium">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs">{bt.run_id.slice(0, 8)}</span>
-                      <button
-                        onClick={() => removeSelected(bt.run_id)}
-                        className="text-gray-400 hover:text-red-400"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700">
-              {/* Total Return */}
-              <tr className="hover:bg-slate-700">
-                <td className="px-4 py-3 text-gray-400 font-medium">Total Return %</td>
-                {selectedBacktests.map((bt, idx) => {
-                  const isBest = getBest('total_return_pct') === bt.run_id;
-                  const delta = getDelta('total_return_pct', idx);
-                  return (
-                    <td
-                      key={bt.run_id}
-                      className={`px-4 py-3 font-mono ${
-                        isBest ? 'text-green-400' : 'text-gray-300'
-                      }`}
-                    >
-                      <div>{(bt.data.total_return_pct ?? 0).toFixed(2)}%</div>
-                      {delta && (
+          {winnerSummary.length > 0 && (
+            <div key={winnerAnimationKey} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {winnerSummary.map((winner, index) => (
+                <article
+                  key={`${winner.title}-${winner.runId}`}
+                  className={`rounded-xl border p-4 animate-fade-slide-up transition-all duration-300 ${winner.toneClass} ${
+                    pulsingWinners[winner.title] ? `ring-2 animate-pulse ${winner.pulseClass}` : ''
+                  }`}
+                  style={{ animationDelay: `${index * 70}ms` }}
+                >
+                  <p className="text-[11px] uppercase tracking-wide opacity-80">{winner.title}</p>
+                  <p className="text-xs text-slate-300 mt-1">{winner.subtitle}</p>
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <p className="font-mono text-xs text-slate-200">
+                      run-{winner.runId.slice(0, 8)}
+                    </p>
+                    <p className="text-sm font-semibold">{winner.value}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {selectedBacktests.map((bt) => (
+              <div key={bt.run_id} className="platform-stat-card border-slate-600/60">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-[11px] text-cyan-300">
+                      run-{bt.run_id.slice(0, 8)}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {(bt.data.start_date || 'N/A').split('T')[0]} →{' '}
+                      {(bt.data.end_date || 'N/A').split('T')[0]}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => removeSelected(bt.run_id)}
+                    className="text-gray-400 hover:text-red-400"
+                    aria-label={`Remove ${bt.run_id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div key={raceAnimationKey} className="grid gap-4 lg:grid-cols-2">
+            {METRIC_RACE_DEFINITIONS.map((metric) => {
+              const values = selectedBacktests.map((bt) => Number(bt.data[metric.key] ?? 0));
+              const minValue = Math.min(...values);
+              const maxValue = Math.max(...values);
+              const range = maxValue - minValue;
+
+              const raceRows = selectedBacktests
+                .map((bt, idx) => {
+                  const rawValue = Number(bt.data[metric.key] ?? 0);
+                  const score =
+                    range === 0
+                      ? 1
+                      : metric.lowerIsBetter
+                        ? (maxValue - rawValue) / range
+                        : (rawValue - minValue) / range;
+
+                  return {
+                    bt,
+                    idx,
+                    rawValue,
+                    score,
+                    isBest: getBest(metric.key) === bt.run_id,
+                    delta: getDelta(metric.key, idx),
+                  };
+                })
+                .sort((a, b) => b.score - a.score);
+
+              return (
+                <article
+                  key={metric.key}
+                  className="rounded-xl border border-slate-700/80 bg-slate-900/55 p-4 animate-fade-in"
+                >
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-white">{metric.label}</h4>
+                    <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                      {metric.lowerIsBetter ? 'Lower is better' : 'Higher is better'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {raceRows.map((row, rank) => {
+                      const barWidth = Math.max(18, Math.round(row.score * 100));
+                      const deltaTone =
+                        row.delta && metric.lowerIsBetter
+                          ? row.delta.delta <= 0
+                            ? 'text-emerald-400'
+                            : 'text-red-400'
+                          : row.delta
+                            ? row.delta.delta >= 0
+                              ? 'text-emerald-400'
+                              : 'text-red-400'
+                            : 'text-slate-500';
+
+                      return (
                         <div
-                          className={`text-xs ${
-                            delta.delta >= 0 ? 'text-green-400' : 'text-red-400'
+                          key={`${metric.key}-${row.bt.run_id}`}
+                          className={`rounded-lg border p-3 transition-all duration-300 hover:-translate-y-0.5 ${
+                            row.isBest
+                              ? 'border-emerald-500/60 bg-emerald-900/10'
+                              : 'border-slate-700/70 bg-slate-900/40'
                           }`}
+                          style={{ animationDelay: `${rank * 45}ms` }}
                         >
-                          {delta.delta >= 0 ? '+' : ''}
-                          {delta.delta.toFixed(2)}% ({delta.deltaPercent.toFixed(1)}
-                          %)
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-semibold text-slate-400">
+                                #{rank + 1}
+                              </span>
+                              <span className="font-mono text-xs text-cyan-300">
+                                run-{row.bt.run_id.slice(0, 8)}
+                              </span>
+                            </div>
+                            <span
+                              className={`text-sm font-semibold ${
+                                row.isBest ? 'text-emerald-300' : 'text-slate-200'
+                              }`}
+                            >
+                              {metric.formatter(row.rawValue)}
+                            </span>
+                          </div>
+
+                          <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                row.isBest
+                                  ? 'bg-linear-to-r from-emerald-500 to-cyan-400'
+                                  : 'bg-linear-to-r from-cyan-600 to-blue-500'
+                              }`}
+                              style={{ width: `${barWidth}%`, transitionDelay: `${rank * 45}ms` }}
+                            />
+                          </div>
+
+                          {row.delta && (
+                            <p className={`mt-2 text-xs ${deltaTone}`}>
+                              vs baseline: {row.delta.delta >= 0 ? '+' : ''}
+                              {metric.key === 'total_pnl' ? '$' : ''}
+                              {row.delta.delta.toFixed(metric.key === 'num_trades' ? 0 : 2)}
+                              {metric.key === 'total_return_pct' ||
+                              metric.key === 'win_rate' ||
+                              metric.key === 'max_drawdown'
+                                ? '%'
+                                : ''}
+                            </p>
+                          )}
                         </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Total PnL */}
-              <tr className="hover:bg-slate-700">
-                <td className="px-4 py-3 text-gray-400 font-medium">Total PnL</td>
-                {selectedBacktests.map((bt, idx) => {
-                  const isBest = getBest('total_pnl') === bt.run_id;
-                  const delta = getDelta('total_pnl', idx);
-                  return (
-                    <td
-                      key={bt.run_id}
-                      className={`px-4 py-3 font-mono ${
-                        isBest ? 'text-green-400' : 'text-gray-300'
-                      }`}
-                    >
-                      <div>${(bt.data.total_pnl ?? 0).toFixed(2)}</div>
-                      {delta && (
-                        <div
-                          className={`text-xs ${
-                            delta.delta >= 0 ? 'text-green-400' : 'text-red-400'
-                          }`}
-                        >
-                          {delta.delta >= 0 ? '+' : ''}${delta.delta.toFixed(2)}
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Sharpe Ratio */}
-              <tr className="hover:bg-slate-700">
-                <td className="px-4 py-3 text-gray-400 font-medium">Sharpe Ratio</td>
-                {selectedBacktests.map((bt, idx) => {
-                  const isBest = getBest('sharpe_ratio') === bt.run_id;
-                  const delta = getDelta('sharpe_ratio', idx);
-                  return (
-                    <td
-                      key={bt.run_id}
-                      className={`px-4 py-3 font-mono ${
-                        isBest ? 'text-green-400' : 'text-gray-300'
-                      }`}
-                    >
-                      <div>{(bt.data.sharpe_ratio ?? 0).toFixed(2)}</div>
-                      {delta && (
-                        <div
-                          className={`text-xs ${
-                            delta.delta >= 0 ? 'text-green-400' : 'text-red-400'
-                          }`}
-                        >
-                          {delta.delta >= 0 ? '+' : ''}
-                          {delta.delta.toFixed(2)}
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Win Rate */}
-              <tr className="hover:bg-slate-700">
-                <td className="px-4 py-3 text-gray-400 font-medium">Win Rate</td>
-                {selectedBacktests.map((bt, idx) => {
-                  const isBest = getBest('win_rate') === bt.run_id;
-                  const delta = getDelta('win_rate', idx);
-                  return (
-                    <td
-                      key={bt.run_id}
-                      className={`px-4 py-3 font-mono ${
-                        isBest ? 'text-green-400' : 'text-gray-300'
-                      }`}
-                    >
-                      <div>{(bt.data.win_rate ?? 0).toFixed(1)}%</div>
-                      {delta && (
-                        <div
-                          className={`text-xs ${
-                            delta.delta >= 0 ? 'text-green-400' : 'text-red-400'
-                          }`}
-                        >
-                          {delta.delta >= 0 ? '+' : ''}
-                          {(delta.delta * 100).toFixed(1)}%
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Max Drawdown */}
-              <tr className="hover:bg-slate-700">
-                <td className="px-4 py-3 text-gray-400 font-medium">Max Drawdown</td>
-                {selectedBacktests.map((bt, idx) => {
-                  const isBest = getBest('max_drawdown') === bt.run_id;
-                  const delta = getDelta('max_drawdown', idx);
-                  return (
-                    <td
-                      key={bt.run_id}
-                      className={`px-4 py-3 font-mono ${
-                        isBest ? 'text-green-400' : 'text-gray-300'
-                      }`}
-                    >
-                      <div>{(bt.data.max_drawdown ?? 0).toFixed(1)}%</div>
-                      {delta && (
-                        <div
-                          className={`text-xs ${
-                            delta.delta <= 0 ? 'text-green-400' : 'text-red-400'
-                          }`}
-                        >
-                          {delta.delta >= 0 ? '+' : ''}
-                          {(delta.delta * 100).toFixed(1)}%
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-
-              {/* Num Trades */}
-              <tr className="hover:bg-slate-700">
-                <td className="px-4 py-3 text-gray-400 font-medium">Number of Trades</td>
-                {selectedBacktests.map((bt) => (
-                  <td key={bt.run_id} className="px-4 py-3 font-mono text-gray-300">
-                    {bt.data.num_trades ?? 0}
-                  </td>
-                ))}
-              </tr>
-
-              {/* Avg Trade Duration */}
-              <tr className="hover:bg-slate-700">
-                <td className="px-4 py-3 text-gray-400 font-medium">Avg Trade Duration (hours)</td>
-                {selectedBacktests.map((bt) => (
-                  <td key={bt.run_id} className="px-4 py-3 font-mono text-gray-300">
-                    {(bt.data.avg_trade_duration ?? 0).toFixed(1)}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+                      );
+                    })}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {selectedBacktests.length === 0 && !loading && (
         <div className="text-center py-12 text-gray-400">
-          Select at least 2 backtests to compare
+          Select at least 2 backtests to compare and unlock AI insight
+        </div>
+      )}
+
+      {showShortcutToast && showUxHints && (
+        <div className="pointer-events-none fixed bottom-5 right-5 z-40 animate-fade-in rounded-lg border border-cyan-500/40 bg-slate-950/95 px-3 py-2 text-xs text-cyan-100 shadow-xl shadow-cyan-500/20">
+          Nice — shortcut unlocked. Press <span className="font-semibold text-cyan-300">?</span>{' '}
+          anytime for winner formulas.
         </div>
       )}
     </PageContainer>

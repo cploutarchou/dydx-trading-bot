@@ -612,7 +612,7 @@ interface BacktestRequest extends Record<string, unknown> {
   };
 }
 
-const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest => {
+export const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest => {
   const startDate = String(data.start_date || '').trim();
   const endDate = String(data.end_date || '').trim();
 
@@ -642,8 +642,7 @@ const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest => {
       ? { ...data.trading_parameters }
       : {};
 
-  const normalizedPairSelectionMode =
-    incomingTradingParams.pair_selection_mode || topLevelMode || 'liquidity';
+  const normalizedPairSelectionMode = incomingTradingParams.pair_selection_mode || topLevelMode;
 
   const existingBenchmark =
     typeof incomingTradingParams.benchmark_symbol === 'string'
@@ -667,9 +666,8 @@ const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest => {
     ? normalizeDydxCandleResolution(existingResolution)
     : undefined;
 
-  const normalizedTradingParameters = {
+  const normalizedTradingParameters: Record<string, unknown> = {
     ...incomingTradingParams,
-    pair_selection_mode: normalizedPairSelectionMode,
     benchmark_symbol: normalizedBenchmarkSymbol,
     ...(normalizedResolution
       ? {
@@ -678,18 +676,28 @@ const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest => {
         }
       : {}),
   };
+  if (normalizedPairSelectionMode) {
+    normalizedTradingParameters.pair_selection_mode = normalizedPairSelectionMode;
+  }
 
   const normalizedPayload: BacktestRequest = {
     ...data,
     start_date: startDate,
     end_date: endDate,
-    pair_selection_mode: normalizedPairSelectionMode,
     trading_parameters: normalizedTradingParameters,
   };
+  if (normalizedPairSelectionMode) {
+    normalizedPayload.pair_selection_mode = normalizedPairSelectionMode;
+  }
 
   if (dedupedPairs && dedupedPairs.length > 0) {
     normalizedPayload.pairs = dedupedPairs;
-    normalizedPayload.max_pairs = dedupedPairs.length;
+    const explicitMaxPairs = Number(data.max_pairs);
+    if (Number.isFinite(explicitMaxPairs) && explicitMaxPairs > 0) {
+      normalizedPayload.max_pairs = explicitMaxPairs;
+    } else {
+      normalizedPayload.max_pairs = dedupedPairs.length;
+    }
   }
 
   return normalizedPayload;

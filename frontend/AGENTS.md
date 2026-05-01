@@ -21,6 +21,13 @@
 - Many major UI screens still fetch directly with `useState/useEffect` (for example `src/components/BacktestList.tsx`, `src/components/BotManager.tsx`). Do not assume hooks are universally adopted.
 - Backtest progress has two patterns: current UI component `src/components/BacktestProgress.tsx` uses polling via `useBacktestProgress` in `src/api/hooks.ts`, while legacy websocket hook logic remains in `src/hooks/useBacktestProgress.ts`.
 
+## Latest frontend context (2026-05)
+
+- `src/pages/Backtests.tsx` now provides a dashboard-first workflow (`dashboard` / `new` / `runs`) with strategy leaderboard + active-run quick access.
+- Active backtest cards now poll per-run status and show normalized runtime progress and freshness (`updated ... ago`) cues.
+- Freshness severity is visualized with tone + border escalation in active run cards (fresh, delayed, stale).
+- `src/components/StrategyManager.tsx` is a major operator surface with heartbeat-aware runtime status, stale/delayed indicators, and runtime summary cards.
+
 ## Key data and control flows
 - Login/session bootstrap: `useAuthStore.initializeSession()` in `src/App.tsx` -> `api.restoreSession()` -> `api.getCurrentUser()`.
 - Protected route check currently requires both `isAuthenticated()` and `user` (`src/App.tsx`).

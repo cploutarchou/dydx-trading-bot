@@ -31,3 +31,9 @@ Use this file when the task is primarily inside the Python bot service.
 
 - `.github/prompts/improve-project.prompt.md`
 - `.github/prompts/review-migration.prompt.md`
+
+## Current implementation hotspots (2026-05)
+
+- `src/api/server.py` — canonical API assembly, auth envelope behavior, readiness contract.
+- `src/bot_instance_manager.py` — lifecycle ownership, per-instance safety, subprocess logging.
+- `src/main_instance.py` — runtime worker orchestration and trading execution entrypoint.

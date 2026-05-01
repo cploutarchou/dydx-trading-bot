@@ -48,3 +48,13 @@
 - Time values in API output are typically RFC3339-formatted (`time.RFC3339`), often using UTC.
 - Models are centralized in `internal/models/models.go` with both `db` and `json` tags; nullable DB fields use pointers or `sql.NullString`.
 - Route grouping convention is `/api/v1/...`; protected groups apply `RequireAuth()` at group level, then define sub-routes.
+
+## Latest backend context (2026-05)
+
+- Backtest list endpoint (`GET /api/v1/backtests`) is DB-backed through `BacktestRepository.GetRunsByUserID` and `CountRunsByUserID`.
+- Delegated status/progress normalization is centralized in `internal/routes/bot_api_delegate_routes.go` (`normalizeBacktest*` helpers).
+- Migration posture expects transaction-safe SQL in startup migration flow; avoid statements that require non-transaction execution.
+- Recent index migration hardening touched:
+  - `migrations/postgres/000047_backtest_list_perf_index.up.sql`
+  - `migrations/postgres/000051_phase1_missing_indexes.{up,down}.sql`
+  - `migrations/postgres/000053_phase4_drop_redundant_indexes.up.sql`

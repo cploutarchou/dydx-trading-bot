@@ -14,6 +14,15 @@ This is a **layered Go REST API** for managing dYdX trading credentials and back
 - **Handler Layer** (`internal/handlers/`) - HTTP request/response processing
 - **Routes** (`internal/routes/`) - Route registration with middleware injection
 
+## Authoritative current-state overrides (2026-05)
+
+Use these when any later section conflicts:
+
+- Runtime database support is PostgreSQL-focused in current backend startup/config paths; do not assume SQLite parity for production behavior.
+- Backtest list behavior for frontend is DB-backed (`GET /api/v1/backtests`) and not a direct passthrough to bot API.
+- Payload normalization for delegated backtest status/progress fields is owned in `internal/routes/bot_api_delegate_routes.go`.
+- Startup migration flow assumes transaction-safe SQL; avoid migration patterns that require non-transactional `CONCURRENTLY` operations.
+
 ## Key Development Patterns
 
 ### Database Operations

@@ -6,6 +6,8 @@ import {
     BarChart3,
     ChevronRight,
     Layers3,
+    ListChecks,
+    PlusCircle,
     ShieldCheck,
     Sparkles,
     Target,
@@ -33,6 +35,12 @@ import {
     type StrategyRef,
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
+
+export type BacktestsView = 'dashboard' | 'new' | 'runs';
+
+interface BacktestsPageProps {
+  view?: BacktestsView;
+}
 
 const StatCard: React.FC<{
   label: string;
@@ -97,7 +105,30 @@ const InsightCard: React.FC<{
   </div>
 );
 
-export const BacktestsPage: React.FC = () => {
+const BacktestWorkflowCards = () => (
+  <section className="grid gap-3 md:grid-cols-3">
+    <Link to="/strategies" className="operator-action-card p-4">
+      <p className="text-sm font-semibold text-white">1. Choose strategy</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">
+        Start from a saved strategy or build a new setup first.
+      </p>
+    </Link>
+    <Link to="/backtests/new" className="operator-action-card p-4">
+      <p className="text-sm font-semibold text-white">2. Run validation</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">
+        Configure dates, pairs, sizing, and historical assumptions.
+      </p>
+    </Link>
+    <Link to="/bots" className="operator-action-card p-4">
+      <p className="text-sm font-semibold text-white">3. Deploy only when ready</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">
+        Promote validated strategies into live or paper runtime management.
+      </p>
+    </Link>
+  </section>
+);
+
+export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard' }) => {
   const queryClient = useQueryClient();
   const strategiesQuery = useQuery({
     queryKey: ['strategies', 'lookup'],
@@ -223,6 +254,72 @@ export const BacktestsPage: React.FC = () => {
     []
   );
 
+  if (view === 'new') {
+    return (
+      <PageContainer size="wide" className="space-y-6">
+        <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
+          <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
+            <div>
+              <div className="surface-label">
+                <PlusCircle className="h-3.5 w-3.5" />
+                New Backtest
+              </div>
+              <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                Create a focused validation run before a strategy reaches Bots.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
+                Keep setup and launch separate from analytics. Pick a strategy/configuration,
+                define the historical window, and start the run from one purpose-built page.
+              </p>
+            </div>
+            <div className="operator-mini-grid">
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Step</p>
+                <p className="mt-2 text-xl font-semibold text-white">Validate</p>
+                <p className="mt-1 text-xs text-slate-500">Before deployment</p>
+              </div>
+              <div className="operator-hero-panel px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Active runs
+                </p>
+                <p className="mt-2 text-xl font-semibold text-white">
+                  {backtestsQuery.isLoading ? '—' : intelligence.activeRuns}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">Soft-refreshed from backend</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <BacktestWorkflowCards />
+
+        <section className="operator-section-card overflow-hidden">
+          <div className="flex flex-col gap-3 border-b border-slate-800/80 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Backtest setup</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                Launch a historical run here. Results and ranking stay on the dashboard and archive
+                pages so this form stays easy to scan.
+              </p>
+            </div>
+            <Link
+              to="/backtests/runs"
+              className="premium-button premium-button-secondary px-4 py-2 text-sm"
+            >
+              View runs
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <BacktestRunner
+            onBacktestComplete={() => {
+              void queryClient.invalidateQueries({ queryKey: ['backtests'] });
+            }}
+          />
+        </section>
+      </PageContainer>
+    );
+  }
+
   if (backtestsQuery.isLoading) {
     return (
       <PageContainer size="wide" className="space-y-6">
@@ -262,16 +359,22 @@ export const BacktestsPage: React.FC = () => {
         <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
           <div>
             <div className="surface-label">
-              <Sparkles className="h-3.5 w-3.5" />
-              Backtest intelligence
+              {view === 'runs' ? (
+                <ListChecks className="h-3.5 w-3.5" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {view === 'runs' ? 'Backtest Runs' : 'Backtest Dashboard'}
             </div>
             <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              See every run, then decide which strategy actually deserves trust.
+              {view === 'runs'
+                ? 'Review every historical run without crowding the analytics dashboard.'
+                : 'See validation quality, then decide which strategy deserves trust.'}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-              This page is tuned like a research control room: live activity near the top, weighted
-              quality metrics, terminal-grade strategy ranking, and clearer notes about what should
-              and should not influence promotion decisions.
+              {view === 'runs'
+                ? 'This archive is for run-by-run inspection, progress, and report entry points. Use the dashboard for high-level decision stats.'
+                : 'This dashboard is tuned for validation decisions: live activity, weighted quality metrics, strategy ranking, and promotion guidance.'}
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <div className="operator-status-pill" data-tone="accent">
@@ -351,69 +454,53 @@ export const BacktestsPage: React.FC = () => {
         />
       </section>
 
-      <section className="operator-section-card overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-slate-800/80 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-white">Run setup</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-400">
-              Configure historical validation here first, then compare reports before deploying a
-              strategy into Bots.
-            </p>
-          </div>
-          <Link
-            to="/strategies"
-            className="premium-button premium-button-secondary px-4 py-2 text-sm"
-          >
-            Choose strategy
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
-        <BacktestRunner
-          onBacktestComplete={() => {
-            void queryClient.invalidateQueries({ queryKey: ['backtests'] });
-          }}
-        />
-      </section>
+      {view === 'dashboard' && <BacktestWorkflowCards />}
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <InsightCard
-          title="Best Performing Strategy"
-          icon={<Award className="h-5 w-5 text-amber-300" />}
-          aggregate={intelligence.bestStrategy}
-          accent="bg-amber-500/10"
-          secondary={
-            intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
-              ? 'text-green-400'
-              : 'text-red-400'
-          }
-        />
-        <InsightCard
-          title="Safest Strategy"
-          icon={<ShieldCheck className="h-5 w-5 text-emerald-300" />}
-          aggregate={intelligence.safestStrategy}
-          accent="bg-emerald-500/10"
-          secondary={
-            intelligence.safestStrategy && intelligence.safestStrategy.totalPnl >= 0
-              ? 'text-green-400'
-              : 'text-red-400'
-          }
-        />
-        <InsightCard
-          title="Most Consistent Strategy"
-          icon={<Layers3 className="h-5 w-5 text-cyan-300" />}
-          aggregate={intelligence.mostConsistentStrategy}
-          accent="bg-cyan-500/10"
-          secondary={
-            intelligence.mostConsistentStrategy && intelligence.mostConsistentStrategy.totalPnl >= 0
-              ? 'text-green-400'
-              : 'text-red-400'
-          }
-        />
-      </section>
+      {view === 'dashboard' && (
+        <>
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <InsightCard
+              title="Best Performing Strategy"
+              icon={<Award className="h-5 w-5 text-amber-300" />}
+              aggregate={intelligence.bestStrategy}
+              accent="bg-amber-500/10"
+              secondary={
+                intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
+                  ? 'text-green-400'
+                  : 'text-red-400'
+              }
+            />
+            <InsightCard
+              title="Safest Strategy"
+              icon={<ShieldCheck className="h-5 w-5 text-emerald-300" />}
+              aggregate={intelligence.safestStrategy}
+              accent="bg-emerald-500/10"
+              secondary={
+                intelligence.safestStrategy && intelligence.safestStrategy.totalPnl >= 0
+                  ? 'text-green-400'
+                  : 'text-red-400'
+              }
+            />
+            <InsightCard
+              title="Most Consistent Strategy"
+              icon={<Layers3 className="h-5 w-5 text-cyan-300" />}
+              aggregate={intelligence.mostConsistentStrategy}
+              accent="bg-cyan-500/10"
+              secondary={
+                intelligence.mostConsistentStrategy &&
+                intelligence.mostConsistentStrategy.totalPnl >= 0
+                  ? 'text-green-400'
+                  : 'text-red-400'
+              }
+            />
+          </section>
 
-      <CodexAssetIntelStrip title="Assets Behind Your Top Runs" request={backtestIntelRequest} />
+          <CodexAssetIntelStrip title="Assets Behind Your Top Runs" request={backtestIntelRequest} />
+        </>
+      )}
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
+      {view === 'dashboard' && (
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
         <TerminalDataGrid
           title="Strategy leaderboard"
           subtitle="Sortable ranking weighted for profitability, Sharpe, consistency, and drawdown discipline."
@@ -567,9 +654,11 @@ export const BacktestsPage: React.FC = () => {
             </ul>
           </div>
         </div>
-      </section>
+        </section>
+      )}
 
-      <section className="operator-section-card p-5 space-y-4">
+      {view === 'runs' && (
+        <section className="operator-section-card p-5 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold text-white">All Backtests</h2>
@@ -586,7 +675,8 @@ export const BacktestsPage: React.FC = () => {
           </Link>
         </div>
         <BacktestList />
-      </section>
+        </section>
+      )}
     </PageContainer>
   );
 };

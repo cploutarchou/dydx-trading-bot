@@ -742,7 +742,7 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <Link to="/backtests" className="operator-action-card p-4 text-left">
+              <Link to="/backtests/new" className="operator-action-card p-4 text-left">
                 <div className="flex items-start gap-3">
                   <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
                     <Rocket className="h-5 w-5" />
@@ -763,7 +763,7 @@ export const DashboardPage: React.FC = () => {
                   <div>
                     <p className="text-sm font-semibold text-white">Backtest intelligence</p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Open rankings, strategy trust signals, and the full run archive.
+                      Open validation quality, strategy trust signals, and promotion readiness.
                     </p>
                   </div>
                 </div>
@@ -1259,8 +1259,8 @@ export const DashboardPage: React.FC = () => {
               Latest validation and runtime signals, with deep reports kept under Backtests.
             </p>
           </div>
-          <Link to="/backtests" className="premium-button premium-button-secondary px-4 py-2 text-sm">
-            Open Backtests
+          <Link to="/backtests/runs" className="premium-button premium-button-secondary px-4 py-2 text-sm">
+            Open runs
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -1274,7 +1274,7 @@ export const DashboardPage: React.FC = () => {
             title="No activity yet"
             description="Validated backtests, running jobs, and bot events will appear here once the desk has data."
             action={
-              <Link to="/backtests" className="premium-button premium-button-primary px-4 py-2 text-sm">
+              <Link to="/backtests/new" className="premium-button premium-button-primary px-4 py-2 text-sm">
                 Run first backtest
                 <ArrowRight className="h-4 w-4" />
               </Link>

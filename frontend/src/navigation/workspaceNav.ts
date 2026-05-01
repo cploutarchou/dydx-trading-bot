@@ -4,6 +4,7 @@ import {
     BriefcaseBusiness,
     Building2,
     GitBranch,
+    History,
     Home,
     KeyRound,
     Library,
@@ -37,6 +38,7 @@ import { ibPortalPath, ibPortalSectionFromPath } from '../pages/ib/paths';
 export type WorkspaceSection =
   | 'Overview'
   | 'Strategy Lab'
+  | 'Backtests'
   | 'Live Trading'
   | 'Intelligence'
   | 'Administration'
@@ -77,23 +79,42 @@ const clientNavItems: WorkspaceNavItem[] = [
     shortcut: 'G C',
   },
   {
-    label: 'Backtests',
+    label: 'Backtest Dashboard',
     path: '/backtests',
-    description: 'Launch, monitor, compare, and report every historical strategy test.',
-    section: 'Strategy Lab',
-    keywords: ['runs', 'simulation', 'history', 'results', 'launch', 'report'],
+    description: 'Decision dashboard for validation quality, risk, and promotion readiness.',
+    section: 'Backtests',
+    keywords: ['dashboard', 'runs', 'simulation', 'history', 'results', 'report'],
     exact: true,
-    icon: Target,
+    icon: BarChart3,
     shortcut: 'G B',
+  },
+  {
+    label: 'New Backtest',
+    path: '/backtests/new',
+    description: 'Create a new historical validation run from a strategy or configuration.',
+    section: 'Backtests',
+    keywords: ['new', 'create', 'run', 'launch', 'strategy'],
+    exact: true,
+    icon: PlusCircle,
+    shortcut: 'N B',
+  },
+  {
+    label: 'Backtest Runs',
+    path: '/backtests/runs',
+    description: 'Archive of historical runs, live progress, and detailed reports.',
+    section: 'Backtests',
+    keywords: ['runs', 'archive', 'history', 'progress', 'reports'],
+    exact: true,
+    icon: History,
   },
   {
     label: 'Compare Backtests',
     path: '/backtests/compare',
     description: 'Compare multiple runs and inspect relative performance.',
-    section: 'Strategy Lab',
+    section: 'Backtests',
     keywords: ['compare', 'benchmark', 'versus'],
     exact: false,
-    icon: BarChart3,
+    icon: Target,
   },
   {
     label: 'Strategies',
@@ -348,9 +369,9 @@ export const getWorkspaceQuickActions = (
       },
       {
         label: 'Run Backtest',
-        path: '/backtests',
+        path: '/backtests/new',
         description: 'Launch a historical validation run from the Backtests desk.',
-        section: 'Strategy Lab',
+        section: 'Backtests',
         keywords: ['create', 'run', 'launch', 'backtest'],
         exact: false,
         icon: Target,
@@ -368,6 +389,7 @@ export const workspaceQuickActions = getWorkspaceQuickActions();
 export const workspaceSections: WorkspaceSection[] = [
   'Overview',
   'Strategy Lab',
+  'Backtests',
   'Live Trading',
   'Intelligence',
   'Administration',

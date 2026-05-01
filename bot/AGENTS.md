@@ -75,3 +75,9 @@ Repository-level guidance for coding agents working on this project.
 - `../docs/OPERATIONS.md`
 - `.github/copilot-instructions.md`
 - `tasks.md`
+
+## Latest bot context (2026-05)
+
+- Keep `src/api/server.py` as canonical API entrypoint and preserve compatibility wrappers (`app.py`, `start_api.py`).
+- Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics remain active contracts with backend delegation.
+- Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates after runtime changes.

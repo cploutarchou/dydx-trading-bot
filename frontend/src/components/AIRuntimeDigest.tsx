@@ -1,7 +1,7 @@
 import { BrainCircuit, Loader, RefreshCw, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import api, { type AIMarketProvider, type AIRuntimeDigestRequest } from '../api';
-import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
+import { useAIProviderAvailability } from '../features/ai/providerAvailability';
 
 interface Props {
   runningBots: number;
@@ -29,12 +29,10 @@ export function AIRuntimeDigest({
   const [content, setContent] = useState<string | null>(null);
   const [usedAI, setUsedAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const {
-    availableProviders,
-    unavailableProviders,
-    statusMap,
-    isLoading: providerStatusLoading,
-  } = useAIProviderAvailability();
+  const { availableProviders, isLoading: providerStatusLoading } = useAIProviderAvailability();
+
+  const getEngineLabel = (_provider: AIMarketProvider, index: number): string =>
+    index === 0 ? 'Primary engine' : `Engine ${index + 1}`;
 
   useEffect(() => {
     if (availableProviders.length > 0 && !availableProviders.includes(provider)) {
@@ -100,7 +98,7 @@ export function AIRuntimeDigest({
           <span className="text-sm font-semibold text-cyan-200">AI Runtime Digest</span>
           {content && usedAI && (
             <span className="rounded-full bg-cyan-900/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-300">
-              {provider}
+              assistant active
             </span>
           )}
         </div>
@@ -112,9 +110,9 @@ export function AIRuntimeDigest({
             disabled={loading || providerStatusLoading || availableProviders.length === 0}
             className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
           >
-            {availableProviders.map((p) => (
+            {availableProviders.map((p, index) => (
               <option key={p} value={p}>
-                {getAIProviderLabel(p)}
+                {getEngineLabel(p, index)}
               </option>
             ))}
           </select>
@@ -145,20 +143,15 @@ export function AIRuntimeDigest({
 
       {!providerStatusLoading && availableProviders.length === 0 && (
         <div className="mt-3 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-          No AI providers are currently available for your account.{' '}
-          {unavailableProviders
-            .map(
-              (item) =>
-                `${getAIProviderLabel(item)}: ${statusMap[item]?.unavailable_reason || 'Not configured'}`
-            )
-            .join(' · ')}
+          Assistant features are unavailable for this account right now. Ask an admin to enable at
+          least one AI provider in Settings.
         </div>
       )}
 
       {loading && (
         <div className="mt-4 flex items-center gap-3 text-sm text-slate-400">
           <Loader className="h-4 w-4 animate-spin text-cyan-400" />
-          Generating digest with {getAIProviderLabel(provider)}…
+          Generating runtime digest…
         </div>
       )}
 

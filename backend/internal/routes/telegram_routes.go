@@ -21,9 +21,27 @@ func RegisterTelegramRoutes(router *gin.Engine, database *db.Database) {
 		telegram := v1.Group("/telegram")
 		telegram.Use(middleware.RequireAuth())
 		{
+			userTelegram := telegram.Group("/user")
+			{
+				userTelegram.GET("/status", handler.GetUserStatus)
+				userTelegram.PUT("/config", handler.SaveUserConfig)
+				userTelegram.DELETE("/config", handler.DeleteUserConfig)
+				userTelegram.POST("/preflight", handler.PreflightValidateUserDelivery)
+			}
+
+			globalTelegram := telegram.Group("/global")
+			{
+				globalTelegram.GET("/status", handler.GetGlobalStatus)
+				globalTelegram.PUT("/config", handler.SaveGlobalConfig)
+				globalTelegram.DELETE("/config", handler.DeleteGlobalConfig)
+				globalTelegram.POST("/preflight", handler.PreflightValidateGlobalDelivery)
+			}
+
+			// Compatibility aliases for older clients. These endpoints are user-scoped.
 			telegram.GET("/status", handler.GetStatus)
 			telegram.PUT("/config", handler.SaveConfig)
 			telegram.DELETE("/config", handler.DeleteConfig)
+			telegram.POST("/preflight", handler.PreflightValidateTelegramDelivery)
 		}
 	}
 }

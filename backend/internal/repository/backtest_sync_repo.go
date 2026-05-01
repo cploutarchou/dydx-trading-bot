@@ -110,6 +110,13 @@ func NewBacktestSyncRepository(db *sql.DB) *BacktestSyncRepository {
 	return &BacktestSyncRepository{db: db}
 }
 
+func (r *BacktestSyncRepository) DB() *sql.DB {
+	if r == nil {
+		return nil
+	}
+	return r.db
+}
+
 func nullableStringValue(value sql.NullString) interface{} {
 	if value.Valid {
 		return value.String

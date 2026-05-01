@@ -146,6 +146,62 @@ func createUserMFACredentialsSchema(t *testing.T, dbConn *sql.DB) {
 	}
 }
 
+func createRBACSchemaForAdminTests(t *testing.T, dbConn *sql.DB) {
+	t.Helper()
+	statements := []string{
+		`CREATE TABLE permissions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			permission_key TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			is_sensitive BOOLEAN NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
+		);`,
+		`CREATE TABLE role_permissions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			role TEXT NOT NULL,
+			permission_key TEXT NOT NULL,
+			created_at DATETIME NOT NULL,
+			UNIQUE(role, permission_key)
+		);`,
+		`CREATE TABLE user_permission_overrides (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			permission_key TEXT NOT NULL,
+			effect TEXT NOT NULL,
+			reason TEXT NOT NULL DEFAULT '',
+			granted_by_user_id INTEGER,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			UNIQUE(user_id, permission_key)
+		);`,
+		`CREATE TABLE custom_roles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			role TEXT NOT NULL UNIQUE,
+			display_name TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			is_system BOOLEAN NOT NULL DEFAULT 0,
+			created_by_user_id INTEGER,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
+		);`,
+		`INSERT INTO permissions (permission_key, description, is_sensitive, created_at, updated_at)
+		 VALUES ('users.read', 'Read users', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+		        ('roles.manage', 'Manage roles', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+		        ('crm.read', 'Read CRM', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
+		`INSERT INTO role_permissions (role, permission_key, created_at)
+		 VALUES ('admin', 'users.read', CURRENT_TIMESTAMP),
+		        ('admin', 'roles.manage', CURRENT_TIMESTAMP),
+		        ('admin', 'crm.read', CURRENT_TIMESTAMP);`,
+	}
+
+	for _, statement := range statements {
+		if _, err := dbConn.Exec(statement); err != nil {
+			t.Fatalf("create rbac schema: %v", err)
+		}
+	}
+}
+
 func TestAdminUserRoutes_ListUsers(t *testing.T) {
 	router, dbConn := setupAdminUserRouter(t)
 	t.Cleanup(func() {
@@ -217,6 +273,69 @@ func TestAdminUserRoutes_CreateUser(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected created user row")
+	}
+}
+
+func TestAdminUserRoutes_CustomRoleLifecycle(t *testing.T) {
+	router, dbConn := setupAdminUserRouter(t)
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+	createRBACSchemaForAdminTests(t, dbConn)
+
+	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
+
+	createPayload, _ := json.Marshal(map[string]any{
+		"role":         "risk_ops",
+		"display_name": "Risk Ops",
+		"description":  "Can inspect CRM risk queues",
+	})
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/roles", bytes.NewReader(createPayload))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", issueAdminBearerToken(t, adminID, "admin", "admin"))
+	createRes := httptest.NewRecorder()
+	router.ServeHTTP(createRes, createReq)
+	if createRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 creating custom role, got %d body=%s", createRes.Code, createRes.Body.String())
+	}
+
+	permissionPayload, _ := json.Marshal(map[string]any{
+		"permission_keys": []string{"crm.read", "users.read"},
+	})
+	permissionReq := httptest.NewRequest(http.MethodPut, "/api/v1/admin/roles/risk_ops/permissions", bytes.NewReader(permissionPayload))
+	permissionReq.Header.Set("Content-Type", "application/json")
+	permissionReq.Header.Set("Authorization", issueAdminBearerToken(t, adminID, "admin", "admin"))
+	permissionRes := httptest.NewRecorder()
+	router.ServeHTTP(permissionRes, permissionReq)
+	if permissionRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating custom role permissions, got %d body=%s", permissionRes.Code, permissionRes.Body.String())
+	}
+
+	userPayload, _ := json.Marshal(map[string]any{
+		"username":  "risk-user",
+		"email":     "risk@example.local",
+		"password":  "Pass123!",
+		"full_name": "Risk User",
+		"role":      "risk_ops",
+		"is_active": true,
+	})
+	userReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users", bytes.NewReader(userPayload))
+	userReq.Header.Set("Content-Type", "application/json")
+	userReq.Header.Set("Authorization", issueAdminBearerToken(t, adminID, "admin", "admin"))
+	userRes := httptest.NewRecorder()
+	router.ServeHTTP(userRes, userReq)
+	if userRes.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating user with custom role, got %d body=%s", userRes.Code, userRes.Body.String())
+	}
+
+	var count int
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM users WHERE username = ? AND role = ?`, "risk-user", "risk_ops").Scan(&count); err != nil {
+		t.Fatalf("count custom role user: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected user to keep custom role")
 	}
 }
 

@@ -48,6 +48,16 @@ type updateUserRoleRequest struct {
 	Role string `json:"role" binding:"required"`
 }
 
+type createCustomRoleRequest struct {
+	Role        string `json:"role" binding:"required"`
+	DisplayName string `json:"display_name"`
+	Description string `json:"description"`
+}
+
+type updateRolePermissionsRequest struct {
+	PermissionKeys []string `json:"permission_keys"`
+}
+
 type updateUserStatusRequest struct {
 	IsActive bool `json:"is_active"`
 }
@@ -100,6 +110,10 @@ func RegisterAdminUserRoutes(router *gin.Engine, database *sql.DB) {
 		adminRoutes.POST("/users/:id/reset-password", middleware.RequirePermission(database, "roles.manage"), resetAdminUserPasswordHandler(database))
 		adminRoutes.POST("/users/:id/reset-mfa", middleware.RequirePermission(database, "roles.manage"), resetAdminUserMFAHandler(database))
 		adminRoutes.PUT("/users/:id", middleware.RequirePermission(database, "roles.manage"), updateAdminUserHandler(database))
+		adminRoutes.GET("/access-control", middleware.RequirePermission(database, "roles.manage"), accessControlHandler(database))
+		adminRoutes.POST("/roles", middleware.RequirePermission(database, "roles.manage"), createCustomRoleHandler(database))
+		adminRoutes.PUT("/roles/:role/permissions", middleware.RequirePermission(database, "roles.manage"), updateRolePermissionsHandler(database))
+		adminRoutes.DELETE("/roles/:role", middleware.RequirePermission(database, "roles.manage"), deleteCustomRoleHandler(database))
 		adminRoutes.GET("/ib/invitations", middleware.RequirePermission(database, "crm.admin.manage"), listInvitationTokensHandler(database))
 		adminRoutes.POST("/ib/invitations", middleware.RequirePermission(database, "crm.admin.manage"), createInvitationTokenHandler(database))
 		adminRoutes.POST("/ib/invitations/:tokenCode/revoke", middleware.RequirePermission(database, "crm.admin.manage"), revokeInvitationTokenHandler(database))
@@ -131,6 +145,104 @@ func toInvitationTokenResponse(token *models.InvitationToken) invitationTokenRes
 		CreatedAt:        token.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:        token.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+func systemRoleCatalog() []repository.RoleRow {
+	roles := models.AvailableUserRoles()
+	catalog := make([]repository.RoleRow, 0, len(roles))
+	for _, role := range roles {
+		catalog = append(catalog, repository.RoleRow{
+			Role:        role,
+			DisplayName: role,
+			Description: "Built-in platform role",
+			IsSystem:    true,
+		})
+	}
+	return catalog
+}
+
+func isSystemRole(role string) bool {
+	role = strings.TrimSpace(strings.ToLower(role))
+	for _, systemRole := range models.AvailableUserRoles() {
+		if role == systemRole {
+			return true
+		}
+	}
+	return false
+}
+
+func listRoleCatalog(database *sql.DB) ([]repository.RoleRow, error) {
+	catalog := systemRoleCatalog()
+	customRoles, err := repository.NewRBACRepository(database).ListCustomRoles()
+	if err != nil {
+		return nil, err
+	}
+	for _, role := range customRoles {
+		if isSystemRole(role.Role) {
+			continue
+		}
+		catalog = append(catalog, role)
+	}
+	return catalog, nil
+}
+
+func roleKeysFromCatalog(catalog []repository.RoleRow) []string {
+	roles := make([]string, 0, len(catalog))
+	seen := map[string]struct{}{}
+	for _, role := range catalog {
+		key := strings.TrimSpace(strings.ToLower(role.Role))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		roles = append(roles, key)
+	}
+	return roles
+}
+
+func availableUserRoles(database *sql.DB) ([]string, error) {
+	catalog, err := listRoleCatalog(database)
+	if err != nil {
+		return nil, err
+	}
+	return roleKeysFromCatalog(catalog), nil
+}
+
+func mustAvailableUserRoles(database *sql.DB) []string {
+	roles, err := availableUserRoles(database)
+	if err != nil {
+		return models.AvailableUserRoles()
+	}
+	return roles
+}
+
+func normalizeRoleKey(rawRole string) (string, error) {
+	trimmed := strings.TrimSpace(strings.ToLower(rawRole))
+	role := models.NormalizeUserRole(trimmed, false)
+	if role == "client" && trimmed != "" && trimmed != "client" {
+		return "", fmt.Errorf("role must use lowercase letters, numbers, dashes, or underscores and start with a letter")
+	}
+	return role, nil
+}
+
+func normalizeAssignableRole(database *sql.DB, rawRole string) (string, error) {
+	role, err := normalizeRoleKey(rawRole)
+	if err != nil {
+		return "", err
+	}
+	roles, err := availableUserRoles(database)
+	if err != nil {
+		return "", err
+	}
+	for _, candidate := range roles {
+		if candidate == role {
+			return role, nil
+		}
+	}
+	return "", fmt.Errorf("role %q has not been created", role)
 }
 
 func generateInvitationTokenCode() (string, error) {
@@ -320,6 +432,14 @@ func revokeInvitationTokenHandler(database *sql.DB) gin.HandlerFunc {
 func listAdminUsersHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userRepo := repository.NewUserRepository(database)
+		roles, rolesErr := availableUserRoles(database)
+		if rolesErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("Failed to load roles: %v", rolesErr),
+			})
+			return
+		}
 		limit := parseBoundedInt(c.DefaultQuery("limit", "100"), 1, 500, 100)
 		offset := parseBoundedInt(c.DefaultQuery("offset", "0"), 0, 100000, 0)
 		var activeFilter *bool
@@ -353,7 +473,7 @@ func listAdminUsersHandler(database *sql.DB) gin.HandlerFunc {
 			"message": "Users loaded successfully",
 			"data": adminUserListResponse{
 				Users: payload,
-				Roles: models.AvailableUserRoles(),
+				Roles: roles,
 			},
 			"pagination": gin.H{
 				"limit":  limit,
@@ -402,7 +522,14 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		normalizedRole := models.NormalizeUserRole(req.Role, false)
+		normalizedRole, roleErr := normalizeAssignableRole(database, req.Role)
+		if roleErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": roleErr.Error(),
+			})
+			return
+		}
 		isAdmin := normalizedRole == "admin"
 		isActive := true
 		if req.IsActive != nil {
@@ -466,7 +593,7 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 			"message": "User created successfully",
 			"data": gin.H{
 				"user":              toUserResponse(user, middleware.IsPrivilegedMFARequired(database)),
-				"roles":             models.AvailableUserRoles(),
+				"roles":             mustAvailableUserRoles(database),
 				"onboarding_notice": onboardingNotice,
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
@@ -520,7 +647,15 @@ func updateAdminUserWithRequest(database *sql.DB, c *gin.Context, req updateAdmi
 	actorID := c.GetInt("user_id")
 	nextRole := models.NormalizeUserRole(user.Role, user.IsAdmin)
 	if req.Role != nil {
-		nextRole = models.NormalizeUserRole(*req.Role, false)
+		normalizedRole, roleErr := normalizeAssignableRole(database, *req.Role)
+		if roleErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": roleErr.Error(),
+			})
+			return
+		}
+		nextRole = normalizedRole
 	}
 	nextIsActive := user.IsActive
 	if req.IsActive != nil {
@@ -575,7 +710,7 @@ func updateAdminUserWithRequest(database *sql.DB, c *gin.Context, req updateAdmi
 		"message": "User updated successfully",
 		"data": gin.H{
 			"user":  toUserResponse(user, middleware.IsPrivilegedMFARequired(database)),
-			"roles": models.AvailableUserRoles(),
+			"roles": mustAvailableUserRoles(database),
 		},
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})

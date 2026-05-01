@@ -40,8 +40,14 @@ class BotInstance:
         self.config = None
 
         # Instance-specific file paths
-        self.bot_agents_file = os.getenv("BOT_AGENTS_FILE", f"bot_agents_{instance_id}.json")
-        self.pairs_file = os.getenv("BOT_PAIRS_FILE", f"cointegrated_pairs_{instance_id}.json")
+        self.bot_agents_file = os.getenv(
+            "BOT_AGENTS_FILE",
+            f"bot_states/bot_agents_{instance_id}.json",
+        )
+        self.pairs_file = os.getenv(
+            "BOT_PAIRS_FILE",
+            f"bot_states/cointegrated_pairs_{instance_id}.json",
+        )
 
         # Replace placeholders in file paths
         self.bot_agents_file = self.bot_agents_file.replace("{instance_id}", instance_id)
@@ -207,8 +213,19 @@ class BotInstance:
             self.load_config()
             self.setup_signal_handlers()
 
-            # Initialize Telegram messenger with instance info
-            self.messenger = TelegramMessenger()
+            # Initialize Telegram messenger with instance-specific credentials
+            telegram_token = ""
+            telegram_chat_id = ""
+            if self.config and self.config.telegram:
+                telegram_token = self.config.telegram.token or ""
+                telegram_chat_id = self.config.telegram.chat_id or ""
+            
+            self.messenger = TelegramMessenger(
+                bot_token=telegram_token,
+                chat_id=telegram_chat_id,
+                instance_id=self.instance_id,
+                environment=self.config.environment if self.config else "development",
+            )
 
             # Send startup message
             account_address = (

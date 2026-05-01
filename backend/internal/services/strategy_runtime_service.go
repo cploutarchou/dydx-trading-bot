@@ -559,24 +559,28 @@ func (s *StrategyRuntimeService) buildTelegramParams(userID int) map[string]inte
 		}
 	}
 
-	config, configured, err := s.telegramService.ResolveConfigForUser(userID)
+	resolved, err := s.telegramService.ResolveEffectiveConfig(userID)
 	if err != nil {
 		log.Printf("⚠️ failed to resolve Telegram settings for runtime payload user_id=%d: %v", userID, err)
 		return map[string]interface{}{
 			"token":   "",
 			"chat_id": "",
+			"source":  string(TelegramConfigSourceNone),
 		}
 	}
-	if !configured || config == nil {
+	if resolved == nil || resolved.Config == nil || resolved.Source == TelegramConfigSourceNone {
 		return map[string]interface{}{
 			"token":   "",
 			"chat_id": "",
+			"source":  string(TelegramConfigSourceNone),
 		}
 	}
 
+	log.Printf("ℹ️ using Telegram config source=%s for user_id=%d", resolved.Source, userID)
 	return map[string]interface{}{
-		"token":   config.BotToken,
-		"chat_id": config.ChatID,
+		"token":   resolved.Config.BotToken,
+		"chat_id": resolved.Config.ChatID,
+		"source":  string(resolved.Source),
 	}
 }
 

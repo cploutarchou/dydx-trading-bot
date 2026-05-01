@@ -1217,9 +1217,15 @@ interface StrategyRuntimeResponse extends Record<string, unknown> {
   bot_status?: string;
   is_running: boolean;
   process_id?: number | null;
+  trades_executed?: number;
+  pnl?: number;
+  win_rate?: number;
+  open_positions?: number;
+  uptime_seconds?: number;
   last_error?: string;
   started_at?: string;
   stopped_at?: string;
+  runtime_updated_at?: string;
   last_run_at?: string;
   next_run_at?: string;
   updated_at?: string;

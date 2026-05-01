@@ -231,6 +231,8 @@ bot/bot_states/*.json
 bot/bot_states/*.yaml
 bot/bot_states/*.yml
 bot/bot_states/*.log
+bot/bot_states/*.lock
+bot/bot_states/.*.lock
 bot/bot_states/instances.json
 token.txt
 .codex

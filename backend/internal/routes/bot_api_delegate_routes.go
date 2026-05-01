@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
+	"github.com/dydx-trading-bot/backend-go/internal/models"
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -807,6 +809,11 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 // RegisterBotAPIDelegateRoutesWithSync registers delegated bot API endpoints and
 // optionally persists backtest run status snapshots into local DB tables.
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
+	backtestRepo := (*repository.BacktestRepository)(nil)
+	if backtestSync != nil && backtestSync.DB() != nil {
+		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
+	}
+
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
 		if backtestSync == nil {
 			return
@@ -824,27 +831,6 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 	}
 
-	syncRunList := func(c *gin.Context, payload map[string]interface{}) {
-		if backtestSync == nil || payload == nil {
-			return
-		}
-		root := payload
-		if data, ok := payload["data"].(map[string]interface{}); ok {
-			root = data
-		}
-		runs, ok := root["backtests"].([]interface{})
-		if !ok {
-			return
-		}
-		for _, item := range runs {
-			runPayload, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			syncRun(c, runPayload)
-		}
-	}
-
 	syncChildren := func(c *gin.Context, runID string, payload map[string]interface{}) {
 		if backtestSync == nil || strings.TrimSpace(runID) == "" {
 			return
@@ -858,6 +844,65 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		if err := backtestSync.SyncBacktestCandles(runID, payload); err != nil {
 			log.Printf("Backtest sync warning: failed syncing candles for run %s: %v", runID, err)
 		}
+	}
+
+	requireBacktestRunAccess := func(c *gin.Context, runID string) bool {
+		runID = strings.TrimSpace(runID)
+		if runID == "" || backtestRepo == nil {
+			return true
+		}
+		if c.GetBool("is_admin") {
+			return true
+		}
+
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "unauthorized",
+				"error":     "unauthorized",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			return false
+		}
+		userID, ok := userIDValue.(int)
+		if !ok || userID <= 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "invalid user context",
+				"error":     "invalid user context",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			return false
+		}
+
+		ownerID, err := backtestRepo.GetRunOwnerID(runID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success":   false,
+				"message":   "failed to verify backtest access",
+				"error":     err.Error(),
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			return false
+		}
+		if ownerID == nil {
+			return true
+		}
+		if *ownerID != userID {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success":   false,
+				"message":   "backtest not found",
+				"error":     "backtest not found",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			return false
+		}
+		return true
 	}
 
 	proxyWebSocket := func(c *gin.Context, requestClient *services.BotAPIClient, upstreamEndpoint string) {
@@ -1084,6 +1129,15 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	backtestGroup := router.Group("/api/v1/backtests")
 	backtestGroup.Use(middleware.RequireAuth())
 	backtestGroup.Use(withRequestScopedBotClient)
+	backtestGroup.Use(func(c *gin.Context) {
+		if runID := c.Param("run_id"); strings.TrimSpace(runID) != "" {
+			if !requireBacktestRunAccess(c, runID) {
+				c.Abort()
+				return
+			}
+		}
+		c.Next()
+	})
 	{
 		// Local DB sync-health dashboard for delegated backtests.
 		backtestGroup.GET("/sync-health", func(c *gin.Context) {
@@ -1149,10 +1203,8 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 
 		// List backtests with filters
 		backtestGroup.GET("", func(c *gin.Context) {
-			requestClient := getRequestBotAPIClient(c, apiClient)
 			limit := 50
 			offset := parseBacktestListOffset(c)
-			var status, days *string
 
 			if l := c.Query("limit"); l != "" {
 				var i int
@@ -1160,21 +1212,60 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 					limit = i
 				}
 			}
-			if s := c.Query("status"); s != "" {
-				status = &s
-			}
-			if d := c.Query("days"); d != "" {
-				days = &d
+			if limit > 500 {
+				limit = 500
 			}
 
-			result, err := requestClient.ListBacktestsWithFilters(limit, offset, status, parseIntPtr(days))
-			if err != nil {
-				respondBotAPIError(c, err)
+			if backtestRepo == nil {
+				respondBacktestEnvelope(c, http.StatusOK, "Backtests fetched successfully", map[string]interface{}{
+					"backtests": []interface{}{},
+					"total":     0,
+				})
 				return
 			}
-			result = normalizeBacktestListPayload(result)
-			syncRunList(c, result)
-			respondBacktestEnvelope(c, http.StatusOK, "Backtests fetched successfully", result)
+
+			userIDValue, exists := c.Get("user_id")
+			userID, ok := userIDValue.(int)
+			if !exists || !ok || userID <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"message":   "invalid user context",
+					"error":     "invalid user context",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			runs, err := backtestRepo.GetRunsByUserID(userID, offset, limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to retrieve backtests",
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			total, err := backtestRepo.CountRunsByUserID(userID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to count backtests",
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			if runs == nil {
+				runs = []models.BacktestRun{}
+			}
+			respondBacktestEnvelope(c, http.StatusOK, "Backtests fetched successfully", map[string]interface{}{
+				"backtests": runs,
+				"total":     total,
+			})
 		})
 
 		// Get backtest summary stats

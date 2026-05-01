@@ -46,6 +46,7 @@ export const queryKeys = {
     ['backtests', admin ? 'admin-interrupted' : 'interrupted', limit ?? 50] as const,
 
   // System
+  telegramStatus: (scope: 'user' | 'global') => ['telegram', scope, 'status'] as const,
   systemStatus: ['system', 'status'] as const,
   health: ['system', 'health'] as const,
   readiness: ['system', 'readiness'] as const,

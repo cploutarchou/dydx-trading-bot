@@ -3,7 +3,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import api from '../api';
+import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
@@ -242,6 +242,52 @@ const useManagedWebSocket = ({
 
   return { isConnected, socketError };
 };
+
+export function useTelegramStatus(scope: TelegramSettingsScope = 'user') {
+  return useQuery({
+    queryKey: queryKeys.telegramStatus(scope),
+    queryFn: async () => {
+      const response =
+        scope === 'global' ? await api.getTelegramGlobalStatus() : await api.getTelegramUserStatus();
+      return response.data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useSaveTelegramConfig(scope: TelegramSettingsScope = 'user') {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: TelegramConfigPayload) => {
+      const response =
+        scope === 'global'
+          ? await api.saveTelegramGlobalConfig(payload)
+          : await api.saveTelegramUserConfig(payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['telegram'] });
+    },
+  });
+}
+
+export function useDeleteTelegramConfig(scope: TelegramSettingsScope = 'user') {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response =
+        scope === 'global'
+          ? await api.deleteTelegramGlobalConfig()
+          : await api.deleteTelegramUserConfig();
+      return response.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['telegram'] });
+    },
+  });
+}
 
 // ==================== Authentication Hooks ====================
 

@@ -77,7 +77,18 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 		win_rate REAL,
 		total_pnl REAL,
 		total_pnl_usd REAL,
+		sharpe_ratio REAL,
+		sortino_ratio REAL,
+		calmar_ratio REAL,
+		max_drawdown REAL,
+		profit_factor REAL,
+		starting_balance REAL,
+		ending_balance REAL,
+		max_balance REAL,
+		min_balance REAL,
 		error_message TEXT,
+		strategy_id INTEGER,
+		strategy_version_id INTEGER,
 		user_id INTEGER
 	);`); err != nil {
 		t.Fatalf("create backtest_runs table: %v", err)
@@ -241,6 +252,110 @@ func loginDelegatedBacktestTestUser(t *testing.T, backendURL string) string {
 	}
 
 	return tokenResp.AccessToken
+}
+
+func TestDelegatedBacktestRoutes_EnforceUserScopedBacktestData(t *testing.T) {
+	upstreamStatusCalls := make(chan string, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatalf("scoped list must not call upstream global backtest list")
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/owned-run/status", func(w http.ResponseWriter, _ *http.Request) {
+		upstreamStatusCalls <- "owned-run"
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"owned-run","status":"running","progress":42}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/foreign-run/status", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatalf("foreign run must be blocked before upstream status call")
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_runs (run_id, status, created_at, start_date, end_date, num_pairs, total_markets, total_pnl, total_pnl_usd, user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"owned-run", "completed", now, "2026-04-01", "2026-04-02", 2, 10, 123.45, 123.45, 1,
+	); err != nil {
+		t.Fatalf("insert owned run: %v", err)
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_runs (run_id, status, created_at, start_date, end_date, num_pairs, total_markets, total_pnl, total_pnl_usd, user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"foreign-run", "completed", now.Add(-time.Minute), "2026-04-01", "2026-04-02", 2, 10, 999.99, 999.99, 42,
+	); err != nil {
+		t.Fatalf("insert foreign run: %v", err)
+	}
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+
+	listReq, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests?limit=50", nil)
+	if err != nil {
+		t.Fatalf("new list request: %v", err)
+	}
+	listReq.Header.Set("Authorization", "Bearer "+token)
+	listResp, err := http.DefaultClient.Do(listReq)
+	if err != nil {
+		t.Fatalf("list scoped backtests: %v", err)
+	}
+	defer func() { _ = listResp.Body.Close() }()
+	var listPayload map[string]interface{}
+	if err := json.NewDecoder(listResp.Body).Decode(&listPayload); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %v", listResp.StatusCode, listPayload)
+	}
+	listData := assertSuccessEnvelope(t, listPayload)
+	backtests, ok := listData["backtests"].([]interface{})
+	if !ok {
+		t.Fatalf("expected backtests array, got %T", listData["backtests"])
+	}
+	if len(backtests) != 1 {
+		t.Fatalf("expected exactly one owned run, got %d: %v", len(backtests), backtests)
+	}
+	first, ok := backtests[0].(map[string]interface{})
+	if !ok || first["run_id"] != "owned-run" {
+		t.Fatalf("expected owned-run only, got %v", backtests[0])
+	}
+
+	foreignReq, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/foreign-run/status", nil)
+	if err != nil {
+		t.Fatalf("new foreign status request: %v", err)
+	}
+	foreignReq.Header.Set("Authorization", "Bearer "+token)
+	foreignResp, err := http.DefaultClient.Do(foreignReq)
+	if err != nil {
+		t.Fatalf("foreign status request: %v", err)
+	}
+	defer func() { _ = foreignResp.Body.Close() }()
+	if foreignResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected foreign status 404, got %d", foreignResp.StatusCode)
+	}
+
+	ownedReq, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/owned-run/status", nil)
+	if err != nil {
+		t.Fatalf("new owned status request: %v", err)
+	}
+	ownedReq.Header.Set("Authorization", "Bearer "+token)
+	ownedResp, err := http.DefaultClient.Do(ownedReq)
+	if err != nil {
+		t.Fatalf("owned status request: %v", err)
+	}
+	defer func() { _ = ownedResp.Body.Close() }()
+	if ownedResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected owned status 200, got %d", ownedResp.StatusCode)
+	}
+	select {
+	case got := <-upstreamStatusCalls:
+		if got != "owned-run" {
+			t.Fatalf("unexpected upstream run id %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for owned upstream status call")
+	}
 }
 
 func TestDelegatedBacktestRun_UsesCompatibilityRunEndpoint(t *testing.T) {

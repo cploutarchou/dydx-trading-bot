@@ -1,15 +1,31 @@
 package services
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 )
 
-const telegramChatIDSettingKey = "chat_id"
-const telegramChatIDUserSettingKeyPrefix = "chat_id_user_"
+const (
+	telegramChatIDGlobalSettingKey     = "telegram_chat_id_global"
+	telegramChatIDUserSettingKeyPrefix = "telegram_chat_id_user_"
+
+	legacyTelegramChatIDSettingKey           = "chat_id"
+	legacyTelegramChatIDUserSettingKeyPrefix = "chat_id_user_"
+)
+
+type TelegramConfigSource string
+
+const (
+	TelegramConfigSourceUser   TelegramConfigSource = "user"
+	TelegramConfigSourceGlobal TelegramConfigSource = "global"
+	TelegramConfigSourceNone   TelegramConfigSource = "none"
+)
 
 type TelegramStatus struct {
 	Provider           string `json:"provider"`
@@ -34,6 +50,12 @@ type TelegramSharedConfig struct {
 	ChatID   string
 }
 
+type ResolvedTelegramConfig struct {
+	Config *TelegramSharedConfig
+	Source TelegramConfigSource
+	UserID int
+}
+
 type TelegramService struct {
 	credentials *ExternalAPICredentialService
 	settings    *repository.SettingsRepository
@@ -50,16 +72,20 @@ func NewTelegramService(
 }
 
 func (s *TelegramService) GetStatus() (*TelegramStatus, error) {
-	return s.GetStatusForUser(SharedCredentialUserID)
+	return s.GetGlobalStatus()
 }
 
 func (s *TelegramService) GetStatusForUser(userID int) (*TelegramStatus, error) {
+	return s.GetUserStatusForUser(userID)
+}
+
+func (s *TelegramService) GetUserStatusForUser(userID int) (*TelegramStatus, error) {
 	if userID < 0 {
 		return nil, fmt.Errorf("user id is required")
 	}
 
 	if userID == SharedCredentialUserID {
-		return s.getSharedStatus()
+		return s.GetGlobalStatus()
 	}
 
 	info, err := s.credentials.Get(userID, ExternalAPIProviderTelegramBot)
@@ -72,7 +98,7 @@ func (s *TelegramService) GetStatusForUser(userID int) (*TelegramStatus, error) 
 		return nil, fmt.Errorf("failed to resolve Telegram bot token: %w", err)
 	}
 
-	chatID, err := s.getSettingValue(userTelegramChatIDSettingKey(userID), "")
+	chatID, err := s.getSettingValue(userTelegramChatIDSettingKeys(userID), "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Telegram chat id: %w", err)
 	}
@@ -100,7 +126,7 @@ func (s *TelegramService) GetStatusForUser(userID int) (*TelegramStatus, error) 
 	}, nil
 }
 
-func (s *TelegramService) getSharedStatus() (*TelegramStatus, error) {
+func (s *TelegramService) GetGlobalStatus() (*TelegramStatus, error) {
 	info, err := s.credentials.GetShared(ExternalAPIProviderTelegramBot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Telegram credential info: %w", err)
@@ -111,7 +137,7 @@ func (s *TelegramService) getSharedStatus() (*TelegramStatus, error) {
 		return nil, fmt.Errorf("failed to resolve Telegram bot token: %w", err)
 	}
 
-	chatID, err := s.getSettingValue(telegramChatIDSettingKey, "")
+	chatID, err := s.getSettingValue(globalTelegramChatIDSettingKeys(), "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Telegram chat id: %w", err)
 	}
@@ -134,20 +160,38 @@ func (s *TelegramService) getSharedStatus() (*TelegramStatus, error) {
 		SharedTokenLabel:   valueOrEmpty(info, func(i *ExternalAPICredentialInfo) string { return i.Label }),
 		ChatID:             chatID,
 		ChatIDMasked:       maskSecretValue(chatID),
-		DeliveryMode:       "shared",
+		DeliveryMode:       string(TelegramConfigSourceGlobal),
 		Message:            message,
 	}, nil
 }
 
 func (s *TelegramService) SaveSharedConfig(payload TelegramConfigPayload) (*TelegramStatus, error) {
-	return s.SaveConfigForUser(SharedCredentialUserID, payload)
+	return s.SaveGlobalConfig(payload)
 }
 
 func (s *TelegramService) SaveConfigForUser(userID int, payload TelegramConfigPayload) (*TelegramStatus, error) {
+	if userID == SharedCredentialUserID {
+		return s.SaveGlobalConfig(payload)
+	}
+	return s.SaveUserConfigForUser(userID, payload)
+}
+
+func (s *TelegramService) SaveUserConfigForUser(userID int, payload TelegramConfigPayload) (*TelegramStatus, error) {
 	if userID < 0 {
 		return nil, fmt.Errorf("user id is required")
 	}
+	if userID == SharedCredentialUserID {
+		return nil, fmt.Errorf("user id is required")
+	}
 
+	return s.saveConfigForScope(userID, payload, TelegramConfigSourceUser)
+}
+
+func (s *TelegramService) SaveGlobalConfig(payload TelegramConfigPayload) (*TelegramStatus, error) {
+	return s.saveConfigForScope(SharedCredentialUserID, payload, TelegramConfigSourceGlobal)
+}
+
+func (s *TelegramService) saveConfigForScope(userID int, payload TelegramConfigPayload, source TelegramConfigSource) (*TelegramStatus, error) {
 	status, err := s.GetStatusForUser(userID)
 	if err != nil {
 		return nil, err
@@ -168,10 +212,7 @@ func (s *TelegramService) SaveConfigForUser(userID int, payload TelegramConfigPa
 		}
 	}
 
-	chatDescription := "Telegram chat id for user notifications"
-	if userID == SharedCredentialUserID {
-		chatDescription = "Telegram chat id for shared platform notifications"
-	}
+	chatDescription := telegramChatIDDescription(source)
 
 	if err := s.upsertSetting(userTelegramChatIDSettingKey(userID), chatID, chatDescription); err != nil {
 		return nil, err
@@ -181,48 +222,120 @@ func (s *TelegramService) SaveConfigForUser(userID int, payload TelegramConfigPa
 }
 
 func (s *TelegramService) DeleteSharedConfig() error {
-	return s.DeleteConfigForUser(SharedCredentialUserID)
+	return s.DeleteGlobalConfig()
 }
 
 func (s *TelegramService) DeleteConfigForUser(userID int) error {
+	if userID == SharedCredentialUserID {
+		return s.DeleteGlobalConfig()
+	}
+	return s.DeleteUserConfigForUser(userID)
+}
+
+func (s *TelegramService) DeleteUserConfigForUser(userID int) error {
 	if userID < 0 {
 		return fmt.Errorf("user id is required")
 	}
+	if userID == SharedCredentialUserID {
+		return fmt.Errorf("user id is required")
+	}
 
+	return s.deleteConfigForScope(userID)
+}
+
+func (s *TelegramService) DeleteGlobalConfig() error {
+	return s.deleteConfigForScope(SharedCredentialUserID)
+}
+
+func (s *TelegramService) deleteConfigForScope(userID int) error {
 	if err := s.credentials.Delete(userID, ExternalAPIProviderTelegramBot); err != nil && !isCredentialNotFoundError(err) {
 		return err
 	}
 
-	existing, err := s.settings.GetBotSettingBySectionAndKey("telegram", userTelegramChatIDSettingKey(userID))
-	if err != nil {
-		if isMissingTableError(err) {
-			return nil
+	for _, key := range userTelegramChatIDSettingKeys(userID) {
+		existing, err := s.settings.GetBotSettingBySectionAndKey("telegram", key)
+		if err != nil {
+			if isMissingTableError(err) {
+				return nil
+			}
+			return fmt.Errorf("failed to load Telegram chat id: %w", err)
 		}
-		return fmt.Errorf("failed to load Telegram chat id: %w", err)
-	}
-	if existing != nil {
-		existing.Value = ""
-		existing.IsActive = false
-		existing.Version++
-		return s.settings.UpdateBotSetting(existing)
+		if existing != nil {
+			existing.Value = ""
+			existing.IsActive = false
+			existing.Version++
+			if err := s.settings.UpdateBotSetting(existing); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
 func (s *TelegramService) ResolveSharedConfig() (*TelegramSharedConfig, bool, error) {
-	return s.ResolveConfigForUser(SharedCredentialUserID)
+	return s.ResolveGlobalConfig()
 }
 
 func (s *TelegramService) ResolveConfigForUser(userID int) (*TelegramSharedConfig, bool, error) {
+	if userID == SharedCredentialUserID {
+		return s.ResolveGlobalConfig()
+	}
+	return s.ResolveUserConfigForUser(userID)
+}
+
+func (s *TelegramService) ResolveUserConfigForUser(userID int) (*TelegramSharedConfig, bool, error) {
 	if userID < 0 {
 		return nil, false, fmt.Errorf("user id is required")
 	}
+	if userID == SharedCredentialUserID {
+		return nil, false, fmt.Errorf("user id is required")
+	}
 
+	return s.resolveConfigForScope(userID)
+}
+
+func (s *TelegramService) ResolveGlobalConfig() (*TelegramSharedConfig, bool, error) {
+	return s.resolveConfigForScope(SharedCredentialUserID)
+}
+
+func (s *TelegramService) ResolveEffectiveConfig(userID int) (*ResolvedTelegramConfig, error) {
+	if userID <= 0 {
+		return &ResolvedTelegramConfig{Source: TelegramConfigSourceNone, UserID: userID}, fmt.Errorf("user id is required")
+	}
+
+	if config, configured, err := s.ResolveUserConfigForUser(userID); err != nil {
+		return nil, err
+	} else if configured {
+		return &ResolvedTelegramConfig{
+			Config: config,
+			Source: TelegramConfigSourceUser,
+			UserID: userID,
+		}, nil
+	}
+
+	if config, configured, err := s.ResolveGlobalConfig(); err != nil {
+		return nil, err
+	} else if configured {
+		return &ResolvedTelegramConfig{
+			Config: config,
+			Source: TelegramConfigSourceGlobal,
+			UserID: SharedCredentialUserID,
+		}, nil
+	}
+
+	return &ResolvedTelegramConfig{
+		Config: nil,
+		Source: TelegramConfigSourceNone,
+		UserID: userID,
+	}, nil
+}
+
+func (s *TelegramService) resolveConfigForScope(userID int) (*TelegramSharedConfig, bool, error) {
 	token, tokenPresent, err := s.credentials.ResolveKey(userID, ExternalAPIProviderTelegramBot)
 	if err != nil {
 		return nil, false, err
 	}
-	chatID, err := s.getSettingValue(userTelegramChatIDSettingKey(userID), "")
+	chatID, err := s.getSettingValue(userTelegramChatIDSettingKeys(userID), "")
 	if err != nil {
 		return nil, false, err
 	}
@@ -240,9 +353,30 @@ func (s *TelegramService) ResolveConfigForUser(userID int) (*TelegramSharedConfi
 
 func userTelegramChatIDSettingKey(userID int) string {
 	if userID <= 0 {
-		return telegramChatIDSettingKey
+		return telegramChatIDGlobalSettingKey
 	}
 	return fmt.Sprintf("%s%d", telegramChatIDUserSettingKeyPrefix, userID)
+}
+
+func userTelegramChatIDSettingKeys(userID int) []string {
+	if userID <= 0 {
+		return globalTelegramChatIDSettingKeys()
+	}
+	return []string{
+		userTelegramChatIDSettingKey(userID),
+		fmt.Sprintf("%s%d", legacyTelegramChatIDUserSettingKeyPrefix, userID),
+	}
+}
+
+func globalTelegramChatIDSettingKeys() []string {
+	return []string{telegramChatIDGlobalSettingKey, legacyTelegramChatIDSettingKey}
+}
+
+func telegramChatIDDescription(source TelegramConfigSource) string {
+	if source == TelegramConfigSourceGlobal {
+		return "Telegram chat id for global platform notifications"
+	}
+	return "Telegram chat id for user notifications"
 }
 
 func isCredentialNotFoundError(err error) bool {
@@ -252,18 +386,20 @@ func isCredentialNotFoundError(err error) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "credential not found")
 }
 
-func (s *TelegramService) getSettingValue(key string, fallback string) (string, error) {
-	setting, err := s.settings.GetBotSettingBySectionAndKey("telegram", key)
-	if err != nil {
-		if isMissingTableError(err) {
-			return fallback, nil
+func (s *TelegramService) getSettingValue(keys []string, fallback string) (string, error) {
+	for _, key := range keys {
+		setting, err := s.settings.GetBotSettingBySectionAndKey("telegram", key)
+		if err != nil {
+			if isMissingTableError(err) {
+				return fallback, nil
+			}
+			return "", err
 		}
-		return "", err
+		if setting != nil && setting.IsActive {
+			return strings.TrimSpace(setting.Value), nil
+		}
 	}
-	if setting == nil || !setting.IsActive {
-		return fallback, nil
-	}
-	return strings.TrimSpace(setting.Value), nil
+	return fallback, nil
 }
 
 func (s *TelegramService) upsertSetting(key string, value string, description string) error {
@@ -289,4 +425,113 @@ func (s *TelegramService) upsertSetting(key string, value string, description st
 		IsActive:     true,
 		Version:      1,
 	})
+}
+
+type PreflightValidationResult struct {
+	Valid            bool   `json:"valid"`
+	ChatName         string `json:"chat_name,omitempty"`
+	ChatID           string `json:"chat_id,omitempty"`
+	Error            string `json:"error,omitempty"`
+	ValidationReason string `json:"validation_reason,omitempty"`
+}
+
+func (s *TelegramService) PreflightValidateTelegramDelivery(token, chatID string) (*PreflightValidationResult, error) {
+	token = strings.TrimSpace(token)
+	chatID = strings.TrimSpace(chatID)
+
+	if token == "" || chatID == "" {
+		return &PreflightValidationResult{
+			Valid: false,
+			Error: "token and chat_id are required",
+		}, nil
+	}
+
+	// Step 1: Validate token by calling getMe
+	getMeURL := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token)
+	resp, err := http.Post(getMeURL, "application/json", nil)
+	if err != nil {
+		return &PreflightValidationResult{
+			Valid:            false,
+			Error:            fmt.Sprintf("failed to validate token: %v", err),
+			ValidationReason: "network error",
+		}, nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var getMeResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&getMeResp); err != nil {
+		return &PreflightValidationResult{
+			Valid:            false,
+			Error:            fmt.Sprintf("invalid token response: %v", err),
+			ValidationReason: "token validation failed",
+		}, nil
+	}
+
+	ok, _ := getMeResp["ok"].(bool)
+	if !ok {
+		desc, _ := getMeResp["description"].(string)
+		return &PreflightValidationResult{
+			Valid:            false,
+			Error:            fmt.Sprintf("invalid token: %s", desc),
+			ValidationReason: "invalid bot token",
+		}, nil
+	}
+
+	// Step 2: Validate chat by calling getChat
+	getChatURL := fmt.Sprintf("https://api.telegram.org/bot%s/getChat", token)
+	getChatPayload := map[string]string{"chat_id": chatID}
+	payloadBytes, _ := json.Marshal(getChatPayload)
+	chatResp, err := http.Post(getChatURL, "application/json", bytes.NewReader(payloadBytes))
+	if err != nil {
+		return &PreflightValidationResult{
+			Valid:            false,
+			Error:            fmt.Sprintf("failed to validate chat: %v", err),
+			ValidationReason: "network error",
+		}, nil
+	}
+	defer func() { _ = chatResp.Body.Close() }()
+
+	var getChatRespBody map[string]interface{}
+	if err := json.NewDecoder(chatResp.Body).Decode(&getChatRespBody); err != nil {
+		return &PreflightValidationResult{
+			Valid:            false,
+			Error:            fmt.Sprintf("invalid chat response: %v", err),
+			ValidationReason: "chat validation failed",
+		}, nil
+	}
+
+	ok, _ = getChatRespBody["ok"].(bool)
+	if !ok {
+		desc, _ := getChatRespBody["description"].(string)
+		if strings.Contains(strings.ToLower(desc), "bot account") || strings.Contains(strings.ToLower(desc), "bots can't") {
+			return &PreflightValidationResult{
+				Valid:            false,
+				Error:            "Chat appears to be a bot account. Use a user/group/channel ID instead.",
+				ValidationReason: "invalid chat target (bot account)",
+			}, nil
+		}
+		return &PreflightValidationResult{
+			Valid:            false,
+			Error:            fmt.Sprintf("invalid chat: %s", desc),
+			ValidationReason: "invalid chat id or no access",
+		}, nil
+	}
+
+	// Extract chat name/title for confirmation
+	chatData, _ := getChatRespBody["result"].(map[string]interface{})
+	chatName := ""
+	if chatData != nil {
+		if title, ok := chatData["title"].(string); ok {
+			chatName = title
+		} else if username, ok := chatData["username"].(string); ok {
+			chatName = "@" + username
+		}
+	}
+
+	return &PreflightValidationResult{
+		Valid:            true,
+		ChatID:           chatID,
+		ChatName:         chatName,
+		ValidationReason: "token and chat validated successfully",
+	}, nil
 }

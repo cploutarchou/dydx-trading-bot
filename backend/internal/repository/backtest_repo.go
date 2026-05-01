@@ -40,6 +40,24 @@ func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, erro
 	return run, nil
 }
 
+func (r *BacktestRepository) GetRunOwnerID(runID string) (*int, error) {
+	query := "SELECT user_id FROM backtest_runs WHERE run_id = $1 LIMIT 1"
+
+	var owner sql.NullInt64
+	err := r.db.QueryRow(query, runID).Scan(&owner)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get backtest run owner: %w", err)
+	}
+	if !owner.Valid {
+		return nil, nil
+	}
+	ownerID := int(owner.Int64)
+	return &ownerID, nil
+}
+
 func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestCandle, error) {
 	fkColumn, err := r.detectRunFKColumn("backtest_candles")
 	if err != nil {
@@ -460,11 +478,11 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 	// Excludes heavy JSON blobs (config, strategy_snapshot) — these are only needed on the detail
 	// view and can easily double/triple per-row payload size for large backtests.
 	query := `
-		SELECT id, user_id, strategy_id, strategy_version_id, run_id, status, start_date, end_date,
-		       num_pairs, total_markets, resolution, total_trades, profitable_trades, losing_trades,
-		       win_rate, total_pnl, total_pnl_usd, sharpe_ratio, sortino_ratio, calmar_ratio,
-		       max_drawdown, profit_factor, starting_balance, ending_balance, max_balance, min_balance,
-		       error_message, started_at, completed_at, duration_seconds,
+		SELECT id, user_id, strategy_id, strategy_version_id, run_id, COALESCE(status, ''), start_date, end_date,
+		       num_pairs, total_markets, COALESCE(resolution, ''), COALESCE(total_trades, 0), COALESCE(profitable_trades, 0), COALESCE(losing_trades, 0),
+		       win_rate, COALESCE(total_pnl, 0), COALESCE(total_pnl_usd, 0), sharpe_ratio, sortino_ratio, calmar_ratio,
+		       max_drawdown, profit_factor, COALESCE(starting_balance, 0), ending_balance, max_balance, min_balance,
+		       COALESCE(error_message, ''), started_at, completed_at, duration_seconds,
 		       created_at
 		FROM backtest_runs
 		WHERE user_id = $1
@@ -529,4 +547,12 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 	}
 
 	return runs, nil
+}
+
+func (r *BacktestRepository) CountRunsByUserID(userID int) (int, error) {
+	var count int
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM backtest_runs WHERE user_id = $1`, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count backtest runs: %w", err)
+	}
+	return count, nil
 }

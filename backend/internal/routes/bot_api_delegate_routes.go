@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -152,6 +153,27 @@ func normalizeBacktestRunPayload(config map[string]interface{}) map[string]inter
 	}
 
 	return normalized
+}
+
+func readPositiveIntEnv(defaultValue int, keys ...string) int {
+	for _, key := range keys {
+		raw := strings.TrimSpace(os.Getenv(key))
+		if raw == "" {
+			continue
+		}
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			continue
+		}
+		if value < 0 {
+			return 0
+		}
+		return value
+	}
+	if defaultValue < 0 {
+		return 0
+	}
+	return defaultValue
 }
 
 func asMap(value interface{}) map[string]interface{} {
@@ -1012,6 +1034,43 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			return
 		}
 		config = normalizeBacktestRunPayload(config)
+
+		if backtestRepo != nil {
+			userIDValue, exists := c.Get("user_id")
+			userID, ok := userIDValue.(int)
+			if exists && ok && userID > 0 {
+				maxActivePerUser := readPositiveIntEnv(
+					10,
+					"BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+					"BACKEND_BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+				)
+				if maxActivePerUser > 0 {
+					activeCount, countErr := backtestRepo.CountActiveRunsByUserID(userID)
+					if countErr != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{
+							"success":   false,
+							"message":   "Failed to evaluate backtest admission limits",
+							"error":     countErr.Error(),
+							"timestamp": time.Now().UTC().Format(time.RFC3339),
+							"trace_id":  middleware.GetTraceID(c),
+						})
+						return
+					}
+					if activeCount >= maxActivePerUser {
+						c.Header("Retry-After", "15")
+						respondBacktestEnvelope(c, http.StatusTooManyRequests, "Backtest capacity reached for this account", map[string]interface{}{
+							"error":                 "backtest_user_capacity_reached",
+							"active_runs":           activeCount,
+							"max_active_runs":       maxActivePerUser,
+							"retry_after_seconds":   15,
+							"admission_scope":       "per_user",
+							"admission_enforced_by": "backend",
+						})
+						return
+					}
+				}
+			}
+		}
 
 		var (
 			result map[string]interface{}

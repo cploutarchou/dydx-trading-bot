@@ -379,6 +379,90 @@ def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
     return cap if cap > 0 else None
 
 
+def _read_positive_int_env(name: str, default: int = 0) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return max(0, int(default))
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning("Invalid {}='{}'; using default {}", name, raw, default)
+        return max(0, int(default))
+    return max(0, parsed)
+
+
+def _backtest_admission_limit_snapshot() -> Dict[str, int]:
+    max_active = _read_positive_int_env("BACKTEST_MAX_ACTIVE_RUNS_GLOBAL", 100)
+    max_queue_depth = _read_positive_int_env("BACKTEST_MAX_QUEUE_DEPTH", max_active)
+    max_in_process = _read_positive_int_env("BACKTEST_MAX_IN_PROCESS_BACKTEST_JOBS", 0)
+    retry_after_seconds = _read_positive_int_env("BACKTEST_ADMISSION_RETRY_AFTER_SECONDS", 15)
+    return {
+        "max_active_runs_global": max_active,
+        "max_queue_depth": max_queue_depth,
+        "max_in_process_jobs": max_in_process,
+        "retry_after_seconds": retry_after_seconds,
+    }
+
+
+def _check_backtest_admission(service: BacktestService) -> Optional[JSONResponse]:
+    if not hasattr(service, "get_runtime_health"):
+        return None
+
+    limits = _backtest_admission_limit_snapshot()
+    runtime_health = service.get_runtime_health()
+    queue_depth = int(runtime_health.get("queue_depth", 0) or 0)
+    active_jobs = int(runtime_health.get("active_jobs", 0) or 0)
+
+    blocked_reason = ""
+    if limits["max_active_runs_global"] > 0 and queue_depth >= limits["max_active_runs_global"]:
+        blocked_reason = "global_active_limit_reached"
+    elif limits["max_queue_depth"] > 0 and queue_depth >= limits["max_queue_depth"]:
+        blocked_reason = "queue_depth_limit_reached"
+    elif limits["max_in_process_jobs"] > 0 and active_jobs >= limits["max_in_process_jobs"]:
+        blocked_reason = "in_process_limit_reached"
+
+    if not blocked_reason:
+        return None
+
+    response = api_response(
+        success=False,
+        status_code=429,
+        message=(
+            "Backtest capacity is temporarily saturated. "
+            "Please retry shortly or reduce concurrent runs."
+        ),
+        data={
+            "error": "backtest_capacity_reached",
+            "reason": blocked_reason,
+            "runtime_health": runtime_health,
+            "limits": limits,
+        },
+    )
+    response.headers["Retry-After"] = str(max(1, limits["retry_after_seconds"]))
+    return response
+
+
+def _backtest_capacity_snapshot(runtime_health: Dict[str, Any]) -> Dict[str, Any]:
+    limits = _backtest_admission_limit_snapshot()
+    return {
+        "queue_depth": int(runtime_health.get("queue_depth", 0) or 0),
+        "active_jobs": int(runtime_health.get("active_jobs", 0) or 0),
+        "total_runs": int(runtime_health.get("total_runs", 0) or 0),
+        "max_active_runs_global": limits["max_active_runs_global"],
+        "max_queue_depth": limits["max_queue_depth"],
+        "max_in_process_jobs": limits["max_in_process_jobs"],
+        "retry_after_seconds": limits["retry_after_seconds"],
+        "stale_heartbeat_seconds": _read_positive_int_env(
+            "BACKTEST_STALE_HEARTBEAT_SECONDS",
+            int(BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS),
+        ),
+        "max_active_runs_per_user": _read_positive_int_env(
+            "BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+            0,
+        ),
+    }
+
+
 async def _resolve_backtest_markets(
         explicit_pairs: Optional[List[str]],
         max_pairs: Any,
@@ -2104,6 +2188,7 @@ async def health_check():
     """API health check"""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
+        backtest_limits = _backtest_capacity_snapshot(runtime_health)
         return api_response(
             success=True,
             data={
@@ -2111,6 +2196,7 @@ async def health_check():
                 "api_version": "1.0.0",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
+                "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
             },
             message="API is healthy",
@@ -2122,6 +2208,7 @@ async def readiness_check():
     """Strict readiness probe for orchestrators and deployment gates."""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
+        backtest_limits = _backtest_capacity_snapshot(runtime_health)
         ready = _bot_manager_ready()
         status_code = 200 if ready else 503
 
@@ -2132,6 +2219,7 @@ async def readiness_check():
                 "bot_manager_ready": ready,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
+                "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
             },
             message=(
@@ -2258,6 +2346,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
     try:
         with backtest_service_scope() as service:
             runtime_health = service.get_runtime_health()
+            backtest_limits = _backtest_capacity_snapshot(runtime_health)
             if not _bot_manager_ready():
                 return api_response(
                     success=True,
@@ -2270,6 +2359,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                         },
                         "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
                         "backtest_runtime": runtime_health,
+                        "backtest_limits": backtest_limits,
                         "bot_recovery": _bot_recovery_diagnostics(),
                     },
                     message="System status available; bot manager unavailable",
@@ -2311,6 +2401,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                     "uptime_hours": "N/A",  # Could implement uptime tracking
                 },
                 "backtest_runtime": runtime_health,
+                "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
             },
             message="System status retrieved successfully",
@@ -2928,6 +3019,9 @@ async def create_backtest(
             normalized_request = request
 
         with backtest_service_scope() as service:
+            blocked = _check_backtest_admission(service)
+            if blocked is not None:
+                return blocked
             result = await service.create_and_run_backtest(
                 normalized_request, _broadcast_backtest_progress
             )
@@ -2993,6 +3087,9 @@ async def run_backtest_compat(
             backtest_request = _manual_backtest_request(request, resolved_pairs)
 
         with backtest_service_scope() as service:
+            blocked = _check_backtest_admission(service)
+            if blocked is not None:
+                return blocked
             result = await service.create_and_run_backtest(
                 backtest_request, _broadcast_backtest_progress
             )

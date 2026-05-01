@@ -13,9 +13,10 @@ import {
     Target,
     TrendingUp,
 } from 'lucide-react';
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
+import { enhancedApiClient } from '../api/enhancedClient';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
@@ -212,6 +213,76 @@ const getFreshnessCardBorderClasses = (updatedAtMs?: number): string => {
   return 'border-rose-500/45 hover:border-rose-400/70';
 };
 
+const toObject = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toOptionalNumber = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+type CapacityRiskModel = {
+  label: string;
+  detail: string;
+  textClass: string;
+  dotClass: string;
+  chipClass: string;
+};
+
+const resolveCapacityRiskModel = (
+  queueUtilizationPct: number | null,
+  activeJobs: number,
+  maxInProcessJobs: number | null,
+  hasStatusError: boolean
+): CapacityRiskModel => {
+  if (hasStatusError) {
+    return {
+      label: 'unknown',
+      detail: 'status unavailable',
+      textClass: 'text-slate-300',
+      dotClass: 'bg-slate-400',
+      chipClass: 'border-slate-600/70 bg-slate-700/40',
+    };
+  }
+
+  const inProcessUtilization =
+    maxInProcessJobs && maxInProcessJobs > 0 ? (activeJobs / maxInProcessJobs) * 100 : null;
+  const highestPressure = Math.max(queueUtilizationPct ?? 0, inProcessUtilization ?? 0);
+
+  if (highestPressure >= 85) {
+    return {
+      label: 'critical',
+      detail: 'capacity near max',
+      textClass: 'text-rose-300',
+      dotClass: 'bg-rose-400',
+      chipClass: 'border-rose-500/45 bg-rose-500/10',
+    };
+  }
+
+  if (highestPressure >= 60) {
+    return {
+      label: 'elevated',
+      detail: 'watch queue pressure',
+      textClass: 'text-amber-300',
+      dotClass: 'bg-amber-400',
+      chipClass: 'border-amber-500/45 bg-amber-500/10',
+    };
+  }
+
+  return {
+    label: 'healthy',
+    detail: 'headroom available',
+    textClass: 'text-emerald-300',
+    dotClass: 'bg-emerald-400',
+    chipClass: 'border-emerald-500/40 bg-emerald-500/10',
+  };
+};
+
 export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard' }) => {
   const getEnvelopeField = (payload: Record<string, unknown>, key: string): unknown => {
     const nested = payload.data;
@@ -248,6 +319,51 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         ? 4_000
         : false,
   });
+  const activeRunCountForPolling = useMemo(
+    () => (backtestsQuery.data ?? []).filter((run) => isActiveBacktestRun(run)).length,
+    [backtestsQuery.data]
+  );
+  const systemStatusQuery = useQuery({
+    queryKey: ['system-status', 'backtest-capacity'],
+    queryFn: async () => {
+      const status = await enhancedApiClient.getSystemStatus();
+      return toObject(status);
+    },
+    staleTime: 5_000,
+    refetchInterval: activeRunCountForPolling > 0 ? 5_000 : 15_000,
+    refetchIntervalInBackground: true,
+  });
+  const backtestCapacity = useMemo(() => {
+    const payload = toObject(systemStatusQuery.data);
+    const runtime = toObject(payload.backtest_runtime);
+    const limits = toObject(payload.backtest_limits);
+
+    const queueDepth = toFiniteNumber(runtime.queue_depth, 0);
+    const activeJobs = toFiniteNumber(runtime.active_jobs, 0);
+    const totalRuns = toFiniteNumber(runtime.total_runs, 0);
+    const maxQueueDepth = toOptionalNumber(limits.max_queue_depth);
+    const maxActiveGlobal = toOptionalNumber(limits.max_active_runs_global);
+    const maxInProcessJobs = toOptionalNumber(limits.max_in_process_jobs);
+    const maxPerUser = toOptionalNumber(limits.max_active_runs_per_user);
+    const retryAfterSeconds = toOptionalNumber(limits.retry_after_seconds);
+    const staleHeartbeatSeconds = toOptionalNumber(limits.stale_heartbeat_seconds);
+
+    const queueUtilizationPct =
+      maxQueueDepth && maxQueueDepth > 0 ? Math.max(0, Math.min(100, (queueDepth / maxQueueDepth) * 100)) : null;
+
+    return {
+      queueDepth,
+      activeJobs,
+      totalRuns,
+      maxQueueDepth,
+      maxActiveGlobal,
+      maxInProcessJobs,
+      maxPerUser,
+      retryAfterSeconds,
+      staleHeartbeatSeconds,
+      queueUtilizationPct,
+    };
+  }, [systemStatusQuery.data]);
 
   const strategiesById = useMemo(
     () =>
@@ -327,6 +443,25 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
     return lookup;
   }, [activeRunsQuickAccess, activeRunLiveStatusQueries]);
+  const capacityPanelRef = useRef<HTMLDivElement>(null);
+  const scrollToCapacityPanel = () =>
+    capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const capacityRisk = useMemo(
+    () =>
+      resolveCapacityRiskModel(
+        backtestCapacity.queueUtilizationPct,
+        backtestCapacity.activeJobs,
+        backtestCapacity.maxInProcessJobs,
+        systemStatusQuery.isError
+      ),
+    [
+      backtestCapacity.queueUtilizationPct,
+      backtestCapacity.activeJobs,
+      backtestCapacity.maxInProcessJobs,
+      systemStatusQuery.isError,
+    ]
+  );
   const backtestIntelRequest = useMemo(
     () => buildBacktestIntelRequest(intelligence.topRuns, 1),
     [intelligence.topRuns]
@@ -719,6 +854,104 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         />
 
         <div className="space-y-6">
+          <div ref={capacityPanelRef} className="operator-section-card p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="rounded-xl bg-violet-500/10 p-2 text-violet-300">
+                <Layers3 className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-white">Backtest Capacity</h2>
+                <p className="text-sm text-slate-400">
+                  Live queue pressure and admission thresholds.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-slate-500">Queue depth</p>
+                <p className="font-semibold text-slate-100">
+                  {backtestCapacity.queueDepth}
+                  {backtestCapacity.maxQueueDepth && backtestCapacity.maxQueueDepth > 0
+                    ? ` / ${backtestCapacity.maxQueueDepth}`
+                    : ''}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Active jobs</p>
+                <p className="font-semibold text-slate-100">
+                  {backtestCapacity.activeJobs}
+                  {backtestCapacity.maxInProcessJobs && backtestCapacity.maxInProcessJobs > 0
+                    ? ` / ${backtestCapacity.maxInProcessJobs}`
+                    : ''}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Global active cap</p>
+                <p className="font-semibold text-slate-100">
+                  {backtestCapacity.maxActiveGlobal && backtestCapacity.maxActiveGlobal > 0
+                    ? backtestCapacity.maxActiveGlobal
+                    : 'unbounded'}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Per-user active cap</p>
+                <p className="font-semibold text-slate-100">
+                  {backtestCapacity.maxPerUser && backtestCapacity.maxPerUser > 0
+                    ? backtestCapacity.maxPerUser
+                    : 'backend managed'}
+                </p>
+              </div>
+            </div>
+
+            {backtestCapacity.queueUtilizationPct !== null && (
+              <div className="mt-4">
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                  <span>Queue utilization</span>
+                  <span>{backtestCapacity.queueUtilizationPct.toFixed(0)}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-700/80">
+                  <div
+                    className={`h-1.5 rounded-full transition-all duration-500 ${
+                      backtestCapacity.queueUtilizationPct >= 85
+                        ? 'bg-rose-400'
+                        : backtestCapacity.queueUtilizationPct >= 60
+                          ? 'bg-amber-400'
+                          : 'bg-emerald-400'
+                    }`}
+                    style={{ width: `${backtestCapacity.queueUtilizationPct}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 space-y-1 text-xs text-slate-500">
+              <p>
+                Retry-after:{' '}
+                <span className="text-slate-300">
+                  {backtestCapacity.retryAfterSeconds && backtestCapacity.retryAfterSeconds > 0
+                    ? `${backtestCapacity.retryAfterSeconds}s`
+                    : 'server default'}
+                </span>
+              </p>
+              <p>
+                Stale heartbeat threshold:{' '}
+                <span className="text-slate-300">
+                  {backtestCapacity.staleHeartbeatSeconds &&
+                  backtestCapacity.staleHeartbeatSeconds > 0
+                    ? `${backtestCapacity.staleHeartbeatSeconds}s`
+                    : 'default'}
+                </span>
+              </p>
+              <p>
+                Runtime snapshot freshness:{' '}
+                <span className="text-slate-300">
+                  {systemStatusQuery.isFetching ? 'updating…' : 'live poll'}
+                </span>
+              </p>
+            </div>
+          </div>
+
           <div className="operator-section-card p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -732,12 +965,23 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                   </p>
                 </div>
               </div>
-              <Link
-                to="/backtests/runs"
-                className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300 hover:text-cyan-200"
-              >
-                View all runs
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={scrollToCapacityPanel}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition hover:brightness-110 ${capacityRisk.textClass} ${capacityRisk.chipClass}`}
+                  title={`Capacity risk: ${capacityRisk.label} — click to view panel`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${capacityRisk.dotClass}`} />
+                  Capacity {capacityRisk.label}
+                </button>
+                <Link
+                  to="/backtests/runs"
+                  className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300 hover:text-cyan-200"
+                >
+                  View all runs
+                </Link>
+              </div>
             </div>
 
             {activeRunsQuickAccess.length === 0 ? (

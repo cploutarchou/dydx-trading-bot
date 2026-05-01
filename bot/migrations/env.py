@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -6,6 +7,23 @@ from sqlalchemy import engine_from_config, pool
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# Allow runtime / CI to override the DB URL via environment variable.
+# Resolution order:
+#   1. BOT_DATABASE_URL env var (explicit override — used in production and CI)
+#   2. Constructed from individual BOT_DB_* env vars (matches how the app builds it)
+#   3. sqlalchemy.url from alembic.ini (local dev default)
+_env_url = os.environ.get("BOT_DATABASE_URL")
+if not _env_url:
+    _host = os.environ.get("BOT_DB_HOST")
+    _port = os.environ.get("BOT_DB_PORT")
+    _name = os.environ.get("BOT_DB_NAME") or os.environ.get("POSTGRES_DB")
+    _user = os.environ.get("BOT_DB_USER") or os.environ.get("POSTGRES_USER")
+    _pass = os.environ.get("BOT_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD")
+    if _host and _port and _name and _user:
+        _env_url = f"postgresql+psycopg2://{_user}:{_pass or ''}@{_host}:{_port}/{_name}"
+if _env_url:
+    config.set_main_option("sqlalchemy.url", _env_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

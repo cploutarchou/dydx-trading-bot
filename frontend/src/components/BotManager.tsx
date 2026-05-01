@@ -54,7 +54,7 @@ interface BotStats {
 }
 
 type PendingRuntimeAction = {
-  kind: 'stop' | 'restart' | 'delete';
+  kind: 'start' | 'stop' | 'restart' | 'delete';
   instanceId: string;
 } | null;
 
@@ -292,7 +292,7 @@ const BotCard: React.FC<BotCardProps> = ({
                   onClick={(e) => e.stopPropagation()}
                   className="text-cyan-300 underline decoration-cyan-600/70 underline-offset-2 hover:text-cyan-200"
                 >
-                  Open Strategy Runtime
+                  Open managed runtimes
                 </Link>
               </div>
             )}
@@ -556,6 +556,16 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
   const pendingActionConfig = useMemo(() => {
     if (!pendingAction) return null;
 
+    if (pendingAction.kind === 'start') {
+      return {
+        title: `Start ${pendingAction.instanceId}?`,
+        description:
+          'This can move the selected runtime into live execution. Confirm credentials, network, and sizing before continuing.',
+        confirmLabel: 'Start runtime',
+        confirmTone: 'success' as const,
+      };
+    }
+
     if (pendingAction.kind === 'stop') {
       return {
         title: `Stop ${pendingAction.instanceId}?`,
@@ -697,6 +707,10 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
     const { instanceId, kind } = pendingAction;
     setPendingAction(null);
 
+    if (kind === 'start') {
+      await handleStartBot(instanceId);
+      return;
+    }
     if (kind === 'stop') {
       await handleStopBot(instanceId);
       return;
@@ -739,9 +753,9 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
             <div>
               <div className="surface-label">
                 <Zap className="h-3.5 w-3.5" />
-                Bot Manager desk
+                Bots desk
               </div>
-              <h1 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bot Manager</h1>
+              <h1 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bots</h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
                 Manage live instances like an operator surface, not a settings form: health and
                 degraded-state signals first, actions close to each runtime, and clearer create-flow
@@ -849,8 +863,8 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               </h2>
               <p className="mt-1 text-sm text-slate-400">
                 {embedded
-                  ? 'Refresh runtime state and create bot instances without leaving Strategy Runtime.'
-                  : 'Refresh runtime state, create a new instance, or move into strategy runtime.'}
+                  ? 'Refresh runtime state and create bot instances without leaving the Bots desk.'
+                  : 'Refresh runtime state, create a new instance, or inspect managed runtimes.'}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -877,7 +891,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           <div className="mt-5 grid gap-3">
             {!embedded && (
               <Link to="/strategies/manage" className="operator-action-card p-4">
-                <p className="text-sm font-semibold text-white">Open strategy runtime</p>
+                <p className="text-sm font-semibold text-white">Open managed runtimes</p>
                 <p className="mt-1 text-xs text-slate-500">
                   Monitor managed strategy processes beside direct bot instances.
                 </p>
@@ -908,7 +922,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
                 <p className="text-sm font-semibold text-white">Instance creation is operational</p>
                 <p className="mt-1 text-sm leading-6 text-slate-400">
-                  The create flow now sits inside the Bot Manager desk so credential, network, and
+                  The create flow now sits inside the Bots desk so credential, network, and
                   trading-parameter choices feel part of one controlled setup workflow.
                 </p>
               </div>
@@ -1156,7 +1170,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                         onToggleExpand={(instanceId) =>
                           setExpandedBot((current) => (current === instanceId ? null : instanceId))
                         }
-                        onStart={(instanceId) => void handleStartBot(instanceId)}
+                        onStart={(instanceId) => setPendingAction({ kind: 'start', instanceId })}
                         onStop={(instanceId) => setPendingAction({ kind: 'stop', instanceId })}
                         onRestart={(instanceId) =>
                           setPendingAction({ kind: 'restart', instanceId })
@@ -1174,7 +1188,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 <div>
                   <h3 className="text-sm font-semibold text-cyan-100">Strategy-managed runtimes</h3>
                   <p className="mt-1 text-xs text-cyan-300/80">
-                    Primary controls are in Strategy Runtime. Expand below when you need a unified
+                    Primary controls are in the managed runtime workflow. Expand below when you need a unified
                     monitoring view.
                   </p>
                 </div>
@@ -1212,7 +1226,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                               current === instanceId ? null : instanceId
                             )
                           }
-                          onStart={(instanceId) => void handleStartBot(instanceId)}
+                          onStart={(instanceId) => setPendingAction({ kind: 'start', instanceId })}
                           onStop={(instanceId) => setPendingAction({ kind: 'stop', instanceId })}
                           onRestart={(instanceId) =>
                             setPendingAction({ kind: 'restart', instanceId })

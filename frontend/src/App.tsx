@@ -291,7 +291,7 @@ export const App: React.FC = () => {
                     }
                   />
                   <Route
-                    path="/codex"
+                    path="/market-intel"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
                         <CodexPage />
@@ -299,10 +299,26 @@ export const App: React.FC = () => {
                     }
                   />
                   <Route
-                    path="/news"
+                    path="/market-intel/news"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
                         <NewsPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/codex"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <Navigate to="/market-intel" replace />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/news"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <Navigate to="/market-intel/news" replace />
                       </ProtectedRoute>
                     }
                   />

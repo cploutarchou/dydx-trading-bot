@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Activity,
     ArrowRight,
@@ -15,6 +15,7 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import { BacktestList } from '../components/BacktestList';
+import { BacktestRunner } from '../components/BacktestRunner';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
 import { TerminalDataGrid, type TerminalColumn } from '../components/TerminalDataGrid';
@@ -97,6 +98,7 @@ const InsightCard: React.FC<{
 );
 
 export const BacktestsPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const strategiesQuery = useQuery({
     queryKey: ['strategies', 'lookup'],
     queryFn: async (): Promise<StrategyRef[]> => {
@@ -349,6 +351,30 @@ export const BacktestsPage: React.FC = () => {
         />
       </section>
 
+      <section className="operator-section-card overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-slate-800/80 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Run setup</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-400">
+              Configure historical validation here first, then compare reports before deploying a
+              strategy into Bots.
+            </p>
+          </div>
+          <Link
+            to="/strategies"
+            className="premium-button premium-button-secondary px-4 py-2 text-sm"
+          >
+            Choose strategy
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <BacktestRunner
+          onBacktestComplete={() => {
+            void queryClient.invalidateQueries({ queryKey: ['backtests'] });
+          }}
+        />
+      </section>
+
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <InsightCard
           title="Best Performing Strategy"
@@ -440,7 +466,7 @@ export const BacktestsPage: React.FC = () => {
           defaultSortKey="pnl"
           emptyState={
             <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-6 text-sm text-slate-400">
-              No completed backtests yet. Launch your first run from the dashboard and the
+              No completed backtests yet. Launch your first run from this Backtests desk and the
               leaderboard will populate here.
             </div>
           }
@@ -552,10 +578,10 @@ export const BacktestsPage: React.FC = () => {
             </p>
           </div>
           <Link
-            to="/dashboard"
+            to="/backtests/compare"
             className="premium-button premium-button-secondary rounded-[1rem] px-4 py-2 text-sm"
           >
-            Launch a new backtest
+            Compare runs
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

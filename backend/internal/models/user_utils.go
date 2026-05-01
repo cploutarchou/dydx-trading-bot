@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ var validUserRoles = []string{
 	"agent",
 	"client",
 }
+
+var validCustomRolePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,49}$`)
 
 // ============ User Methods ============
 
@@ -178,6 +181,9 @@ func NormalizeUserRole(role string, isAdmin bool) string {
 		return "client"
 	}
 	if _, ok := validRoles[role]; ok {
+		return role
+	}
+	if validCustomRolePattern.MatchString(role) {
 		return role
 	}
 	if isAdmin {

@@ -265,6 +265,37 @@ export interface AdminUserListResponse extends Record<string, unknown> {
   roles: string[];
 }
 
+export interface AccessControlRole extends Record<string, unknown> {
+  role: string;
+  display_name: string;
+  description: string;
+  is_system: boolean;
+}
+
+export interface AccessControlPermission extends Record<string, unknown> {
+  permission_key: string;
+  description: string;
+  is_sensitive: boolean;
+}
+
+export interface AccessControlRolePermission extends Record<string, unknown> {
+  role: string;
+  permission_key: string;
+}
+
+export interface AccessControlResponse extends Record<string, unknown> {
+  roles: string[];
+  role_catalog?: AccessControlRole[];
+  permissions: AccessControlPermission[];
+  role_permissions: AccessControlRolePermission[];
+}
+
+export interface CreateCustomRolePayload extends Record<string, unknown> {
+  role: string;
+  display_name?: string;
+  description?: string;
+}
+
 export interface CreateAdminUserPayload extends Record<string, unknown> {
   username: string;
   email: string;
@@ -544,10 +575,20 @@ export interface TelegramStatusResponse extends Record<string, unknown> {
   message?: string;
 }
 
+export type TelegramSettingsScope = 'user' | 'global';
+
 export interface TelegramConfigPayload extends Record<string, unknown> {
   bot_token?: string;
   chat_id: string;
   label?: string;
+}
+
+export interface TelegramPreflightResponse extends Record<string, unknown> {
+  valid: boolean;
+  chat_name?: string;
+  chat_id?: string;
+  error?: string;
+  validation_reason?: string;
 }
 
 export interface BotServiceCapabilitiesResponse extends Record<string, unknown> {
@@ -2097,6 +2138,99 @@ class ApiClient {
     }
   }
 
+  async getAccessControl(): Promise<ApiResponse<AccessControlResponse>> {
+    try {
+      const response =
+        await this.client.get<ApiResponse<AccessControlResponse>>('/api/v1/backoffice/access-control');
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        '/api/v1/backoffice/access-control',
+        '/api/v1/admin/access-control',
+        error
+      );
+      const fallback =
+        await this.client.get<ApiResponse<AccessControlResponse>>('/api/v1/admin/access-control');
+      return fallback.data;
+    }
+  }
+
+  async createCustomRole(
+    data: CreateCustomRolePayload
+  ): Promise<ApiResponse<AccessControlResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<AccessControlResponse>>(
+        '/api/v1/backoffice/roles',
+        data
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback('/api/v1/backoffice/roles', '/api/v1/admin/roles', error);
+      const fallback = await this.client.post<ApiResponse<AccessControlResponse>>(
+        '/api/v1/admin/roles',
+        data
+      );
+      return fallback.data;
+    }
+  }
+
+  async updateRolePermissions(
+    role: string,
+    permissionKeys: string[]
+  ): Promise<ApiResponse<AccessControlResponse>> {
+    const encodedRole = encodeURIComponent(role);
+    try {
+      const response = await this.client.put<ApiResponse<AccessControlResponse>>(
+        `/api/v1/backoffice/roles/${encodedRole}/permissions`,
+        { permission_keys: permissionKeys }
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/roles/${encodedRole}/permissions`,
+        `/api/v1/admin/roles/${encodedRole}/permissions`,
+        error
+      );
+      const fallback = await this.client.put<ApiResponse<AccessControlResponse>>(
+        `/api/v1/admin/roles/${encodedRole}/permissions`,
+        { permission_keys: permissionKeys }
+      );
+      return fallback.data;
+    }
+  }
+
+  async deleteCustomRole(role: string): Promise<ApiResponse<AccessControlResponse>> {
+    const encodedRole = encodeURIComponent(role);
+    try {
+      const response = await this.client.delete<ApiResponse<AccessControlResponse>>(
+        `/api/v1/backoffice/roles/${encodedRole}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        `/api/v1/backoffice/roles/${encodedRole}`,
+        `/api/v1/admin/roles/${encodedRole}`,
+        error
+      );
+      const fallback = await this.client.delete<ApiResponse<AccessControlResponse>>(
+        `/api/v1/admin/roles/${encodedRole}`
+      );
+      return fallback.data;
+    }
+  }
+
   async getAdminUser(userId: number): Promise<ApiResponse<{ user: AdminUser }>> {
     try {
       const response = await this.client.get<ApiResponse<{ user: AdminUser }>>(
@@ -3510,27 +3644,88 @@ class ApiClient {
   }
 
   async getTelegramStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
+    return this.getTelegramUserStatus();
+  }
+
+  async getTelegramUserStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
     this.ensureTokenLoaded();
     const response =
-      await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/status');
+      await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/user/status');
+    return response.data;
+  }
+
+  async getTelegramGlobalStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response =
+      await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/global/status');
     return response.data;
   }
 
   async saveTelegramConfig(
     data: TelegramConfigPayload
   ): Promise<ApiResponse<TelegramStatusResponse>> {
+    return this.saveTelegramUserConfig(data);
+  }
+
+  async saveTelegramUserConfig(
+    data: TelegramConfigPayload
+  ): Promise<ApiResponse<TelegramStatusResponse>> {
     this.ensureTokenLoaded();
     const response = await this.client.put<ApiResponse<TelegramStatusResponse>>(
-      '/api/v1/telegram/config',
+      '/api/v1/telegram/user/config',
+      data
+    );
+    return response.data;
+  }
+
+  async saveTelegramGlobalConfig(
+    data: TelegramConfigPayload
+  ): Promise<ApiResponse<TelegramStatusResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<TelegramStatusResponse>>(
+      '/api/v1/telegram/global/config',
       data
     );
     return response.data;
   }
 
   async deleteTelegramConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    return this.deleteTelegramUserConfig();
+  }
+
+  async deleteTelegramUserConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response =
-      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/config');
+      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/user/config');
+    return response.data;
+  }
+
+  async deleteTelegramGlobalConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response =
+      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/global/config');
+    return response.data;
+  }
+
+  async preflightTelegramUserDelivery(
+    data?: Partial<TelegramConfigPayload>
+  ): Promise<ApiResponse<TelegramPreflightResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<TelegramPreflightResponse>>(
+      '/api/v1/telegram/user/preflight',
+      data ?? undefined
+    );
+    return response.data;
+  }
+
+  async preflightTelegramGlobalDelivery(
+    data?: Partial<TelegramConfigPayload>
+  ): Promise<ApiResponse<TelegramPreflightResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<TelegramPreflightResponse>>(
+      '/api/v1/telegram/global/preflight',
+      data ?? undefined
+    );
     return response.data;
   }
 

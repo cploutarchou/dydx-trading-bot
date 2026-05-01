@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
-	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/gin-gonic/gin"
 )
@@ -34,6 +33,9 @@ func RegisterBackofficeRoutes(router *gin.Engine, database *sql.DB) {
 		backoffice.POST("/users/:id/reset-mfa", middleware.RequirePermission(database, "roles.manage"), resetAdminUserMFAHandler(database))
 
 		backoffice.GET("/access-control", middleware.RequirePermission(database, "roles.manage"), accessControlHandler(database))
+		backoffice.POST("/roles", middleware.RequirePermission(database, "roles.manage"), createCustomRoleHandler(database))
+		backoffice.PUT("/roles/:role/permissions", middleware.RequirePermission(database, "roles.manage"), updateRolePermissionsHandler(database))
+		backoffice.DELETE("/roles/:role", middleware.RequirePermission(database, "roles.manage"), deleteCustomRoleHandler(database))
 		backoffice.GET("/registration-policy", middleware.RequirePermission(database, "crm.admin.manage"), getRegistrationPolicyHandler(database))
 		backoffice.PUT("/registration-policy", middleware.RequirePermission(database, "crm.admin.manage"), updateRegistrationPolicyHandler(database))
 		backoffice.GET("/settings", middleware.RequirePermission(database, "crm.admin.manage"), backofficeSettingsHandler(database))
@@ -54,6 +56,11 @@ func RegisterBackofficeRoutes(router *gin.Engine, database *sql.DB) {
 func accessControlHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		repo := repository.NewRBACRepository(database)
+		roleCatalog, err := listRoleCatalog(database)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load roles: %v", err)})
+			return
+		}
 		permissions, err := repo.ListPermissions()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load permissions: %v", err)})
@@ -68,12 +75,97 @@ func accessControlHandler(database *sql.DB) gin.HandlerFunc {
 			"success": true,
 			"message": "Access control loaded",
 			"data": gin.H{
-				"roles":            models.AvailableUserRoles(),
+				"roles":            roleKeysFromCatalog(roleCatalog),
+				"role_catalog":     roleCatalog,
 				"permissions":      permissions,
 				"role_permissions": rolePermissions,
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
+	}
+}
+
+func createCustomRoleHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req createCustomRoleRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("Invalid request: %v", err)})
+			return
+		}
+
+		role, err := normalizeRoleKey(req.Role)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		if isSystemRole(role) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "System roles already exist and cannot be recreated as custom roles"})
+			return
+		}
+
+		repo := repository.NewRBACRepository(database)
+		if err := repo.UpsertCustomRole(role, req.DisplayName, req.Description); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		writeAuditLog(database, c, "admin.role.create", "role", stringPointer(role), gin.H{
+			"role":         role,
+			"display_name": strings.TrimSpace(req.DisplayName),
+		}, "success")
+
+		accessControlHandler(database)(c)
+	}
+}
+
+func updateRolePermissionsHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, err := normalizeAssignableRole(database, c.Param("role"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		var req updateRolePermissionsRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("Invalid request: %v", err)})
+			return
+		}
+
+		repo := repository.NewRBACRepository(database)
+		if err := repo.ReplaceRolePermissions(role, req.PermissionKeys); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		writeAuditLog(database, c, "admin.role.permissions_update", "role", stringPointer(role), gin.H{
+			"role":            role,
+			"permission_keys": req.PermissionKeys,
+		}, "success")
+
+		accessControlHandler(database)(c)
+	}
+}
+
+func deleteCustomRoleHandler(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, err := normalizeAssignableRole(database, c.Param("role"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		repo := repository.NewRBACRepository(database)
+		if err := repo.DeleteCustomRole(role); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+
+		writeAuditLog(database, c, "admin.role.delete", "role", stringPointer(role), gin.H{
+			"role": role,
+		}, "success")
+
+		accessControlHandler(database)(c)
 	}
 }
 

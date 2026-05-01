@@ -15,6 +15,13 @@ type BacktestSyncService struct {
 	repo *repository.BacktestSyncRepository
 }
 
+func (s *BacktestSyncService) DB() *sql.DB {
+	if s == nil || s.repo == nil {
+		return nil
+	}
+	return s.repo.DB()
+}
+
 func (s *BacktestSyncService) GetSyncHealthByRun(userID int, runID string, limit int) ([]repository.BacktestSyncHealth, error) {
 	if s == nil || s.repo == nil {
 		return []repository.BacktestSyncHealth{}, nil

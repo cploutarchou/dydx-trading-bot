@@ -326,7 +326,23 @@ export const App: React.FC = () => {
                     path="/backtests"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BacktestsPage />
+                        <BacktestsPage view="dashboard" />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/backtests/new"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <BacktestsPage view="new" />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/backtests/runs"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <BacktestsPage view="runs" />
                       </ProtectedRoute>
                     }
                   />

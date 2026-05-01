@@ -75,7 +75,7 @@ The client portal is organized around the automation workflow:
 
 - Dashboard: live account and runtime intelligence, active bots, live PnL, alerts, recent activity, and quick actions.
 - Strategies: strategy library, builder, edit flows, templates, risk profile, and validation readiness.
-- Backtests: backtest setup, live progress, historical results, comparisons, reporting, and strategy rankings.
+- Backtests: a dedicated subsection with `/backtests` for validation dashboard stats, `/backtests/new` for run setup, `/backtests/runs` for the run archive, and `/backtests/compare` for comparisons.
 - Bots: live/paper runtime management, health, start/stop/restart/delete actions, positions, logs, and deployment review.
 - Market Intel: Codex token intelligence and Market News research. Legacy `/codex` and `/news` links redirect into this section.
 - Client Area / Account: role progression, onboarding state, and partner application timeline.

@@ -99,9 +99,11 @@ class _RunResult:
 class _RunStubService:
     def __init__(self):
         self.progress_callback = None
+        self.last_request = None
 
     async def create_and_run_backtest(self, request, progress_callback=None):
         self.progress_callback = progress_callback
+        self.last_request = request
         return _RunResult(
             {
                 "run_id": "fallback-run",
@@ -390,6 +392,79 @@ def test_strategy_to_backtest_request_preserves_request_trading_parameters():
     assert result.trading_parameters["pair_selection_mode"] == "liquidity"
     assert result.trading_parameters["max_pairs"] == 6
     assert result.pairs == ["ETH-USD", "SOL-USD", "ADA-USD"]
+
+
+def test_run_backtest_compat_preserves_explicit_payload_semantics(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _max):
+        return ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(
+        server.InMemoryStrategyStore,
+        "get",
+        lambda _strategy_id: {
+            "id": 7,
+            "name": "Stored Strategy",
+            "description": "Stored defaults should not override explicit request values",
+            "starting_balance": 9999.0,
+            "pair_selection_mode": "liquidity",
+            "zscore_threshold": 2.5,
+            "stats_window": 60,
+            "benchmark_symbol": "BTC-USD",
+            "resolution": "1HOUR",
+        },
+    )
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=7,
+        name="Payload Fidelity Run",
+        description="should keep explicit request semantics",
+        initial_balance=4321.0,
+        max_pairs=7,
+        pairs=["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"],
+        trading_parameters={
+            "zscore_threshold": 1.1,
+            "stats_window": 18,
+            "usd_per_trade": 25.0,
+            "pair_selection_mode": "cointegration",
+            "benchmark_symbol": "ETH-USD",
+            "resolution": "4HOURS",
+            "max_history_days": 150,
+        },
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+
+    executed_request = stub_service.last_request
+    assert executed_request.strategy_id == 7
+    assert executed_request.start_date == "2026-03-01"
+    assert executed_request.end_date == "2026-03-31"
+    assert executed_request.initial_balance == 4321.0
+    assert executed_request.max_pairs == 7
+    assert executed_request.pair_selection_mode == "cointegration"
+    assert executed_request.pairs == ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
+
+    # Explicit request values should win over strategy defaults.
+    assert executed_request.trading_parameters["zscore_threshold"] == 1.1
+    assert executed_request.trading_parameters["stats_window"] == 18
+    assert executed_request.trading_parameters["benchmark_symbol"] == "ETH-USD"
+    assert executed_request.trading_parameters["resolution"] == "4HOURS"
+    assert executed_request.trading_parameters["pair_selection_mode"] == "cointegration"
+    assert executed_request.trading_parameters["max_pairs"] == 7
+
+    # Missing values can still be filled from strategy defaults.
+    assert "stop_loss_pct" in executed_request.trading_parameters
+    assert "take_profit_pct" in executed_request.trading_parameters
 
 
 def test_api_response_sanitizes_internal_error_details():

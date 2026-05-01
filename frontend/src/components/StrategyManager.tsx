@@ -11,7 +11,7 @@
  */
 
 import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
@@ -119,6 +119,8 @@ export default function StrategyManager() {
   const [startDialogLoading, setStartDialogLoading] = useState(false);
   const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
   const [startDialogError, setStartDialogError] = useState<string | null>(null);
+  const [compactCards, setCompactCards] = useState(false);
+  const [focusedCardId, setFocusedCardId] = useState<number | null>(null);
   const [startDialogReadiness, setStartDialogReadiness] = useState<StrategyStartReadiness | null>(
     null
   );
@@ -892,6 +894,63 @@ export default function StrategyManager() {
     }
   };
 
+  const handleStrategyCardKeyDown = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    strategy: Strategy,
+    status: StrategyStatus
+  ) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+
+    if (key === 's') {
+      event.preventDefault();
+      void handleRuntimeToggle(strategy);
+      return;
+    }
+
+    if (key === 'c') {
+      event.preventDefault();
+      handleEditConfig(strategy);
+      return;
+    }
+
+    if (key === 'b') {
+      event.preventDefault();
+      void handleRunBacktest(strategy);
+      return;
+    }
+
+    if (key === 'd') {
+      event.preventDefault();
+      void handleDuplicateStrategy(strategy);
+      return;
+    }
+
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      if (deleteConfirmId === strategy.id) {
+        void handleDeleteStrategy(strategy);
+      } else {
+        setDeleteConfirmId(strategy.id);
+      }
+      return;
+    }
+
+    if (event.key === 'Escape' && deleteConfirmId === strategy.id) {
+      event.preventDefault();
+      setDeleteConfirmId(null);
+      return;
+    }
+
+    if (key === 'r' && status.status === 'running') {
+      event.preventDefault();
+      void handleRuntimeToggle(strategy);
+    }
+  };
+
   const getStatusColor = (status: StrategyStatus['status']) => {
     switch (status) {
       case 'running':
@@ -933,9 +992,14 @@ export default function StrategyManager() {
   );
   const digestActivePairs = useMemo(() => {
     const markets = new Set<string>();
-    safeStrategies.forEach((s) => {
-      if (s.market_1) markets.add(s.market_1);
-      if (s.market_2) markets.add(s.market_2);
+    safeStrategies.forEach((strategy) => {
+      if (Array.isArray(strategy.selected_markets)) {
+        strategy.selected_markets.forEach((market) => {
+          if (typeof market === 'string' && market.length > 0) {
+            markets.add(market);
+          }
+        });
+      }
     });
     return Math.floor(markets.size / 2);
   }, [safeStrategies]);
@@ -974,6 +1038,13 @@ export default function StrategyManager() {
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:min-w-75">
+            <button
+              type="button"
+              onClick={() => setCompactCards((prev) => !prev)}
+              className="col-span-2 rounded-2xl border border-slate-700/70 bg-slate-950/55 px-4 py-2 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-300 transition hover:border-cyan-500/35 hover:text-cyan-200"
+            >
+              {compactCards ? 'Expanded cards' : 'Compact cards'}
+            </button>
             <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Active</p>
               <p className="mt-1 text-3xl font-semibold text-emerald-300">{runningCount}</p>
@@ -1070,22 +1141,34 @@ export default function StrategyManager() {
             return (
               <div
                 key={strategy.id}
-                className={`premium-panel premium-panel-hover p-6 transition-all duration-300 ${
+                tabIndex={0}
+                onFocus={() => setFocusedCardId(strategy.id)}
+                onBlur={() => setFocusedCardId(null)}
+                onKeyDown={(event) => handleStrategyCardKeyDown(event, strategy, status)}
+                className={`premium-panel premium-panel-hover p-6 transition-all duration-300 focus:outline-none ${
                   status.status === 'running'
-                    ? 'border-green-500/40 shadow-lg shadow-green-900/25'
+                    ? 'border-emerald-500/40 shadow-lg shadow-emerald-900/20'
+                    : ''
+                } ${
+                  focusedCardId === strategy.id
+                    ? 'ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-900/30'
                     : ''
                 }`}
               >
                 {/* Strategy Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-xl font-bold text-white">{strategy.name}</h3>
-                      <span className="rounded-full border border-slate-700/70 bg-slate-950/45 px-3 py-1 text-xs text-slate-300">
+                <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <h3 className="text-2xl font-bold tracking-tight text-white">
+                        {strategy.name}
+                      </h3>
+                      <span className="rounded-full border border-slate-700/70 bg-slate-950/45 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-300">
                         {strategy.category}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-slate-400">{strategy.description}</p>
+                    {!compactCards && (
+                      <p className="mt-1 text-sm text-slate-400">{strategy.description}</p>
+                    )}
                   </div>
 
                   {/* Status Badge */}
@@ -1121,53 +1204,67 @@ export default function StrategyManager() {
                 )}
 
                 {/* Key Parameters */}
-                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                <div
+                  className={`grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 ${compactCards ? 'mb-4' : 'mb-6'}`}
+                >
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3.5">
+                    <p className="text-slate-500 text-[11px] uppercase tracking-[0.16em]">
                       Z-Score Threshold
                     </p>
-                    <p className="text-white font-semibold">{strategy.zscore_threshold}</p>
+                    <p className="mt-1 text-lg font-semibold text-white">
+                      {strategy.zscore_threshold}
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3.5">
+                    <p className="text-slate-500 text-[11px] uppercase tracking-[0.16em]">
                       USD Per Trade
                     </p>
-                    <p className="text-white font-semibold">${strategy.usd_per_trade}</p>
+                    <p className="mt-1 text-lg font-semibold text-white">
+                      ${strategy.usd_per_trade}
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3.5">
+                    <p className="text-slate-500 text-[11px] uppercase tracking-[0.16em]">
                       Max Positions
                     </p>
-                    <p className="text-white font-semibold">{strategy.max_positions}</p>
+                    <p className="mt-1 text-lg font-semibold text-white">
+                      {strategy.max_positions}
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3">
-                    <p className="text-gray-400 text-xs uppercase tracking-[0.14em]">
+                  <div className="rounded-2xl border border-slate-700/50 bg-slate-950/45 p-3.5">
+                    <p className="text-slate-500 text-[11px] uppercase tracking-[0.16em]">
                       Max Drawdown
                     </p>
-                    <p className="text-white font-semibold">{strategy.max_drawdown_pct}%</p>
+                    <p className="mt-1 text-lg font-semibold text-white">
+                      {strategy.max_drawdown_pct}%
+                    </p>
                   </div>
                 </div>
 
-                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3">
-                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">
+                <div
+                  className={`grid grid-cols-1 gap-4 sm:grid-cols-3 ${compactCards ? 'mb-4' : 'mb-6'}`}
+                >
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3.5">
+                    <p className="text-cyan-200 text-[11px] uppercase tracking-[0.16em]">
                       Runtime Network
                     </p>
-                    <p className="text-white font-semibold capitalize">
+                    <p className="mt-1 text-lg font-semibold capitalize text-white">
                       {strategy.runtime_network || status.network || 'testnet'}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3">
-                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">Subaccount</p>
-                    <p className="text-white font-semibold">
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3.5">
+                    <p className="text-cyan-200 text-[11px] uppercase tracking-[0.16em]">
+                      Subaccount
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-white">
                       #{status.runtimeSubaccount ?? strategy.runtime_subaccount ?? 0}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3">
-                    <p className="text-cyan-200 text-xs uppercase tracking-[0.14em]">
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3.5">
+                    <p className="text-cyan-200 text-[11px] uppercase tracking-[0.16em]">
                       Allocated Capital
                     </p>
-                    <p className="text-white font-semibold">
+                    <p className="mt-1 text-lg font-semibold text-white">
                       $
                       {(
                         status.capitalAllocationUsd ??
@@ -1180,35 +1277,41 @@ export default function StrategyManager() {
                 </div>
 
                 {/* Stats */}
-                {status.tradesExecuted !== undefined && (
-                  <div className="grid grid-cols-3 gap-4 mb-6">
-                    <div className="bg-blue-900/20 border border-blue-700 rounded p-3">
-                      <p className="text-blue-300 text-xs">Trades</p>
-                      <p className="text-blue-100 font-bold text-lg">{status.tradesExecuted}</p>
+                {!compactCards && status.tradesExecuted !== undefined && (
+                  <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-3.5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-200">
+                        Trades
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-cyan-50">
+                        {status.tradesExecuted}
+                      </p>
                     </div>
                     <div
-                      className={`border rounded p-3 ${
+                      className={`rounded-xl border p-3.5 ${
                         status.pnl && status.pnl > 0
-                          ? 'bg-green-900/20 border-green-700'
-                          : 'bg-red-900/20 border-red-700'
+                          ? 'border-emerald-600/40 bg-emerald-900/15'
+                          : 'border-rose-600/40 bg-rose-900/15'
                       }`}
                     >
                       <p
-                        className={status.pnl && status.pnl > 0 ? 'text-green-300' : 'text-red-300'}
+                        className={`text-[11px] uppercase tracking-[0.16em] ${status.pnl && status.pnl > 0 ? 'text-emerald-300' : 'text-rose-300'}`}
                       >
                         P&L
                       </p>
                       <p
-                        className={`font-bold text-lg ${
-                          status.pnl && status.pnl > 0 ? 'text-green-100' : 'text-red-100'
+                        className={`mt-1 text-lg font-semibold ${
+                          status.pnl && status.pnl > 0 ? 'text-emerald-100' : 'text-rose-100'
                         }`}
                       >
                         {status.pnl ? `$${status.pnl.toFixed(2)}` : '-'}
                       </p>
                     </div>
-                    <div className="bg-slate-700/20 border border-slate-600 rounded p-3">
-                      <p className="text-slate-300 text-xs">Last Updated</p>
-                      <p className="text-slate-100 font-mono text-sm">
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        Last Updated
+                      </p>
+                      <p className="mt-1 font-mono text-sm text-slate-100">
                         {new Date(status.updatedAt).toLocaleTimeString()}
                       </p>
                     </div>
@@ -1216,103 +1319,115 @@ export default function StrategyManager() {
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex flex-wrap gap-2">
-                  {/* Toggle Button */}
-                  {(() => {
-                    const pendingAction = runtimePending[strategy.id];
-                    const isRunning = status.status === 'running' || status.status === 'starting';
-                    const buttonLabel =
-                      pendingAction === 'start'
-                        ? 'Starting...'
-                        : pendingAction === 'stop'
-                          ? 'Stopping...'
+                <div className="sticky bottom-2 z-10 mt-2 rounded-2xl border border-slate-700/60 bg-slate-950/70 p-2 backdrop-blur-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Toggle Button */}
+                    {(() => {
+                      const pendingAction = runtimePending[strategy.id];
+                      const isRunning = status.status === 'running' || status.status === 'starting';
+                      const buttonLabel =
+                        pendingAction === 'start'
+                          ? 'Starting...'
+                          : pendingAction === 'stop'
+                            ? 'Stopping...'
+                            : isRunning
+                              ? 'Stop Strategy'
+                              : 'Start Strategy';
+                      const buttonClass =
+                        pendingAction === 'start' || pendingAction === 'stop'
+                          ? 'bg-slate-700 text-slate-200 cursor-wait'
                           : isRunning
-                            ? 'Stop Strategy'
-                            : 'Start Strategy';
-                    const buttonClass =
-                      pendingAction === 'start' || pendingAction === 'stop'
-                        ? 'bg-slate-700 text-slate-200 cursor-wait'
-                        : isRunning
-                          ? 'bg-red-600 hover:bg-red-700 text-white'
-                          : 'bg-green-600 hover:bg-green-700 text-white';
+                            ? 'bg-red-600 hover:bg-red-700 text-white'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white';
 
-                    return (
+                      return (
+                        <button
+                          onClick={() => void handleRuntimeToggle(strategy)}
+                          disabled={pendingAction !== undefined}
+                          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-80 ${buttonClass}`}
+                          title={
+                            status.network
+                              ? `Runtime network: ${status.network}`
+                              : 'Requires an active dYdX key before startup'
+                          }
+                        >
+                          {buttonLabel}
+                        </button>
+                      );
+                    })()}
+
+                    {/* Configure Button */}
+                    <button
+                      onClick={() => handleEditConfig(strategy)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/15 px-4 py-2 text-sm font-semibold text-cyan-100 transition-colors hover:bg-cyan-500/25"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Configure
+                    </button>
+
+                    {/* Backtest Button */}
+                    <button
+                      onClick={() => handleRunBacktest(strategy)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-4 py-2 text-sm font-semibold text-indigo-100 transition-colors hover:bg-indigo-500/25"
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                      Backtest
+                    </button>
+
+                    {/* Copy Button */}
+                    <button
+                      onClick={() => void handleDuplicateStrategy(strategy)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-cyan-500/35 hover:bg-slate-900"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Duplicate
+                    </button>
+
+                    {/* Delete Button */}
+                    {deleteConfirmId === strategy.id ? (
+                      <>
+                        <button
+                          onClick={() => void handleDeleteStrategy(strategy)}
+                          className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-500"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Confirm Delete
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-cyan-500/35 hover:bg-slate-900"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
                       <button
-                        onClick={() => void handleRuntimeToggle(strategy)}
-                        disabled={pendingAction !== undefined}
-                        className={`flex items-center gap-2 rounded-2xl px-4 py-2 font-medium transition-colors disabled:opacity-80 disabled:cursor-not-allowed ${buttonClass}`}
-                        title={
-                          status.network
-                            ? `Runtime network: ${status.network}`
-                            : 'Requires an active dYdX key before startup'
-                        }
-                      >
-                        {buttonLabel}
-                      </button>
-                    );
-                  })()}
-
-                  {/* Configure Button */}
-                  <button
-                    onClick={() => handleEditConfig(strategy)}
-                    className="flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
-                  >
-                    <Settings className="w-4 h-4" />
-                    Configure
-                  </button>
-
-                  {/* Backtest Button */}
-                  <button
-                    onClick={() => handleRunBacktest(strategy)}
-                    className="flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 font-medium text-white transition-colors hover:bg-indigo-700"
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                    Backtest
-                  </button>
-
-                  {/* Copy Button */}
-                  <button
-                    onClick={() => void handleDuplicateStrategy(strategy)}
-                    className="flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 font-medium text-white transition-colors hover:bg-slate-700"
-                  >
-                    <Copy className="w-4 h-4" />
-                    Duplicate
-                  </button>
-
-                  {/* Delete Button */}
-                  {deleteConfirmId === strategy.id ? (
-                    <>
-                      <button
-                        onClick={() => void handleDeleteStrategy(strategy)}
-                        className="flex items-center gap-2 rounded-2xl bg-red-600 px-4 py-2 font-medium text-white transition-colors hover:bg-red-500"
+                        onClick={() => setDeleteConfirmId(strategy.id)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-red-500/40 hover:bg-red-900/20"
                       >
                         <Trash2 className="w-4 h-4" />
-                        Confirm Delete
+                        Delete
                       </button>
-                      <button
-                        onClick={() => setDeleteConfirmId(null)}
-                        className="flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 font-medium text-white transition-colors hover:bg-slate-700"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setDeleteConfirmId(strategy.id)}
-                      className="flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 font-medium text-white transition-colors hover:bg-red-900/50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
-                  )}
+                    )}
+                  </div>
                 </div>
 
+                <p className="mt-3 text-[11px] text-slate-500">
+                  Shortcuts while card is focused: <span className="text-slate-300">S</span>{' '}
+                  start/stop, <span className="text-slate-300">C</span> configure,{' '}
+                  <span className="text-slate-300">B</span> backtest,{' '}
+                  <span className="text-slate-300">D</span> duplicate,{' '}
+                  <span className="text-slate-300">Delete</span> remove.
+                </p>
+
                 {/* AI Parameter Advisor */}
-                <AIStrategyAdvisor
-                  strategy={strategy}
-                  lastError={status.lastError}
-                  onApplyParams={(params) => handleApplySuggestedParams(strategy, params)}
-                />
+                <div className="mt-6 border-t border-slate-700/60 pt-5">
+                  <AIStrategyAdvisor
+                    strategy={strategy}
+                    lastError={status.lastError}
+                    onApplyParams={(params) => handleApplySuggestedParams(strategy, params)}
+                  />
+                </div>
               </div>
             );
           })

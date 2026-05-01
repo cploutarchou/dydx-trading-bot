@@ -166,7 +166,9 @@ const formatFreshnessAge = (updatedAtMs?: number): string | null => {
   return `updated ${elapsedHours}h ago`;
 };
 
-const getFreshnessToneClasses = (updatedAtMs?: number): { text: string; dot: string; pulse: boolean } => {
+const getFreshnessToneClasses = (
+  updatedAtMs?: number
+): { text: string; dot: string; pulse: boolean } => {
   const elapsedSeconds = getFreshnessElapsedSeconds(updatedAtMs);
   if (elapsedSeconds === null) {
     return {
@@ -349,7 +351,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     const staleHeartbeatSeconds = toOptionalNumber(limits.stale_heartbeat_seconds);
 
     const queueUtilizationPct =
-      maxQueueDepth && maxQueueDepth > 0 ? Math.max(0, Math.min(100, (queueDepth / maxQueueDepth) * 100)) : null;
+      maxQueueDepth && maxQueueDepth > 0
+        ? Math.max(0, Math.min(100, (queueDepth / maxQueueDepth) * 100))
+        : null;
 
     return {
       queueDepth,
@@ -562,8 +566,8 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 Create a focused validation run before a strategy reaches Bots.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-                Keep setup and launch separate from analytics. Pick a strategy/configuration,
-                define the historical window, and start the run from one purpose-built page.
+                Keep setup and launch separate from analytics. Pick a strategy/configuration, define
+                the historical window, and start the run from one purpose-built page.
               </p>
             </div>
             <div className="operator-mini-grid">
@@ -789,395 +793,408 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
             />
           </section>
 
-          <CodexAssetIntelStrip title="Assets Behind Your Top Runs" request={backtestIntelRequest} />
+          <CodexAssetIntelStrip
+            title="Assets Behind Your Top Runs"
+            request={backtestIntelRequest}
+          />
         </>
       )}
 
       {view === 'dashboard' && (
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
-        <TerminalDataGrid
-          title="Strategy leaderboard"
-          subtitle="Sortable ranking weighted for profitability, Sharpe, consistency, and drawdown discipline."
-          rows={intelligence.strategies}
-          columns={strategyColumns}
-          rowKey={(row) => row.key}
-          searchPlaceholder="Search strategy names or setups"
-          getSearchText={(row) =>
-            [row.label, String(row.strategyId ?? ''), String(row.totalRuns)].join(' ')
-          }
-          metrics={[
-            {
-              label: 'Ranked',
-              value: intelligence.strategies.length,
-              detail: 'strategy groups',
-            },
-            {
-              label: 'Best P&L',
-              value: intelligence.bestStrategy
-                ? formatCurrency(intelligence.bestStrategy.totalPnl)
-                : '—',
-              detail: intelligence.bestStrategy?.label || 'awaiting completed runs',
-              tone:
-                intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
-                  ? 'positive'
-                  : 'default',
-            },
-            {
-              label: 'Safest Drawdown',
-              value: intelligence.safestStrategy
-                ? formatPercent(intelligence.safestStrategy.avgDrawdownPct)
-                : '—',
-              detail: intelligence.safestStrategy?.label || 'awaiting drawdown data',
-              tone: 'accent',
-            },
-            {
-              label: 'Avg Sharpe',
-              value: intelligence.avgSharpe.toFixed(2),
-              detail: 'completed runs only',
-            },
-          ]}
-          liveBadge={
-            <span
-              className="operator-status-pill"
-              data-tone={intelligence.activeRuns > 0 ? 'accent' : 'positive'}
-            >
-              {intelligence.activeRuns > 0 ? `${intelligence.activeRuns} live` : 'Stable'}
-            </span>
-          }
-          defaultSortKey="pnl"
-          emptyState={
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-6 text-sm text-slate-400">
-              No completed backtests yet. Launch your first run from this Backtests desk and the
-              leaderboard will populate here.
-            </div>
-          }
-        />
+          <TerminalDataGrid
+            title="Strategy leaderboard"
+            subtitle="Sortable ranking weighted for profitability, Sharpe, consistency, and drawdown discipline."
+            rows={intelligence.strategies}
+            columns={strategyColumns}
+            rowKey={(row) => row.key}
+            searchPlaceholder="Search strategy names or setups"
+            getSearchText={(row) =>
+              [row.label, String(row.strategyId ?? ''), String(row.totalRuns)].join(' ')
+            }
+            metrics={[
+              {
+                label: 'Ranked',
+                value: intelligence.strategies.length,
+                detail: 'strategy groups',
+              },
+              {
+                label: 'Best P&L',
+                value: intelligence.bestStrategy
+                  ? formatCurrency(intelligence.bestStrategy.totalPnl)
+                  : '—',
+                detail: intelligence.bestStrategy?.label || 'awaiting completed runs',
+                tone:
+                  intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
+                    ? 'positive'
+                    : 'default',
+              },
+              {
+                label: 'Safest Drawdown',
+                value: intelligence.safestStrategy
+                  ? formatPercent(intelligence.safestStrategy.avgDrawdownPct)
+                  : '—',
+                detail: intelligence.safestStrategy?.label || 'awaiting drawdown data',
+                tone: 'accent',
+              },
+              {
+                label: 'Avg Sharpe',
+                value: intelligence.avgSharpe.toFixed(2),
+                detail: 'completed runs only',
+              },
+            ]}
+            liveBadge={
+              <span
+                className="operator-status-pill"
+                data-tone={intelligence.activeRuns > 0 ? 'accent' : 'positive'}
+              >
+                {intelligence.activeRuns > 0 ? `${intelligence.activeRuns} live` : 'Stable'}
+              </span>
+            }
+            defaultSortKey="pnl"
+            emptyState={
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-6 text-sm text-slate-400">
+                No completed backtests yet. Launch your first run from this Backtests desk and the
+                leaderboard will populate here.
+              </div>
+            }
+          />
 
-        <div className="space-y-6">
-          <div ref={capacityPanelRef} className="operator-section-card p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="rounded-xl bg-violet-500/10 p-2 text-violet-300">
-                <Layers3 className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">Backtest Capacity</h2>
-                <p className="text-sm text-slate-400">
-                  Live queue pressure and admission thresholds.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-slate-500">Queue depth</p>
-                <p className="font-semibold text-slate-100">
-                  {backtestCapacity.queueDepth}
-                  {backtestCapacity.maxQueueDepth && backtestCapacity.maxQueueDepth > 0
-                    ? ` / ${backtestCapacity.maxQueueDepth}`
-                    : ''}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Active jobs</p>
-                <p className="font-semibold text-slate-100">
-                  {backtestCapacity.activeJobs}
-                  {backtestCapacity.maxInProcessJobs && backtestCapacity.maxInProcessJobs > 0
-                    ? ` / ${backtestCapacity.maxInProcessJobs}`
-                    : ''}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Global active cap</p>
-                <p className="font-semibold text-slate-100">
-                  {backtestCapacity.maxActiveGlobal && backtestCapacity.maxActiveGlobal > 0
-                    ? backtestCapacity.maxActiveGlobal
-                    : 'unbounded'}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Per-user active cap</p>
-                <p className="font-semibold text-slate-100">
-                  {backtestCapacity.maxPerUser && backtestCapacity.maxPerUser > 0
-                    ? backtestCapacity.maxPerUser
-                    : 'backend managed'}
-                </p>
-              </div>
-            </div>
-
-            {backtestCapacity.queueUtilizationPct !== null && (
-              <div className="mt-4">
-                <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                  <span>Queue utilization</span>
-                  <span>{backtestCapacity.queueUtilizationPct.toFixed(0)}%</span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-slate-700/80">
-                  <div
-                    className={`h-1.5 rounded-full transition-all duration-500 ${
-                      backtestCapacity.queueUtilizationPct >= 85
-                        ? 'bg-rose-400'
-                        : backtestCapacity.queueUtilizationPct >= 60
-                          ? 'bg-amber-400'
-                          : 'bg-emerald-400'
-                    }`}
-                    style={{ width: `${backtestCapacity.queueUtilizationPct}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 space-y-1 text-xs text-slate-500">
-              <p>
-                Retry-after:{' '}
-                <span className="text-slate-300">
-                  {backtestCapacity.retryAfterSeconds && backtestCapacity.retryAfterSeconds > 0
-                    ? `${backtestCapacity.retryAfterSeconds}s`
-                    : 'server default'}
-                </span>
-              </p>
-              <p>
-                Stale heartbeat threshold:{' '}
-                <span className="text-slate-300">
-                  {backtestCapacity.staleHeartbeatSeconds &&
-                  backtestCapacity.staleHeartbeatSeconds > 0
-                    ? `${backtestCapacity.staleHeartbeatSeconds}s`
-                    : 'default'}
-                </span>
-              </p>
-              <p>
-                Runtime snapshot freshness:{' '}
-                <span className="text-slate-300">
-                  {systemStatusQuery.isFetching ? 'updating…' : 'live poll'}
-                </span>
-              </p>
-            </div>
-          </div>
-
-          <div className="operator-section-card p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300">
-                  <Activity className="h-5 w-5" />
+          <div className="space-y-6">
+            <div ref={capacityPanelRef} className="operator-section-card p-5">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-xl bg-violet-500/10 p-2 text-violet-300">
+                  <Layers3 className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Active Runs Quick Access</h2>
+                  <h2 className="text-lg font-semibold text-white">Backtest Capacity</h2>
                   <p className="text-sm text-slate-400">
-                    Open live backtests instantly without leaving the dashboard.
+                    Live queue pressure and admission thresholds.
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={scrollToCapacityPanel}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition hover:brightness-110 ${capacityRisk.textClass} ${capacityRisk.chipClass}`}
-                  title={`Capacity risk: ${capacityRisk.label} — click to view panel`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${capacityRisk.dotClass}`} />
-                  Capacity {capacityRisk.label}
-                </button>
-                <Link
-                  to="/backtests/runs"
-                  className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300 hover:text-cyan-200"
-                >
-                  View all runs
-                </Link>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-slate-500">Queue depth</p>
+                  <p className="font-semibold text-slate-100">
+                    {backtestCapacity.queueDepth}
+                    {backtestCapacity.maxQueueDepth && backtestCapacity.maxQueueDepth > 0
+                      ? ` / ${backtestCapacity.maxQueueDepth}`
+                      : ''}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Active jobs</p>
+                  <p className="font-semibold text-slate-100">
+                    {backtestCapacity.activeJobs}
+                    {backtestCapacity.maxInProcessJobs && backtestCapacity.maxInProcessJobs > 0
+                      ? ` / ${backtestCapacity.maxInProcessJobs}`
+                      : ''}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Global active cap</p>
+                  <p className="font-semibold text-slate-100">
+                    {backtestCapacity.maxActiveGlobal && backtestCapacity.maxActiveGlobal > 0
+                      ? backtestCapacity.maxActiveGlobal
+                      : 'unbounded'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Per-user active cap</p>
+                  <p className="font-semibold text-slate-100">
+                    {backtestCapacity.maxPerUser && backtestCapacity.maxPerUser > 0
+                      ? backtestCapacity.maxPerUser
+                      : 'backend managed'}
+                  </p>
+                </div>
+              </div>
+
+              {backtestCapacity.queueUtilizationPct !== null && (
+                <div className="mt-4">
+                  <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                    <span>Queue utilization</span>
+                    <span>{backtestCapacity.queueUtilizationPct.toFixed(0)}%</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-700/80">
+                    <div
+                      className={`h-1.5 rounded-full transition-all duration-500 ${
+                        backtestCapacity.queueUtilizationPct >= 85
+                          ? 'bg-rose-400'
+                          : backtestCapacity.queueUtilizationPct >= 60
+                            ? 'bg-amber-400'
+                            : 'bg-emerald-400'
+                      }`}
+                      style={{ width: `${backtestCapacity.queueUtilizationPct}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 space-y-1 text-xs text-slate-500">
+                <p>
+                  Retry-after:{' '}
+                  <span className="text-slate-300">
+                    {backtestCapacity.retryAfterSeconds && backtestCapacity.retryAfterSeconds > 0
+                      ? `${backtestCapacity.retryAfterSeconds}s`
+                      : 'server default'}
+                  </span>
+                </p>
+                <p>
+                  Stale heartbeat threshold:{' '}
+                  <span className="text-slate-300">
+                    {backtestCapacity.staleHeartbeatSeconds &&
+                    backtestCapacity.staleHeartbeatSeconds > 0
+                      ? `${backtestCapacity.staleHeartbeatSeconds}s`
+                      : 'default'}
+                  </span>
+                </p>
+                <p>
+                  Runtime snapshot freshness:{' '}
+                  <span className="text-slate-300">
+                    {systemStatusQuery.isFetching ? 'updating…' : 'live poll'}
+                  </span>
+                </p>
               </div>
             </div>
 
-            {activeRunsQuickAccess.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                No active runs right now. Start a new backtest and it will appear here.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {activeRunsQuickAccess.map((run) => {
-                  const live = activeRunLiveById.get(run.run_id);
-                  const normalizedStatus = String(live?.status || run.status || 'pending')
-                    .trim()
-                    .toUpperCase();
-                  const listProgress = safeNumber(
-                    (run as { progress_pct?: number; progress_percent?: number; progress?: number })
-                      .progress_pct ??
-                      (run as { progress_percent?: number }).progress_percent ??
-                      (run as { progress?: number }).progress,
-                    Number.NaN
-                  );
-                  const resolvedProgress =
-                    typeof live?.progressPct === 'number' && Number.isFinite(live.progressPct)
-                      ? live.progressPct
-                      : Number.isFinite(listProgress)
-                        ? Math.max(0, Math.min(100, listProgress))
-                        : null;
-                  const progressBarWidth = resolvedProgress !== null ? resolvedProgress : 2;
-                  const progressLabel =
-                    resolvedProgress !== null
-                      ? `${resolvedProgress.toFixed(0)}%`
-                      : live?.isFetching
-                        ? '...'
-                        : '—';
-                  const freshnessLabel = formatFreshnessAge(live?.updatedAtMs);
-                  const freshnessTone = getFreshnessToneClasses(live?.updatedAtMs);
-                  const freshnessCardBorder = getFreshnessCardBorderClasses(live?.updatedAtMs);
+            <div className="operator-section-card p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300">
+                    <Activity className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Active Runs Quick Access</h2>
+                    <p className="text-sm text-slate-400">
+                      Open live backtests instantly without leaving the dashboard.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={scrollToCapacityPanel}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition hover:brightness-110 ${capacityRisk.textClass} ${capacityRisk.chipClass}`}
+                    title={`Capacity risk: ${capacityRisk.label} — click to view panel`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${capacityRisk.dotClass}`} />
+                    Capacity {capacityRisk.label}
+                  </button>
+                  <Link
+                    to="/backtests/runs"
+                    className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300 hover:text-cyan-200"
+                  >
+                    View all runs
+                  </Link>
+                </div>
+              </div>
 
-                  return (
+              {activeRunsQuickAccess.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  No active runs right now. Start a new backtest and it will appear here.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {activeRunsQuickAccess.map((run) => {
+                    const live = activeRunLiveById.get(run.run_id);
+                    const normalizedStatus = String(live?.status || run.status || 'pending')
+                      .trim()
+                      .toUpperCase();
+                    const listProgress = safeNumber(
+                      (
+                        run as {
+                          progress_pct?: number;
+                          progress_percent?: number;
+                          progress?: number;
+                        }
+                      ).progress_pct ??
+                        (run as { progress_percent?: number }).progress_percent ??
+                        (run as { progress?: number }).progress,
+                      Number.NaN
+                    );
+                    const resolvedProgress =
+                      typeof live?.progressPct === 'number' && Number.isFinite(live.progressPct)
+                        ? live.progressPct
+                        : Number.isFinite(listProgress)
+                          ? Math.max(0, Math.min(100, listProgress))
+                          : null;
+                    const progressBarWidth = resolvedProgress !== null ? resolvedProgress : 2;
+                    const progressLabel =
+                      resolvedProgress !== null
+                        ? `${resolvedProgress.toFixed(0)}%`
+                        : live?.isFetching
+                          ? '...'
+                          : '—';
+                    const freshnessLabel = formatFreshnessAge(live?.updatedAtMs);
+                    const freshnessTone = getFreshnessToneClasses(live?.updatedAtMs);
+                    const freshnessCardBorder = getFreshnessCardBorderClasses(live?.updatedAtMs);
+
+                    return (
+                      <Link
+                        key={run.run_id}
+                        to={`/backtest/${run.run_id}`}
+                        className={`block rounded-xl border bg-slate-900/50 p-4 transition hover:bg-slate-900/80 ${freshnessCardBorder}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">
+                              {run.name || run.run_id}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              started {formatDateTime(run.created_at)}
+                            </p>
+                            {freshnessLabel ? (
+                              <p
+                                className={`mt-1 inline-flex items-center gap-1.5 text-[11px] ${freshnessTone.text}`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${freshnessTone.dot} ${freshnessTone.pulse ? 'animate-pulse' : ''}`}
+                                />
+                                {freshnessLabel}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
+                            {normalizedStatus}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/80">
+                            <div
+                              className="h-1.5 rounded-full bg-emerald-400 transition-all duration-500"
+                              style={{ width: `${progressBarWidth}%` }}
+                            />
+                          </div>
+                          <span className="w-12 text-right text-xs text-slate-300">
+                            {progressLabel}
+                          </span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="operator-section-card p-5">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-xl bg-blue-500/10 p-2 text-blue-400">
+                  <TrendingUp className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Top Runs</h2>
+                  <p className="text-sm text-slate-400">Best single-run outcomes so far.</p>
+                </div>
+              </div>
+
+              {intelligence.topRuns.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  Top runs will appear after your first completed backtest.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {intelligence.topRuns.map((run, index) => (
                     <Link
                       key={run.run_id}
                       to={`/backtest/${run.run_id}`}
-                      className={`block rounded-xl border bg-slate-900/50 p-4 transition hover:bg-slate-900/80 ${freshnessCardBorder}`}
+                      className="block rounded-xl border border-slate-700/60 bg-slate-900/50 p-4 transition hover:border-blue-500/40 hover:bg-slate-900/80"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-white">
-                            {run.name || run.run_id}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              #{index + 1}
+                            </span>
+                            <span className="text-sm font-semibold text-white">
+                              {run.name || run.run_id}
+                            </span>
+                          </div>
                           <p className="mt-1 text-xs text-slate-500">
-                            started {formatDateTime(run.created_at)}
+                            {formatDateTime(run.created_at)}
                           </p>
-                          {freshnessLabel ? (
-                            <p className={`mt-1 inline-flex items-center gap-1.5 text-[11px] ${freshnessTone.text}`}>
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${freshnessTone.dot} ${freshnessTone.pulse ? 'animate-pulse' : ''}`}
-                              />
-                              {freshnessLabel}
-                            </p>
-                          ) : null}
                         </div>
-                        <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
-                          {normalizedStatus}
-                        </span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
                       </div>
-
-                      <div className="mt-3 flex items-center gap-2">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/80">
-                          <div
-                            className="h-1.5 rounded-full bg-emerald-400 transition-all duration-500"
-                            style={{ width: `${progressBarWidth}%` }}
-                          />
+                      <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                        <div>
+                          <p className="text-slate-500">P&amp;L</p>
+                          <p
+                            className={`font-semibold ${safeNumber(run.total_pnl) >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                          >
+                            {formatCurrency(safeNumber(run.total_pnl))}
+                          </p>
                         </div>
-                        <span className="w-12 text-right text-xs text-slate-300">{progressLabel}</span>
+                        <div>
+                          <p className="text-slate-500">Sharpe</p>
+                          <p className="font-semibold text-slate-200">
+                            {safeNumber(run.sharpe_ratio).toFixed(2)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500">Win Rate</p>
+                          <p className="font-semibold text-slate-200">
+                            {formatPercent(normalizePercent(run.win_rate))}
+                          </p>
+                        </div>
                       </div>
                     </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="operator-section-card p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="rounded-xl bg-blue-500/10 p-2 text-blue-400">
-                <TrendingUp className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">Top Runs</h2>
-                <p className="text-sm text-slate-400">Best single-run outcomes so far.</p>
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {intelligence.topRuns.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                Top runs will appear after your first completed backtest.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {intelligence.topRuns.map((run, index) => (
-                  <Link
-                    key={run.run_id}
-                    to={`/backtest/${run.run_id}`}
-                    className="block rounded-xl border border-slate-700/60 bg-slate-900/50 p-4 transition hover:border-blue-500/40 hover:bg-slate-900/80"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            #{index + 1}
-                          </span>
-                          <span className="text-sm font-semibold text-white">
-                            {run.name || run.run_id}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {formatDateTime(run.created_at)}
-                        </p>
-                      </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
-                    </div>
-                    <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
-                      <div>
-                        <p className="text-slate-500">P&amp;L</p>
-                        <p
-                          className={`font-semibold ${safeNumber(run.total_pnl) >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                        >
-                          {formatCurrency(safeNumber(run.total_pnl))}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-500">Sharpe</p>
-                        <p className="font-semibold text-slate-200">
-                          {safeNumber(run.sharpe_ratio).toFixed(2)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-500">Win Rate</p>
-                        <p className="font-semibold text-slate-200">
-                          {formatPercent(normalizePercent(run.win_rate))}
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+            <div className="operator-section-card p-5">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-xl bg-cyan-500/10 p-2 text-cyan-400">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Operator Notes</h2>
+                  <p className="text-sm text-slate-400">How to read these rankings safely.</p>
+                </div>
               </div>
-            )}
-          </div>
-
-          <div className="operator-section-card p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="rounded-xl bg-cyan-500/10 p-2 text-cyan-400">
-                <Activity className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">Operator Notes</h2>
-                <p className="text-sm text-slate-400">How to read these rankings safely.</p>
-              </div>
+              <ul className="space-y-2 text-sm text-slate-300">
+                <li>Only completed runs contribute to quality rankings.</li>
+                <li>
+                  Drawdown is treated as a risk penalty, so high-return but unstable setups won’t
+                  dominate unfairly.
+                </li>
+                <li>
+                  Strategies with more completed runs receive a confidence boost over single lucky
+                  outliers.
+                </li>
+                <li>
+                  Click any run below to inspect the full detailed report before promoting a setup
+                  to live runtime.
+                </li>
+              </ul>
             </div>
-            <ul className="space-y-2 text-sm text-slate-300">
-              <li>Only completed runs contribute to quality rankings.</li>
-              <li>
-                Drawdown is treated as a risk penalty, so high-return but unstable setups won’t
-                dominate unfairly.
-              </li>
-              <li>
-                Strategies with more completed runs receive a confidence boost over single lucky
-                outliers.
-              </li>
-              <li>
-                Click any run below to inspect the full detailed report before promoting a setup to
-                live runtime.
-              </li>
-            </ul>
           </div>
-        </div>
         </section>
       )}
 
       {view === 'runs' && (
         <section className="operator-section-card p-5 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-white">All Backtests</h2>
-            <p className="text-sm text-slate-400">
-              Every run, with soft refresh behavior for active jobs and detail views one click away.
-            </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold text-white">All Backtests</h2>
+              <p className="text-sm text-slate-400">
+                Every run, with soft refresh behavior for active jobs and detail views one click
+                away.
+              </p>
+            </div>
+            <Link
+              to="/backtests/compare"
+              className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
+            >
+              Compare runs
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
-          <Link
-            to="/backtests/compare"
-            className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
-          >
-            Compare runs
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
-        <BacktestList />
+          <BacktestList />
         </section>
       )}
     </PageContainer>

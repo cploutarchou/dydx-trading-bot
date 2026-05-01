@@ -1,12 +1,16 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { CheckSquare, ListChecks, Sparkles, Star, Trophy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api, {
-  DYDX_CANDLE_RESOLUTION_OPTIONS,
-  normalizeDydxCandleResolution,
-  type AIMarketProvider,
+    DYDX_CANDLE_RESOLUTION_OPTIONS,
+    normalizeDydxCandleResolution,
+    type AIMarketProvider,
 } from '../api';
+import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
+import type { Strategy } from '../store/strategies';
+import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { PageContainer } from './PageContainer';
 
 interface StrategyFormData {
@@ -36,6 +40,7 @@ interface StrategyFormData {
   rebalance_interval_hours: number;
   position_timeout_hours: number;
   initial_amount: number;
+  max_history_days: number;
   transaction_fee?: number;
   slippage?: number;
 }
@@ -89,6 +94,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 export default function StrategyBuilder() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { id: strategyId } = useParams<{ id?: string }>();
   const isEditMode = !!strategyId;
 
@@ -104,10 +110,22 @@ export default function StrategyBuilder() {
     null | 'top20' | 'popular' | 'profitable' | 'ai'
   >(null);
   const [marketFilterError, setMarketFilterError] = useState<string | null>(null);
-  const [aiMarketProvider, setAIMarketProvider] = useState<AIMarketProvider>('openai');
+  const [aiMarketProvider, setAIMarketProvider] = useState<AIMarketProvider>('deepseek');
   const [aiMarketObjective, setAIMarketObjective] = useState<AIMarketObjective>('balanced');
   const [autoMarketLimit, setAutoMarketLimit] = useState(DEFAULT_AUTO_SELECTED_MARKETS);
   const [showPairPreview, setShowPairPreview] = useState(false);
+  const { availableProviders: availableAIProviders, isLoading: aiProviderStatusLoading } =
+    useAIProviderAvailability();
+
+  useEffect(() => {
+    if (availableAIProviders.length === 0) {
+      return;
+    }
+
+    if (!availableAIProviders.includes(aiMarketProvider)) {
+      setAIMarketProvider(availableAIProviders[0]);
+    }
+  }, [aiMarketProvider, availableAIProviders]);
 
   // Get pre-loaded config from backtest or sessionStorage
   const getPreloadedConfig = () => {
@@ -163,6 +181,7 @@ export default function StrategyBuilder() {
       rebalance_interval_hours: 24,
       position_timeout_hours: 72,
       initial_amount: 300.0,
+      max_history_days: 90,
       transaction_fee: 0.0005,
       slippage: 0.001,
     },
@@ -246,6 +265,7 @@ export default function StrategyBuilder() {
         reset({
           ...strategyData,
           resolution,
+          max_history_days: Number(response.data.max_history_days ?? 90),
           selected_markets: Array.isArray(response.data.selected_markets)
             ? response.data.selected_markets
             : [],
@@ -311,6 +331,7 @@ export default function StrategyBuilder() {
         trailing_stop_pct: Number(data.trailing_stop_pct),
         rebalance_interval_hours: Number(data.rebalance_interval_hours),
         position_timeout_hours: Number(data.position_timeout_hours),
+        max_history_days: Number(data.max_history_days ?? 90),
         starting_balance: initialAmount,
         initial_amount: initialAmount,
         transaction_fee: data.transaction_fee ? Number(data.transaction_fee) : 0.0005,
@@ -321,9 +342,16 @@ export default function StrategyBuilder() {
         // Update existing strategy
         const response = await api.updateStrategy(parseInt(strategyId, 10), cleanedData);
         if (response.success) {
+          const updatedStrategyId = Number.parseInt(strategyId, 10);
+          await queryClient.invalidateQueries({ queryKey: ['strategies'] });
           setSuccessMessage(`Strategy "${cleanedData.name}" updated successfully!`);
           setTimeout(() => {
-            navigate('/strategies');
+            navigate('/strategies', {
+              state: {
+                strategyToast: `Strategy "${cleanedData.name}" updated successfully.`,
+                strategyId: Number.isFinite(updatedStrategyId) ? updatedStrategyId : undefined,
+              },
+            });
           }, 1500);
         } else {
           setError(response.message || 'Failed to update strategy');
@@ -332,10 +360,18 @@ export default function StrategyBuilder() {
         // Create new strategy
         const response = await api.createStrategy(cleanedData);
         if (response.success) {
+          const createdStrategyId =
+            typeof response.data?.id === 'number' ? response.data.id : undefined;
+          await queryClient.invalidateQueries({ queryKey: ['strategies'] });
           setSuccessMessage(`Strategy "${cleanedData.name}" created successfully!`);
           reset();
           setTimeout(() => {
-            navigate('/strategies');
+            navigate('/strategies', {
+              state: {
+                strategyToast: `Strategy "${cleanedData.name}" created successfully.`,
+                strategyId: createdStrategyId,
+              },
+            });
           }, 1500);
         } else {
           setError(response.message || 'Failed to create strategy');
@@ -352,6 +388,86 @@ export default function StrategyBuilder() {
   const selectedMarkets = Array.isArray(formValues.selected_markets)
     ? formValues.selected_markets
     : [];
+
+  const strategyForAdvisor = useMemo<Strategy>(() => {
+    const normalizedResolution = normalizeDydxCandleResolution(formValues.resolution || '1HOUR');
+    return {
+      id: strategyId ? Number.parseInt(strategyId, 10) : -1,
+      name: formValues.name || (isEditMode ? 'Editing Strategy' : 'Draft Strategy'),
+      category: formValues.category,
+      description: formValues.description,
+      is_public: formValues.is_public,
+      runtime_network: formValues.runtime_network,
+      runtime_subaccount: Number(formValues.runtime_subaccount ?? 0),
+      selected_markets: selectedMarkets,
+      resolution: normalizedResolution,
+      candle_resolution: normalizedResolution,
+      zscore_threshold: Number(formValues.zscore_threshold),
+      stats_window: Number(formValues.stats_window),
+      max_half_life: Number(formValues.max_half_life),
+      usd_per_trade: Number(formValues.usd_per_trade),
+      usd_min_collateral: Number(formValues.usd_min_collateral),
+      close_at_zscore_cross: Boolean(formValues.close_at_zscore_cross),
+      find_cointegrated_pairs: Boolean(formValues.find_cointegrated_pairs),
+      manage_exits: Boolean(formValues.manage_exits),
+      place_trades: Boolean(formValues.place_trades),
+      abort_all_positions: Boolean(formValues.abort_all_positions),
+      max_positions: Number(formValues.max_positions),
+      max_drawdown_pct: Number(formValues.max_drawdown_pct),
+      stop_loss_pct: Number(formValues.stop_loss_pct),
+      take_profit_pct: Number(formValues.take_profit_pct),
+      trailing_stop_pct: Number(formValues.trailing_stop_pct),
+      rebalance_interval_hours: Number(formValues.rebalance_interval_hours),
+      position_timeout_hours: Number(formValues.position_timeout_hours),
+      initial_amount: Number(formValues.initial_amount),
+      max_history_days: Number(formValues.max_history_days ?? 90),
+      transaction_fee: Number(formValues.transaction_fee ?? 0.0005),
+      slippage: Number(formValues.slippage ?? 0.001),
+    };
+  }, [formValues, isEditMode, selectedMarkets, strategyId]);
+
+  const handleApplyAdvisorParams = async (params: Partial<Strategy>) => {
+    const nextValues: Partial<StrategyFormData> = {};
+
+    Object.entries(params).forEach(([rawKey, rawValue]) => {
+      const key = rawKey as keyof Strategy;
+
+      if (key === 'resolution' || key === 'candle_resolution') {
+        nextValues.resolution = normalizeDydxCandleResolution(String(rawValue));
+        return;
+      }
+
+      if (key in formValues) {
+        switch (typeof rawValue) {
+          case 'number':
+            (nextValues as Record<string, unknown>)[key] = Number(rawValue);
+            break;
+          case 'boolean':
+            (nextValues as Record<string, unknown>)[key] = rawValue;
+            break;
+          case 'string':
+            (nextValues as Record<string, unknown>)[key] = rawValue;
+            break;
+          default:
+            break;
+        }
+      }
+    });
+
+    const appliedCount = Object.keys(nextValues).length;
+    if (appliedCount === 0) {
+      setError('No editable AI suggestions were detected for this form.');
+      return;
+    }
+
+    reset({
+      ...formValues,
+      ...nextValues,
+    });
+
+    setSuccessMessage(`✅ Applied ${appliedCount} AI suggestion${appliedCount === 1 ? '' : 's'}`);
+    setTimeout(() => setSuccessMessage(null), 3000);
+  };
 
   const buildAIMarketCriteria = (preset: 'popular' | 'profitable' | 'ai') => {
     const pairSelectionMode = String(formValues.pair_selection_mode || 'cointegration');
@@ -375,7 +491,8 @@ export default function StrategyBuilder() {
       volume_weight: preset === 'popular' || objective === 'volume' ? 0.95 : 0.68,
       liquidity_weight: needsTradeability || objective === 'tradeable' ? 0.92 : 0.75,
       tradeability_weight: needsTradeability || objective === 'tradeable' ? 0.95 : 0.72,
-      momentum_weight: objective === 'future_gainers' ? 0.88 : preset === 'profitable' ? 0.72 : 0.35,
+      momentum_weight:
+        objective === 'future_gainers' ? 0.88 : preset === 'profitable' ? 0.72 : 0.35,
       volatility_weight:
         objective === 'volatility' || pairSelectionMode === 'volatility' ? 0.86 : 0.45,
       cointegration_weight:
@@ -447,6 +564,16 @@ export default function StrategyBuilder() {
       return;
     }
 
+    if (availableAIProviders.length === 0) {
+      if (preset === 'ai') {
+        setMarketFilterError(
+          'AI providers are unavailable for your account. Falling back to top markets.'
+        );
+        onChange(normalizeTopMarkets(availableMarkets));
+        return;
+      }
+    }
+
     try {
       setMarketFilterLoading(preset);
       const aiMode =
@@ -455,21 +582,24 @@ export default function StrategyBuilder() {
           : preset === 'profitable'
             ? 'most_profitable'
             : 'ai_recommended';
-      const aiResponse = await api.selectAIMarkets({
-        provider: aiMarketProvider,
-        mode: aiMode,
-        markets: availableMarkets,
-        limit: selectionLimit,
-        strategy: `${formValues.category || 'pairs_trading'} strategy using ${normalizeDydxCandleResolution(formValues.resolution || '1HOUR')} candles`,
-        criteria: buildAIMarketCriteria(preset),
-      });
-      const aiMarkets = normalizeTopMarkets(aiResponse.data?.selected_markets || []);
+      const aiResponse =
+        availableAIProviders.length > 0
+          ? await api.selectAIMarkets({
+              provider: aiMarketProvider,
+              mode: aiMode,
+              markets: availableMarkets,
+              limit: selectionLimit,
+              strategy: `${formValues.category || 'pairs_trading'} strategy using ${normalizeDydxCandleResolution(formValues.resolution || '1HOUR')} candles`,
+              criteria: buildAIMarketCriteria(preset),
+            })
+          : null;
+      const aiMarkets = normalizeTopMarkets(aiResponse?.data?.selected_markets || []);
       if (aiMarkets.length >= 2) {
         onChange(aiMarkets);
         setMarketFilterError(
-          aiResponse.data?.used_ai
+          aiResponse?.data?.used_ai
             ? aiResponse.data.rationale || null
-            : aiResponse.data?.fallback_reason || null
+            : aiResponse?.data?.fallback_reason || null
         );
         return;
       }
@@ -690,7 +820,9 @@ export default function StrategyBuilder() {
               <select
                 {...field}
                 value={normalizeDydxCandleResolution(field.value)}
-                onChange={(event) => field.onChange(normalizeDydxCandleResolution(event.target.value))}
+                onChange={(event) =>
+                  field.onChange(normalizeDydxCandleResolution(event.target.value))
+                }
                 className={`${compactInputClass} pr-10`}
               >
                 {DYDX_CANDLE_RESOLUTION_OPTIONS.map((option) => (
@@ -707,8 +839,8 @@ export default function StrategyBuilder() {
           </p>
           {['1MIN', '5MINS'].includes(normalizeDydxCandleResolution(formValues.resolution)) ? (
             <p className="mt-3 rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-3 py-2 text-xs leading-5 text-yellow-400">
-              High-frequency resolutions significantly increase backtest time. Consider using
-              1HOUR or higher for faster results.
+              High-frequency resolutions significantly increase backtest time. Consider using 1HOUR
+              or higher for faster results.
             </p>
           ) : null}
         </div>
@@ -729,6 +861,8 @@ export default function StrategyBuilder() {
             )}
           />
         </div>
+
+        <AIStrategyAdvisor strategy={strategyForAdvisor} onApplyParams={handleApplyAdvisorParams} />
 
         {/* Initial Investment Amount */}
         <div>
@@ -855,12 +989,15 @@ export default function StrategyBuilder() {
                       onChange={(event) =>
                         setAIMarketProvider(event.target.value as AIMarketProvider)
                       }
+                      disabled={aiProviderStatusLoading || availableAIProviders.length === 0}
                       className={marketToolbarSelectClass}
                       aria-label="AI market filter provider"
                     >
-                      <option value="openai">OpenAI</option>
-                      <option value="deepseek">DeepSeek</option>
-                      <option value="claude">Claude</option>
+                      {availableAIProviders.map((provider) => (
+                        <option key={provider} value={provider}>
+                          {getAIProviderLabel(provider)}
+                        </option>
+                      ))}
                     </select>
                     <select
                       value={aiMarketObjective}
@@ -880,7 +1017,11 @@ export default function StrategyBuilder() {
                     <button
                       type="button"
                       onClick={() => void applyMarketPreset('ai', field.onChange, value)}
-                      disabled={availableMarkets.length === 0 || marketFilterLoading !== null}
+                      disabled={
+                        availableMarkets.length === 0 ||
+                        marketFilterLoading !== null ||
+                        availableAIProviders.length === 0
+                      }
                       className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
@@ -954,6 +1095,12 @@ export default function StrategyBuilder() {
           </div>
 
           {marketFilterError && <p className="mb-3 text-xs text-amber-300">{marketFilterError}</p>}
+          {!aiProviderStatusLoading && availableAIProviders.length === 0 && (
+            <p className="mb-3 text-xs text-amber-300">
+              AI provider filtering is unavailable (no active provider credentials). Configure one
+              in Settings → AI Filters.
+            </p>
+          )}
 
           <Controller
             name="selected_markets"
@@ -1019,8 +1166,8 @@ export default function StrategyBuilder() {
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
             <span>
-              Selected markets: <span className={inlineValueClass}>{selectedMarkets.length}</span>{' '}
-              / {MAX_SELECTED_MARKETS}
+              Selected markets: <span className={inlineValueClass}>{selectedMarkets.length}</span> /{' '}
+              {MAX_SELECTED_MARKETS}
             </span>
             <span>
               Candidate pairs:{' '}
@@ -1411,6 +1558,42 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
+                  </div>
+
+                  {/* Max History Days */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-semibold text-slate-200">
+                        Max History Days
+                      </label>
+                      <span className="text-sm text-cyan-300">
+                        {formValues.max_history_days ?? 90}
+                      </span>
+                    </div>
+                    <Controller
+                      name="max_history_days"
+                      control={control}
+                      rules={{
+                        min: { value: 30, message: 'Must be at least 30 days' },
+                        max: { value: 365, message: 'Must not exceed 365 days' },
+                      }}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          type="number"
+                          min="30"
+                          max="365"
+                          step="1"
+                          className="premium-input px-3 py-2 text-sm"
+                        />
+                      )}
+                    />
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Default is 90 days of historical lookback.
+                    </p>
+                    {errors.max_history_days && (
+                      <p className="mt-1 text-red-400 text-sm">{errors.max_history_days.message}</p>
+                    )}
                   </div>
 
                   {/* Transaction Fee */}

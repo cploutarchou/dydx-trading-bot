@@ -73,6 +73,10 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 			is_public BOOLEAN NOT NULL DEFAULT 0,
 			is_default BOOLEAN NOT NULL DEFAULT 0,
 			runtime_strategy TEXT NOT NULL DEFAULT 'cointegration',
+			runtime_network TEXT NOT NULL DEFAULT 'testnet',
+			runtime_subaccount INTEGER NOT NULL DEFAULT 0,
+			pair_selection_mode TEXT NOT NULL DEFAULT 'liquidity',
+			selected_markets TEXT NOT NULL DEFAULT '[]',
 			zscore_threshold REAL NOT NULL,
 			stats_window INTEGER NOT NULL,
 			max_half_life REAL NOT NULL,
@@ -207,7 +211,8 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 	if _, err := dbConn.Exec(
 		`INSERT INTO backtest_strategies (
 			id, user_id, name, description, category, is_public, is_default,
-			runtime_strategy,
+			runtime_strategy, runtime_network, runtime_subaccount, pair_selection_mode,
+			selected_markets,
 			zscore_threshold, stats_window, max_half_life, usd_per_trade,
 			usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
 			manage_exits, place_trades, abort_all_positions, max_positions,
@@ -215,7 +220,7 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 			rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
 			starting_balance, candle_resolution, max_history_days, benchmark_symbol,
 			risk_free_rate, initial_amount, usage_count, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		101,
 		1,
 		"Runtime Strategy",
@@ -224,6 +229,10 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 		false,
 		false,
 		"cointegration",
+		"testnet",
+		0,
+		"manual",
+		`["BTC-USD","ETH-USD"]`,
 		1.5,
 		21,
 		24.0,
@@ -263,9 +272,49 @@ func setupStrategyRuntimeRouterWithExecutionStateSchema(t *testing.T, upstream h
 
 	router := gin.New()
 	RegisterAuthRoutes(router, dbConn)
+	RegisterTelegramRoutes(router, &db.Database{DB: dbConn})
 	RegisterStrategyRoutes(router, &db.Database{DB: dbConn})
 
 	return router, dbConn, upstreamServer
+}
+
+func ensureTelegramSchemaForRuntimeTests(t *testing.T, dbConn *sql.DB) {
+	t.Helper()
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS bot_settings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			section TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL,
+			value_type TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			default_value TEXT NOT NULL DEFAULT '',
+			is_active BOOLEAN NOT NULL DEFAULT 1,
+			version INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS external_api_credentials (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			provider TEXT NOT NULL,
+			label TEXT NOT NULL DEFAULT '',
+			encrypted_api_key TEXT NOT NULL,
+			api_key_hash TEXT NOT NULL DEFAULT '',
+			api_key_masked TEXT NOT NULL DEFAULT '',
+			is_active BOOLEAN NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			CONSTRAINT uq_external_api_credentials_user_provider UNIQUE (user_id, provider)
+		);`,
+	}
+
+	for _, statement := range statements {
+		if _, err := dbConn.Exec(statement); err != nil {
+			t.Fatalf("ensure telegram schema: %v", err)
+		}
+	}
 }
 
 func setupStrategyRuntimeRouter(t *testing.T, upstream http.Handler) (*gin.Engine, *sql.DB, *httptest.Server) {
@@ -500,6 +549,102 @@ func TestStrategyRuntimeReadinessRoute(t *testing.T) {
 	}
 	if _, ok := data["available_collateral"].(float64); !ok {
 		t.Fatalf("expected available_collateral number in readiness payload, got %#v", data["available_collateral"])
+	}
+}
+
+func TestStrategyRuntimeStartInjectsTelegramForAuthenticatedUser(t *testing.T) {
+	upstreamCreatePayloadCh := make(chan map[string]interface{}, 1)
+
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"ready":true,"blockers":[],"warnings":[]}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots", func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if closeErr := r.Body.Close(); closeErr != nil {
+				t.Errorf("close upstream request body: %v", closeErr)
+			}
+		}()
+
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream create payload: %v", err)
+		}
+		upstreamCreatePayloadCh <- payload
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"stopped"}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/start", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"running"}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	ensureTelegramSchemaForRuntimeTests(t, dbConn)
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	telegramSaveBody, _ := json.Marshal(map[string]string{
+		"bot_token": "123456:user-runtime-token",
+		"chat_id":   "-100123450001",
+		"label":     "Runtime Alerts",
+	})
+	telegramSaveReq, _ := http.NewRequest(
+		http.MethodPut,
+		backendServer.URL+"/api/v1/telegram/config",
+		bytes.NewReader(telegramSaveBody),
+	)
+	telegramSaveReq.Header.Set("Authorization", "Bearer "+token)
+	telegramSaveReq.Header.Set("Content-Type", "application/json")
+	telegramSaveResp, err := http.DefaultClient.Do(telegramSaveReq)
+	if err != nil {
+		t.Fatalf("save telegram config: %v", err)
+	}
+	defer func() { _ = telegramSaveResp.Body.Close() }()
+	if telegramSaveResp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(telegramSaveResp.Body).Decode(&payload)
+		t.Fatalf("expected 200 saving telegram config, got %d payload=%v", telegramSaveResp.StatusCode, payload)
+	}
+
+	startReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/strategies/101/start?network=testnet", nil)
+	startReq.Header.Set("Authorization", "Bearer "+token)
+	startResp, err := http.DefaultClient.Do(startReq)
+	if err != nil {
+		t.Fatalf("start runtime: %v", err)
+	}
+	defer func() { _ = startResp.Body.Close() }()
+	if startResp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(startResp.Body).Decode(&payload)
+		t.Fatalf("expected 200 starting runtime, got %d payload=%v", startResp.StatusCode, payload)
+	}
+
+	select {
+	case createPayload := <-upstreamCreatePayloadCh:
+		telegram, ok := createPayload["telegram"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected telegram payload map, got %#v", createPayload["telegram"])
+		}
+
+		if got := strings.TrimSpace(fmt.Sprintf("%v", telegram["token"])); got != "123456:user-runtime-token" {
+			t.Fatalf("expected runtime payload telegram.token to match saved user config, got %q", got)
+		}
+		if got := strings.TrimSpace(fmt.Sprintf("%v", telegram["chat_id"])); got != "-100123450001" {
+			t.Fatalf("expected runtime payload telegram.chat_id to match saved user config, got %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream create payload")
 	}
 }
 

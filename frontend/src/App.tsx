@@ -99,11 +99,6 @@ const ClientSecurityPage = lazy(() =>
     default: module.ClientSecurityPage,
   }))
 );
-const ClientWalletPage = lazy(() =>
-  import('./pages/client/ClientAccountPages').then((module) => ({
-    default: module.ClientWalletPage,
-  }))
-);
 const ForcePasswordChangePage = lazy(() =>
   import('./pages/ForcePasswordChange').then((module) => ({
     default: module.ForcePasswordChangePage,
@@ -379,7 +374,7 @@ export const App: React.FC = () => {
                     path="/profile"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <ClientProfilePage />
+                        <Navigate to="/settings?section=profile" replace />
                       </ProtectedRoute>
                     }
                   />
@@ -387,7 +382,7 @@ export const App: React.FC = () => {
                     path="/security"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <ClientSecurityPage />
+                        <Navigate to="/settings?section=security" replace />
                       </ProtectedRoute>
                     }
                   />
@@ -395,7 +390,15 @@ export const App: React.FC = () => {
                     path="/wallet"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <ClientWalletPage />
+                        <Navigate to="/settings?section=dydx_keys" replace />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/settings"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <SettingsPage />
                       </ProtectedRoute>
                     }
                   />

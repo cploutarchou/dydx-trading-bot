@@ -5,14 +5,17 @@ import {
   LockKeyhole,
   RotateCcw,
   ShieldCheck,
+  Trash2,
   UserCog,
   UserPlus,
   Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api, {
+  AccessControlPermission,
   AdminUser,
   CreateAdminUserPayload,
+  CreateCustomRolePayload,
   ResetAdminUserMFAResponse,
   UpdateAdminUserPayload,
 } from '../api';
@@ -41,6 +44,12 @@ interface SettingsSectionRecord {
 
 interface SettingsPayload {
   sections?: SettingsSectionRecord[];
+}
+
+interface CustomRoleDraft {
+  role: string;
+  display_name: string;
+  description: string;
 }
 
 const getErrorMessage = (error: unknown): string => {
@@ -125,6 +134,11 @@ export function AdminAccessControlSettings() {
   const [crmSubdomainHostDraft, setCrmSubdomainHostDraft] = useState('crm.localhost');
   const [ibSubdomainEnabledDraft, setIbSubdomainEnabledDraft] = useState(true);
   const [ibSubdomainHostDraft, setIbSubdomainHostDraft] = useState('ib-portal.localhost');
+  const [customRoleDraft, setCustomRoleDraft] = useState<CustomRoleDraft>({
+    role: '',
+    display_name: '',
+    description: '',
+  });
   const [createForm, setCreateForm] = useState<CreateAdminUserPayload>({
     username: '',
     email: '',
@@ -138,6 +152,15 @@ export function AdminAccessControlSettings() {
     queryKey: ['admin', 'users'],
     queryFn: async () => {
       const response = await api.listAdminUsers();
+      return response.data;
+    },
+    staleTime: 30_000,
+  });
+
+  const accessControlQuery = useQuery({
+    queryKey: ['backoffice', 'access-control'],
+    queryFn: async () => {
+      const response = await api.getAccessControl();
       return response.data;
     },
     staleTime: 30_000,
@@ -294,6 +317,48 @@ export function AdminAccessControlSettings() {
     },
   });
 
+  const createCustomRoleMutation = useMutation({
+    mutationFn: async (payload: CreateCustomRolePayload) => api.createCustomRole(payload),
+    onSuccess: () => {
+      setCustomRoleDraft({ role: '', display_name: '', description: '' });
+      successToast('Role created', 'The custom role is available for user assignment.');
+      void queryClient.invalidateQueries({ queryKey: ['backoffice', 'access-control'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to create role', getErrorMessage(error));
+    },
+  });
+
+  const updateRolePermissionsMutation = useMutation({
+    mutationFn: async ({
+      role,
+      permissionKeys,
+    }: {
+      role: string;
+      permissionKeys: string[];
+    }) => api.updateRolePermissions(role, permissionKeys),
+    onSuccess: (_, variables) => {
+      successToast('Permissions updated', `${variables.role} permissions are now active.`);
+      void queryClient.invalidateQueries({ queryKey: ['backoffice', 'access-control'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to update role permissions', getErrorMessage(error));
+    },
+  });
+
+  const deleteCustomRoleMutation = useMutation({
+    mutationFn: async (role: string) => api.deleteCustomRole(role),
+    onSuccess: (_, role) => {
+      successToast('Role deleted', `${role} was removed from the custom role catalog.`);
+      void queryClient.invalidateQueries({ queryKey: ['backoffice', 'access-control'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to delete role', getErrorMessage(error));
+    },
+  });
+
   const updatePrivilegedMfaMutation = useMutation({
     mutationFn: async (enabled: boolean) =>
       api.updateSettings({
@@ -380,7 +445,8 @@ export function AdminAccessControlSettings() {
   });
 
   const users = usersQuery.data?.users || [];
-  const roles = usersQuery.data?.roles || [
+  const roles = accessControlQuery.data?.roles ||
+    usersQuery.data?.roles || [
     'admin',
     'user',
     'accounting',
@@ -388,6 +454,30 @@ export function AdminAccessControlSettings() {
     'agent',
     'client',
   ];
+  const roleCatalog =
+    accessControlQuery.data?.role_catalog ||
+    roles.map((role) => ({
+      role,
+      display_name: role,
+      description: '',
+      is_system: true,
+    }));
+  const permissions = accessControlQuery.data?.permissions || [];
+  const rolePermissions = accessControlQuery.data?.role_permissions || [];
+  const permissionsByModule = useMemo(() => {
+    return permissions.reduce<Record<string, AccessControlPermission[]>>((acc, permission) => {
+      const moduleKey = permission.permission_key.split('.')[0] || 'general';
+      acc[moduleKey] = [...(acc[moduleKey] || []), permission];
+      return acc;
+    }, {});
+  }, [permissions]);
+  const rolePermissionSet = useMemo(() => {
+    return rolePermissions.reduce<Record<string, Set<string>>>((acc, row) => {
+      acc[row.role] = acc[row.role] || new Set<string>();
+      acc[row.role].add(row.permission_key);
+      return acc;
+    }, {});
+  }, [rolePermissions]);
   const activeAdmins = users.filter((user) => user.role === 'admin' && user.is_active).length;
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -441,6 +531,33 @@ export function AdminAccessControlSettings() {
     }
 
     updateUserMutation.mutate({ userId: user.id, payload });
+  };
+
+  const handleCreateCustomRole = () => {
+    const role = customRoleDraft.role.trim().toLowerCase();
+    if (!role) return;
+    createCustomRoleMutation.mutate({
+      role,
+      display_name: customRoleDraft.display_name.trim() || role,
+      description: customRoleDraft.description.trim(),
+    });
+  };
+
+  const handleRolePermissionToggle = (
+    role: string,
+    permissionKey: string,
+    enabled: boolean
+  ) => {
+    const current = new Set(rolePermissionSet[role] || []);
+    if (enabled) {
+      current.add(permissionKey);
+    } else {
+      current.delete(permissionKey);
+    }
+    updateRolePermissionsMutation.mutate({
+      role,
+      permissionKeys: Array.from(current).sort(),
+    });
   };
 
   const registrationEnabled = registrationStatusQuery.data?.enabled ?? true;
@@ -860,6 +977,60 @@ export function AdminAccessControlSettings() {
             </button>
 
           </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-700/60 bg-slate-950/50 p-5">
+            <div className="flex items-center gap-2 text-white">
+              <UserCog className="h-4 w-4 text-violet-300" />
+              Custom roles
+            </div>
+            <p className="mt-1 text-sm text-slate-400">
+              Create role keys for testing or operations, then assign permissions by module below.
+            </p>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <input
+                value={customRoleDraft.role}
+                onChange={(event) =>
+                  setCustomRoleDraft((prev) => ({ ...prev, role: event.target.value }))
+                }
+                placeholder="role_key"
+                className="premium-input"
+              />
+              <input
+                value={customRoleDraft.display_name}
+                onChange={(event) =>
+                  setCustomRoleDraft((prev) => ({ ...prev, display_name: event.target.value }))
+                }
+                placeholder="Display name"
+                className="premium-input"
+              />
+              <input
+                value={customRoleDraft.description}
+                onChange={(event) =>
+                  setCustomRoleDraft((prev) => ({ ...prev, description: event.target.value }))
+                }
+                placeholder="Description"
+                className="premium-input md:col-span-2"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleCreateCustomRole}
+              disabled={
+                createCustomRoleMutation.isPending ||
+                customRoleDraft.role.trim().length < 2
+              }
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+            >
+              {createCustomRoleMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserCog className="h-4 w-4" />
+              )}
+              Create custom role
+            </button>
+          </div>
         </div>
 
         <div className="premium-panel">
@@ -1052,6 +1223,124 @@ export function AdminAccessControlSettings() {
               })
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="premium-panel">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Role permissions by module</h3>
+            <p className="mt-1 text-sm text-slate-400">
+              Toggle module permissions for built-in and custom roles. Backend route guards apply
+              these changes immediately.
+            </p>
+          </div>
+          {accessControlQuery.isLoading && (
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading permissions...
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 space-y-4">
+          {roleCatalog.map((role) => {
+            const roleKey = role.role;
+            const selectedPermissions = rolePermissionSet[roleKey] || new Set<string>();
+            const isDeletingRole =
+              deleteCustomRoleMutation.isPending && deleteCustomRoleMutation.variables === roleKey;
+
+            return (
+              <div
+                key={roleKey}
+                className="rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4"
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-base font-semibold text-white">
+                        {role.display_name || roleKey}
+                      </p>
+                      <span className="rounded-full border border-slate-700 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-slate-300">
+                        {roleKey}
+                      </span>
+                      <span className="rounded-full border border-slate-700 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        {role.is_system ? 'System' : 'Custom'}
+                      </span>
+                    </div>
+                    {role.description && (
+                      <p className="mt-1 text-sm text-slate-400">{role.description}</p>
+                    )}
+                  </div>
+                  {!role.is_system && (
+                    <button
+                      type="button"
+                      onClick={() => deleteCustomRoleMutation.mutate(roleKey)}
+                      disabled={isDeletingRole}
+                      className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
+                    >
+                      {isDeletingRole ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Delete role
+                    </button>
+                  )}
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                  {Object.entries(permissionsByModule).map(([moduleKey, modulePermissions]) => (
+                    <div
+                      key={`${roleKey}-${moduleKey}`}
+                      className="rounded-xl border border-slate-700/60 bg-slate-900/35 p-4"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        {moduleKey}
+                      </p>
+                      <div className="mt-3 space-y-3">
+                        {modulePermissions.map((permission) => {
+                          const isChecked = selectedPermissions.has(permission.permission_key);
+                          const isUpdating =
+                            updateRolePermissionsMutation.isPending &&
+                            updateRolePermissionsMutation.variables?.role === roleKey;
+
+                          return (
+                            <label
+                              key={`${roleKey}-${permission.permission_key}`}
+                              className="flex items-start gap-3 text-sm text-slate-300"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                disabled={isUpdating}
+                                onChange={(event) =>
+                                  handleRolePermissionToggle(
+                                    roleKey,
+                                    permission.permission_key,
+                                    event.target.checked
+                                  )
+                                }
+                                className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 disabled:cursor-not-allowed"
+                              />
+                              <span>
+                                <span className="block font-medium text-slate-100">
+                                  {permission.permission_key}
+                                </span>
+                                <span className="block text-xs text-slate-500">
+                                  {permission.description}
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

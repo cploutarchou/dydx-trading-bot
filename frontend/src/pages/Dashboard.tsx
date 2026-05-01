@@ -170,8 +170,17 @@ const KpiCard: React.FC<KpiCardProps> = ({
         )}
       </div>
       <p className="text-[10px] uppercase text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-white">{value}</p>
-      {subtitle && <p className="mt-1 text-[11px] text-slate-500">{subtitle}</p>}
+      {value === '—' ? (
+        <>
+          <div className="skeleton mt-2 h-7 w-20 rounded" />
+          {subtitle !== undefined && <div className="skeleton mt-2 h-2.5 w-24 rounded" />}
+        </>
+      ) : (
+        <>
+          <p className="mt-2 text-2xl font-bold text-white">{value}</p>
+          {subtitle && <p className="mt-1 text-[11px] text-slate-500">{subtitle}</p>}
+        </>
+      )}
     </div>
   );
 };

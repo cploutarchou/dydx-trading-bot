@@ -1,6 +1,7 @@
 import { BrainCircuit, Loader, RefreshCw, Sparkles } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { type AIMarketProvider, type AIRuntimeDigestRequest } from '../api';
+import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
 
 interface Props {
   runningBots: number;
@@ -12,12 +13,6 @@ interface Props {
   network: string;
   defaultProvider?: AIMarketProvider;
 }
-
-const PROVIDERS: { value: AIMarketProvider; label: string }[] = [
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'claude', label: 'Claude' },
-];
 
 export function AIRuntimeDigest({
   runningBots,
@@ -34,6 +29,18 @@ export function AIRuntimeDigest({
   const [content, setContent] = useState<string | null>(null);
   const [usedAI, setUsedAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const {
+    availableProviders,
+    unavailableProviders,
+    statusMap,
+    isLoading: providerStatusLoading,
+  } = useAIProviderAvailability();
+
+  useEffect(() => {
+    if (availableProviders.length > 0 && !availableProviders.includes(provider)) {
+      setProvider(availableProviders[0]);
+    }
+  }, [availableProviders, provider]);
 
   const run = async () => {
     setLoading(true);
@@ -102,19 +109,19 @@ export function AIRuntimeDigest({
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
-            disabled={loading}
+            disabled={loading || providerStatusLoading || availableProviders.length === 0}
             className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
           >
-            {PROVIDERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
+            {availableProviders.map((p) => (
+              <option key={p} value={p}>
+                {getAIProviderLabel(p)}
               </option>
             ))}
           </select>
 
           <button
             onClick={run}
-            disabled={loading}
+            disabled={loading || availableProviders.length === 0}
             className="flex items-center gap-1.5 rounded-lg bg-cyan-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-cyan-600 disabled:opacity-50"
           >
             {loading ? (
@@ -136,10 +143,22 @@ export function AIRuntimeDigest({
         </p>
       )}
 
+      {!providerStatusLoading && availableProviders.length === 0 && (
+        <div className="mt-3 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+          No AI providers are currently available for your account.{' '}
+          {unavailableProviders
+            .map(
+              (item) =>
+                `${getAIProviderLabel(item)}: ${statusMap[item]?.unavailable_reason || 'Not configured'}`
+            )
+            .join(' · ')}
+        </div>
+      )}
+
       {loading && (
         <div className="mt-4 flex items-center gap-3 text-sm text-slate-400">
           <Loader className="h-4 w-4 animate-spin text-cyan-400" />
-          Generating digest with {PROVIDERS.find((p) => p.value === provider)?.label ?? provider}…
+          Generating digest with {getAIProviderLabel(provider)}…
         </div>
       )}
 

@@ -32,7 +32,7 @@ _INSTANCE_ID: str = os.getenv("BOT_INSTANCE_ID", "default")
 # ---------------------------------------------------------------------------
 
 def _resolve_bot_agents_path() -> Path:
-    configured_path = os.getenv("BOT_AGENTS_FILE", "bot_agents.json")
+    configured_path = os.getenv("BOT_AGENTS_FILE", "bot_states/bot_agents.json")
     resolved = configured_path.replace("{instance_id}", _INSTANCE_ID)
     path = Path(resolved)
     if not path.is_absolute():

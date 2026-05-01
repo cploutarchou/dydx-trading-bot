@@ -110,18 +110,39 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 	}
 	network = strings.ToLower(network)
 
+	configuredSelectedMarkets := strategy.SelectedMarketList()
+	validSelectedMarkets := sanitizeRuntimeSelectedMarkets(configuredSelectedMarkets)
+	blockers := make([]string, 0)
+	warnings := make([]string, 0)
+
+	if len(configuredSelectedMarkets) > 0 && len(validSelectedMarkets) == 0 {
+		blockers = append(
+			blockers,
+			"Selected markets must include at least two active dYdX perpetual symbols (e.g., BTC-USD and ETH-USD). Remove placeholders like PORTFOLIO or add additional markets before launching.",
+		)
+	}
+
+	if len(configuredSelectedMarkets) == 0 {
+		warnings = append(
+			warnings,
+			"No markets are explicitly selected. Launching will evaluate all active dYdX perpetual markets.",
+		)
+	}
+
 	response := map[string]interface{}{
-		"strategy_id":              strategy.ID,
-		"strategy_name":            strategy.Name,
-		"selected_runtime_network": network,
-		"selected_subaccount":      strategy.RuntimeSubaccount,
-		"usd_per_trade":            strategy.UsdPerTrade,
-		"usd_min_collateral":       strategy.UsdMinCollateral,
-		"capital_allocation_usd":   resolveCapitalAllocation(strategy),
-		"key_exists":               false,
-		"ready":                    false,
-		"blockers":                 []string{},
-		"warnings":                 []string{},
+		"strategy_id":                 strategy.ID,
+		"strategy_name":               strategy.Name,
+		"selected_runtime_network":    network,
+		"selected_subaccount":         strategy.RuntimeSubaccount,
+		"configured_selected_markets": configuredSelectedMarkets,
+		"valid_selected_markets":      validSelectedMarkets,
+		"usd_per_trade":               strategy.UsdPerTrade,
+		"usd_min_collateral":          strategy.UsdMinCollateral,
+		"capital_allocation_usd":      resolveCapitalAllocation(strategy),
+		"key_exists":                  false,
+		"ready":                       false,
+		"blockers":                    blockers,
+		"warnings":                    warnings,
 	}
 
 	keyInfo, err := s.keyService.GetKeyInfo(strategy.UserID, network)
@@ -129,9 +150,9 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 		return nil, fmt.Errorf("failed to inspect runtime key: %w", err)
 	}
 	if keyInfo == nil {
-		response["blockers"] = []string{
-			fmt.Sprintf("No active %s dYdX key is stored for this user.", network),
-		}
+		blockers = append(blockers, fmt.Sprintf("No active %s dYdX key is stored for this user.", network))
+		response["blockers"] = dedupeOrderedStrings(blockers)
+		response["warnings"] = dedupeOrderedStrings(warnings)
 		return response, nil
 	}
 	response["key_exists"] = true
@@ -142,9 +163,9 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 		return nil, fmt.Errorf("failed to resolve runtime key material: %w", err)
 	}
 	if keyPayload == nil {
-		response["blockers"] = []string{
-			fmt.Sprintf("No active %s dYdX key is stored for this user.", network),
-		}
+		blockers = append(blockers, fmt.Sprintf("No active %s dYdX key is stored for this user.", network))
+		response["blockers"] = dedupeOrderedStrings(blockers)
+		response["warnings"] = dedupeOrderedStrings(warnings)
 		return response, nil
 	}
 
@@ -163,13 +184,24 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 		return nil, fmt.Errorf("failed to evaluate runtime readiness: %w", err)
 	}
 
-	for key, value := range unwrapBotEnvelope(result) {
+	preflight := unwrapBotEnvelope(result)
+	for key, value := range preflight {
+		if key == "blockers" || key == "warnings" || key == "ready" {
+			continue
+		}
 		response[key] = value
 	}
+	blockers = append(blockers, stringifyRuntimeBlockers(preflight["blockers"])...)
+	warnings = append(warnings, stringifyRuntimeBlockers(preflight["warnings"])...)
+
+	preflightReady, _ := preflight["ready"].(bool)
 	response["selected_runtime_network"] = network
 	response["selected_subaccount"] = strategy.RuntimeSubaccount
 	response["key_exists"] = true
 	response["key_chain_address"] = keyInfo.ChainAddress
+	response["blockers"] = dedupeOrderedStrings(blockers)
+	response["warnings"] = dedupeOrderedStrings(warnings)
+	response["ready"] = preflightReady && len(dedupeOrderedStrings(blockers)) == 0
 	return response, nil
 }
 
@@ -248,11 +280,18 @@ func (s *StrategyRuntimeService) startRuntime(
 		instanceRecord = s.buildBotInstanceRecord(strategy, runtimeState.InstanceID, runtimeKey)
 	}
 
+	if !forceRecreate && existsLocally && shouldRecreateForTelegramRefresh(instanceRecord, createPayload) {
+		log.Printf(
+			"ℹ️ refreshing runtime instance %s to apply updated Telegram delivery settings",
+			runtimeState.InstanceID,
+		)
+		forceRecreate = true
+	}
+
 	if forceRecreate {
 		if recreateErr := s.botService.RecreateBotInstanceWithConfig(instanceRecord, createPayload); recreateErr != nil {
 			return nil, fmt.Errorf("failed to recreate runtime instance: %w", recreateErr)
 		}
-		remoteExists = false
 		remoteStatus = nil
 	} else if !remoteExists {
 		if existsLocally {
@@ -460,7 +499,7 @@ func (s *StrategyRuntimeService) buildBotInstanceRecord(
 			"address":  runtimeKey.ChainAddress,
 			"mnemonic": runtimeKey.SecretPhrase,
 		},
-		"telegram":           s.buildTelegramParams(),
+		"telegram":           s.buildTelegramParams(strategy.UserID),
 		"trading_params":     tradingParams,
 		"backtesting_params": s.buildBacktestingParams(strategy),
 		"strategy_id":        strategy.ID,
@@ -504,7 +543,7 @@ func (s *StrategyRuntimeService) buildBotCreatePayload(
 			"address":  runtimeKey.ChainAddress,
 			"mnemonic": runtimeKey.SecretPhrase,
 		},
-		"telegram":           s.buildTelegramParams(),
+		"telegram":           s.buildTelegramParams(strategy.UserID),
 		"trading_params":     s.buildTradingParams(strategy, runtimeKey.Network),
 		"backtesting_params": s.buildBacktestingParams(strategy),
 		"runtime_network":    runtimeKey.Network,
@@ -512,7 +551,7 @@ func (s *StrategyRuntimeService) buildBotCreatePayload(
 	}
 }
 
-func (s *StrategyRuntimeService) buildTelegramParams() map[string]interface{} {
+func (s *StrategyRuntimeService) buildTelegramParams(userID int) map[string]interface{} {
 	if s.telegramService == nil {
 		return map[string]interface{}{
 			"token":   "",
@@ -520,29 +559,34 @@ func (s *StrategyRuntimeService) buildTelegramParams() map[string]interface{} {
 		}
 	}
 
-	config, configured, err := s.telegramService.ResolveSharedConfig()
+	resolved, err := s.telegramService.ResolveEffectiveConfig(userID)
 	if err != nil {
-		log.Printf("⚠️ failed to resolve Telegram settings for runtime payload: %v", err)
+		log.Printf("⚠️ failed to resolve Telegram settings for runtime payload user_id=%d: %v", userID, err)
 		return map[string]interface{}{
 			"token":   "",
 			"chat_id": "",
+			"source":  string(TelegramConfigSourceNone),
 		}
 	}
-	if !configured || config == nil {
+	if resolved == nil || resolved.Config == nil || resolved.Source == TelegramConfigSourceNone {
 		return map[string]interface{}{
 			"token":   "",
 			"chat_id": "",
+			"source":  string(TelegramConfigSourceNone),
 		}
 	}
 
+	log.Printf("ℹ️ using Telegram config source=%s for user_id=%d", resolved.Source, userID)
 	return map[string]interface{}{
-		"token":   config.BotToken,
-		"chat_id": config.ChatID,
+		"token":   resolved.Config.BotToken,
+		"chat_id": resolved.Config.ChatID,
+		"source":  string(resolved.Source),
 	}
 }
 
 func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStrategy, network string) map[string]interface{} {
 	resolution := normalizeDydxCandleResolution(strategy.CandleResolution)
+	selectedMarkets := sanitizeRuntimeSelectedMarkets(strategy.SelectedMarketList())
 	return map[string]interface{}{
 		"is_testnet":               !strings.EqualFold(network, "mainnet"),
 		"subaccount_number":        strategy.RuntimeSubaccount,
@@ -567,8 +611,42 @@ func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStr
 		"rebalance_interval_hours": strategy.RebalanceIntervalHours,
 		"position_timeout_hours":   strategy.PositionTimeoutHours,
 		"pair_selection_mode":      strategy.PairSelectionMode,
-		"selected_markets":         strategy.SelectedMarketList(),
+		"selected_markets":         selectedMarkets,
 	}
+}
+
+func sanitizeRuntimeSelectedMarkets(markets []string) []string {
+	if len(markets) == 0 {
+		return []string{}
+	}
+
+	seen := make(map[string]struct{}, len(markets))
+	result := make([]string, 0, len(markets))
+	for _, market := range markets {
+		normalized := strings.ToUpper(strings.TrimSpace(market))
+		if normalized == "" {
+			continue
+		}
+
+		// Runtime market universes must be concrete dYdX perpetual symbols.
+		if normalized == "PORTFOLIO" || !strings.Contains(normalized, "-") {
+			continue
+		}
+
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+
+	// Pair-trading runtime requires at least two valid markets. If operators have
+	// fewer than two, fall back to dynamic market discovery instead of crashing.
+	if len(result) < 2 {
+		return []string{}
+	}
+
+	return result
 }
 
 func (s *StrategyRuntimeService) buildBacktestingParams(strategy *models.BacktestStrategy) map[string]interface{} {
@@ -942,4 +1020,68 @@ func stringifyRuntimeBlockers(raw interface{}) []string {
 		}
 		return []string{candidate}
 	}
+}
+
+func dedupeOrderedStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.TrimSpace(value)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
+func shouldRecreateForTelegramRefresh(
+	instance *models.BotInstance,
+	desiredPayload map[string]interface{},
+) bool {
+	if instance == nil {
+		return false
+	}
+
+	desiredToken, desiredChatID := extractTelegramCredentials(desiredPayload)
+	currentToken, currentChatID := extractTelegramCredentialsFromStoredConfig(instance.Config)
+
+	return strings.TrimSpace(desiredToken) != strings.TrimSpace(currentToken) ||
+		strings.TrimSpace(desiredChatID) != strings.TrimSpace(currentChatID)
+}
+
+func extractTelegramCredentials(payload map[string]interface{}) (token string, chatID string) {
+	telegramRaw, ok := payload["telegram"]
+	if !ok || telegramRaw == nil {
+		return "", ""
+	}
+
+	telegram, ok := telegramRaw.(map[string]interface{})
+	if !ok {
+		return "", ""
+	}
+
+	return strings.TrimSpace(fmt.Sprintf("%v", telegram["token"])),
+		strings.TrimSpace(fmt.Sprintf("%v", telegram["chat_id"]))
+}
+
+func extractTelegramCredentialsFromStoredConfig(config sql.NullString) (token string, chatID string) {
+	if !config.Valid || strings.TrimSpace(config.String) == "" {
+		return "", ""
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(config.String), &payload); err != nil {
+		return "", ""
+	}
+
+	return extractTelegramCredentials(payload)
 }

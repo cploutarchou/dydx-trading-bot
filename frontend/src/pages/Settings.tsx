@@ -11,32 +11,33 @@
  */
 
 import {
-  AlertCircle,
-  BarChart2,
-  ChevronRight,
-  KeyRound,
-  Loader,
-  Mail,
-  MessageSquare,
-  Newspaper,
-  RefreshCw,
-  Save,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  UserCircle,
-  Users,
-  Zap,
+    AlertCircle,
+    BarChart2,
+    ChevronRight,
+    KeyRound,
+    Loader,
+    Mail,
+    MessageSquare,
+    Newspaper,
+    RefreshCw,
+    Save,
+    Search,
+    ShieldCheck,
+    SlidersHorizontal,
+    UserCircle,
+    Users,
+    Zap,
 } from 'lucide-react';
 import {
-  type ComponentType,
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+    type ComponentType,
+    useCallback,
+    useDeferredValue,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import apiClient from '../api';
 import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
@@ -50,7 +51,12 @@ import { MailgunSettings } from '../components/MailgunSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
-import { InlineNotice, PlatformPageHeader, PlatformStatCard, StatusBadge } from '../components/ui/PlatformUI';
+import {
+    InlineNotice,
+    PlatformPageHeader,
+    PlatformStatCard,
+    StatusBadge,
+} from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 
 type SettingValue =
@@ -338,6 +344,8 @@ const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
 export default function Settings() {
   const user = useAuthStore((state) => state.user);
   const canManageBackofficeSettings = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSection = searchParams.get('section')?.trim().toLowerCase() || '';
   const [schema, setSchema] = useState<SettingsSchema | null>(null);
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
   const [initialFormValues, setInitialFormValues] = useState<
@@ -345,7 +353,7 @@ export default function Settings() {
   >({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<string>('profile');
+  const [activeSection, setActiveSection] = useState<string>(requestedSection || 'profile');
   const [pendingFocusTarget, setPendingFocusTarget] = useState<PendingFocusTarget | null>(null);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
@@ -369,6 +377,7 @@ export default function Settings() {
       { section: 'profile', title: 'Profile', description: 'Account & avatar' },
       { section: 'security', title: 'Security', description: '2FA & sessions' },
       { section: 'dydx_keys', title: 'dYdX Keys', description: 'Testnet & mainnet' },
+      { section: 'telegram', title: 'Telegram', description: 'Bot notifications' },
       {
         section: 'ai_market_filters',
         title: 'AI Filters',
@@ -382,7 +391,6 @@ export default function Settings() {
               title: 'Access Control',
               description: 'Roles & registration',
             },
-            { section: 'telegram', title: 'Telegram', description: 'Bot notifications' },
             { section: 'mailgun', title: 'Mailgun', description: 'Outbound email' },
             { section: 'market_news', title: 'Market News', description: 'CoinDesk feed' },
           ]
@@ -422,58 +430,16 @@ export default function Settings() {
 
   const hasValidationErrors = useMemo(() => hasAnyFieldErrors(fieldErrors), [fieldErrors]);
 
-  useEffect(() => {
-    void fetchSettingsData();
-  }, []);
-
-  useEffect(() => {
-    if (hasRestoredSectionRef.current || sidebarSections.length === 0) {
-      return;
-    }
-
-    hasRestoredSectionRef.current = true;
-
-    try {
-      const savedSection = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
-      if (savedSection && sidebarSections.some((section) => section.section === savedSection)) {
-        setActiveSection(savedSection);
-      }
-    } catch (error) {
-      console.warn('⚠️ Settings.tsx: Failed to restore last opened section', error);
-    }
-  }, [sidebarSections]);
-
-  useEffect(() => {
-    if (!sidebarSections.some((section) => section.section === activeSection)) {
-      return;
-    }
-
-    try {
-      localStorage.setItem(SETTINGS_LAST_SECTION_KEY, activeSection);
-    } catch (error) {
-      console.warn('⚠️ Settings.tsx: Failed to persist last opened section', error);
-    }
-  }, [activeSection, sidebarSections]);
-
-  useEffect(() => {
-    if (!pendingFocusTarget || pendingFocusTarget.section !== activeSection) {
-      return;
-    }
-
-    const refKey = getSettingsFieldRefKey(pendingFocusTarget.section, pendingFocusTarget.fieldKey);
-    const fieldElement = fieldRefs.current[refKey];
-    if (!fieldElement) {
-      return;
-    }
-
-    fieldElement.focus();
-    fieldElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setPendingFocusTarget(null);
-  }, [activeSection, pendingFocusTarget]);
-
   const fetchSettingsData = useCallback(async () => {
     try {
       setLoading(true);
+
+      if (!canManageBackofficeSettings) {
+        setSchema({ sections: [] });
+        setFormValues({});
+        setInitialFormValues({});
+        return;
+      }
 
       // First, try to initialize settings (idempotent - no-op if already initialized)
       try {
@@ -518,7 +484,84 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
-  }, [errorToast]);
+  }, [canManageBackofficeSettings, errorToast]);
+
+  useEffect(() => {
+    void fetchSettingsData();
+  }, [fetchSettingsData]);
+
+  useEffect(() => {
+    if (hasRestoredSectionRef.current || sidebarSections.length === 0) {
+      return;
+    }
+
+    hasRestoredSectionRef.current = true;
+
+    if (
+      requestedSection &&
+      sidebarSections.some((section) => section.section === requestedSection)
+    ) {
+      setActiveSection(requestedSection);
+      return;
+    }
+
+    try {
+      const savedSection = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
+      if (savedSection && sidebarSections.some((section) => section.section === savedSection)) {
+        setActiveSection(savedSection);
+      }
+    } catch (error) {
+      console.warn('⚠️ Settings.tsx: Failed to restore last opened section', error);
+    }
+  }, [requestedSection, sidebarSections]);
+
+  useEffect(() => {
+    if (!requestedSection || requestedSection === activeSection) {
+      return;
+    }
+    if (sidebarSections.some((section) => section.section === requestedSection)) {
+      setActiveSection(requestedSection);
+    }
+  }, [activeSection, requestedSection, sidebarSections]);
+
+  useEffect(() => {
+    if (!sidebarSections.some((section) => section.section === activeSection)) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(SETTINGS_LAST_SECTION_KEY, activeSection);
+    } catch (error) {
+      console.warn('⚠️ Settings.tsx: Failed to persist last opened section', error);
+    }
+
+    if (requestedSection !== activeSection) {
+      setSearchParams(
+        (currentParams) => {
+          const nextParams = new URLSearchParams(currentParams);
+          nextParams.set('section', activeSection);
+          return nextParams;
+        },
+        { replace: true }
+      );
+    }
+  }, [activeSection, requestedSection, setSearchParams, sidebarSections]);
+
+  useEffect(() => {
+    if (!pendingFocusTarget || pendingFocusTarget.section !== activeSection) {
+      return;
+    }
+
+    const refKey = getSettingsFieldRefKey(pendingFocusTarget.section, pendingFocusTarget.fieldKey);
+    const fieldElement = fieldRefs.current[refKey];
+    if (!fieldElement) {
+      return;
+    }
+
+    fieldElement.focus();
+    fieldElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setPendingFocusTarget(null);
+  }, [activeSection, pendingFocusTarget]);
 
   const handleFieldChange = (section: string, key: string, value: SettingValue) => {
     setFormValues((prev) => {
@@ -678,9 +721,13 @@ export default function Settings() {
   return (
     <PageContainer size="wide" className="space-y-6">
       <PlatformPageHeader
-        kicker="System"
+        kicker={canManageBackofficeSettings ? 'System' : 'Account'}
         title="Settings"
-        description="Profile, access, wallet keys, integrations, and runtime defaults now live in one responsive control surface with clearer save state and validation cues."
+        description={
+          canManageBackofficeSettings
+            ? 'Profile, access, wallet keys, integrations, and runtime defaults now live in one responsive control surface with clearer save state and validation cues.'
+            : 'Manage your profile, security, dYdX address and keys, Telegram notifications, and account integrations from one place.'
+        }
         icon={SlidersHorizontal}
         meta={
           hasUnsavedChanges ? (
@@ -837,7 +884,7 @@ export default function Settings() {
             <AdminAccessControlSettings />
           )}
           {activeSection === 'mailgun' && canManageBackofficeSettings && <MailgunSettings />}
-          {activeSection === 'telegram' && canManageBackofficeSettings && <TelegramSettings />}
+          {activeSection === 'telegram' && <TelegramSettings />}
           {activeSection === 'market_news' && canManageBackofficeSettings && (
             <CoinDeskNewsSettings />
           )}
@@ -1046,9 +1093,9 @@ export default function Settings() {
 
       {/* Operational note */}
       <p className="mt-5 text-[10px] uppercase tracking-widest text-slate-600">
-        Changes to runtime config take effect on next bot restart · Schema-driven sections persist
-        to database · Manual sections (profile, keys, integrations) use dedicated APIs · Admin
-        sections are hidden for non-admin users
+        {canManageBackofficeSettings
+          ? 'Changes to runtime config take effect on next bot restart · Schema-driven sections persist to database · Manual sections (profile, keys, integrations) use dedicated APIs · Backoffice-only sections are hidden for non-admin users'
+          : 'Profile, security, dYdX keys, and Telegram settings use dedicated account APIs · Platform-only settings are hidden for non-admin users'}
       </p>
     </PageContainer>
   );

@@ -91,7 +91,7 @@ func setupTelegramRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 	return router, dbConn
 }
 
-func seedTelegramAdmin(t *testing.T, dbConn *sql.DB) string {
+func seedTelegramUser(t *testing.T, dbConn *sql.DB, username string, email string, role string, isAdmin bool) string {
 	t.Helper()
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("Pass123!"), bcrypt.DefaultCost)
 	if err != nil {
@@ -101,14 +101,14 @@ func seedTelegramAdmin(t *testing.T, dbConn *sql.DB) string {
 	result, err := dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, password_change_required, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"admin",
-		"admin@example.local",
-		"admin",
+		username,
+		email,
+		role,
 		"Administrator",
 		"",
 		string(hashedPassword),
 		true,
-		true,
+		isAdmin,
 		true,
 		now,
 		now,
@@ -120,7 +120,7 @@ func seedTelegramAdmin(t *testing.T, dbConn *sql.DB) string {
 	if err != nil {
 		t.Fatalf("last insert id: %v", err)
 	}
-	token, err := services.GenerateAccessTokenWithRole(int(insertID), "admin", true, "admin")
+	token, err := services.GenerateAccessTokenWithRole(int(insertID), role, isAdmin, role)
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestTelegramRoutes_SaveAndStatus(t *testing.T) {
 		}
 	})
 
-	authHeader := seedTelegramAdmin(t, dbConn)
+	authHeader := seedTelegramUser(t, dbConn, "client1", "client1@example.local", "client", false)
 
 	payload, _ := json.Marshal(map[string]string{
 		"bot_token": "123456:test-telegram-token",
@@ -177,5 +177,76 @@ func TestTelegramRoutes_SaveAndStatus(t *testing.T) {
 	}
 	if body.Data.ChatID != "-1001234567890" {
 		t.Fatalf("unexpected telegram chat id: %+v", body.Data)
+	}
+}
+
+func TestTelegramRoutes_IsolatedPerUser(t *testing.T) {
+	router, dbConn := setupTelegramRouter(t)
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+
+	userOneAuth := seedTelegramUser(t, dbConn, "client_a", "client_a@example.local", "client", false)
+	userTwoAuth := seedTelegramUser(t, dbConn, "client_b", "client_b@example.local", "client", false)
+
+	payload, _ := json.Marshal(map[string]string{
+		"bot_token": "123456:user-a-token",
+		"chat_id":   "-1001111111111",
+		"label":     "User A alerts",
+	})
+
+	saveReq := httptest.NewRequest(http.MethodPut, "/api/v1/telegram/config", bytes.NewReader(payload))
+	saveReq.Header.Set("Content-Type", "application/json")
+	saveReq.Header.Set("Authorization", userOneAuth)
+	saveRes := httptest.NewRecorder()
+	router.ServeHTTP(saveRes, saveReq)
+	if saveRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 for user one save, got %d body=%s", saveRes.Code, saveRes.Body.String())
+	}
+
+	statusReqUserOne := httptest.NewRequest(http.MethodGet, "/api/v1/telegram/status", nil)
+	statusReqUserOne.Header.Set("Authorization", userOneAuth)
+	statusResUserOne := httptest.NewRecorder()
+	router.ServeHTTP(statusResUserOne, statusReqUserOne)
+	if statusResUserOne.Code != http.StatusOK {
+		t.Fatalf("expected 200 for user one status, got %d body=%s", statusResUserOne.Code, statusResUserOne.Body.String())
+	}
+
+	statusReqUserTwo := httptest.NewRequest(http.MethodGet, "/api/v1/telegram/status", nil)
+	statusReqUserTwo.Header.Set("Authorization", userTwoAuth)
+	statusResUserTwo := httptest.NewRecorder()
+	router.ServeHTTP(statusResUserTwo, statusReqUserTwo)
+	if statusResUserTwo.Code != http.StatusOK {
+		t.Fatalf("expected 200 for user two status, got %d body=%s", statusResUserTwo.Code, statusResUserTwo.Body.String())
+	}
+
+	var userOneBody struct {
+		Data struct {
+			Configured bool   `json:"configured"`
+			ChatID     string `json:"chat_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(statusResUserOne.Body.Bytes(), &userOneBody); err != nil {
+		t.Fatalf("decode user one response: %v", err)
+	}
+
+	if !userOneBody.Data.Configured || userOneBody.Data.ChatID != "-1001111111111" {
+		t.Fatalf("unexpected user one telegram state: %+v", userOneBody.Data)
+	}
+
+	var userTwoBody struct {
+		Data struct {
+			Configured bool   `json:"configured"`
+			ChatID     string `json:"chat_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(statusResUserTwo.Body.Bytes(), &userTwoBody); err != nil {
+		t.Fatalf("decode user two response: %v", err)
+	}
+
+	if userTwoBody.Data.Configured || userTwoBody.Data.ChatID != "" {
+		t.Fatalf("expected user two to remain unconfigured, got %+v", userTwoBody.Data)
 	}
 }

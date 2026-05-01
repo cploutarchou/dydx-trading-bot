@@ -39,6 +39,8 @@ interface StrategyStatus {
 interface StrategyStartReadiness {
   selected_runtime_network: 'testnet' | 'mainnet';
   selected_subaccount: number;
+  configured_selected_markets?: string[];
+  valid_selected_markets?: string[];
   key_exists: boolean;
   key_chain_address?: string;
   available_collateral: number;
@@ -82,6 +84,11 @@ const needsRuntimeRecreateConfirmation = (message?: string): boolean => {
     normalized.includes('confirm recreate') ||
     normalized.includes('stale runtime instance detected')
   );
+};
+
+const hasExplicitMarketSelection = (readiness: StrategyStartReadiness | null): boolean => {
+  const configuredMarkets = readiness?.configured_selected_markets;
+  return Array.isArray(configuredMarkets) && configuredMarkets.length > 0;
 };
 
 export default function StrategyManager() {
@@ -561,6 +568,16 @@ export default function StrategyManager() {
     if (!startDialogStrategy) {
       return;
     }
+
+    if (!hasExplicitMarketSelection(startDialogReadiness)) {
+      const approved = window.confirm(
+        'No specific pairs are selected for this strategy. Clicking OK will launch using all active dYdX markets. Continue?'
+      );
+      if (!approved) {
+        return;
+      }
+    }
+
     setStartDialogSubmitting(true);
     let launched = false;
     try {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -53,10 +54,59 @@ func (h *AIMarketHandler) SaveKey(c *gin.Context) {
 	})
 }
 
+func (h *AIMarketHandler) SaveSharedKey(c *gin.Context) {
+	if !c.GetBool("is_admin") {
+		h.respondError(c, http.StatusForbidden, errors.New("admin access required"), "Admin access required")
+		return
+	}
+
+	var req services.AICredentialPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondError(c, http.StatusBadRequest, err, "Invalid AI key request")
+		return
+	}
+
+	credential, err := h.service.SaveSharedKey(req)
+	if err != nil {
+		h.respondError(c, http.StatusBadRequest, err, "Failed to save shared AI key")
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      credential,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 func (h *AIMarketHandler) DeleteKey(c *gin.Context) {
 	provider := c.Param("provider")
 	if err := h.service.DeleteUserKey(getUserID(c), provider); err != nil {
 		h.respondError(c, http.StatusBadRequest, err, "Failed to delete AI key")
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      gin.H{"deleted": true, "provider": provider},
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *AIMarketHandler) DeleteSharedKey(c *gin.Context) {
+	if !c.GetBool("is_admin") {
+		h.respondError(c, http.StatusForbidden, errors.New("admin access required"), "Admin access required")
+		return
+	}
+
+	provider := strings.TrimSpace(c.Param("provider"))
+	if provider == "" {
+		h.respondError(c, http.StatusBadRequest, errors.New("provider is required"), "Provider is required")
+		return
+	}
+
+	if err := h.service.DeleteSharedKey(provider); err != nil {
+		h.respondError(c, http.StatusBadRequest, err, "Failed to delete shared AI key")
 		return
 	}
 
@@ -157,6 +207,11 @@ func (h *AIMarketHandler) respondError(c *gin.Context, status int, err error, fa
 	message := fallback
 	if err != nil {
 		message = err.Error()
+	}
+	var providerErr *services.AIProviderAccessError
+	if errors.As(err, &providerErr) {
+		status = providerErr.Code
+		message = providerErr.Message
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		status = http.StatusGatewayTimeout

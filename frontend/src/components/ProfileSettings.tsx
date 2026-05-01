@@ -3,9 +3,9 @@
  * Allows users to manage their profile information and upload avatars
  */
 
+import { useMutation } from '@tanstack/react-query';
 import { Camera, Check, Upload, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import apiClient from '../api';
 import { useAuthStore } from '../store/auth';
 
@@ -125,14 +125,14 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
   const saving = updateProfileMutation.isPending;
 
   return (
-    <div className="bg-slate-800 rounded-lg shadow p-6 border border-slate-700">
+    <div className="premium-panel p-6">
       {/* Message Display */}
       {message && (
         <div
           className={`mb-6 px-4 py-3 rounded border ${
             message.type === 'success'
-              ? 'bg-green-900 border-green-700 text-green-100'
-              : 'bg-red-900 border-red-700 text-red-100'
+              ? 'border-emerald-700/40 bg-emerald-900/20 text-emerald-200'
+              : 'border-red-700/40 bg-red-900/20 text-red-200'
           }`}
         >
           {message.text}
@@ -142,7 +142,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
       {/* Section Header */}
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-white">Profile Settings</h2>
-        <p className="text-gray-400 mt-1">Manage your account information and profile picture</p>
+        <p className="mt-1 text-slate-400">Manage your account information and profile picture</p>
       </div>
 
       {/* Avatar Section */}
@@ -154,7 +154,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           <div className="relative">
             <div
               onClick={handleAvatarClick}
-              className="w-32 h-32 rounded-full bg-linear-to-br from-blue-500 to-purple-600 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+              className="flex h-32 w-32 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-linear-to-br from-cyan-500 to-blue-600 transition-opacity hover:opacity-85"
             >
               {avatar ? (
                 <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
@@ -172,7 +172,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
             <button
               type="button"
               onClick={handleAvatarClick}
-              className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
+              className="absolute bottom-0 right-0 rounded-full bg-cyan-500 p-2 text-slate-900 shadow-lg transition-colors hover:bg-cyan-400"
             >
               <Upload className="w-4 h-4" />
             </button>
@@ -188,14 +188,14 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
               className="hidden"
             />
 
-            <p className="text-gray-300 mb-2">
+            <p className="mb-2 text-slate-300">
               <strong>Current User:</strong> {user?.username}
             </p>
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="mb-4 text-sm text-slate-400">
               Click the camera icon or the image to upload a new profile picture
             </p>
 
-            <ul className="text-xs text-gray-400 space-y-1 ml-4 list-disc">
+            <ul className="ml-4 list-disc space-y-1 text-xs text-slate-400">
               <li>Recommended: Square image (e.g., 500x500px)</li>
               <li>Maximum file size: 5MB</li>
               <li>Supported formats: JPG, PNG, WebP, GIF</li>
@@ -211,9 +211,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           <label className="block">
             <div className="flex items-center gap-2 mb-2">
               <span className="font-semibold text-white">Full Name</span>
-              <span className="text-gray-500 text-sm">(Optional)</span>
+              <span className="text-sm text-slate-500">(Optional)</span>
             </div>
-            <p className="text-sm text-gray-400 mb-3">Your display name across the application</p>
+            <p className="mb-3 text-sm text-slate-400">Your display name across the application</p>
 
             <input
               type="text"
@@ -222,9 +222,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
               placeholder="Enter your full name"
               maxLength={100}
               disabled={saving}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500"
+              className="premium-input"
             />
-            <p className="text-xs text-gray-500 mt-2">{fullName.length}/100 characters</p>
+            <p className="mt-2 text-xs text-slate-500">{fullName.length}/100 characters</p>
           </label>
         </div>
 
@@ -235,7 +235,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
               <span className="font-semibold text-white">Email Address</span>
               <span className="text-red-400">*</span>
             </div>
-            <p className="text-sm text-gray-400 mb-3">Your account email address</p>
+            <p className="mb-3 text-sm text-slate-400">Your account email address</p>
 
             <input
               type="email"
@@ -243,7 +243,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your.email@example.com"
               disabled={saving}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500"
+              className="premium-input"
             />
           </label>
         </div>
@@ -253,17 +253,17 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           <label className="block">
             <div className="flex items-center gap-2 mb-2">
               <span className="font-semibold text-white">Username</span>
-              <span className="text-gray-500 text-xs bg-slate-700 px-2 py-1 rounded">
+              <span className="rounded bg-slate-800 px-2 py-1 text-xs text-slate-500 ring-1 ring-slate-700/60">
                 READ-ONLY
               </span>
             </div>
-            <p className="text-sm text-gray-400 mb-3">Your unique username cannot be changed</p>
+            <p className="mb-3 text-sm text-slate-400">Your unique username cannot be changed</p>
 
             <input
               type="text"
               value={user?.username || ''}
               disabled
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-gray-400 rounded-lg cursor-not-allowed opacity-60"
+              className="premium-input cursor-not-allowed opacity-60"
             />
           </label>
         </div>
@@ -287,7 +287,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
                   : 'Loading...'
               }
               disabled
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 text-gray-400 rounded-lg cursor-not-allowed opacity-60"
+              className="premium-input cursor-not-allowed opacity-60"
             />
           </label>
         </div>
@@ -299,7 +299,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          className="flex items-center gap-2 rounded-xl bg-cyan-500 px-6 py-2 font-semibold text-slate-900 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Check className="w-4 h-4" />
           {saving ? 'Saving...' : 'Save Profile'}
@@ -308,7 +308,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           type="button"
           onClick={handleReset}
           disabled={saving}
-          className="px-6 py-2 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          className="flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-6 py-2 font-semibold text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <X className="w-4 h-4" />
           Reset
@@ -316,9 +316,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
       </div>
 
       {/* Info Box */}
-      <div className="mt-6 p-4 bg-blue-900 border border-blue-700 rounded-lg">
-        <h4 className="font-semibold text-blue-200 mb-2">💡 Privacy Note</h4>
-        <p className="text-sm text-blue-100">
+      <div className="mt-6 rounded-lg border border-cyan-700/40 bg-cyan-900/20 p-4">
+        <h4 className="mb-2 font-semibold text-cyan-200">💡 Privacy Note</h4>
+        <p className="text-sm text-cyan-100">
           Your profile information is private and only visible to you. Email is used for account
           recovery and notifications.
         </p>

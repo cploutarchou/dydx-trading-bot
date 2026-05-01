@@ -125,7 +125,7 @@ export function AIMarketSettings() {
   });
 
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-800 p-6 shadow">
+    <div className="premium-panel p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">AI Market Filters</h2>
@@ -204,7 +204,7 @@ export function AIMarketSettings() {
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
                   Current saved key
                 </p>
-                <p className="mt-2 font-mono text-sm text-slate-200">
+                <p className="mt-2 max-w-full overflow-hidden break-all whitespace-normal font-mono text-sm text-slate-200">
                   {selectedStatus.user_key_masked || 'Masked key on file'}
                 </p>
               </div>
@@ -222,7 +222,7 @@ export function AIMarketSettings() {
                   id="ai-key-label"
                   value={label}
                   onChange={(event) => setLabel(event.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
+                  className="premium-input"
                   placeholder="Personal AI market filter key"
                 />
               </div>
@@ -235,7 +235,7 @@ export function AIMarketSettings() {
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
+                  className="premium-input"
                   placeholder={`Paste your ${providerLabel(provider)} key`}
                 />
               </div>
@@ -243,7 +243,7 @@ export function AIMarketSettings() {
                 type="button"
                 disabled={saveMutation.isPending || apiKey.trim().length === 0}
                 onClick={() => saveMutation.mutate()}
-                className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+                className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
               >
                 {saveMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -268,14 +268,14 @@ export function AIMarketSettings() {
                 </p>
                 <div className="mt-3 space-y-3">
                   <input
-                    value={sharedLabel}
+                    className="premium-input"
                     onChange={(event) => setSharedLabel(event.target.value)}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
                     placeholder="Shared AI market key"
                   />
                   <input
                     type="password"
-                    value={sharedApiKey}
+                    className="premium-input"
                     onChange={(event) => setSharedApiKey(event.target.value)}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
                     placeholder={`Paste shared ${providerLabel(provider)} key`}

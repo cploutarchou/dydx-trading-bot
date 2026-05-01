@@ -343,6 +343,7 @@ const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
 
 export default function Settings() {
   const user = useAuthStore((state) => state.user);
+  const isAdminUser = Boolean(user?.is_admin);
   const canManageBackofficeSettings = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get('section')?.trim().toLowerCase() || '';
@@ -359,6 +360,8 @@ export default function Settings() {
   const [testingConnection, setTestingConnection] = useState(false);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
   const hasRestoredSectionRef = useRef(false);
+  const urlSyncEnabledRef = useRef(true);
+  const lastRequestedSectionRef = useRef(requestedSection);
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
   const infoToast = useToastStore((state) => state.info);
@@ -378,12 +381,16 @@ export default function Settings() {
       { section: 'security', title: 'Security', description: '2FA & sessions' },
       { section: 'dydx_keys', title: 'dYdX Keys', description: 'Testnet & mainnet' },
       { section: 'telegram', title: 'Telegram', description: 'Bot notifications' },
-      {
-        section: 'ai_market_filters',
-        title: 'AI Filters',
-        description: 'OpenAI, DeepSeek, Claude',
-      },
-      { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
+      ...(isAdminUser
+        ? [
+            {
+              section: 'ai_market_filters',
+              title: 'AI Filters',
+              description: 'OpenAI, DeepSeek, Claude',
+            },
+            { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
+          ]
+        : []),
       ...(canManageBackofficeSettings
         ? [
             {
@@ -405,7 +412,7 @@ export default function Settings() {
         description: section.description,
       })),
     ];
-  }, [canManageBackofficeSettings, visibleSchemaSections]);
+  }, [canManageBackofficeSettings, isAdminUser, visibleSchemaSections]);
 
   const filteredSidebarSections = useMemo(() => {
     const query = deferredSectionSearchQuery.trim().toLowerCase();
@@ -516,9 +523,30 @@ export default function Settings() {
   }, [requestedSection, sidebarSections]);
 
   useEffect(() => {
+    if (sidebarSections.length === 0) {
+      return;
+    }
+
+    if (!sidebarSections.some((section) => section.section === activeSection)) {
+      setActiveSection(sidebarSections[0].section);
+    }
+  }, [activeSection, sidebarSections]);
+
+  useEffect(() => {
+    if (!urlSyncEnabledRef.current) {
+      return;
+    }
+
+    if (requestedSection === lastRequestedSectionRef.current) {
+      return;
+    }
+
+    lastRequestedSectionRef.current = requestedSection;
+
     if (!requestedSection || requestedSection === activeSection) {
       return;
     }
+
     if (sidebarSections.some((section) => section.section === requestedSection)) {
       setActiveSection(requestedSection);
     }
@@ -535,7 +563,11 @@ export default function Settings() {
       console.warn('⚠️ Settings.tsx: Failed to persist last opened section', error);
     }
 
-    if (requestedSection !== activeSection) {
+    if (!urlSyncEnabledRef.current || requestedSection === activeSection) {
+      return;
+    }
+
+    try {
       setSearchParams(
         (currentParams) => {
           const nextParams = new URLSearchParams(currentParams);
@@ -544,6 +576,9 @@ export default function Settings() {
         },
         { replace: true }
       );
+    } catch (error) {
+      urlSyncEnabledRef.current = false;
+      console.warn('⚠️ Settings.tsx: URL sync disabled (history update blocked)', error);
     }
   }, [activeSection, requestedSection, setSearchParams, sidebarSections]);
 
@@ -878,8 +913,8 @@ export default function Settings() {
         <div className="min-w-0 flex-1">
           {activeSection === 'profile' && <ProfileSettings />}
           {activeSection === 'dydx_keys' && <DYDXKeyManager />}
-          {activeSection === 'ai_market_filters' && <AIMarketSettings />}
-          {activeSection === 'codex_io' && <CodexSettings />}
+          {activeSection === 'ai_market_filters' && isAdminUser && <AIMarketSettings />}
+          {activeSection === 'codex_io' && isAdminUser && <CodexSettings />}
           {activeSection === 'access_control' && canManageBackofficeSettings && (
             <AdminAccessControlSettings />
           )}

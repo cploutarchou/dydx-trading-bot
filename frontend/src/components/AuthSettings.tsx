@@ -117,14 +117,14 @@ export const AuthSettingsComponent: React.FC = () => {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="premium-panel p-6">
                 <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-linear-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
-                        <User className="w-8 h-8 text-white" />
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-linear-to-br from-cyan-500 to-blue-600">
+                        <User className="h-8 w-8 text-white" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900">{user?.username}</h1>
-                        <p className="text-slate-600">{user?.email}</p>
+                        <h1 className="text-2xl font-bold text-white">{user?.username}</h1>
+                        <p className="text-slate-400">{user?.email}</p>
                         <p className="text-xs text-slate-500">
                             Joined {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
                         </p>
@@ -133,9 +133,9 @@ export const AuthSettingsComponent: React.FC = () => {
             </div>
 
             {/* Tabs */}
-            <div className="bg-white rounded-lg shadow">
+            <div className="premium-panel overflow-hidden p-0">
                 <div
-                    className="flex border-b border-slate-200"
+                    className="flex border-b border-slate-700/60"
                     role="tablist"
                     aria-label="Auth settings sections"
                     onKeyDown={handleTabKeyDown}
@@ -148,13 +148,13 @@ export const AuthSettingsComponent: React.FC = () => {
                         aria-controls="auth-panel-profile"
                         tabIndex={activeTab === 'profile' ? 0 : -1}
                         onClick={() => setActiveTab('profile')}
-                        className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
+                        className={`flex flex-1 items-center justify-center gap-2 px-6 py-4 font-medium transition ${
                             activeTab === 'profile'
-                                ? 'text-blue-600 border-b-2 border-blue-600'
-                                : 'text-slate-600 hover:text-slate-900'
+                                ? 'border-b-2 border-cyan-500 text-cyan-400'
+                                : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        <User className="w-4 h-4" />
+                        <User className="h-4 w-4" />
                         Profile
                     </button>
                     <button
@@ -165,13 +165,13 @@ export const AuthSettingsComponent: React.FC = () => {
                         aria-controls="auth-panel-security"
                         tabIndex={activeTab === 'security' ? 0 : -1}
                         onClick={() => setActiveTab('security')}
-                        className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
+                        className={`flex flex-1 items-center justify-center gap-2 px-6 py-4 font-medium transition ${
                             activeTab === 'security'
-                                ? 'text-blue-600 border-b-2 border-blue-600'
-                                : 'text-slate-600 hover:text-slate-900'
+                                ? 'border-b-2 border-cyan-500 text-cyan-400'
+                                : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        <Lock className="w-4 h-4" />
+                        <Lock className="h-4 w-4" />
                         Security
                     </button>
                     <button
@@ -182,13 +182,13 @@ export const AuthSettingsComponent: React.FC = () => {
                         aria-controls="auth-panel-sessions"
                         tabIndex={activeTab === 'sessions' ? 0 : -1}
                         onClick={() => setActiveTab('sessions')}
-                        className={`flex-1 py-4 px-6 font-medium flex items-center justify-center gap-2 ${
+                        className={`flex flex-1 items-center justify-center gap-2 px-6 py-4 font-medium transition ${
                             activeTab === 'sessions'
-                                ? 'text-blue-600 border-b-2 border-blue-600'
-                                : 'text-slate-600 hover:text-slate-900'
+                                ? 'border-b-2 border-cyan-500 text-cyan-400'
+                                : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        <Shield className="w-4 h-4" />
+                        <Shield className="h-4 w-4" />
                         Sessions
                     </button>
                 </div>
@@ -203,7 +203,7 @@ export const AuthSettingsComponent: React.FC = () => {
                             aria-labelledby="auth-tab-profile"
                         >
                             <div>
-                                <label htmlFor="auth-profile-username" className="block text-sm font-medium text-slate-700 mb-2">
+                                <label htmlFor="auth-profile-username" className="mb-2 block text-sm font-medium text-slate-300">
                                     Username
                                 </label>
                                 <input
@@ -211,13 +211,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                     type="text"
                                     value={user?.username || ''}
                                     disabled
-                                    className="w-full px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-700"
+                                    className="premium-input cursor-not-allowed opacity-60"
                                 />
-                                <p className="text-xs text-slate-500 mt-1">Username cannot be changed</p>
+                                <p className="mt-1 text-xs text-slate-500">Username cannot be changed</p>
                             </div>
 
                             <div>
-                                <label htmlFor="auth-profile-email" className="block text-sm font-medium text-slate-700 mb-2">
+                                <label htmlFor="auth-profile-email" className="mb-2 block text-sm font-medium text-slate-300">
                                     Email Address
                                 </label>
                                 <input
@@ -225,18 +225,18 @@ export const AuthSettingsComponent: React.FC = () => {
                                     type="email"
                                     value={user?.email || ''}
                                     disabled
-                                    className="w-full px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-700"
+                                    className="premium-input cursor-not-allowed opacity-60"
                                 />
-                                <p className="text-xs text-slate-500 mt-1">Contact support to change email</p>
+                                <p className="mt-1 text-xs text-slate-500">Contact support to change email</p>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                <label className="mb-2 block text-sm font-medium text-slate-300">
                                     Account Status
                                 </label>
                                 <div className="flex items-center gap-2">
-                                    <CheckCircle className="w-5 h-5 text-green-600" />
-                                    <span className="text-slate-700 font-medium">
+                                    <CheckCircle className="h-5 w-5 text-emerald-400" />
+                                    <span className="font-medium text-slate-200">
                                         {user?.is_active ? 'Active' : 'Inactive'}
                                     </span>
                                 </div>
@@ -253,23 +253,23 @@ export const AuthSettingsComponent: React.FC = () => {
                             aria-labelledby="auth-tab-security"
                         >
                             {/* 2FA Section */}
-                            <div className="border border-slate-200 rounded-lg p-6">
-                                <div className="flex items-start justify-between mb-4">
+                            <div className="rounded-xl border border-slate-700/60 bg-slate-800/50 p-6">
+                                <div className="mb-4 flex items-start justify-between">
                                     <div className="flex items-center gap-3">
-                                        <Shield className="w-6 h-6 text-blue-600" />
+                                        <Shield className="h-6 w-6 text-cyan-400" />
                                         <div>
-                                            <h3 className="font-bold text-slate-900">
+                                            <h3 className="font-bold text-white">
                                                 Two-Factor Authentication
                                             </h3>
-                                            <p className="text-sm text-slate-600">
+                                            <p className="text-sm text-slate-400">
                                                 Protect your account with TOTP codes
                                             </p>
                                         </div>
                                     </div>
-                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${
                                         user?.is_active
-                                            ? 'bg-green-100 text-green-800'
-                                            : 'bg-red-100 text-red-800'
+                                            ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30'
+                                            : 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30'
                                     }`}>
                                         {user?.is_active ? 'Enabled' : 'Disabled'}
                                     </span>
@@ -281,14 +281,14 @@ export const AuthSettingsComponent: React.FC = () => {
                                         tabIndex={-1}
                                         role="alert"
                                         aria-live="assertive"
-                                        className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3"
+                                        className="mb-4 flex items-start gap-3 rounded-lg border border-red-700/40 bg-red-900/20 p-4"
                                     >
-                                        <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                                        <div className="text-red-700 text-sm">{setupError}</div>
+                                        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                                        <div className="text-sm text-red-300">{setupError}</div>
                                     </div>
                                 )}
 
-                                <p className="text-sm text-slate-600 mb-4">
+                                <p className="mb-4 text-sm text-slate-400">
                                     {user?.is_active
                                         ? 'Your account is protected with two-factor authentication.'
                                         : 'Enable TOTP-based two-factor authentication to add an extra layer of security.'}
@@ -299,7 +299,7 @@ export const AuthSettingsComponent: React.FC = () => {
                                         type="button"
                                         onClick={handleSetup2FA}
                                         disabled={loading}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+                                        className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-cyan-400 disabled:opacity-50"
                                     >
                                         {loading ? 'Setting up...' : 'Enable 2FA'}
                                     </button>
@@ -307,9 +307,9 @@ export const AuthSettingsComponent: React.FC = () => {
                             </div>
 
                             {/* Change Password Section */}
-                            <div className="border border-slate-200 rounded-lg p-6">
-                                <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                                    <Lock className="w-5 h-5" />
+                            <div className="rounded-xl border border-slate-700/60 bg-slate-800/50 p-6">
+                                <h3 className="mb-4 flex items-center gap-2 font-bold text-white">
+                                    <Lock className="h-5 w-5 text-cyan-400" />
                                     Change Password
                                 </h3>
 
@@ -319,7 +319,7 @@ export const AuthSettingsComponent: React.FC = () => {
                                         tabIndex={-1}
                                         role="alert"
                                         aria-live="assertive"
-                                        className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+                                        className="mb-4 rounded-lg border border-red-700/40 bg-red-900/20 p-4 text-sm text-red-300"
                                     >
                                         {passwordChangeStatus.error}
                                     </div>
@@ -329,7 +329,7 @@ export const AuthSettingsComponent: React.FC = () => {
                                     <div
                                         role="status"
                                         aria-live="polite"
-                                        className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm"
+                                        className="mb-4 rounded-lg border border-emerald-700/40 bg-emerald-900/20 p-4 text-sm text-emerald-300"
                                     >
                                         {passwordChangeStatus.success}
                                     </div>
@@ -337,7 +337,7 @@ export const AuthSettingsComponent: React.FC = () => {
 
                                 <form onSubmit={handleChangePassword} className="space-y-4">
                                     <div>
-                                        <label htmlFor="auth-current-password" className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-current-password" className="mb-2 block text-sm font-medium text-slate-300">
                                             Current Password
                                         </label>
                                         <input
@@ -351,13 +351,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                                     currentPassword: e.target.value,
                                                 })
                                             }
-                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            className="premium-input"
                                             required
                                         />
                                     </div>
 
                                     <div>
-                                        <label htmlFor="auth-new-password" className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-new-password" className="mb-2 block text-sm font-medium text-slate-300">
                                             New Password
                                         </label>
                                         <input
@@ -371,13 +371,13 @@ export const AuthSettingsComponent: React.FC = () => {
                                                     newPassword: e.target.value,
                                                 })
                                             }
-                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            className="premium-input"
                                             required
                                         />
                                     </div>
 
                                     <div>
-                                        <label htmlFor="auth-confirm-password" className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label htmlFor="auth-confirm-password" className="mb-2 block text-sm font-medium text-slate-300">
                                             Confirm New Password
                                         </label>
                                         <input
@@ -391,14 +391,14 @@ export const AuthSettingsComponent: React.FC = () => {
                                                     confirmPassword: e.target.value,
                                                 })
                                             }
-                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            className="premium-input"
                                             required
                                         />
                                     </div>
 
                                     <button
                                         type="submit"
-                                        className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 font-medium"
+                                        className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-cyan-400"
                                     >
                                         Update Password
                                     </button>
@@ -415,8 +415,8 @@ export const AuthSettingsComponent: React.FC = () => {
                             id="auth-panel-sessions"
                             aria-labelledby="auth-tab-sessions"
                         >
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                <p className="text-sm text-blue-800">
+                            <div className="rounded-xl border border-cyan-700/40 bg-cyan-900/20 p-4">
+                                <p className="text-sm text-cyan-300">
                                     <strong>Current Session:</strong> Active since {new Date().toLocaleDateString()}
                                 </p>
                             </div>
@@ -424,9 +424,9 @@ export const AuthSettingsComponent: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={handleLogout}
-                                className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium flex items-center justify-center gap-2"
+                                className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-500/15 px-4 py-3 font-medium text-red-400 ring-1 ring-red-500/30 transition hover:bg-red-500/25 hover:text-red-300"
                             >
-                                <LogOut className="w-4 h-4" />
+                                <LogOut className="h-4 w-4" />
                                 Logout from All Sessions
                             </button>
                         </div>

@@ -134,9 +134,18 @@ function calcEta(startedAt: string | undefined, progressPct: number): string | n
 
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLL_INTERVAL_MS = 30000;
+const LIVE_SYNC_STALE_AFTER_MS = 30000;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const getEnvelopeValue = (payload: Record<string, unknown>, key: string): unknown => {
+  const nested = toRecord(payload.data);
+  if (key in nested) {
+    return nested[key];
+  }
+  return payload[key];
+};
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
@@ -164,6 +173,21 @@ const formatUtcDate = (value?: string): string => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'N/A';
   return parsed.toISOString().substring(0, 10);
+};
+
+const formatLiveSyncAge = (value?: string): string | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const deltaMs = Date.now() - parsed.getTime();
+  if (deltaMs < 0) return 'just now';
+  const sec = Math.floor(deltaMs / 1000);
+  if (sec < 5) return 'just now';
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
 };
 
 const getLinkedStrategyId = (run: BacktestRun): number | null => {
@@ -250,6 +274,13 @@ export const BacktestList: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
   const [pollFailures, setPollFailures] = useState(0);
+  const [liveSyncMeta, setLiveSyncMeta] = useState<{
+    syncedRuns: number;
+    updatedAt: string | null;
+  }>({
+    syncedRuns: 0,
+    updatedAt: null,
+  });
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
   const activeRequestIdRef = useRef(0);
@@ -321,7 +352,7 @@ export const BacktestList: React.FC<{
     const raw = toRecord(response);
     const rawData = toRecord(raw.data);
 
-    return Array.isArray(rawData.backtests)
+    const runs = Array.isArray(rawData.backtests)
       ? (rawData.backtests as BacktestRun[])
       : Array.isArray(raw?.backtests)
         ? (raw.backtests as BacktestRun[])
@@ -330,6 +361,89 @@ export const BacktestList: React.FC<{
           : Array.isArray(raw?.runs)
             ? (raw.runs as BacktestRun[])
             : [];
+
+    const activeRuns = runs
+      .filter((run) => {
+        const status = normalizeStatus(run.status, run);
+        return status === 'RUNNING' || status === 'PENDING';
+      })
+      .slice(0, 12);
+
+    if (activeRuns.length === 0) {
+      setLiveSyncMeta({ syncedRuns: 0, updatedAt: null });
+      return runs;
+    }
+
+    const statusSettled = await Promise.allSettled(
+      activeRuns.map(async (run) => {
+        const statusResponse = await api.getBacktestStatus(run.run_id);
+        const payload = toRecord(statusResponse);
+
+        return {
+          run_id: run.run_id,
+          status: String(getEnvelopeValue(payload, 'status') ?? run.status),
+          progress_pct: normalizePercent(
+            Number(
+              getEnvelopeValue(payload, 'progress_pct') ??
+                getEnvelopeValue(payload, 'progress_percent') ??
+                getEnvelopeValue(payload, 'progress')
+            )
+          ),
+          progress_percent: normalizePercent(
+            Number(
+              getEnvelopeValue(payload, 'progress_percent') ??
+                getEnvelopeValue(payload, 'progress_pct') ??
+                getEnvelopeValue(payload, 'progress')
+            )
+          ),
+          progress: normalizePercent(
+            Number(
+              getEnvelopeValue(payload, 'progress') ??
+                getEnvelopeValue(payload, 'progress_pct') ??
+                getEnvelopeValue(payload, 'progress_percent')
+            )
+          ),
+          current_pair:
+            typeof getEnvelopeValue(payload, 'current_pair') === 'string'
+              ? String(getEnvelopeValue(payload, 'current_pair'))
+              : run.current_pair,
+          current_task:
+            typeof getEnvelopeValue(payload, 'current_task') === 'string'
+              ? String(getEnvelopeValue(payload, 'current_task'))
+              : run.current_task,
+          updated_at:
+            typeof getEnvelopeValue(payload, 'updated_at') === 'string'
+              ? String(getEnvelopeValue(payload, 'updated_at'))
+              : run.updated_at,
+          error:
+            typeof getEnvelopeValue(payload, 'error') === 'string'
+              ? String(getEnvelopeValue(payload, 'error'))
+              : run.error,
+          error_message:
+            typeof getEnvelopeValue(payload, 'error_message') === 'string'
+              ? String(getEnvelopeValue(payload, 'error_message'))
+              : run.error_message,
+        } satisfies Partial<BacktestRun> & { run_id: string };
+      })
+    );
+
+    const liveByRunId = new Map<string, Partial<BacktestRun>>();
+    statusSettled.forEach((result) => {
+      if (result.status !== 'fulfilled') {
+        return;
+      }
+      liveByRunId.set(result.value.run_id, result.value);
+    });
+
+    setLiveSyncMeta({
+      syncedRuns: liveByRunId.size,
+      updatedAt: liveByRunId.size > 0 ? new Date().toISOString() : null,
+    });
+
+    return runs.map((run) => ({
+      ...run,
+      ...(liveByRunId.get(run.run_id) ?? {}),
+    }));
   };
 
   const loadBacktests = async (showBlockingLoader: boolean = true) => {
@@ -498,6 +612,13 @@ export const BacktestList: React.FC<{
     if (statusFilter === 'ALL') return true;
     return normalizeStatus(run.status, run) === statusFilter;
   });
+  const liveSyncAge = formatLiveSyncAge(liveSyncMeta.updatedAt ?? undefined);
+  const liveSyncHealthy = liveSyncMeta.syncedRuns > 0;
+  const liveSyncStale = (() => {
+    if (!liveSyncMeta.updatedAt || !liveSyncHealthy) return false;
+    const ageMs = Date.now() - new Date(liveSyncMeta.updatedAt).getTime();
+    return Number.isFinite(ageMs) && ageMs > LIVE_SYNC_STALE_AFTER_MS;
+  })();
 
   const formatPct = (value: number | undefined | null) => {
     const normalized = normalizePercent(value);
@@ -520,9 +641,32 @@ export const BacktestList: React.FC<{
             {displayRuns.length} total run{displayRuns.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-stone-950 px-3 py-2 text-xs text-slate-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-          Soft refresh for active jobs
+        <div className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-stone-950 px-3 py-2 text-xs text-slate-400">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              liveSyncHealthy ? (liveSyncStale ? 'bg-amber-300' : 'bg-emerald-300') : 'bg-cyan-300'
+            }`}
+          />
+          <span>Soft refresh for active jobs</span>
+          <span className="text-slate-600">•</span>
+          <span
+            className={
+              liveSyncHealthy
+                ? liveSyncStale
+                  ? 'text-amber-300'
+                  : 'text-emerald-300'
+                : 'text-slate-500'
+            }
+            title={
+              liveSyncHealthy
+                ? 'Active rows are merged with per-run status endpoint values.'
+                : 'No active rows are currently receiving live status merges.'
+            }
+          >
+            {liveSyncHealthy
+              ? `${liveSyncStale ? 'Live sync stale' : 'Live synced'} (${liveSyncMeta.syncedRuns})${liveSyncAge ? ` · ${liveSyncAge}` : ''}`
+              : 'Live sync idle'}
+          </span>
         </div>
       </div>
 

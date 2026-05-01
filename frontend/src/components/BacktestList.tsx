@@ -34,6 +34,9 @@ interface BacktestRun {
   updated_at?: string;
   error?: string;
   error_message?: string;
+  strategy_id?: number;
+  strategy_name?: string;
+  request?: Record<string, unknown>;
 }
 
 type FailureDiagnostic = {
@@ -161,6 +164,13 @@ const formatUtcDate = (value?: string): string => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'N/A';
   return parsed.toISOString().substring(0, 10);
+};
+
+const getLinkedStrategyId = (run: BacktestRun): number | null => {
+  const direct = Number(run.strategy_id);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  const requestId = Number(run.request?.strategy_id);
+  return Number.isInteger(requestId) && requestId > 0 ? requestId : null;
 };
 
 const classifyFailureDiagnostic = (run: BacktestRun): FailureDiagnostic => {
@@ -408,6 +418,7 @@ export const BacktestList: React.FC<{
               <tr>
                 {[
                   'Run ID',
+                  'Strategy',
                   'Started',
                   'Period',
                   'Trades',
@@ -577,13 +588,13 @@ export const BacktestList: React.FC<{
               </div>
               <p className="text-sm font-medium text-slate-300">No runs recorded yet</p>
               <p className="text-xs text-slate-500">
-                Kick off a new backtest from the Dashboard to populate this list.
+                Kick off a new backtest ticket to populate this list.
               </p>
               <a
-                href="/dashboard"
+                href="/backtests/new"
                 className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-300 transition-colors hover:bg-cyan-500/20"
               >
-                Go to Dashboard →
+                New Backtest →
               </a>
             </div>
           ) : (
@@ -611,6 +622,9 @@ export const BacktestList: React.FC<{
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
                   Run ID
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
+                  Strategy
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
                   Started
@@ -656,6 +670,7 @@ export const BacktestList: React.FC<{
                 const eta = isActive
                   ? calcEta(run.started_at || run.created_at, progressPct)
                   : null;
+                const linkedStrategyId = getLinkedStrategyId(run);
 
                 return (
                   <React.Fragment key={run.run_id}>
@@ -669,6 +684,19 @@ export const BacktestList: React.FC<{
                           <div className="text-slate-400 font-sans truncate max-w-28">
                             {run.name}
                           </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        {linkedStrategyId ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/strategies/${linkedStrategyId}/edit`)}
+                            className="rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-xs font-semibold text-cyan-200 transition hover:border-cyan-400/60"
+                          >
+                            {run.strategy_name || `Strategy #${linkedStrategyId}`}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-500">Manual</span>
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm">{formatUtcDateTime(run.created_at)}</td>
@@ -718,7 +746,7 @@ export const BacktestList: React.FC<{
                     {/* ── Progress sub-row (RUNNING / PENDING only) ─────── */}
                     {isActive && (
                       <tr className="border-b border-slate-700 bg-stone-950/55">
-                        <td colSpan={10} className="px-4 pb-3 pt-1">
+                        <td colSpan={11} className="px-4 pb-3 pt-1">
                           {/* Progress bar */}
                           <div className="flex items-center gap-2 mb-1.5">
                             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700">
@@ -756,7 +784,7 @@ export const BacktestList: React.FC<{
 
                     {isFailed && failureDiagnostic && (
                       <tr className="border-b border-slate-700 bg-rose-950/20">
-                        <td colSpan={10} className="px-4 pb-3 pt-2">
+                        <td colSpan={11} className="px-4 pb-3 pt-2">
                           <div className="flex flex-wrap items-center gap-3 text-xs">
                             <span className="rounded-lg border border-rose-700/60 bg-rose-900/40 px-2 py-0.5 uppercase text-rose-200">
                               {failureDiagnostic.category}

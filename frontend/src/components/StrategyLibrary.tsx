@@ -366,19 +366,19 @@ export default function StrategyLibrary() {
               onClick={() => navigate('/strategies/manage')}
               className="premium-button premium-button-secondary"
             >
-              ⚙️ Runtime Manager
+              Managed Runtimes
             </button>
             <button
               onClick={() => navigate('/bots')}
               className="premium-button premium-button-secondary"
             >
-              🤖 Bot Manager
+              Bots
             </button>
             <button
               onClick={() => navigate('/strategies/new')}
               className="premium-button premium-button-primary"
             >
-              ✨ New Strategy
+              New Strategy
             </button>
           </div>
         </div>
@@ -533,20 +533,26 @@ export default function StrategyLibrary() {
                   onClick={() => handleRunStrategy(strategy)}
                   className="flex-1 rounded-xl border border-emerald-900/15 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-950/10 transition hover:bg-emerald-600"
                 >
-                  ▶️ Run Backtest
+                  Run Backtest
+                </button>
+                <button
+                  onClick={() => navigate(`/backtests/new?strategy_id=${strategy.id}`)}
+                  className={secondaryActionButtonClass}
+                >
+                  New Ticket
                 </button>
                 <button
                   onClick={() => navigate(`/strategies/${strategy.id}/edit`)}
                   className={secondaryActionButtonClass}
                 >
-                  ✏️ Edit
+                  Edit
                 </button>
                 <button
                   onClick={() => void handleDuplicate(strategy)}
                   disabled={duplicateMutation.isPending}
                   className={`${secondaryActionButtonClass} disabled:opacity-60`}
                 >
-                  📋 Duplicate
+                  Duplicate
                 </button>
                 {deleteConfirmId === strategy.id ? (
                   <>

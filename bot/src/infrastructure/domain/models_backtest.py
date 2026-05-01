@@ -26,9 +26,15 @@ class BacktestConfigRequest(BaseModel):
     name: str = Field(..., description="Backtest name")
     description: Optional[str] = Field(
         None, description="Backtest description")
+    strategy_id: Optional[int] = Field(
+        None, description="Optional originating strategy id")
     start_date: str = Field(..., description="Start date (YYYY-MM-DD)")
     end_date: str = Field(..., description="End date (YYYY-MM-DD)")
     initial_balance: float = Field(10000.0, description="Initial balance")
+    pair_selection_mode: str = Field(
+        "liquidity", description="Pair selection mode")
+    max_pairs: int = Field(
+        0, description="Maximum number of pairs to process (0 means no cap)")
     trading_parameters: Dict[str,
     Any] = Field(..., description="Trading parameters")
     pairs: List[str] = Field(..., description="Trading pairs to test")

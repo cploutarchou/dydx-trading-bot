@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layers3, Search, Sparkles } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 import { PageContainer } from './PageContainer';
 
@@ -104,8 +104,12 @@ const fetchStrategiesPage = async (page: number): Promise<StrategyListResult> =>
 
 export default function StrategyLibrary() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<{ message: string; strategyId?: number } | null>(
+    null
+  );
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
@@ -122,6 +126,7 @@ export default function StrategyLibrary() {
     queryKey: strategyLibraryQueryKey(currentPage),
     queryFn: () => fetchStrategiesPage(currentPage),
     staleTime: 60 * 1000,
+    refetchOnMount: 'always',
   });
 
   const deleteMutation = useMutation({
@@ -167,6 +172,24 @@ export default function StrategyLibrary() {
   );
 
   const totalPages = Math.ceil(totalStrategies / ITEMS_PER_PAGE);
+
+  useEffect(() => {
+    const navState = (location.state ?? null) as Record<string, unknown> | null;
+    const toastMessage =
+      navState && typeof navState.strategyToast === 'string' ? navState.strategyToast : null;
+    const toastStrategyId =
+      navState && typeof navState.strategyId === 'number' ? navState.strategyId : undefined;
+    if (!toastMessage) return;
+
+    setSuccessToast({ message: toastMessage, strategyId: toastStrategyId });
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
+
+  useEffect(() => {
+    if (!successToast) return;
+    const timer = window.setTimeout(() => setSuccessToast(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [successToast]);
 
   const handleDelete = async (strategyId: number) => {
     try {
@@ -361,6 +384,20 @@ export default function StrategyLibrary() {
         </div>
       </section>
 
+      {successToast && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-emerald-200 animate-fade-slide-up">
+          <p className="text-sm font-medium">✅ {successToast.message}</p>
+          {successToast.strategyId && (
+            <button
+              onClick={() => navigate(`/strategies/${successToast.strategyId}/edit`)}
+              className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-500/25"
+            >
+              View strategy
+            </button>
+          )}
+        </div>
+      )}
+
       {(error || strategiesQuery.isError) && (
         <div className="mb-6 rounded-xl border border-red-500 bg-red-500/10 px-4 py-3">
           <p className="text-red-400">
@@ -457,7 +494,7 @@ export default function StrategyLibrary() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 my-4 border-t border-slate-700/70 py-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 my-4 border-t border-slate-700/70 py-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="workspace-card p-4">
                   <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
                     Z-Score Threshold
@@ -475,6 +512,14 @@ export default function StrategyLibrary() {
                     Max Half-Life (h)
                   </p>
                   <p className="text-lg font-semibold text-cyan-300">{strategy.max_half_life}</p>
+                </div>
+                <div className="workspace-card p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    Max History Days
+                  </p>
+                  <p className="text-lg font-semibold text-cyan-300">
+                    {strategy.max_history_days ?? 90}
+                  </p>
                 </div>
               </div>
 

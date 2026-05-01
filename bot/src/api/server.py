@@ -228,7 +228,7 @@ class BacktestRunRequestCompat(BaseModel):
     timeout_seconds: Optional[float] = None
     # 0 means "all available markets" (no cap)
     max_pairs: int = 0
-    pair_selection_mode: str = "liquidity"
+    pair_selection_mode: Optional[str] = None
     trading_parameters: Optional[Dict[str, Any]] = None
     pairs: Optional[List[str]] = None
 
@@ -448,51 +448,122 @@ def _strategy_to_backtest_request(
         request: BacktestRunRequestCompat,
         pairs: List[str],
 ) -> BacktestConfigRequest:
-    trading_parameters = dict(request.trading_parameters or {})
+    strategy_defaults = {
+        "zscore_threshold": strategy.get("zscore_threshold", 1.5),
+        "stats_window": strategy.get("stats_window", 21),
+        "max_half_life": strategy.get("max_half_life", 24),
+        "usd_per_trade": strategy.get("usd_per_trade", 10.0),
+        "usd_min_collateral": strategy.get("usd_min_collateral", 100.0),
+        "close_at_zscore_cross": strategy.get("close_at_zscore_cross", True),
+        "find_cointegrated_pairs": strategy.get("find_cointegrated_pairs", True),
+        "manage_exits": strategy.get("manage_exits", True),
+        "place_trades": strategy.get("place_trades", True),
+        "abort_all_positions": strategy.get("abort_all_positions", False),
+        "max_positions": strategy.get("max_positions", 5),
+        "max_drawdown_pct": strategy.get("max_drawdown_pct", 15.0),
+        "stop_loss_pct": strategy.get("stop_loss_pct", 2.0),
+        "take_profit_pct": strategy.get("take_profit_pct", 5.0),
+        "trailing_stop_pct": strategy.get("trailing_stop_pct", 1.0),
+        "rebalance_interval_hours": strategy.get("rebalance_interval_hours", 24),
+        "position_timeout_hours": strategy.get("position_timeout_hours", 72),
+        "transaction_fee": strategy.get("transaction_fee", 0.0005),
+        "slippage": strategy.get("slippage", 0.001),
+        "risk_free_rate": strategy.get("risk_free_rate", 0.02),
+        "benchmark_symbol": strategy.get("benchmark_symbol", "BTC-USD"),
+        "max_history_days": strategy.get("max_history_days", 90),
+        "resolution": strategy.get(
+            "resolution",
+            strategy.get("candle_resolution", "1HOUR"),
+        ),
+        "candle_resolution": strategy.get(
+            "candle_resolution",
+            strategy.get("resolution", "1HOUR"),
+        ),
+    }
+    request_trading_parameters = dict(request.trading_parameters or {})
     selected_mode = str(
-        request.pair_selection_mode or strategy.get("pair_selection_mode", "liquidity")
+        request.pair_selection_mode
+        or request_trading_parameters.get("pair_selection_mode")
+        or strategy.get("pair_selection_mode", "liquidity")
     )
-    if not trading_parameters:
-        trading_parameters = {
-            "zscore_threshold": strategy["zscore_threshold"],
-            "stats_window": strategy["stats_window"],
-            "max_half_life": strategy["max_half_life"],
-            "usd_per_trade": strategy["usd_per_trade"],
-            "close_at_zscore_cross": strategy["close_at_zscore_cross"],
-            "max_positions": strategy["max_positions"],
-            "max_drawdown_pct": strategy["max_drawdown_pct"],
-            "stop_loss_pct": strategy["stop_loss_pct"],
-            "take_profit_pct": strategy["take_profit_pct"],
-            "trailing_stop_pct": strategy["trailing_stop_pct"],
-            "transaction_fee": strategy.get("transaction_fee", 0.0005),
-            "slippage": strategy.get("slippage", 0.001),
-            "risk_free_rate": strategy.get("risk_free_rate", 0.02),
-            "benchmark_symbol": strategy.get("benchmark_symbol", "BTC-USD"),
-            "max_history_days": strategy.get("max_history_days", 90),
-            "resolution": strategy.get(
-                "resolution",
-                strategy.get("candle_resolution", "1HOUR"),
-            ),
-            "pair_selection_mode": selected_mode,
-        }
-    else:
-        trading_parameters.setdefault("pair_selection_mode", selected_mode)
+    trading_parameters = {
+        **strategy_defaults,
+        **request_trading_parameters,
+    }
+    trading_parameters["pair_selection_mode"] = selected_mode
+    if "resolution" not in trading_parameters and "candle_resolution" in trading_parameters:
+        trading_parameters["resolution"] = trading_parameters["candle_resolution"]
+    if "candle_resolution" not in trading_parameters and "resolution" in trading_parameters:
+        trading_parameters["candle_resolution"] = trading_parameters["resolution"]
     trading_parameters.setdefault("max_pairs", int(request.max_pairs))
+
+    requested_initial_balance = float(request.initial_balance or 0.0)
+    initial_balance = (
+        requested_initial_balance
+        if requested_initial_balance > 0
+        else float(
+            strategy.get(
+                "starting_balance",
+                strategy.get("initial_amount", 1000.0),
+            )
+        )
+    )
 
     return BacktestConfigRequest(
         name=request.name or f"{strategy['name']} Backtest",
         description=request.description or strategy.get("description", ""),
         start_date=request.start_date,
         end_date=request.end_date,
-        initial_balance=float(
-            strategy.get(
-                "starting_balance",
-                strategy.get("initial_amount", request.initial_balance),
-            )
-        ),
+        initial_balance=initial_balance,
+        strategy_id=request.strategy_id,
+        pair_selection_mode=selected_mode,
+        max_pairs=int(request.max_pairs),
         trading_parameters=trading_parameters,
         pairs=pairs,
         timeout_seconds=request.timeout_seconds,
+    )
+
+
+def _manual_backtest_request(
+        request: BacktestRunRequestCompat,
+        pairs: List[str],
+) -> BacktestConfigRequest:
+    request_trading_parameters = dict(request.trading_parameters or {})
+    selected_mode = str(
+        request.pair_selection_mode
+        or request_trading_parameters.get("pair_selection_mode")
+        or "liquidity"
+    )
+    trading_parameters = {
+        **(
+            request_trading_parameters
+            or {
+                "zscore_threshold": 1.5,
+                "stats_window": 21,
+                "usd_per_trade": 10.0,
+                "close_at_zscore_cross": True,
+            }
+        ),
+        "pair_selection_mode": selected_mode,
+        "max_pairs": int(request.max_pairs),
+    }
+    if "resolution" not in trading_parameters and "candle_resolution" in trading_parameters:
+        trading_parameters["resolution"] = trading_parameters["candle_resolution"]
+    if "candle_resolution" not in trading_parameters and "resolution" in trading_parameters:
+        trading_parameters["candle_resolution"] = trading_parameters["resolution"]
+
+    return BacktestConfigRequest(
+        name=request.name or "manual-backtest",
+        description=request.description or "Manual backtest run",
+        start_date=request.start_date,
+        end_date=request.end_date,
+        initial_balance=request.initial_balance,
+        timeout_seconds=request.timeout_seconds,
+        strategy_id=request.strategy_id,
+        pair_selection_mode=selected_mode,
+        max_pairs=int(request.max_pairs),
+        trading_parameters=trading_parameters,
+        pairs=pairs,
     )
 
 
@@ -2850,51 +2921,9 @@ async def create_backtest(
                             "Strategy '{}' not found; falling back to manual backtest payload",
                             request.strategy_id,
                         )
-                    normalized_request = BacktestConfigRequest(
-                        name=request.name or "manual-backtest",
-                        description=request.description or "Manual backtest run",
-                        start_date=request.start_date,
-                        end_date=request.end_date,
-                        initial_balance=request.initial_balance,
-                        timeout_seconds=request.timeout_seconds,
-                        trading_parameters={
-                            **(
-                                    request.trading_parameters
-                                    or {
-                                        "zscore_threshold": 1.5,
-                                        "stats_window": 21,
-                                        "usd_per_trade": 10.0,
-                                        "close_at_zscore_cross": True,
-                                    }
-                            ),
-                            "pair_selection_mode": request.pair_selection_mode,
-                            "max_pairs": int(request.max_pairs),
-                        },
-                        pairs=resolved_pairs,
-                    )
+                    normalized_request = _manual_backtest_request(request, resolved_pairs)
             else:
-                normalized_request = BacktestConfigRequest(
-                    name=request.name or "manual-backtest",
-                    description=request.description or "Manual backtest run",
-                    start_date=request.start_date,
-                    end_date=request.end_date,
-                    initial_balance=request.initial_balance,
-                    timeout_seconds=request.timeout_seconds,
-                    trading_parameters={
-                        **(
-                                request.trading_parameters
-                                or {
-                                    "zscore_threshold": 1.5,
-                                    "stats_window": 21,
-                                    "usd_per_trade": 10.0,
-                                    "close_at_zscore_cross": True,
-                                }
-                        ),
-                        "pair_selection_mode": request.pair_selection_mode,
-                        "max_pairs": int(request.max_pairs),
-                    },
-                    pairs=resolved_pairs,
-                )
+                normalized_request = _manual_backtest_request(request, resolved_pairs)
         else:
             normalized_request = request
 
@@ -2959,51 +2988,9 @@ async def run_backtest_compat(
                         "Strategy '{}' not found in /backtests/run; falling back to manual payload",
                         request.strategy_id,
                     )
-                backtest_request = BacktestConfigRequest(
-                    name=request.name or "manual-backtest",
-                    description=request.description or "Manual backtest run",
-                    start_date=request.start_date,
-                    end_date=request.end_date,
-                    initial_balance=request.initial_balance,
-                    timeout_seconds=request.timeout_seconds,
-                    trading_parameters={
-                        **(
-                                request.trading_parameters
-                                or {
-                                    "zscore_threshold": 1.5,
-                                    "stats_window": 21,
-                                    "usd_per_trade": 10.0,
-                                    "close_at_zscore_cross": True,
-                                }
-                        ),
-                        "pair_selection_mode": request.pair_selection_mode,
-                        "max_pairs": int(request.max_pairs),
-                    },
-                    pairs=resolved_pairs,
-                )
+                backtest_request = _manual_backtest_request(request, resolved_pairs)
         else:
-            backtest_request = BacktestConfigRequest(
-                name=request.name or "manual-backtest",
-                description=request.description or "Manual backtest run",
-                start_date=request.start_date,
-                end_date=request.end_date,
-                initial_balance=request.initial_balance,
-                timeout_seconds=request.timeout_seconds,
-                trading_parameters={
-                    **(
-                            request.trading_parameters
-                            or {
-                                "zscore_threshold": 1.5,
-                                "stats_window": 21,
-                                "usd_per_trade": 10.0,
-                                "close_at_zscore_cross": True,
-                            }
-                    ),
-                    "pair_selection_mode": request.pair_selection_mode,
-                    "max_pairs": int(request.max_pairs),
-                },
-                pairs=resolved_pairs,
-            )
+            backtest_request = _manual_backtest_request(request, resolved_pairs)
 
         with backtest_service_scope() as service:
             result = await service.create_and_run_backtest(

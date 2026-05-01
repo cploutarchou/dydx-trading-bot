@@ -1,4 +1,4 @@
-import { Loader } from 'lucide-react';
+import { Inbox, SlidersHorizontal } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
@@ -52,9 +52,14 @@ const normalizeStatus = (status?: string, run?: Partial<BacktestRun>): RunStatus
   const normalized = String(status || '')
     .trim()
     .toUpperCase();
-  const progressPct = normalizePercent(run?.progress_pct ?? run?.progress_percent ?? run?.progress) ?? 0;
-  const currentPair = String(run?.current_pair || '').trim().toLowerCase();
-  const currentTask = String(run?.current_task || '').trim().toLowerCase();
+  const progressPct =
+    normalizePercent(run?.progress_pct ?? run?.progress_percent ?? run?.progress) ?? 0;
+  const currentPair = String(run?.current_pair || '')
+    .trim()
+    .toLowerCase();
+  const currentTask = String(run?.current_task || '')
+    .trim()
+    .toLowerCase();
   const hasMetrics =
     Number(run?.total_trades || 0) > 0 ||
     Number(run?.total_pnl || 0) !== 0 ||
@@ -383,9 +388,83 @@ export const BacktestList: React.FC<{
 
   if (displayLoading) {
     return (
-      <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border border-slate-700 bg-stone-950/60 p-8">
-        <Loader className="h-7 w-7 animate-spin text-cyan-400" />
-        <p className="text-slate-400 text-sm">Loading backtest runs…</p>
+      <div className="overflow-hidden rounded-lg border border-slate-700/80 bg-stone-950/45">
+        <div className="flex items-center justify-between border-b border-slate-700 px-5 py-4">
+          <div className="space-y-2">
+            <div className="skeleton h-2.5 w-14 rounded" />
+            <div className="skeleton h-4 w-32 rounded" />
+          </div>
+        </div>
+        <div className="border-b border-slate-700/60 px-5 py-3">
+          <div className="flex gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="skeleton h-6 w-16 rounded-lg" />
+            ))}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-slate-700 bg-stone-950/95">
+              <tr>
+                {[
+                  'Run ID',
+                  'Started',
+                  'Period',
+                  'Trades',
+                  'P&L',
+                  'Win Rate',
+                  'Sharpe',
+                  'Max DD',
+                  'Status',
+                  '',
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} className="border-b border-slate-700/40">
+                  <td className="px-4 py-3">
+                    <div className="skeleton h-3 w-20 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton h-3 w-32 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton h-3 w-28 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton mx-auto h-3 w-10 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton ml-auto h-3 w-16 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton ml-auto h-3 w-12 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton ml-auto h-3 w-10 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton ml-auto h-3 w-10 rounded" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton mx-auto h-5 w-20 rounded-full" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="skeleton mx-auto h-4 w-16 rounded" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -473,30 +552,56 @@ export const BacktestList: React.FC<{
       )}
 
       {pollFailures > 0 && !displayError && (
-        <div className="mx-6 my-4 rounded-lg border border-amber-600/60 bg-amber-900/25 p-3 text-xs text-amber-200">
-          <span className="font-semibold">Live updates slowed</span> — retry {pollFailures} of 4.
-          Displayed data may be slightly behind. The page will recover automatically.
+        <div className="mx-6 my-4 flex items-center gap-2 rounded-lg border border-amber-600/60 bg-amber-900/25 p-3 text-xs text-amber-200">
+          <span className="text-base">⚠️</span>
+          <span>
+            <span className="font-semibold">Live updates paused.</span> Data shown may be slightly
+            behind.{' '}
+            <button
+              onClick={() => window.location.reload()}
+              className="underline underline-offset-2 hover:text-amber-100 transition-colors"
+            >
+              Refresh
+            </button>{' '}
+            to restore live polling.
+          </span>
         </div>
       )}
 
       {filteredRuns.length === 0 ? (
-        <div className="py-16 text-center px-6">
+        <div className="px-6 py-16 text-center">
           {displayRuns.length === 0 ? (
-            <>
+            <div className="flex flex-col items-center gap-3">
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4">
+                <Inbox className="h-8 w-8 text-slate-500" />
+              </div>
               <p className="text-sm font-medium text-slate-300">No runs recorded yet</p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="text-xs text-slate-500">
                 Kick off a new backtest from the Dashboard to populate this list.
               </p>
-            </>
+              <a
+                href="/dashboard"
+                className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-300 transition-colors hover:bg-cyan-500/20"
+              >
+                Go to Dashboard →
+              </a>
+            </div>
           ) : (
-            <>
+            <div className="flex flex-col items-center gap-3">
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4">
+                <SlidersHorizontal className="h-8 w-8 text-slate-500" />
+              </div>
               <p className="text-sm font-medium text-slate-300">
                 No {statusFilter.toLowerCase()} runs
               </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Try a different filter tab to see results.
-              </p>
-            </>
+              <p className="text-xs text-slate-500">Try a different filter to see results.</p>
+              <button
+                onClick={() => setStatusFilter('ALL')}
+                className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-slate-500"
+              >
+                Show all runs
+              </button>
+            </div>
           )}
         </div>
       ) : (
@@ -548,7 +653,9 @@ export const BacktestList: React.FC<{
                 const failureDiagnostic = isFailed ? classifyFailureDiagnostic(run) : null;
                 const progressPct =
                   normalizePercent(run.progress_pct ?? run.progress_percent ?? run.progress) ?? 0;
-                const eta = isActive ? calcEta(run.started_at || run.created_at, progressPct) : null;
+                const eta = isActive
+                  ? calcEta(run.started_at || run.created_at, progressPct)
+                  : null;
 
                 return (
                   <React.Fragment key={run.run_id}>

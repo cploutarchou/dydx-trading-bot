@@ -291,7 +291,7 @@ export const App: React.FC = () => {
                     }
                   />
                   <Route
-                    path="/codex"
+                    path="/market-intel"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
                         <CodexPage />
@@ -299,7 +299,7 @@ export const App: React.FC = () => {
                     }
                   />
                   <Route
-                    path="/news"
+                    path="/market-intel/news"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
                         <NewsPage />
@@ -307,10 +307,42 @@ export const App: React.FC = () => {
                     }
                   />
                   <Route
+                    path="/codex"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <Navigate to="/market-intel" replace />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/news"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <Navigate to="/market-intel/news" replace />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
                     path="/backtests"
                     element={
                       <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BacktestsPage />
+                        <BacktestsPage view="dashboard" />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/backtests/new"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <BacktestsPage view="new" />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/backtests/runs"
+                    element={
+                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
+                        <BacktestsPage view="runs" />
                       </ProtectedRoute>
                     }
                   />

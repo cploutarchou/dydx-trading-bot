@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
 import { useStrategyStore } from '../store/strategies';
 import { useToastStore } from './ErrorBoundary';
@@ -77,6 +77,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 }) => {
   type ApiBacktestRequest = Parameters<typeof api.runBacktest>[0];
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { strategies, fetchStrategies } = useStrategyStore();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
@@ -109,6 +110,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(false);
   const [marketsError, setMarketsError] = useState<string | null>(null);
+  const requestedStrategyId = useMemo(() => {
+    const raw = searchParams.get('strategy_id');
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [searchParams]);
   const presets = [
     {
       id: 'disciplined',
@@ -232,11 +238,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     }
   };
 
-  const handleStrategyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = e.target.value ? parseInt(e.target.value) : null;
+  const applyStrategyDefaults = useCallback((id: number | null, enabled: boolean) => {
     setSelectedStrategyId(id);
 
-    if (id && useStrategy) {
+    if (id && enabled) {
       const strategy = strategies.find((s) => s.id === id);
       if (strategy) {
         const strategyMarkets = Array.isArray(strategy.selected_markets)
@@ -280,7 +285,20 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         }));
       }
     }
+  }, [strategies]);
+
+  const handleStrategyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value ? parseInt(e.target.value, 10) : null;
+    applyStrategyDefaults(id, useStrategy);
   };
+
+  useEffect(() => {
+    if (!requestedStrategyId || strategies.length === 0 || selectedStrategyId === requestedStrategyId) {
+      return;
+    }
+    setUseStrategy(true);
+    applyStrategyDefaults(requestedStrategyId, true);
+  }, [applyStrategyDefaults, requestedStrategyId, selectedStrategyId, strategies.length]);
 
   const toggleMarket = (market: string) => {
     setSelectedMarkets((prev) => {
@@ -537,9 +555,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           <p className="mt-2 text-sm font-semibold text-white">
             {useStrategy && selectedStrategyId ? 'Strategy-linked' : 'Manual ticket'}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500">
             {useStrategy && selectedStrategyId
-              ? 'Saved defaults loaded with overrides still available.'
+              ? `Saved strategy #${selectedStrategyId} loaded. This run will stay linked to that strategy.`
               : 'Operators set assumptions directly before queueing the run.'}
           </p>
         </div>
@@ -581,6 +599,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                 setUseStrategy(e.target.checked);
                 if (!e.target.checked) {
                   setSelectedStrategyId(null);
+                  setFormData((prev) => {
+                    const next = { ...prev };
+                    delete next.strategy_id;
+                    return next;
+                  });
                 }
               }}
               className="h-4 w-4 rounded border-slate-700 bg-stone-950 text-cyan-500"
@@ -605,7 +628,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
               {selectedStrategyId && (
                 <p className="mt-2 text-xs text-cyan-300">
-                  Strategy parameters loaded below — you can override them before running.
+                  Strategy #{selectedStrategyId} parameters loaded below. The backtest payload will
+                  include this relation so results can link back to the source strategy.
                 </p>
               )}
             </>

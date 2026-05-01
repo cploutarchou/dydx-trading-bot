@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
-import { KeyRound, Loader2, LucideIcon, MessageCircle, Send, ShieldCheck, Trash2 } from 'lucide-react';
+import {
+    KeyRound,
+    Loader2,
+    LucideIcon,
+    MessageCircle,
+    Send,
+    ShieldCheck,
+    Trash2,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
 import { useToastStore } from './ErrorBoundary';
@@ -104,7 +112,10 @@ export function TelegramScopeSettingsPanel({
         );
         return;
       }
-      errorToast('Telegram delivery failed', data?.error || 'Saved Telegram settings are not valid.');
+      errorToast(
+        'Telegram delivery failed',
+        data?.error || 'Saved Telegram settings are not valid.'
+      );
     },
     onError: (error: unknown) => {
       errorToast('Failed to test Telegram delivery', getMutationErrorMessage(error));
@@ -146,10 +157,10 @@ export function TelegramScopeSettingsPanel({
   }, [status]);
 
   return (
-    <section className="premium-panel">
+    <section className="premium-panel p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
-          <div className="premium-icon-wrap text-sky-300">
+          <div className="premium-icon-wrap text-cyan-300">
             <Icon className="h-5 w-5" />
           </div>
           <div>
@@ -167,7 +178,7 @@ export function TelegramScopeSettingsPanel({
       </div>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-3">
-        <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-4">
+        <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-4">
           <div className="mb-2 flex items-center gap-2 text-slate-200">
             <ShieldCheck className="h-4 w-4 text-emerald-300" />
             Delivery state
@@ -180,7 +191,7 @@ export function TelegramScopeSettingsPanel({
           </p>
         </div>
 
-        <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-4">
+        <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-4">
           <div className="mb-2 flex items-center gap-2 text-slate-200">
             <KeyRound className="h-4 w-4 text-amber-300" />
             {tokenTitle}
@@ -195,12 +206,12 @@ export function TelegramScopeSettingsPanel({
           </p>
         </div>
 
-        <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-4">
+        <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-4">
           <div className="mb-2 flex items-center gap-2 text-slate-200">
-            <MessageCircle className="h-4 w-4 text-sky-300" />
+            <MessageCircle className="h-4 w-4 text-cyan-300" />
             Target chat
           </div>
-          <p className="text-lg font-semibold text-white">
+          <p className="max-w-full overflow-hidden break-all whitespace-normal text-lg font-semibold text-white">
             {status?.chat_id ? status.chat_id_masked || status.chat_id : 'Not set'}
           </p>
           <p className="mt-1 text-xs text-slate-500">{chatDescription}</p>
@@ -208,7 +219,7 @@ export function TelegramScopeSettingsPanel({
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
-        <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-5">
+        <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-5">
           <h3 className="text-lg font-semibold text-white">
             {status?.shared_token_present ? 'Update Telegram delivery' : 'Save Telegram delivery'}
           </h3>
@@ -216,7 +227,7 @@ export function TelegramScopeSettingsPanel({
             {status?.shared_token_present && (
               <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-4">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Current bot token</p>
-                <p className="mt-2 font-mono text-sm text-slate-200">
+                <p className="mt-2 max-w-full overflow-hidden break-all whitespace-normal font-mono text-sm text-slate-200">
                   {status.shared_token_masked || 'Masked token on file'}
                 </p>
               </div>
@@ -232,7 +243,7 @@ export function TelegramScopeSettingsPanel({
                 id={`telegram-${scope}-label`}
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-500/60"
+                className="premium-input"
               />
             </div>
             <div>
@@ -247,7 +258,7 @@ export function TelegramScopeSettingsPanel({
                 type="password"
                 value={botToken}
                 onChange={(event) => setBotToken(event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-500/60"
+                className="premium-input"
                 placeholder={
                   status?.shared_token_present
                     ? 'Leave blank to keep the current token, or paste a replacement'
@@ -266,7 +277,7 @@ export function TelegramScopeSettingsPanel({
                 id={`telegram-${scope}-chat-id`}
                 value={chatId}
                 onChange={(event) => setChatId(event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-500/60"
+                className="premium-input"
                 placeholder="Paste the Telegram chat ID that should receive alerts"
               />
             </div>
@@ -275,7 +286,7 @@ export function TelegramScopeSettingsPanel({
                 type="button"
                 disabled={saveMutation.isPending || chatId.trim().length === 0}
                 onClick={() => saveMutation.mutate()}
-                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+                className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
               >
                 {saveMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -288,7 +299,7 @@ export function TelegramScopeSettingsPanel({
                 type="button"
                 disabled={testMutation.isPending || !status?.configured}
                 onClick={() => testMutation.mutate()}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-cyan-500/35 hover:bg-slate-900 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
               >
                 {testMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -301,20 +312,22 @@ export function TelegramScopeSettingsPanel({
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-5">
+        <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-5">
           <h3 className="text-lg font-semibold text-white">Operational notes</h3>
           <ul className="mt-4 space-y-3 text-sm text-slate-300">
-            <li>Telegram stays server-side and is injected when runtime-managed bots are created.</li>
-            <li>The current token is always masked, and you can update the chat without retyping it.</li>
             <li>
-              Personal settings take priority over platform settings when a runtime launches.
+              Telegram stays server-side and is injected when runtime-managed bots are created.
             </li>
+            <li>
+              The current token is always masked, and you can update the chat without retyping it.
+            </li>
+            <li>Personal settings take priority over platform settings when a runtime launches.</li>
           </ul>
           <button
             type="button"
             disabled={deleteMutation.isPending || !hasConfig}
             onClick={() => deleteMutation.mutate()}
-            className="mt-6 inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
           >
             {deleteMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />

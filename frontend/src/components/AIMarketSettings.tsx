@@ -1,7 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BrainCircuit, KeyRound, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import api, { type AIMarketProvider } from '../api';
+import {
+    getAIProviderLabel,
+    getAvailabilityBadge,
+    useAIProviderAvailability,
+} from '../features/ai/providerAvailability';
+import { useAuthStore } from '../store/auth';
 import { useToastStore } from './ErrorBoundary';
 
 const providers: Array<{ id: AIMarketProvider; label: string; description: string }> = [
@@ -23,25 +29,22 @@ const providers: Array<{ id: AIMarketProvider; label: string; description: strin
 ];
 
 export function AIMarketSettings() {
-  const [provider, setProvider] = useState<AIMarketProvider>('openai');
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = Boolean(user?.is_admin);
+  const [provider, setProvider] = useState<AIMarketProvider>('deepseek');
   const [apiKey, setApiKey] = useState('');
   const [label, setLabel] = useState('Personal AI market filter key');
+  const [sharedApiKey, setSharedApiKey] = useState('');
+  const [sharedLabel, setSharedLabel] = useState('Shared AI market key');
   const queryClient = useQueryClient();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
 
-  const statusQuery = useQuery({
-    queryKey: ['ai-market-filters', 'status'],
-    queryFn: async () => {
-      const response = await api.getAIMarketStatus();
-      return response.data;
-    },
-    staleTime: 30_000,
-  });
+  const statusQuery = useAIProviderAvailability();
 
   const selectedStatus = useMemo(
-    () => statusQuery.data?.providers.find((item) => item.provider === provider),
-    [provider, statusQuery.data?.providers]
+    () => statusQuery.providerStatuses.find((item) => item.provider === provider),
+    [provider, statusQuery.providerStatuses]
   );
 
   const saveMutation = useMutation({
@@ -69,7 +72,55 @@ export function AIMarketSettings() {
       void queryClient.invalidateQueries({ queryKey: ['ai-market-filters'] });
     },
     onError: (error: unknown) => {
-      errorToast('Failed to remove AI key', error instanceof Error ? error.message : 'Unknown error');
+      errorToast(
+        'Failed to remove AI key',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+    },
+  });
+
+  const saveSharedMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.saveAIMarketSharedKey({
+        provider,
+        api_key: sharedApiKey,
+        label: sharedLabel,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      setSharedApiKey('');
+      successToast(
+        'Shared AI key saved',
+        `${getAIProviderLabel(provider)} is now globally available.`
+      );
+      void queryClient.invalidateQueries({ queryKey: ['ai-market-filters'] });
+    },
+    onError: (error: unknown) => {
+      errorToast(
+        'Failed to save shared AI key',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+    },
+  });
+
+  const deleteSharedMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.deleteAIMarketSharedKey(provider);
+      return response.data;
+    },
+    onSuccess: () => {
+      successToast(
+        'Shared AI key removed',
+        `${getAIProviderLabel(provider)} shared key was removed.`
+      );
+      void queryClient.invalidateQueries({ queryKey: ['ai-market-filters'] });
+    },
+    onError: (error: unknown) => {
+      errorToast(
+        'Failed to remove shared AI key',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     },
   });
 
@@ -106,18 +157,28 @@ export function AIMarketSettings() {
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-white">{item.label}</p>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                    status?.enabled
-                      ? 'bg-emerald-500/15 text-emerald-300'
-                      : 'bg-slate-700/70 text-slate-400'
-                  }`}
-                >
-                  {status?.enabled ? status.active_key_source : 'off'}
-                </span>
+                {(() => {
+                  const badge = getAvailabilityBadge(status);
+                  return (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                        badge.tone === 'success'
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : badge.tone === 'warning'
+                            ? 'bg-amber-500/15 text-amber-300'
+                            : 'bg-slate-700/70 text-slate-400'
+                      }`}
+                    >
+                      {badge.label}
+                    </span>
+                  );
+                })()}
               </div>
               <p className="mt-2 text-xs leading-5 text-slate-400">{item.description}</p>
               <p className="mt-3 text-[11px] text-slate-500">Model: {status?.model ?? 'default'}</p>
+              {status?.unavailable_reason && (
+                <p className="mt-2 text-[11px] text-amber-300">{status.unavailable_reason}</p>
+              )}
             </button>
           );
         })}
@@ -135,7 +196,7 @@ export function AIMarketSettings() {
               {selectedStatus?.user_key_available ? 'Update personal key' : 'Save personal key'}
             </h3>
             <p className="mt-1 text-sm text-slate-400">
-              Personal keys override shared backend environment keys for your account.
+              Personal keys override shared backend keys for your account.
             </p>
 
             {selectedStatus?.user_key_available && (
@@ -151,7 +212,10 @@ export function AIMarketSettings() {
 
             <div className="mt-5 space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-200" htmlFor="ai-key-label">
+                <label
+                  className="mb-2 block text-sm font-medium text-slate-200"
+                  htmlFor="ai-key-label"
+                >
                   Label
                 </label>
                 <input
@@ -189,6 +253,67 @@ export function AIMarketSettings() {
                 Save {providerLabel(provider)} key
               </button>
             </div>
+
+            {isAdmin && (
+              <div className="mt-6 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-cyan-200">Shared key (admin only)</h4>
+                  <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-cyan-300">
+                    Admin only
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Shared keys are available to all authenticated users unless a user has a personal
+                  override.
+                </p>
+                <div className="mt-3 space-y-3">
+                  <input
+                    value={sharedLabel}
+                    onChange={(event) => setSharedLabel(event.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
+                    placeholder="Shared AI market key"
+                  />
+                  <input
+                    type="password"
+                    value={sharedApiKey}
+                    onChange={(event) => setSharedApiKey(event.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
+                    placeholder={`Paste shared ${providerLabel(provider)} key`}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={saveSharedMutation.isPending || sharedApiKey.trim().length === 0}
+                      onClick={() => saveSharedMutation.mutate()}
+                      className="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-600 disabled:cursor-not-allowed disabled:bg-slate-700"
+                    >
+                      {saveSharedMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <KeyRound className="h-4 w-4" />
+                      )}
+                      Save shared key
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={
+                        deleteSharedMutation.isPending || !selectedStatus?.shared_key_available
+                      }
+                      onClick={() => deleteSharedMutation.mutate()}
+                      className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
+                    >
+                      {deleteSharedMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Remove shared key
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5">
@@ -198,8 +323,11 @@ export function AIMarketSettings() {
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
                 dYdX market data is fetched by the backend before the AI provider ranks symbols.
               </li>
-              <li>When no key is configured, market selection falls back to deterministic top markets.</li>
-              <li>Shared env keys supported: OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY.</li>
+              <li>Unavailable providers are blocked at API level (disabled or not configured).</li>
+              {!isAdmin && <li>Shared provider key management is admin only.</li>}
+              <li>
+                Shared env keys supported: OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY.
+              </li>
             </ul>
 
             <button

@@ -378,14 +378,14 @@ export default function Settings() {
       { section: 'security', title: 'Security', description: '2FA & sessions' },
       { section: 'dydx_keys', title: 'dYdX Keys', description: 'Testnet & mainnet' },
       { section: 'telegram', title: 'Telegram', description: 'Bot notifications' },
+      {
+        section: 'ai_market_filters',
+        title: 'AI Filters',
+        description: 'OpenAI, DeepSeek, Claude',
+      },
+      { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
       ...(canManageBackofficeSettings
         ? [
-            {
-              section: 'ai_market_filters',
-              title: 'AI Filters',
-              description: 'OpenAI, DeepSeek, Claude',
-            },
-            { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
             {
               section: 'access_control',
               title: 'Access Control',

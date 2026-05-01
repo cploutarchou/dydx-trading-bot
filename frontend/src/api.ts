@@ -924,6 +924,9 @@ export interface AIProviderStatus extends Record<string, unknown> {
   provider: AIMarketProvider;
   label?: string;
   enabled: boolean;
+  available: boolean;
+  availability_status: 'available' | 'disabled' | 'not_configured';
+  unavailable_reason?: string;
   shared_key_available: boolean;
   user_key_available: boolean;
   user_key_masked?: string;
@@ -2140,8 +2143,9 @@ class ApiClient {
 
   async getAccessControl(): Promise<ApiResponse<AccessControlResponse>> {
     try {
-      const response =
-        await this.client.get<ApiResponse<AccessControlResponse>>('/api/v1/backoffice/access-control');
+      const response = await this.client.get<ApiResponse<AccessControlResponse>>(
+        '/api/v1/backoffice/access-control'
+      );
       return response.data;
     } catch (error: unknown) {
       if (!this.shouldUseLegacyRouteFallback(error)) {
@@ -2152,8 +2156,9 @@ class ApiClient {
         '/api/v1/admin/access-control',
         error
       );
-      const fallback =
-        await this.client.get<ApiResponse<AccessControlResponse>>('/api/v1/admin/access-control');
+      const fallback = await this.client.get<ApiResponse<AccessControlResponse>>(
+        '/api/v1/admin/access-control'
+      );
       return fallback.data;
     }
   }
@@ -3550,12 +3555,31 @@ class ApiClient {
     return response.data;
   }
 
+  async saveAIMarketSharedKey(data: AIKeyPayload): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/ai/market-filters/shared-key',
+      data
+    );
+    return response.data;
+  }
+
   async deleteAIMarketKey(
     provider: AIMarketProvider
   ): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
       `/api/v1/ai/market-filters/key/${encodeURIComponent(provider)}`
+    );
+    return response.data;
+  }
+
+  async deleteAIMarketSharedKey(
+    provider: AIMarketProvider
+  ): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/ai/market-filters/shared-key/${encodeURIComponent(provider)}`
     );
     return response.data;
   }
@@ -3649,15 +3673,17 @@ class ApiClient {
 
   async getTelegramUserStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
     this.ensureTokenLoaded();
-    const response =
-      await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/user/status');
+    const response = await this.client.get<ApiResponse<TelegramStatusResponse>>(
+      '/api/v1/telegram/user/status'
+    );
     return response.data;
   }
 
   async getTelegramGlobalStatus(): Promise<ApiResponse<TelegramStatusResponse>> {
     this.ensureTokenLoaded();
-    const response =
-      await this.client.get<ApiResponse<TelegramStatusResponse>>('/api/v1/telegram/global/status');
+    const response = await this.client.get<ApiResponse<TelegramStatusResponse>>(
+      '/api/v1/telegram/global/status'
+    );
     return response.data;
   }
 
@@ -3695,15 +3721,17 @@ class ApiClient {
 
   async deleteTelegramUserConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response =
-      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/user/config');
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/telegram/user/config'
+    );
     return response.data;
   }
 
   async deleteTelegramGlobalConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    const response =
-      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/telegram/global/config');
+    const response = await this.client.delete<ApiResponse<Record<string, unknown>>>(
+      '/api/v1/telegram/global/config'
+    );
     return response.data;
   }
 

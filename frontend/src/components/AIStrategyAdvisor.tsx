@@ -1,5 +1,6 @@
 import { BrainCircuit, ChevronDown, ChevronUp, Loader, RefreshCw, Sparkles } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import api, {
     type AIBacktestSummary,
     type AIMarketProvider,
@@ -12,6 +13,18 @@ interface Props {
   lastError?: string;
   recentBacktests?: AIBacktestSummary[];
   defaultProvider?: AIMarketProvider;
+  onApplyParams?: (params: Partial<Strategy>) => Promise<void> | void;
+}
+
+interface ParsedSuggestion {
+  key: keyof Strategy;
+  value: number | string | boolean;
+  raw: string;
+}
+
+interface PendingApplyPreview {
+  items: ParsedSuggestion[];
+  patch: Partial<Strategy>;
 }
 
 const PROVIDERS: { value: AIMarketProvider; label: string }[] = [
@@ -25,6 +38,7 @@ export function AIStrategyAdvisor({
   lastError = '',
   recentBacktests = [],
   defaultProvider = 'deepseek',
+  onApplyParams,
 }: Props) {
   const [provider, setProvider] = useState<AIMarketProvider>(defaultProvider);
   const [loading, setLoading] = useState(false);
@@ -32,6 +46,183 @@ export function AIStrategyAdvisor({
   const [usedAI, setUsedAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [applyLoading, setApplyLoading] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [pendingApplyPreview, setPendingApplyPreview] = useState<PendingApplyPreview | null>(null);
+
+  useEffect(() => {
+    if (!pendingApplyPreview) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (!applyLoading) {
+          setPendingApplyPreview(null);
+        }
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        const target = event.target as HTMLElement | null;
+        const tagName = target?.tagName?.toLowerCase();
+        const isEditableTarget =
+          tagName === 'input' ||
+          tagName === 'textarea' ||
+          tagName === 'select' ||
+          target?.isContentEditable;
+
+        if (!isEditableTarget && !applyLoading) {
+          event.preventDefault();
+          void confirmApplySuggestions();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [pendingApplyPreview, applyLoading]);
+
+  const editableKeys = useMemo(
+    () =>
+      new Set<keyof Strategy>([
+        'zscore_threshold',
+        'stats_window',
+        'max_half_life',
+        'usd_per_trade',
+        'usd_min_collateral',
+        'max_positions',
+        'max_drawdown_pct',
+        'stop_loss_pct',
+        'take_profit_pct',
+        'trailing_stop_pct',
+        'rebalance_interval_hours',
+        'position_timeout_hours',
+        'transaction_fee',
+        'slippage',
+        'max_history_days',
+        'risk_free_rate',
+        'resolution',
+        'candle_resolution',
+      ]),
+    []
+  );
+
+  const normalizeSuggestionKey = (rawKey: string): keyof Strategy | null => {
+    const normalized = rawKey
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_');
+    const aliasMap: Record<string, keyof Strategy> = {
+      zscore: 'zscore_threshold',
+      z_score_threshold: 'zscore_threshold',
+      zscore_threshold: 'zscore_threshold',
+      stats_window: 'stats_window',
+      max_half_life: 'max_half_life',
+      usd_per_trade: 'usd_per_trade',
+      usd_min_collateral: 'usd_min_collateral',
+      max_positions: 'max_positions',
+      max_drawdown: 'max_drawdown_pct',
+      max_drawdown_pct: 'max_drawdown_pct',
+      stop_loss: 'stop_loss_pct',
+      stop_loss_pct: 'stop_loss_pct',
+      take_profit: 'take_profit_pct',
+      take_profit_pct: 'take_profit_pct',
+      trailing_stop: 'trailing_stop_pct',
+      trailing_stop_pct: 'trailing_stop_pct',
+      rebalance_interval: 'rebalance_interval_hours',
+      rebalance_interval_hours: 'rebalance_interval_hours',
+      position_timeout: 'position_timeout_hours',
+      position_timeout_hours: 'position_timeout_hours',
+      transaction_fee: 'transaction_fee',
+      slippage: 'slippage',
+      max_history_days: 'max_history_days',
+      risk_free_rate: 'risk_free_rate',
+      resolution: 'resolution',
+      candle_resolution: 'candle_resolution',
+    };
+    const resolved = aliasMap[normalized] ?? (normalized as keyof Strategy);
+    return editableKeys.has(resolved) ? resolved : null;
+  };
+
+  const parseSuggestedValue = (rawValue: string): number | string | boolean => {
+    const cleaned = rawValue
+      .trim()
+      .replace(/[),.;]+$/, '')
+      .replace(/^['"`]+|['"`]+$/g, '');
+    if (/^(true|false)$/i.test(cleaned)) return cleaned.toLowerCase() === 'true';
+    if (/%$/.test(cleaned)) {
+      const n = Number.parseFloat(cleaned.replace('%', ''));
+      return Number.isFinite(n) ? n : cleaned;
+    }
+    const num = Number.parseFloat(cleaned);
+    if (Number.isFinite(num) && /^[-+]?\d*\.?\d+$/.test(cleaned)) return num;
+    return cleaned;
+  };
+
+  const parsedSuggestions = useMemo<ParsedSuggestion[]>(() => {
+    if (!content) return [];
+    const lines = content
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const parsed: ParsedSuggestion[] = [];
+    const seen = new Set<keyof Strategy>();
+
+    for (const line of lines) {
+      const keyMatch = line.match(/([a-zA-Z_][a-zA-Z0-9_ -]*)["'`*]*\s*[:-]/);
+      const valueMatch = line.match(/suggested\s*([-+]?[^\s,;)]*%?)/i);
+      if (!keyMatch || !valueMatch) continue;
+
+      const key = normalizeSuggestionKey(keyMatch[1]);
+      if (!key || seen.has(key)) continue;
+
+      parsed.push({
+        key,
+        value: parseSuggestedValue(valueMatch[1]),
+        raw: line,
+      });
+      seen.add(key);
+    }
+
+    return parsed;
+  }, [content]);
+
+  const applyAllSuggestions = async () => {
+    if (!onApplyParams || parsedSuggestions.length === 0) return;
+    const patch: Partial<Strategy> = {};
+    parsedSuggestions.forEach((suggestion) => {
+      patch[suggestion.key] = suggestion.value as never;
+    });
+    setPendingApplyPreview({
+      items: parsedSuggestions,
+      patch,
+    });
+  };
+
+  const queueSingleSuggestion = (suggestion: ParsedSuggestion) => {
+    const patch: Partial<Strategy> = {
+      [suggestion.key]: suggestion.value,
+    };
+    setPendingApplyPreview({
+      items: [suggestion],
+      patch,
+    });
+  };
+
+  const confirmApplySuggestions = async () => {
+    if (!onApplyParams || !pendingApplyPreview) return;
+    setApplyError(null);
+    setApplyLoading(true);
+    try {
+      await onApplyParams(pendingApplyPreview.patch);
+      setPendingApplyPreview(null);
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'Failed to apply suggestions');
+    } finally {
+      setApplyLoading(false);
+    }
+  };
 
   const runSuggest = async () => {
     setLoading(true);
@@ -91,12 +282,12 @@ export function AIStrategyAdvisor({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
             disabled={loading}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
+            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
           >
             {PROVIDERS.map((p) => (
               <option key={p.value} value={p.value}>
@@ -108,7 +299,7 @@ export function AIStrategyAdvisor({
           <button
             onClick={runSuggest}
             disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-600 disabled:opacity-50"
+            className="flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 py-2 text-xs font-medium text-white transition hover:bg-emerald-600 disabled:opacity-50"
           >
             {loading ? (
               <Loader className="h-3.5 w-3.5 animate-spin" />
@@ -123,7 +314,7 @@ export function AIStrategyAdvisor({
           {content && (
             <button
               onClick={() => setCollapsed((v) => !v)}
-              className="rounded p-1 text-slate-400 hover:text-slate-200"
+              className="rounded-md p-2 text-slate-400 hover:text-slate-200"
             >
               {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
             </button>
@@ -156,6 +347,45 @@ export function AIStrategyAdvisor({
       {content && !collapsed && (
         <div className="mt-4 space-y-3">
           <p className="whitespace-pre-line text-sm leading-relaxed text-slate-300">{content}</p>
+
+          {parsedSuggestions.length > 0 && onApplyParams && (
+            <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 px-3 py-2">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-emerald-200">
+                  Parsed {parsedSuggestions.length} editable suggestion
+                  {parsedSuggestions.length === 1 ? '' : 's'}
+                </p>
+                <button
+                  onClick={() => void applyAllSuggestions()}
+                  disabled={applyLoading}
+                  className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-600/35 disabled:opacity-50"
+                >
+                  Review & Apply All
+                </button>
+              </div>
+              <div className="space-y-2">
+                {parsedSuggestions.map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-700/40 bg-slate-900/60 px-3 py-2 text-[11px] text-emerald-100"
+                  >
+                    <span>
+                      {String(item.key)} → {String(item.value)}
+                    </span>
+                    <button
+                      onClick={() => queueSingleSuggestion(item)}
+                      disabled={applyLoading}
+                      className="min-h-8 rounded border border-emerald-500/40 bg-emerald-700/20 px-2.5 py-1 text-[10px] font-semibold text-emerald-100 transition hover:bg-emerald-700/35 disabled:opacity-50"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {applyError && <p className="mt-2 text-xs text-red-300">{applyError}</p>}
+            </div>
+          )}
+
           {!usedAI && (
             <p className="text-xs text-slate-500">
               No AI key configured — add a provider key in Settings → AI Providers.
@@ -163,6 +393,70 @@ export function AIStrategyAdvisor({
           )}
         </div>
       )}
+
+      {pendingApplyPreview &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-xl rounded-2xl border border-emerald-700/40 bg-slate-900 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+                <h3 className="text-sm font-semibold text-emerald-200">
+                  Confirm AI parameter updates
+                </h3>
+                <button
+                  onClick={() => setPendingApplyPreview(null)}
+                  disabled={applyLoading}
+                  className="rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="space-y-2 px-5 py-4">
+                {pendingApplyPreview.items.map((item) => (
+                  <div
+                    key={`preview-${item.key}`}
+                    className="rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2"
+                  >
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                      {String(item.key)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-300">
+                      <span className="text-slate-500">Current:</span>{' '}
+                      {String(strategy[item.key] ?? '—')}
+                    </p>
+                    <p className="text-xs text-emerald-200">
+                      <span className="text-emerald-400">Suggested:</span> {String(item.value)}
+                    </p>
+                  </div>
+                ))}
+                {applyError && <p className="text-xs text-red-300">{applyError}</p>}
+              </div>
+
+              <div className="flex flex-col items-stretch gap-2.5 border-t border-slate-800 px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:gap-3 sm:px-6 sm:py-5">
+                <span className="rounded-full border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-center text-[11px] font-semibold text-emerald-200 sm:mr-auto sm:text-left">
+                  {pendingApplyPreview.items.length} field
+                  {pendingApplyPreview.items.length === 1 ? '' : 's'} pending
+                </span>
+                <button
+                  onClick={() => setPendingApplyPreview(null)}
+                  disabled={applyLoading}
+                  className="min-h-9 w-full rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 transition hover:border-slate-500 disabled:opacity-50 sm:w-auto"
+                >
+                  Cancel (Esc)
+                </button>
+                <button
+                  onClick={() => void confirmApplySuggestions()}
+                  disabled={applyLoading}
+                  className="min-h-9 w-full rounded-lg border border-emerald-500/40 bg-emerald-600/20 px-4 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-600/35 disabled:opacity-50 sm:w-auto"
+                >
+                  {applyLoading ? 'Applying...' : 'Confirm Apply (Enter)'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

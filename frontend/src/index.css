@@ -4,6 +4,10 @@
 :root {
   --app-bg: #070a0d;
   --panel-bg: rgba(13, 18, 22, 0.88);
+  /* motion duration tokens */
+  --duration-fast: 200ms;
+  --duration-base: 300ms;
+  --duration-slow: 500ms;
   --panel-border: rgba(151, 163, 151, 0.22);
   --panel-highlight: rgba(45, 212, 191, 0.2);
   --text-primary: #f8fafc;
@@ -123,6 +127,23 @@ h6 {
   100% {
     background-position: 200% center;
   }
+}
+
+/* ── Skeleton shimmer utility ──────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.08) 0%,
+    rgba(148, 163, 184, 0.18) 50%,
+    rgba(148, 163, 184, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ── Page route enter animation ────────────────────────────────────────────── */
+.animate-page-enter {
+  animation: fadeIn var(--duration-base) ease-out both;
 }
 
 @keyframes pulseRing {

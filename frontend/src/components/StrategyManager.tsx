@@ -18,6 +18,7 @@ import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolutio
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
+import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
 import { PageContainer } from './PageContainer';
 
@@ -87,6 +88,14 @@ export default function StrategyManager() {
   const navigate = useNavigate();
   const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } =
     useStrategyStore();
+  const safeStrategies = useMemo(
+    () =>
+      (Array.isArray(strategies) ? strategies : []).filter(
+        (strategy): strategy is Strategy =>
+          Boolean(strategy) && typeof strategy.id === 'number' && Number.isFinite(strategy.id)
+      ),
+    [strategies]
+  );
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
   const [runtimePending, setRuntimePending] = useState<
     Record<number, 'start' | 'stop' | undefined>
@@ -181,7 +190,7 @@ export default function StrategyManager() {
   };
 
   useEffect(() => {
-    if (strategies.length === 0) {
+    if (safeStrategies.length === 0) {
       applyStrategyStatuses([]);
       return;
     }
@@ -190,7 +199,7 @@ export default function StrategyManager() {
 
     const syncStrategyRuntimeStatuses = async () => {
       const settledStatuses = await Promise.allSettled(
-        strategies.map(async (strategy) => {
+        safeStrategies.map(async (strategy) => {
           const response = await apiClient.getStrategyRuntime(strategy.id);
           return toStrategyStatus(strategy.id, response.data);
         })
@@ -206,7 +215,7 @@ export default function StrategyManager() {
         }
 
         return {
-          strategyId: strategies[index].id,
+          strategyId: safeStrategies[index].id,
           status: 'error' as const,
           lastError: getErrorMessage(result.reason, 'Failed to load runtime status'),
           updatedAt: new Date().toISOString(),
@@ -221,7 +230,7 @@ export default function StrategyManager() {
     return () => {
       cancelled = true;
     };
-  }, [strategies]);
+  }, [safeStrategies]);
 
   useEffect(() => {
     if (!startDialogStrategy) {
@@ -663,53 +672,55 @@ export default function StrategyManager() {
     return Object.keys(errors).length === 0;
   };
 
+  const buildStrategyUpdatePayload = (strategyConfig: Partial<Strategy>) => ({
+    name: strategyConfig.name || 'Untitled Strategy',
+    category: strategyConfig.category,
+    description: strategyConfig.description,
+    is_public: strategyConfig.is_public,
+    runtime_strategy: strategyConfig.runtime_strategy || 'cointegration',
+    runtime_network: strategyConfig.runtime_network || 'testnet',
+    runtime_subaccount: strategyConfig.runtime_subaccount ?? 0,
+    selected_markets: strategyConfig.selected_markets || [],
+    pair_selection_mode: strategyConfig.pair_selection_mode || 'liquidity',
+    resolution: normalizeDydxCandleResolution(
+      strategyConfig.candle_resolution || strategyConfig.resolution || '1HOUR'
+    ),
+    candle_resolution: normalizeDydxCandleResolution(
+      strategyConfig.candle_resolution || strategyConfig.resolution || '1HOUR'
+    ),
+    zscore_threshold: strategyConfig.zscore_threshold,
+    stats_window: strategyConfig.stats_window,
+    max_half_life: strategyConfig.max_half_life,
+    usd_per_trade: strategyConfig.usd_per_trade,
+    usd_min_collateral: strategyConfig.usd_min_collateral,
+    close_at_zscore_cross: strategyConfig.close_at_zscore_cross,
+    find_cointegrated_pairs: strategyConfig.find_cointegrated_pairs,
+    manage_exits: strategyConfig.manage_exits,
+    place_trades: strategyConfig.place_trades,
+    abort_all_positions: strategyConfig.abort_all_positions,
+    max_positions: strategyConfig.max_positions,
+    max_drawdown_pct: strategyConfig.max_drawdown_pct,
+    stop_loss_pct: strategyConfig.stop_loss_pct,
+    take_profit_pct: strategyConfig.take_profit_pct,
+    trailing_stop_pct: strategyConfig.trailing_stop_pct,
+    rebalance_interval_hours: strategyConfig.rebalance_interval_hours,
+    position_timeout_hours: strategyConfig.position_timeout_hours,
+    transaction_fee: strategyConfig.transaction_fee,
+    slippage: strategyConfig.slippage,
+    starting_balance: strategyConfig.starting_balance,
+    max_history_days: strategyConfig.max_history_days,
+    benchmark_symbol: strategyConfig.benchmark_symbol,
+    risk_free_rate: strategyConfig.risk_free_rate,
+    initial_amount: strategyConfig.initial_amount,
+  });
+
   const handleSaveConfig = async () => {
     if (!editingConfig || !editingConfig.id || !validateConfig()) {
       return;
     }
 
     try {
-      const updatePayload = {
-        name: editingConfig.name || 'Untitled Strategy',
-        category: editingConfig.category,
-        description: editingConfig.description,
-        is_public: editingConfig.is_public,
-        runtime_strategy: editingConfig.runtime_strategy || 'cointegration',
-        runtime_network: editingConfig.runtime_network || 'testnet',
-        runtime_subaccount: editingConfig.runtime_subaccount ?? 0,
-        selected_markets: editingConfig.selected_markets || [],
-        pair_selection_mode: editingConfig.pair_selection_mode || 'liquidity',
-        resolution: normalizeDydxCandleResolution(
-          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
-        ),
-        candle_resolution: normalizeDydxCandleResolution(
-          editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
-        ),
-        zscore_threshold: editingConfig.zscore_threshold,
-        stats_window: editingConfig.stats_window,
-        max_half_life: editingConfig.max_half_life,
-        usd_per_trade: editingConfig.usd_per_trade,
-        usd_min_collateral: editingConfig.usd_min_collateral,
-        close_at_zscore_cross: editingConfig.close_at_zscore_cross,
-        find_cointegrated_pairs: editingConfig.find_cointegrated_pairs,
-        manage_exits: editingConfig.manage_exits,
-        place_trades: editingConfig.place_trades,
-        abort_all_positions: editingConfig.abort_all_positions,
-        max_positions: editingConfig.max_positions,
-        max_drawdown_pct: editingConfig.max_drawdown_pct,
-        stop_loss_pct: editingConfig.stop_loss_pct,
-        take_profit_pct: editingConfig.take_profit_pct,
-        trailing_stop_pct: editingConfig.trailing_stop_pct,
-        rebalance_interval_hours: editingConfig.rebalance_interval_hours,
-        position_timeout_hours: editingConfig.position_timeout_hours,
-        transaction_fee: editingConfig.transaction_fee,
-        slippage: editingConfig.slippage,
-        starting_balance: editingConfig.starting_balance,
-        max_history_days: editingConfig.max_history_days,
-        benchmark_symbol: editingConfig.benchmark_symbol,
-        risk_free_rate: editingConfig.risk_free_rate,
-        initial_amount: editingConfig.initial_amount,
-      };
+      const updatePayload = buildStrategyUpdatePayload(editingConfig);
       await apiClient.updateStrategy(editingConfig.id, updatePayload);
 
       showTransientMessage({ type: 'success', text: '✅ Strategy configuration updated' }, 4000);
@@ -726,6 +737,22 @@ export default function StrategyManager() {
         6000
       );
     }
+  };
+
+  const handleApplySuggestedParams = async (strategy: Strategy, params: Partial<Strategy>) => {
+    const mergedConfig: Partial<Strategy> = {
+      ...strategy,
+      ...params,
+    };
+    await apiClient.updateStrategy(strategy.id, buildStrategyUpdatePayload(mergedConfig));
+    await fetchStrategies();
+    showTransientMessage(
+      {
+        type: 'success',
+        text: `✅ Applied AI suggestions to "${strategy.name}"`,
+      },
+      4000
+    );
   };
 
   const handleEditConfig = (strategy: Strategy) => {
@@ -889,18 +916,18 @@ export default function StrategyManager() {
   );
   const digestActivePairs = useMemo(() => {
     const markets = new Set<string>();
-    strategies.forEach((s) => {
+    safeStrategies.forEach((s) => {
       if (s.market_1) markets.add(s.market_1);
       if (s.market_2) markets.add(s.market_2);
     });
     return Math.floor(markets.size / 2);
-  }, [strategies]);
+  }, [safeStrategies]);
   const digestNetwork = useMemo(() => {
     const nets = Array.from(strategyStatuses.values())
       .map((s) => s.network)
       .filter(Boolean);
-    return (nets[0] ?? strategies[0]?.runtime_network ?? 'testnet') as string;
-  }, [strategyStatuses, strategies]);
+    return (nets[0] ?? safeStrategies[0]?.runtime_network ?? 'testnet') as string;
+  }, [strategyStatuses, safeStrategies]);
 
   if (loading) {
     return (
@@ -936,7 +963,7 @@ export default function StrategyManager() {
             </div>
             <div className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Strategies</p>
-              <p className="mt-1 text-3xl font-semibold text-white">{strategies.length}</p>
+              <p className="mt-1 text-3xl font-semibold text-white">{safeStrategies.length}</p>
             </div>
           </div>
         </div>
@@ -980,14 +1007,14 @@ export default function StrategyManager() {
 
       <CodexAssetIntelStrip
         title="Strategy Benchmark Context"
-        request={buildStrategyIntelRequest(strategies, 1)}
+        request={buildStrategyIntelRequest(safeStrategies, 1)}
         compact
       />
 
       {/* AI Runtime Digest */}
       <AIRuntimeDigest
         runningBots={runningCount}
-        totalBots={strategies.length}
+        totalBots={safeStrategies.length}
         openPositions={0}
         totalPnlUsd={digestTotalPnl}
         activePairs={digestActivePairs}
@@ -1010,13 +1037,13 @@ export default function StrategyManager() {
 
       {/* Strategies List */}
       <div className="space-y-4">
-        {strategies.length === 0 ? (
+        {safeStrategies.length === 0 ? (
           <div className="premium-panel p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-500 mx-auto mb-4" />
             <p className="text-gray-400 text-lg">No strategies available</p>
           </div>
         ) : (
-          strategies.map((strategy) => {
+          safeStrategies.map((strategy) => {
             const status = strategyStatuses.get(strategy.id) || {
               strategyId: strategy.id,
               status: 'stopped' as const,
@@ -1264,7 +1291,11 @@ export default function StrategyManager() {
                 </div>
 
                 {/* AI Parameter Advisor */}
-                <AIStrategyAdvisor strategy={strategy} lastError={status.lastError} />
+                <AIStrategyAdvisor
+                  strategy={strategy}
+                  lastError={status.lastError}
+                  onApplyParams={(params) => handleApplySuggestedParams(strategy, params)}
+                />
               </div>
             );
           })
@@ -1498,27 +1529,29 @@ export default function StrategyManager() {
                       </div>
                     </div>
 
-                    {startDialogReadiness.blockers.length > 0 && (
-                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                        <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
-                        <ul className="mt-3 space-y-2 text-sm text-amber-100">
-                          {startDialogReadiness.blockers.map((blocker) => (
-                            <li key={blocker}>• {blocker}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {Array.isArray(startDialogReadiness.blockers) &&
+                      startDialogReadiness.blockers.length > 0 && (
+                        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                          <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
+                          <ul className="mt-3 space-y-2 text-sm text-amber-100">
+                            {startDialogReadiness.blockers.map((blocker) => (
+                              <li key={blocker}>• {blocker}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-                    {startDialogReadiness.warnings.length > 0 && (
-                      <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
-                        <p className="text-sm font-semibold text-cyan-100">Warnings</p>
-                        <ul className="mt-3 space-y-2 text-sm text-cyan-50">
-                          {startDialogReadiness.warnings.map((warning) => (
-                            <li key={warning}>• {warning}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {Array.isArray(startDialogReadiness.warnings) &&
+                      startDialogReadiness.warnings.length > 0 && (
+                        <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+                          <p className="text-sm font-semibold text-cyan-100">Warnings</p>
+                          <ul className="mt-3 space-y-2 text-sm text-cyan-50">
+                            {startDialogReadiness.warnings.map((warning) => (
+                              <li key={warning}>• {warning}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                   </>
                 )}
               </div>

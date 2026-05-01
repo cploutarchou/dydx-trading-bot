@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
@@ -57,11 +58,12 @@ interface StrategyVersion {
 }
 
 export const BacktestDetailsPage: React.FC = () => {
-      const getErrorMessage = (err: unknown, fallback: string): string =>
-        err instanceof Error ? err.message : fallback;
+  const getErrorMessage = (err: unknown, fallback: string): string =>
+    err instanceof Error ? err.message : fallback;
 
   const { run_id } = useParams<{ run_id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [backtest, setBacktest] = useState<BacktestData | null>(null);
   const [strategyVersions, setStrategyVersions] = useState<StrategyVersion[]>([]);
@@ -135,12 +137,28 @@ export const BacktestDetailsPage: React.FC = () => {
       });
 
       if (response.success) {
+        const responseData =
+          typeof response.data === 'object' && response.data !== null
+            ? (response.data as Record<string, unknown>)
+            : null;
+        const createdStrategyId =
+          typeof responseData?.id === 'number'
+            ? responseData.id
+            : typeof responseData?.strategy_id === 'number'
+              ? responseData.strategy_id
+              : undefined;
         alert('Strategy created successfully!');
         setShowCreateStrategyModal(false);
         setNewStrategyName('');
         setNewStrategyDesc('');
+        await queryClient.invalidateQueries({ queryKey: ['strategies'] });
         // Navigate to strategy manager
-        navigate('/strategies');
+        navigate('/strategies', {
+          state: {
+            strategyToast: `Strategy "${newStrategyName.trim()}" created successfully.`,
+            strategyId: createdStrategyId,
+          },
+        });
       } else {
         alert('Failed to create strategy');
       }

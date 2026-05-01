@@ -8,7 +8,11 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
-import { getRecentPaths, persistRecentPath, WorkspaceCommandPalette } from './WorkspaceCommandPalette';
+import {
+    getRecentPaths,
+    persistRecentPath,
+    WorkspaceCommandPalette,
+} from './WorkspaceCommandPalette';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -77,7 +81,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
         {/* Page Content */}
         <main className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto">
-          {children}
+          <div key={location.pathname} className="animate-page-enter h-full">
+            {children}
+          </div>
         </main>
       </div>
 

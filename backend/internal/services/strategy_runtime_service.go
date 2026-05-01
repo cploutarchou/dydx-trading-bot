@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,15 +15,21 @@ import (
 )
 
 type StrategyRuntimeState struct {
-	InstanceID   string     `json:"instance_id,omitempty"`
-	Network      string     `json:"network,omitempty"`
-	Status       string     `json:"status,omitempty"`
-	BotStatus    string     `json:"bot_status,omitempty"`
-	LastError    string     `json:"last_error,omitempty"`
-	ProcessID    *int       `json:"process_id,omitempty"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
-	StoppedAt    *time.Time `json:"stopped_at,omitempty"`
-	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+	InstanceID       string     `json:"instance_id,omitempty"`
+	Network          string     `json:"network,omitempty"`
+	Status           string     `json:"status,omitempty"`
+	BotStatus        string     `json:"bot_status,omitempty"`
+	LastError        string     `json:"last_error,omitempty"`
+	ProcessID        *int       `json:"process_id,omitempty"`
+	TradesExecuted   *int       `json:"trades_executed,omitempty"`
+	Pnl              *float64   `json:"pnl,omitempty"`
+	WinRate          *float64   `json:"win_rate,omitempty"`
+	OpenPositions    *int       `json:"open_positions,omitempty"`
+	UptimeSeconds    *int       `json:"uptime_seconds,omitempty"`
+	StartedAt        *time.Time `json:"started_at,omitempty"`
+	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
+	RuntimeUpdatedAt *time.Time `json:"runtime_updated_at,omitempty"`
+	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
 }
 
 type StrategyRuntimeService struct {
@@ -874,9 +881,43 @@ func mergeRemoteRuntimeState(runtimeState StrategyRuntimeState, remote map[strin
 	}
 
 	now := time.Now().UTC()
+	stats := nestedMap(remote, "stats")
+	performance := nestedMap(remote, "performance")
+	runtime := nestedMap(remote, "runtime")
+
 	runtimeState.Status = status
 	runtimeState.BotStatus = status
 	runtimeState.ProcessID = extractIntPointer(remote["process_id"])
+	runtimeState.TradesExecuted = extractIntPointerPrioritized(
+		[]string{"trades_executed", "total_trades", "trades_count"},
+		remote,
+		stats,
+		performance,
+		runtime,
+	)
+	runtimeState.Pnl = extractFloatPointerPrioritized(
+		[]string{"pnl", "total_pnl", "total_pnl_usd", "realized_pnl", "pnl_usd"},
+		remote,
+		stats,
+		performance,
+		runtime,
+	)
+	runtimeState.WinRate = normalizeWinRatePercent(extractFloatPointerPrioritized(
+		[]string{"win_rate", "win_rate_pct", "win_rate_percent"},
+		remote,
+		stats,
+		performance,
+		runtime,
+	))
+	runtimeState.OpenPositions = resolveOpenPositions(remote, stats, performance, runtime)
+	runtimeState.RuntimeUpdatedAt = extractTimePointerPrioritized(
+		[]string{"runtime_updated_at", "updated_at", "last_update_at", "last_updated_at", "last_heartbeat_at"},
+		remote,
+		stats,
+		performance,
+		runtime,
+	)
+	runtimeState.UptimeSeconds = resolveUptimeSeconds(remote, stats, runtime, runtimeState.StartedAt, status)
 	runtimeState.LastSyncedAt = &now
 	if strings.TrimSpace(runtimeState.Network) == "" {
 		config := nestedMap(remote, "config")
@@ -912,6 +953,14 @@ func buildStrategyRuntimeResponse(
 	runtimeState StrategyRuntimeState,
 	isRunning bool,
 ) map[string]interface{} {
+	uptimeSeconds := runtimeState.UptimeSeconds
+	if uptimeSeconds == nil && isRunning && runtimeState.StartedAt != nil {
+		elapsed := int(time.Since(*runtimeState.StartedAt).Seconds())
+		if elapsed >= 0 {
+			uptimeSeconds = &elapsed
+		}
+	}
+
 	return map[string]interface{}{
 		"strategy_id":            strategy.ID,
 		"strategy_name":          strategy.Name,
@@ -924,9 +973,15 @@ func buildStrategyRuntimeResponse(
 		"bot_status":             runtimeState.BotStatus,
 		"is_running":             isRunning,
 		"process_id":             runtimeState.ProcessID,
+		"trades_executed":        runtimeState.TradesExecuted,
+		"pnl":                    runtimeState.Pnl,
+		"win_rate":               runtimeState.WinRate,
+		"open_positions":         runtimeState.OpenPositions,
+		"uptime_seconds":         uptimeSeconds,
 		"last_error":             runtimeState.LastError,
 		"started_at":             runtimeState.StartedAt,
 		"stopped_at":             runtimeState.StoppedAt,
+		"runtime_updated_at":     runtimeState.RuntimeUpdatedAt,
 		"last_run_at":            executionState.LastRunAt,
 		"next_run_at":            executionState.NextRunAt,
 		"updated_at":             executionState.UpdatedAt,
@@ -992,6 +1047,165 @@ func extractIntPointer(value interface{}) *int {
 	default:
 		return nil
 	}
+}
+
+func extractFloatPointer(value interface{}) *float64 {
+	switch typed := value.(type) {
+	case float64:
+		result := typed
+		return &result
+	case float32:
+		result := float64(typed)
+		return &result
+	case int:
+		result := float64(typed)
+		return &result
+	case int32:
+		result := float64(typed)
+		return &result
+	case int64:
+		result := float64(typed)
+		return &result
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return nil
+		}
+		return &parsed
+	default:
+		return nil
+	}
+}
+
+func extractIntPointerPrioritized(keys []string, payloads ...map[string]interface{}) *int {
+	for _, payload := range payloads {
+		if payload == nil {
+			continue
+		}
+		for _, key := range keys {
+			if value, exists := payload[key]; exists {
+				if extracted := extractIntPointer(value); extracted != nil {
+					return extracted
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func extractFloatPointerPrioritized(keys []string, payloads ...map[string]interface{}) *float64 {
+	for _, payload := range payloads {
+		if payload == nil {
+			continue
+		}
+		for _, key := range keys {
+			if value, exists := payload[key]; exists {
+				if extracted := extractFloatPointer(value); extracted != nil {
+					return extracted
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func extractTimePointer(value interface{}) *time.Time {
+	text := strings.TrimSpace(fmt.Sprintf("%v", value))
+	if text == "" || text == "<nil>" {
+		return nil
+	}
+
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		parsed, err := time.Parse(layout, text)
+		if err == nil {
+			parsedUTC := parsed.UTC()
+			return &parsedUTC
+		}
+	}
+
+	return nil
+}
+
+func extractTimePointerPrioritized(keys []string, payloads ...map[string]interface{}) *time.Time {
+	for _, payload := range payloads {
+		if payload == nil {
+			continue
+		}
+		for _, key := range keys {
+			if value, exists := payload[key]; exists {
+				if extracted := extractTimePointer(value); extracted != nil {
+					return extracted
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func resolveOpenPositions(payloads ...map[string]interface{}) *int {
+	countKeys := []string{"open_positions", "open_positions_count", "positions_open", "active_positions"}
+	if count := extractIntPointerPrioritized(countKeys, payloads...); count != nil {
+		return count
+	}
+
+	for _, payload := range payloads {
+		if payload == nil {
+			continue
+		}
+		for _, key := range []string{"positions", "open_positions_list"} {
+			if raw, exists := payload[key]; exists {
+				if items, ok := raw.([]interface{}); ok {
+					count := len(items)
+					return &count
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func resolveUptimeSeconds(
+	remote map[string]interface{},
+	stats map[string]interface{},
+	runtime map[string]interface{},
+	startedAt *time.Time,
+	status string,
+) *int {
+	uptime := extractIntPointerPrioritized(
+		[]string{"uptime_seconds", "uptime_secs", "runtime_uptime_seconds"},
+		remote,
+		stats,
+		runtime,
+	)
+	if uptime != nil {
+		return uptime
+	}
+
+	if startedAt == nil {
+		return nil
+	}
+
+	if status != "running" && status != "starting" && status != "degraded" && status != "recovering" && status != "safeguarded" {
+		return nil
+	}
+
+	elapsed := int(time.Since(*startedAt).Seconds())
+	if elapsed < 0 {
+		return nil
+	}
+	return &elapsed
+}
+
+func normalizeWinRatePercent(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	normalized := *value
+	if normalized >= 0 && normalized <= 1 {
+		normalized *= 100
+	}
+	return &normalized
 }
 
 func isBotStatusRunning(remote map[string]interface{}) bool {

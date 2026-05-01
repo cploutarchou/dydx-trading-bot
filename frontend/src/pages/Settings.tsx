@@ -11,31 +11,31 @@
  */
 
 import {
-  AlertCircle,
-  BarChart2,
-  ChevronRight,
-  KeyRound,
-  Loader,
-  Mail,
-  MessageSquare,
-  Newspaper,
-  RefreshCw,
-  Save,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  UserCircle,
-  Users,
-  Zap,
+    AlertCircle,
+    BarChart2,
+    ChevronRight,
+    KeyRound,
+    Loader,
+    Mail,
+    MessageSquare,
+    Newspaper,
+    RefreshCw,
+    Save,
+    Search,
+    ShieldCheck,
+    SlidersHorizontal,
+    UserCircle,
+    Users,
+    Zap,
 } from 'lucide-react';
 import {
-  type ComponentType,
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+    type ComponentType,
+    useCallback,
+    useDeferredValue,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from 'react';
 import apiClient from '../api';
 import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
@@ -50,7 +50,12 @@ import { MailgunSettings } from '../components/MailgunSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
-import { InlineNotice, PlatformPageHeader, PlatformStatCard, StatusBadge } from '../components/ui/PlatformUI';
+import {
+    InlineNotice,
+    PlatformPageHeader,
+    PlatformStatCard,
+    StatusBadge,
+} from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 
 type SettingValue =
@@ -375,6 +380,7 @@ export default function Settings() {
         description: 'OpenAI, DeepSeek, Claude',
       },
       { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
+      { section: 'telegram', title: 'Telegram', description: 'Bot notifications' },
       ...(canManageBackofficeSettings
         ? [
             {
@@ -382,7 +388,6 @@ export default function Settings() {
               title: 'Access Control',
               description: 'Roles & registration',
             },
-            { section: 'telegram', title: 'Telegram', description: 'Bot notifications' },
             { section: 'mailgun', title: 'Mailgun', description: 'Outbound email' },
             { section: 'market_news', title: 'Market News', description: 'CoinDesk feed' },
           ]
@@ -837,7 +842,7 @@ export default function Settings() {
             <AdminAccessControlSettings />
           )}
           {activeSection === 'mailgun' && canManageBackofficeSettings && <MailgunSettings />}
-          {activeSection === 'telegram' && canManageBackofficeSettings && <TelegramSettings />}
+          {activeSection === 'telegram' && <TelegramSettings />}
           {activeSection === 'market_news' && canManageBackofficeSettings && (
             <CoinDeskNewsSettings />
           )}
@@ -1047,8 +1052,8 @@ export default function Settings() {
       {/* Operational note */}
       <p className="mt-5 text-[10px] uppercase tracking-widest text-slate-600">
         Changes to runtime config take effect on next bot restart · Schema-driven sections persist
-        to database · Manual sections (profile, keys, integrations) use dedicated APIs · Admin
-        sections are hidden for non-admin users
+        to database · Manual sections (profile, keys, integrations) use dedicated APIs ·
+        Backoffice-only sections are hidden for non-admin users
       </p>
     </PageContainer>
   );

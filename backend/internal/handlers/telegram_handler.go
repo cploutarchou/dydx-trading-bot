@@ -18,16 +18,17 @@ func NewTelegramHandler(service *services.TelegramService) *TelegramHandler {
 }
 
 func (h *TelegramHandler) GetStatus(c *gin.Context) {
-	if !c.GetBool("is_admin") {
-		c.JSON(http.StatusForbidden, APIResponse{
+	targetUserID, ok := resolveTelegramScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Admin access required",
+			Error:     "Unauthorized",
 		})
 		return
 	}
 
-	status, err := h.service.GetStatus()
+	status, err := h.service.GetStatusForUser(targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -45,11 +46,12 @@ func (h *TelegramHandler) GetStatus(c *gin.Context) {
 }
 
 func (h *TelegramHandler) SaveConfig(c *gin.Context) {
-	if !c.GetBool("is_admin") {
-		c.JSON(http.StatusForbidden, APIResponse{
+	targetUserID, ok := resolveTelegramScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Admin access required",
+			Error:     "Unauthorized",
 		})
 		return
 	}
@@ -64,7 +66,7 @@ func (h *TelegramHandler) SaveConfig(c *gin.Context) {
 		return
 	}
 
-	status, err := h.service.SaveSharedConfig(req)
+	status, err := h.service.SaveConfigForUser(targetUserID, req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
@@ -82,16 +84,17 @@ func (h *TelegramHandler) SaveConfig(c *gin.Context) {
 }
 
 func (h *TelegramHandler) DeleteConfig(c *gin.Context) {
-	if !c.GetBool("is_admin") {
-		c.JSON(http.StatusForbidden, APIResponse{
+	targetUserID, ok := resolveTelegramScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Admin access required",
+			Error:     "Unauthorized",
 		})
 		return
 	}
 
-	if err := h.service.DeleteSharedConfig(); err != nil {
+	if err := h.service.DeleteConfigForUser(targetUserID); err != nil {
 		c.JSON(http.StatusBadRequest, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -105,4 +108,17 @@ func (h *TelegramHandler) DeleteConfig(c *gin.Context) {
 		Data:      gin.H{"deleted": true},
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+func resolveTelegramScopeUserID(c *gin.Context) (int, bool) {
+	userID := getUserID(c)
+	if userID <= 0 {
+		return 0, false
+	}
+
+	if c.GetBool("is_admin") {
+		return services.SharedCredentialUserID, true
+	}
+
+	return userID, true
 }

@@ -8,6 +8,7 @@ import api, {
     normalizeDydxCandleResolution,
     type AIMarketProvider,
 } from '../api';
+import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { PageContainer } from './PageContainer';
@@ -109,10 +110,22 @@ export default function StrategyBuilder() {
     null | 'top20' | 'popular' | 'profitable' | 'ai'
   >(null);
   const [marketFilterError, setMarketFilterError] = useState<string | null>(null);
-  const [aiMarketProvider, setAIMarketProvider] = useState<AIMarketProvider>('openai');
+  const [aiMarketProvider, setAIMarketProvider] = useState<AIMarketProvider>('deepseek');
   const [aiMarketObjective, setAIMarketObjective] = useState<AIMarketObjective>('balanced');
   const [autoMarketLimit, setAutoMarketLimit] = useState(DEFAULT_AUTO_SELECTED_MARKETS);
   const [showPairPreview, setShowPairPreview] = useState(false);
+  const { availableProviders: availableAIProviders, isLoading: aiProviderStatusLoading } =
+    useAIProviderAvailability();
+
+  useEffect(() => {
+    if (availableAIProviders.length === 0) {
+      return;
+    }
+
+    if (!availableAIProviders.includes(aiMarketProvider)) {
+      setAIMarketProvider(availableAIProviders[0]);
+    }
+  }, [aiMarketProvider, availableAIProviders]);
 
   // Get pre-loaded config from backtest or sessionStorage
   const getPreloadedConfig = () => {
@@ -551,6 +564,16 @@ export default function StrategyBuilder() {
       return;
     }
 
+    if (availableAIProviders.length === 0) {
+      if (preset === 'ai') {
+        setMarketFilterError(
+          'AI providers are unavailable for your account. Falling back to top markets.'
+        );
+        onChange(normalizeTopMarkets(availableMarkets));
+        return;
+      }
+    }
+
     try {
       setMarketFilterLoading(preset);
       const aiMode =
@@ -559,21 +582,24 @@ export default function StrategyBuilder() {
           : preset === 'profitable'
             ? 'most_profitable'
             : 'ai_recommended';
-      const aiResponse = await api.selectAIMarkets({
-        provider: aiMarketProvider,
-        mode: aiMode,
-        markets: availableMarkets,
-        limit: selectionLimit,
-        strategy: `${formValues.category || 'pairs_trading'} strategy using ${normalizeDydxCandleResolution(formValues.resolution || '1HOUR')} candles`,
-        criteria: buildAIMarketCriteria(preset),
-      });
-      const aiMarkets = normalizeTopMarkets(aiResponse.data?.selected_markets || []);
+      const aiResponse =
+        availableAIProviders.length > 0
+          ? await api.selectAIMarkets({
+              provider: aiMarketProvider,
+              mode: aiMode,
+              markets: availableMarkets,
+              limit: selectionLimit,
+              strategy: `${formValues.category || 'pairs_trading'} strategy using ${normalizeDydxCandleResolution(formValues.resolution || '1HOUR')} candles`,
+              criteria: buildAIMarketCriteria(preset),
+            })
+          : null;
+      const aiMarkets = normalizeTopMarkets(aiResponse?.data?.selected_markets || []);
       if (aiMarkets.length >= 2) {
         onChange(aiMarkets);
         setMarketFilterError(
-          aiResponse.data?.used_ai
+          aiResponse?.data?.used_ai
             ? aiResponse.data.rationale || null
-            : aiResponse.data?.fallback_reason || null
+            : aiResponse?.data?.fallback_reason || null
         );
         return;
       }
@@ -963,12 +989,15 @@ export default function StrategyBuilder() {
                       onChange={(event) =>
                         setAIMarketProvider(event.target.value as AIMarketProvider)
                       }
+                      disabled={aiProviderStatusLoading || availableAIProviders.length === 0}
                       className={marketToolbarSelectClass}
                       aria-label="AI market filter provider"
                     >
-                      <option value="openai">OpenAI</option>
-                      <option value="deepseek">DeepSeek</option>
-                      <option value="claude">Claude</option>
+                      {availableAIProviders.map((provider) => (
+                        <option key={provider} value={provider}>
+                          {getAIProviderLabel(provider)}
+                        </option>
+                      ))}
                     </select>
                     <select
                       value={aiMarketObjective}
@@ -988,7 +1017,11 @@ export default function StrategyBuilder() {
                     <button
                       type="button"
                       onClick={() => void applyMarketPreset('ai', field.onChange, value)}
-                      disabled={availableMarkets.length === 0 || marketFilterLoading !== null}
+                      disabled={
+                        availableMarkets.length === 0 ||
+                        marketFilterLoading !== null ||
+                        availableAIProviders.length === 0
+                      }
                       className="inline-flex h-10 items-center gap-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
@@ -1062,6 +1095,12 @@ export default function StrategyBuilder() {
           </div>
 
           {marketFilterError && <p className="mb-3 text-xs text-amber-300">{marketFilterError}</p>}
+          {!aiProviderStatusLoading && availableAIProviders.length === 0 && (
+            <p className="mb-3 text-xs text-amber-300">
+              AI provider filtering is unavailable (no active provider credentials). Configure one
+              in Settings → AI Filters.
+            </p>
+          )}
 
           <Controller
             name="selected_markets"

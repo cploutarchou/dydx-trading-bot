@@ -140,6 +140,8 @@ const formatRelativeTime = (value?: string): string => {
 
 const HEARTBEAT_LIVE_THRESHOLD_MS = 30_000;
 const HEARTBEAT_DELAYED_THRESHOLD_MS = 120_000;
+const HEARTBEAT_TREND_MAX_POINTS = 14;
+const HEARTBEAT_TREND_MAX_SECONDS = 180;
 
 type HeartbeatTone = 'live' | 'delayed' | 'stale' | 'unknown';
 
@@ -169,6 +171,37 @@ const resolveHeartbeatTone = (
   }
 
   return { tone: 'stale', label: 'Updates stale, check runtime' };
+};
+
+const toHeartbeatAgeSeconds = (heartbeatAt?: string): number | null => {
+  if (!heartbeatAt) {
+    return null;
+  }
+
+  const parsed = new Date(heartbeatAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000));
+};
+
+const buildSparklinePoints = (values: number[], width: number, height: number): string => {
+  if (values.length === 0) {
+    return '';
+  }
+
+  const max = HEARTBEAT_TREND_MAX_SECONDS;
+  const stepX = values.length > 1 ? width / (values.length - 1) : width;
+
+  return values
+    .map((value, index) => {
+      const clamped = Math.min(Math.max(value, 0), max);
+      const x = index * stepX;
+      const y = (clamped / max) * height;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
 };
 
 const RUNTIME_STRATEGY_OPTIONS = [
@@ -227,6 +260,7 @@ export default function StrategyManager() {
   const [strategyActivity, setStrategyActivity] = useState<Map<number, StrategyActivityEntry>>(
     new Map()
   );
+  const [heartbeatTrend, setHeartbeatTrend] = useState<Map<number, number[]>>(new Map());
 
   const compactCards = viewPreset === 'operator';
 
@@ -261,6 +295,20 @@ export default function StrategyManager() {
       setRunningCount(running);
       return nextMap;
     });
+
+    setHeartbeatTrend((prev) => {
+      const next = new Map(prev);
+      nextStatuses.forEach((status) => {
+        const ageSeconds = toHeartbeatAgeSeconds(status.runtimeUpdatedAt || status.updatedAt);
+        if (ageSeconds === null) {
+          return;
+        }
+
+        const existing = next.get(status.strategyId) || [];
+        next.set(status.strategyId, [...existing, ageSeconds].slice(-HEARTBEAT_TREND_MAX_POINTS));
+      });
+      return next;
+    });
   };
 
   const mergeStrategyStatus = (nextStatus: StrategyStatus) => {
@@ -272,6 +320,18 @@ export default function StrategyManager() {
       ).length;
       setRunningCount(running);
       return nextMap;
+    });
+
+    setHeartbeatTrend((prev) => {
+      const next = new Map(prev);
+      const ageSeconds = toHeartbeatAgeSeconds(nextStatus.runtimeUpdatedAt || nextStatus.updatedAt);
+      if (ageSeconds === null) {
+        return next;
+      }
+
+      const existing = next.get(nextStatus.strategyId) || [];
+      next.set(nextStatus.strategyId, [...existing, ageSeconds].slice(-HEARTBEAT_TREND_MAX_POINTS));
+      return next;
     });
   };
 
@@ -1204,7 +1264,8 @@ export default function StrategyManager() {
       totalPnl: hasPnlData ? totalPnl : undefined,
       totalOpenPositions: hasOpenPositionData ? totalOpenPositions : undefined,
       longestUptimeSeconds: hasUptimeData ? longestUptimeSeconds : undefined,
-      latestRuntimeUpdate: latestUpdateMs !== null ? new Date(latestUpdateMs).toISOString() : undefined,
+      latestRuntimeUpdate:
+        latestUpdateMs !== null ? new Date(latestUpdateMs).toISOString() : undefined,
       staleRuntimeCount: activeStatuses.filter((status) => {
         const candidate = status.runtimeUpdatedAt || status.updatedAt;
         if (!candidate) {
@@ -1467,6 +1528,8 @@ export default function StrategyManager() {
               (status.status === 'running' || status.status === 'starting') &&
               strategyHeartbeat.tone === 'stale';
             const lastAction = strategyActivity.get(strategy.id);
+            const trendPoints = heartbeatTrend.get(strategy.id) || [];
+            const trendSvgPoints = buildSparklinePoints(trendPoints, 76, 18);
             const lastActionLabel = lastAction
               ? `${lastAction.label} · ${formatRelativeTime(lastAction.at)}`
               : status.startedAt
@@ -1527,7 +1590,9 @@ export default function StrategyManager() {
                   </div>
                 </div>
 
-                <div className={`mb-4 flex flex-wrap items-center gap-2 ${compactCards ? '' : 'mt-1'}`}>
+                <div
+                  className={`mb-4 flex flex-wrap items-center gap-2 ${compactCards ? '' : 'mt-1'}`}
+                >
                   {showStaleHeartbeatBadge && (
                     <span className="rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-200">
                       Stale heartbeat
@@ -1541,6 +1606,73 @@ export default function StrategyManager() {
                     )}
                   <span className="rounded-full border border-slate-700/70 bg-slate-950/55 px-2.5 py-1 text-[11px] font-medium text-slate-300">
                     {lastActionLabel}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 ${
+                      strategyHeartbeat.tone === 'live'
+                        ? 'border-emerald-500/35 bg-emerald-500/10'
+                        : strategyHeartbeat.tone === 'delayed'
+                          ? 'border-amber-500/35 bg-amber-500/10'
+                          : strategyHeartbeat.tone === 'stale'
+                            ? 'border-rose-500/35 bg-rose-500/10'
+                            : 'border-slate-700/70 bg-slate-950/55'
+                    }`}
+                    title="Heartbeat freshness trend (newest point is right-most)"
+                  >
+                    <svg
+                      viewBox="0 0 76 18"
+                      className="h-3.5 w-19"
+                      role="img"
+                      aria-label="Heartbeat latency trend"
+                    >
+                      <line x1="0" y1="17.5" x2="76" y2="17.5" stroke="rgba(148,163,184,0.24)" />
+                      {trendSvgPoints ? (
+                        <>
+                          <polyline
+                            fill="none"
+                            stroke={
+                              strategyHeartbeat.tone === 'live'
+                                ? 'rgba(74,222,128,0.95)'
+                                : strategyHeartbeat.tone === 'delayed'
+                                  ? 'rgba(251,191,36,0.95)'
+                                  : strategyHeartbeat.tone === 'stale'
+                                    ? 'rgba(251,113,133,0.95)'
+                                    : 'rgba(148,163,184,0.85)'
+                            }
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={trendSvgPoints}
+                          />
+                          {trendPoints.map((point, index) => {
+                            const clamped = Math.min(
+                              Math.max(point, 0),
+                              HEARTBEAT_TREND_MAX_SECONDS
+                            );
+                            const stepX =
+                              trendPoints.length > 1 ? 76 / (trendPoints.length - 1) : 76;
+                            const x = index * stepX;
+                            const y = (clamped / HEARTBEAT_TREND_MAX_SECONDS) * 18;
+
+                            return (
+                              <circle
+                                key={`${strategy.id}-trend-${index}`}
+                                cx={x}
+                                cy={y}
+                                r="1.7"
+                                fill="rgba(248,250,252,0.95)"
+                                opacity="0.92"
+                              >
+                                <title>{`Heartbeat sample ${index + 1}: ${clamped}s latency`}</title>
+                              </circle>
+                            );
+                          })}
+                        </>
+                      ) : null}
+                    </svg>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+                      {strategyHeartbeat.tone}
+                    </span>
                   </span>
                 </div>
 

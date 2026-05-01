@@ -40,7 +40,15 @@ interface BacktestRun {
 }
 
 type FailureDiagnostic = {
-  category: 'data' | 'network' | 'timeout' | 'config' | 'runtime' | 'unknown';
+  category:
+    | 'data'
+    | 'network'
+    | 'timeout'
+    | 'config'
+    | 'runtime'
+    | 'interruption'
+    | 'capacity'
+    | 'unknown';
   summary: string;
   hint: string;
 };
@@ -214,6 +222,28 @@ const classifyFailureDiagnostic = (run: BacktestRun): FailureDiagnostic => {
       category: 'timeout',
       summary: rawMessage,
       hint: 'Try a shorter period or fewer pairs, then re-run and monitor progress cadence.',
+    };
+  }
+
+  if (
+    /interrupted|reload|restart|orphaned|worker task may have been interrupted/.test(normalized)
+  ) {
+    return {
+      category: 'interruption',
+      summary: rawMessage,
+      hint: 'This usually means worker/API lifecycle interruption. Verify worker uptime and use retry/restart for the run.',
+    };
+  }
+
+  if (
+    /capacity|saturated|too many active|queue depth|admission|429|rate limit|retry-after/.test(
+      normalized
+    )
+  ) {
+    return {
+      category: 'capacity',
+      summary: rawMessage,
+      hint: 'System concurrency limits were reached. Wait for active runs to finish or reduce parallel submissions.',
     };
   }
 

@@ -22,9 +22,9 @@ except Exception:  # pragma: no cover
     adfuller = None
     coint = None
 
-from src.trading.dydx_client import connect_dydx
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
+from src.trading.dydx_client import connect_dydx
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +460,16 @@ class BacktestService:
             return backend
         return "asyncio"
 
+    @classmethod
+    def _stale_backtest_heartbeat_seconds(cls) -> float:
+        raw = os.getenv("BACKTEST_STALE_HEARTBEAT_SECONDS")
+        if raw is None:
+            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+        try:
+            return max(5.0, float(raw))
+        except (TypeError, ValueError):
+            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+
     @staticmethod
     def _clamp(value: float, minimum: float, maximum: float) -> float:
         return max(minimum, min(maximum, value))
@@ -497,7 +507,7 @@ class BacktestService:
         if (
                 status in {"pending", "running"}
                 and payload["heartbeat_age_seconds"] is not None
-                and payload["heartbeat_age_seconds"] > cls._STALE_BACKTEST_HEARTBEAT_SECONDS
+            and payload["heartbeat_age_seconds"] > cls._stale_backtest_heartbeat_seconds()
         ):
             stale_message = (
                 "Backtest heartbeat is stale; the worker task may have been interrupted "
@@ -738,11 +748,11 @@ class BacktestService:
     def _auto_recovery_min_age_seconds(cls) -> float:
         raw = os.getenv("BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS")
         if raw is None:
-            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+            return float(cls._stale_backtest_heartbeat_seconds())
         try:
             return max(0.0, float(raw))
         except (TypeError, ValueError):
-            return float(cls._STALE_BACKTEST_HEARTBEAT_SECONDS)
+            return float(cls._stale_backtest_heartbeat_seconds())
 
     @classmethod
     def _is_auto_recovery_candidate(cls, run_data: Dict[str, Any]) -> bool:

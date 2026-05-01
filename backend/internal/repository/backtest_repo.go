@@ -556,3 +556,22 @@ func (r *BacktestRepository) CountRunsByUserID(userID int) (int, error) {
 	}
 	return count, nil
 }
+
+func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM backtest_runs
+		WHERE user_id = $1
+		  AND LOWER(COALESCE(status, '')) IN (
+			'pending', 'queued', 'created', 'scheduled',
+			'running', 'in_progress', 'processing', 'active',
+			'paused', 'retry', 'retrying'
+		  )
+	`
+
+	var count int
+	if err := r.db.QueryRow(query, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count active backtest runs: %w", err)
+	}
+	return count, nil
+}

@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Activity,
     ArrowRight,
@@ -128,7 +128,102 @@ const BacktestWorkflowCards = () => (
   </section>
 );
 
+const parseTimestampMs = (value: unknown): number | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const getFreshnessElapsedSeconds = (updatedAtMs?: number): number | null => {
+  if (!updatedAtMs || !Number.isFinite(updatedAtMs)) {
+    return null;
+  }
+  return Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000));
+};
+
+const formatFreshnessAge = (updatedAtMs?: number): string | null => {
+  const elapsedSeconds = getFreshnessElapsedSeconds(updatedAtMs);
+  if (elapsedSeconds === null) {
+    return null;
+  }
+
+  if (elapsedSeconds < 5) {
+    return 'updated just now';
+  }
+  if (elapsedSeconds < 60) {
+    return `updated ${elapsedSeconds}s ago`;
+  }
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) {
+    return `updated ${elapsedMinutes}m ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  return `updated ${elapsedHours}h ago`;
+};
+
+const getFreshnessToneClasses = (updatedAtMs?: number): { text: string; dot: string; pulse: boolean } => {
+  const elapsedSeconds = getFreshnessElapsedSeconds(updatedAtMs);
+  if (elapsedSeconds === null) {
+    return {
+      text: 'text-slate-500',
+      dot: 'bg-slate-500/70',
+      pulse: false,
+    };
+  }
+
+  if (elapsedSeconds < 10) {
+    return {
+      text: 'text-emerald-300',
+      dot: 'bg-emerald-400',
+      pulse: true,
+    };
+  }
+
+  if (elapsedSeconds < 25) {
+    return {
+      text: 'text-amber-300',
+      dot: 'bg-amber-400',
+      pulse: false,
+    };
+  }
+
+  return {
+    text: 'text-rose-300',
+    dot: 'bg-rose-400',
+    pulse: false,
+  };
+};
+
+const getFreshnessCardBorderClasses = (updatedAtMs?: number): string => {
+  const elapsedSeconds = getFreshnessElapsedSeconds(updatedAtMs);
+
+  if (elapsedSeconds === null || elapsedSeconds < 45) {
+    return 'border-slate-700/60 hover:border-emerald-500/35';
+  }
+
+  if (elapsedSeconds < 90) {
+    return 'border-amber-500/40 hover:border-amber-400/60';
+  }
+
+  return 'border-rose-500/45 hover:border-rose-400/70';
+};
+
 export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard' }) => {
+  const getEnvelopeField = (payload: Record<string, unknown>, key: string): unknown => {
+    const nested = payload.data;
+    if (nested && typeof nested === 'object' && nested !== null) {
+      const nestedRecord = nested as Record<string, unknown>;
+      if (key in nestedRecord) {
+        return nestedRecord[key];
+      }
+    }
+    return payload[key];
+  };
+
   const queryClient = useQueryClient();
   const strategiesQuery = useQuery({
     queryKey: ['strategies', 'lookup'],
@@ -168,6 +263,70 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     () => buildIntelligence(backtestsQuery.data ?? [], strategiesById),
     [backtestsQuery.data, strategiesById]
   );
+  const activeRunsQuickAccess = useMemo(
+    () =>
+      (backtestsQuery.data ?? [])
+        .filter((run) => isActiveBacktestRun(run))
+        .sort(
+          (left, right) =>
+            new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime()
+        )
+        .slice(0, 6),
+    [backtestsQuery.data]
+  );
+  const activeRunLiveStatusQueries = useQueries({
+    queries: activeRunsQuickAccess.map((run) => ({
+      queryKey: ['backtests', 'status', run.run_id, 'quick-access'],
+      queryFn: async () => {
+        const response = await api.getBacktestStatus(run.run_id);
+        const payload = response as unknown as Record<string, unknown>;
+        const progressCandidate = getEnvelopeField(payload, 'progress_pct');
+        const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');
+        const legacyProgressCandidate = getEnvelopeField(payload, 'progress');
+        const updatedAtMs =
+          parseTimestampMs(getEnvelopeField(payload, 'updated_at')) ??
+          parseTimestampMs(payload.timestamp) ??
+          Date.now();
+
+        return {
+          status: String(getEnvelopeField(payload, 'status') || run.status || 'pending'),
+          progressPct: safeNumber(
+            progressCandidate ?? fallbackProgressCandidate ?? legacyProgressCandidate,
+            Number.NaN
+          ),
+          updatedAtMs,
+        };
+      },
+      staleTime: 2_000,
+      refetchInterval: 3_000,
+      retry: 1,
+      enabled: Boolean(run.run_id),
+    })),
+  });
+  const activeRunLiveById = useMemo(() => {
+    const lookup = new Map<
+      string,
+      { status?: string; progressPct?: number; updatedAtMs?: number; isFetching: boolean }
+    >();
+
+    activeRunsQuickAccess.forEach((run, index) => {
+      const query = activeRunLiveStatusQueries[index];
+      const progressValue = query?.data?.progressPct;
+      const normalizedProgress =
+        typeof progressValue === 'number' && Number.isFinite(progressValue)
+          ? Math.max(0, Math.min(100, progressValue))
+          : undefined;
+
+      lookup.set(run.run_id, {
+        status: query?.data?.status,
+        progressPct: normalizedProgress,
+        updatedAtMs: query?.data?.updatedAtMs,
+        isFetching: Boolean(query?.isFetching),
+      });
+    });
+
+    return lookup;
+  }, [activeRunsQuickAccess, activeRunLiveStatusQueries]);
   const backtestIntelRequest = useMemo(
     () => buildBacktestIntelRequest(intelligence.topRuns, 1),
     [intelligence.topRuns]
@@ -561,6 +720,106 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
         <div className="space-y-6">
           <div className="operator-section-card p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Active Runs Quick Access</h2>
+                  <p className="text-sm text-slate-400">
+                    Open live backtests instantly without leaving the dashboard.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/backtests/runs"
+                className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300 hover:text-cyan-200"
+              >
+                View all runs
+              </Link>
+            </div>
+
+            {activeRunsQuickAccess.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No active runs right now. Start a new backtest and it will appear here.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {activeRunsQuickAccess.map((run) => {
+                  const live = activeRunLiveById.get(run.run_id);
+                  const normalizedStatus = String(live?.status || run.status || 'pending')
+                    .trim()
+                    .toUpperCase();
+                  const listProgress = safeNumber(
+                    (run as { progress_pct?: number; progress_percent?: number; progress?: number })
+                      .progress_pct ??
+                      (run as { progress_percent?: number }).progress_percent ??
+                      (run as { progress?: number }).progress,
+                    Number.NaN
+                  );
+                  const resolvedProgress =
+                    typeof live?.progressPct === 'number' && Number.isFinite(live.progressPct)
+                      ? live.progressPct
+                      : Number.isFinite(listProgress)
+                        ? Math.max(0, Math.min(100, listProgress))
+                        : null;
+                  const progressBarWidth = resolvedProgress !== null ? resolvedProgress : 2;
+                  const progressLabel =
+                    resolvedProgress !== null
+                      ? `${resolvedProgress.toFixed(0)}%`
+                      : live?.isFetching
+                        ? '...'
+                        : '—';
+                  const freshnessLabel = formatFreshnessAge(live?.updatedAtMs);
+                  const freshnessTone = getFreshnessToneClasses(live?.updatedAtMs);
+                  const freshnessCardBorder = getFreshnessCardBorderClasses(live?.updatedAtMs);
+
+                  return (
+                    <Link
+                      key={run.run_id}
+                      to={`/backtest/${run.run_id}`}
+                      className={`block rounded-xl border bg-slate-900/50 p-4 transition hover:bg-slate-900/80 ${freshnessCardBorder}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            {run.name || run.run_id}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            started {formatDateTime(run.created_at)}
+                          </p>
+                          {freshnessLabel ? (
+                            <p className={`mt-1 inline-flex items-center gap-1.5 text-[11px] ${freshnessTone.text}`}>
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${freshnessTone.dot} ${freshnessTone.pulse ? 'animate-pulse' : ''}`}
+                              />
+                              {freshnessLabel}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
+                          {normalizedStatus}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/80">
+                          <div
+                            className="h-1.5 rounded-full bg-emerald-400 transition-all duration-500"
+                            style={{ width: `${progressBarWidth}%` }}
+                          />
+                        </div>
+                        <span className="w-12 text-right text-xs text-slate-300">{progressLabel}</span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="operator-section-card p-5">
             <div className="mb-4 flex items-center gap-3">
               <div className="rounded-xl bg-blue-500/10 p-2 text-blue-400">
                 <TrendingUp className="h-5 w-5" />
@@ -668,7 +927,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
           </div>
           <Link
             to="/backtests/compare"
-            className="premium-button premium-button-secondary rounded-[1rem] px-4 py-2 text-sm"
+            className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
           >
             Compare runs
             <ArrowRight className="h-4 w-4" />

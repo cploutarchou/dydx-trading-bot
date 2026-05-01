@@ -366,19 +366,19 @@ export default function StrategyLibrary() {
               onClick={() => navigate('/strategies/manage')}
               className="premium-button premium-button-secondary"
             >
-              ⚙️ Runtime Manager
+              Managed Runtimes
             </button>
             <button
               onClick={() => navigate('/bots')}
               className="premium-button premium-button-secondary"
             >
-              🤖 Bot Manager
+              Bots
             </button>
             <button
               onClick={() => navigate('/strategies/new')}
               className="premium-button premium-button-primary"
             >
-              ✨ New Strategy
+              New Strategy
             </button>
           </div>
         </div>

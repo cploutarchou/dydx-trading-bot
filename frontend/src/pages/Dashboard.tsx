@@ -3,8 +3,7 @@
  * ─ Hero greeting + live clock
  * ─ Animated KPI cards (8)
  * ─ TradingView cumulative PnL chart
- * ─ Active runs monitor + Quick Launch accordion
- * ─ Full BacktestList
+ * ─ Active runtime monitor + recent activity
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -13,8 +12,6 @@ import {
     AlertCircle,
     ArrowRight,
     BarChart2,
-    ChevronDown,
-    ChevronUp,
     Clock,
     Layers3,
     Newspaper,
@@ -30,13 +27,13 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
-import { BacktestList } from '../components/BacktestList';
-import { BacktestRunner } from '../components/BacktestRunner';
+import { useBotInstances } from '../api/hooks';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { CoinDeskNewsPanel } from '../components/CoinDeskNewsPanel';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
 import { SyncHealthPanel } from '../components/SyncHealthPanel';
+import { EmptyState, InlineNotice } from '../components/ui/PlatformUI';
 import {
     type BacktestRun,
     buildIntelligence,
@@ -72,6 +69,15 @@ interface DashboardStats {
   avgPnlPerRun: number;
   activeRuns: BacktestRunSummary[];
   pnlTimeSeries: PnlPoint[];
+}
+
+interface RuntimeBotSummary {
+  instance_id: string;
+  status?: string;
+  instance_name?: string;
+  strategy?: string;
+  error_message?: string;
+  started_at?: string;
 }
 
 const DASHBOARD_STATS_TIMEOUT_MS = 30000;
@@ -289,6 +295,26 @@ const StrategySpotlightCard: React.FC<{
 const toRecord = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
+const normalizeRuntimeBots = (value: unknown): RuntimeBotSummary[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const record = toRecord(item);
+          const instanceId = typeof record.instance_id === 'string' ? record.instance_id : '';
+          return {
+            instance_id: instanceId,
+            status: typeof record.status === 'string' ? record.status : undefined,
+            instance_name:
+              typeof record.instance_name === 'string' ? record.instance_name : undefined,
+            strategy: typeof record.strategy === 'string' ? record.strategy : undefined,
+            error_message:
+              typeof record.error_message === 'string' ? record.error_message : undefined,
+            started_at: typeof record.started_at === 'string' ? record.started_at : undefined,
+          };
+        })
+        .filter((bot) => bot.instance_id.length > 0)
+    : [];
+
 const safeNum = (v: unknown, fallback = 0): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -380,7 +406,6 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [runs, setRuns] = useState<BacktestRunSummary[]>([]);
   const [stats, setStats] = useState<DashboardStats>({
     total: 0,
@@ -398,7 +423,6 @@ export const DashboardPage: React.FC = () => {
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [statsWarning, setStatsWarning] = useState<string | null>(null);
-  const [launcherOpen, setLauncherOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isComputingRef = useRef(false);
   const activeComputeIdRef = useRef(0);
@@ -476,7 +500,7 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     void computeStats();
-  }, [computeStats, refreshTrigger]);
+  }, [computeStats]);
 
   useEffect(() => {
     if (stats.running > 0 && !pollRef.current) {
@@ -525,6 +549,21 @@ export const DashboardPage: React.FC = () => {
     staleTime: 60_000,
   });
 
+  const botsQuery = useBotInstances({ limit: 100 });
+  const runtimeBots = useMemo(
+    () => normalizeRuntimeBots(botsQuery.data?.data),
+    [botsQuery.data?.data]
+  );
+  const runningRuntimeBots = runtimeBots.filter(
+    (bot) => String(bot.status ?? '').toUpperCase() === 'RUNNING'
+  );
+  const degradedRuntimeBots = runtimeBots.filter((bot) =>
+    ['FAILED', 'ERROR'].includes(String(bot.status ?? '').toUpperCase())
+  );
+  const transitioningRuntimeBots = runtimeBots.filter((bot) =>
+    ['STARTING', 'STOPPING'].includes(String(bot.status ?? '').toUpperCase())
+  );
+
   // Fetch how many strategy runtimes are currently live so the Active Now KPI
   // reflects real trading activity, not just active backtest runs.
   const strategyRuntimesQuery = useQuery({
@@ -545,7 +584,7 @@ export const DashboardPage: React.FC = () => {
     refetchInterval: 30_000,
   });
   const runningStrategyCount = strategyRuntimesQuery.data ?? 0;
-  const totalActiveCount = stats.running + runningStrategyCount;
+  const totalActiveCount = stats.running + runningStrategyCount + runningRuntimeBots.length;
   const countRunning = useCountUp(totalActiveCount);
   const intelligence = useMemo(() => buildIntelligence(runs, new Map<number, string>()), [runs]);
   const spotlightIntelRequest = useMemo(() => {
@@ -610,8 +649,14 @@ export const DashboardPage: React.FC = () => {
                   className={`h-2 w-2 rounded-full ${totalActiveCount > 0 ? 'bg-cyan-300 animate-pulse' : 'bg-emerald-300'}`}
                 />
                 {totalActiveCount > 0
-                  ? `${totalActiveCount} active${runningStrategyCount > 0 ? ` (${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'})` : ''}`
-                  : 'No active runs'}
+                  ? `${totalActiveCount} active${
+                      runningRuntimeBots.length > 0
+                        ? ` (${runningRuntimeBots.length} bot${runningRuntimeBots.length === 1 ? '' : 's'})`
+                        : runningStrategyCount > 0
+                          ? ` (${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'})`
+                          : ''
+                    }`
+                  : 'No live activity'}
               </div>
               <div
                 className="operator-status-pill"
@@ -668,8 +713,8 @@ export const DashboardPage: React.FC = () => {
                 <div>
                   <p className="text-sm font-semibold text-white">Live readiness</p>
                   <p className="mt-1 text-sm leading-6 text-slate-400">
-                    Active run progress, sync health, and launch controls remain in the first
-                    viewport during execution.
+                    Bot runtime health, active backtests, sync health, and alerts remain visible
+                    before you move into detailed control desks.
                   </p>
                 </div>
               </div>
@@ -697,23 +742,19 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setLauncherOpen((open) => !open)}
-                className="operator-action-card p-4 text-left"
-              >
+              <Link to="/backtests" className="operator-action-card p-4 text-left">
                 <div className="flex items-start gap-3">
                   <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
                     <Rocket className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">Quick launch</p>
+                    <p className="text-sm font-semibold text-white">Run backtest</p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                      {launcherOpen ? 'Collapse the launch form' : 'Open the backtest launcher'}
+                      Validate a strategy with historical data before deployment.
                     </p>
                   </div>
                 </div>
-              </button>
+              </Link>
               <Link to="/backtests" className="operator-action-card p-4">
                 <div className="flex items-start gap-3">
                   <div className="rounded-lg bg-emerald-500/10 p-2.5 text-emerald-300">
@@ -733,15 +774,14 @@ export const DashboardPage: React.FC = () => {
                     <Play className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">Bot Manager</p>
+                    <p className="text-sm font-semibold text-white">Bots</p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Monitor health, degraded state, and instance actions from the Bot Manager
-                      desk.
+                      Monitor health, degraded state, and instance actions from the Bots desk.
                     </p>
                   </div>
                 </div>
               </Link>
-              <Link to="/codex" className="operator-action-card p-4">
+              <Link to="/market-intel" className="operator-action-card p-4">
                 <div className="flex items-start gap-3">
                   <div className="rounded-lg bg-teal-500/10 p-2.5 text-teal-300">
                     <Newspaper className="h-5 w-5" />
@@ -797,7 +837,9 @@ export const DashboardPage: React.FC = () => {
           icon={<Activity className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtN(countRunning)}
           subtitle={
-            runningStrategyCount > 0
+            runningRuntimeBots.length > 0
+              ? `${runningRuntimeBots.length} live bot${runningRuntimeBots.length === 1 ? '' : 's'}`
+              : runningStrategyCount > 0
               ? `${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'} live`
               : stats.running > 0
                 ? 'Backtest in progress'
@@ -952,7 +994,7 @@ export const DashboardPage: React.FC = () => {
               ))}
             </div>
             <Link
-              to="/codex"
+              to="/market-intel"
               className="mt-5 inline-flex items-center gap-2 rounded-lg border border-teal-500/30 bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-100 transition hover:bg-teal-500/20"
             >
               Open Market Intel
@@ -998,42 +1040,102 @@ export const DashboardPage: React.FC = () => {
 
         <div className="grid gap-6">
           <div
-            className="operator-section-card overflow-hidden animate-fade-slide-up"
+            className="operator-section-card p-5 animate-fade-slide-up"
             style={{ animationDelay: '280ms' }}
           >
-            <button
-              type="button"
-              onClick={() => setLauncherOpen((open) => !open)}
-              className="flex w-full items-center justify-between px-5 py-4 transition-colors hover:bg-slate-900/35"
-            >
+            <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
-                  <Rocket className="h-4 w-4" />
+                  <Play className="h-4 w-4" />
                 </div>
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-white">Quick launch backtest</p>
+                <div>
+                  <p className="text-sm font-semibold text-white">Live bot runtime</p>
                   <p className="text-xs text-slate-400">
-                    Open the runner without leaving the dashboard workflow.
+                    Active bots, degraded state, and runtime transitions stay visible here.
                   </p>
                 </div>
               </div>
-              <div className="text-slate-400">
-                {launcherOpen ? (
-                  <ChevronUp className="h-5 w-5" />
-                ) : (
-                  <ChevronDown className="h-5 w-5" />
-                )}
-              </div>
-            </button>
+              <span
+                className="operator-status-pill"
+                data-tone={runningRuntimeBots.length > 0 ? 'positive' : 'warning'}
+              >
+                {runningRuntimeBots.length > 0 ? `${runningRuntimeBots.length} running` : 'No bots live'}
+              </span>
+            </div>
 
-            {launcherOpen && (
-              <div className="border-t border-slate-800/80">
-                <BacktestRunner
-                  onBacktestComplete={() => {
-                    setRefreshTrigger((t) => t + 1);
-                    setLauncherOpen(false);
-                  }}
+            <div className="grid grid-cols-3 gap-3 border-b border-slate-800/70 pb-4 text-center">
+              <div>
+                <p className="text-[11px] text-slate-500">Instances</p>
+                <p className="text-sm font-semibold text-white">
+                  {botsQuery.isLoading ? '—' : runtimeBots.length}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500">Transitioning</p>
+                <p className="text-sm font-semibold text-cyan-300">
+                  {transitioningRuntimeBots.length}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500">Needs attention</p>
+                <p
+                  className={`text-sm font-semibold ${
+                    degradedRuntimeBots.length > 0 ? 'text-rose-300' : 'text-emerald-300'
+                  }`}
+                >
+                  {degradedRuntimeBots.length}
+                </p>
+              </div>
+            </div>
+
+            {botsQuery.isError ? (
+              <InlineNotice
+                tone="danger"
+                title="Bot runtime state unavailable"
+                description={
+                  botsQuery.error instanceof Error
+                    ? botsQuery.error.message
+                    : 'Unable to load runtime state from the backend.'
+                }
+                className="mt-4"
+              />
+            ) : runningRuntimeBots.length === 0 ? (
+              <div className="mt-4">
+                <EmptyState
+                  icon={Play}
+                  title="No live bots are running"
+                  description="Deploy from a validated strategy/backtest or start an existing runtime from the Bots desk."
+                  action={
+                    <Link to="/bots" className="premium-button premium-button-primary px-4 py-2 text-sm">
+                      Open Bots
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  }
                 />
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {runningRuntimeBots.slice(0, 4).map((bot) => (
+                  <Link
+                    key={bot.instance_id}
+                    to="/bots"
+                    className="block rounded-lg border border-slate-700/60 bg-slate-950/45 p-3 transition hover:border-cyan-500/40 hover:bg-slate-900/70"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {bot.instance_name || bot.instance_id}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {bot.strategy || 'runtime'} · {bot.started_at ? `started ${new Date(bot.started_at).toLocaleTimeString()}` : 'start time unavailable'}
+                        </p>
+                      </div>
+                      <span className="operator-status-pill" data-tone="positive">
+                        {bot.status}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
               </div>
             )}
           </div>
@@ -1069,7 +1171,7 @@ export const DashboardPage: React.FC = () => {
                 </div>
                 <p className="text-sm text-slate-400">No active runs right now</p>
                 <p className="text-xs text-slate-500">
-                  Use quick launch to start a new research cycle.
+                  Open Backtests when you are ready to start a new validation cycle.
                 </p>
               </div>
             ) : (
@@ -1129,13 +1231,13 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
             <div className="mt-5 grid grid-cols-1 gap-3">
-              <Link to="/news" className="operator-action-card p-4">
+              <Link to="/market-intel/news" className="operator-action-card p-4">
                 <p className="text-sm font-semibold text-white">Open Market News</p>
                 <p className="mt-1 text-xs text-slate-400">
                   See the full CoinDesk-powered newsroom view.
                 </p>
               </Link>
-              <Link to="/codex" className="operator-action-card p-4">
+              <Link to="/market-intel" className="operator-action-card p-4">
                 <p className="text-sm font-semibold text-white">Open Market Intel</p>
                 <p className="mt-1 text-xs text-slate-400">
                   Inspect movers, safer tokens, and asset context in one place.
@@ -1152,21 +1254,59 @@ export const DashboardPage: React.FC = () => {
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-white">Backtest activity tape</h2>
+            <h2 className="text-xl font-semibold text-white">Recent activity</h2>
             <p className="text-sm text-slate-400">
-              Every run remains visible here with soft refresh behavior for active jobs.
+              Latest validation and runtime signals, with deep reports kept under Backtests.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setLauncherOpen(true)}
-            className="premium-button premium-button-secondary px-4 py-2 text-sm"
-          >
-            Launch a backtest
+          <Link to="/backtests" className="premium-button premium-button-secondary px-4 py-2 text-sm">
+            Open Backtests
             <ArrowRight className="h-4 w-4" />
-          </button>
+          </Link>
         </div>
-        <BacktestList runs={runs} loading={statsLoading} error={statsError} />
+        {statsLoading ? (
+          <div className="rounded-lg border border-slate-800 bg-slate-950/45 p-5 text-sm text-slate-400">
+            Loading recent activity...
+          </div>
+        ) : runs.length === 0 ? (
+          <EmptyState
+            icon={Activity}
+            title="No activity yet"
+            description="Validated backtests, running jobs, and bot events will appear here once the desk has data."
+            action={
+              <Link to="/backtests" className="premium-button premium-button-primary px-4 py-2 text-sm">
+                Run first backtest
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            }
+          />
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {runs.slice(0, 6).map((run) => (
+              <Link
+                key={run.run_id}
+                to={`/backtest/${run.run_id}`}
+                className="rounded-lg border border-slate-800 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-900/70"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white">
+                      {run.name || run.run_id}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {String(run.status ?? 'unknown').toUpperCase()}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-sm font-semibold ${safeNum(run.total_pnl) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                  >
+                    {fmtPnl(safeNum(run.total_pnl))}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
     </PageContainer>
   );

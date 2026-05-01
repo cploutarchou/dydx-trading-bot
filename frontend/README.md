@@ -69,6 +69,20 @@ Shared boundaries are exposed under:
 
 The current implementation keeps the original source modules in `src/*` and exports them through those package folders to avoid duplicating business logic while the repo moves toward a fuller workspace-package layout.
 
+## Client Portal Information Architecture
+
+The client portal is organized around the automation workflow:
+
+- Dashboard: live account and runtime intelligence, active bots, live PnL, alerts, recent activity, and quick actions.
+- Strategies: strategy library, builder, edit flows, templates, risk profile, and validation readiness.
+- Backtests: backtest setup, live progress, historical results, comparisons, reporting, and strategy rankings.
+- Bots: live/paper runtime management, health, start/stop/restart/delete actions, positions, logs, and deployment review.
+- Market Intel: Codex token intelligence and Market News research. Legacy `/codex` and `/news` links redirect into this section.
+- Client Area / Account: role progression, onboarding state, and partner application timeline.
+- Settings: profile, security, dYdX keys/wallet/API credentials, Telegram, and integrations.
+
+Client portal product flow should remain: `Research -> Strategy -> Backtest -> Deploy Bot -> Monitor Dashboard`.
+
 ## Domains and Environment
 
 Use these variables for local or deployed builds:

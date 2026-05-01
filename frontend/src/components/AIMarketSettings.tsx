@@ -270,14 +270,12 @@ export function AIMarketSettings() {
                   <input
                     className="premium-input"
                     onChange={(event) => setSharedLabel(event.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
                     placeholder="Shared AI market key"
                   />
                   <input
                     type="password"
                     className="premium-input"
                     onChange={(event) => setSharedApiKey(event.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500/60"
                     placeholder={`Paste shared ${providerLabel(provider)} key`}
                   />
                   <div className="flex flex-wrap gap-2">

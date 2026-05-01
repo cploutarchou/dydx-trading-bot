@@ -34,6 +34,9 @@ type AIProviderStatus struct {
 	Provider           string `json:"provider"`
 	Label              string `json:"label"`
 	Enabled            bool   `json:"enabled"`
+	Available          bool   `json:"available"`
+	AvailabilityStatus string `json:"availability_status"`
+	UnavailableReason  string `json:"unavailable_reason,omitempty"`
 	SharedKeyAvailable bool   `json:"shared_key_available"`
 	UserKeyAvailable   bool   `json:"user_key_available"`
 	UserKeyMasked      string `json:"user_key_masked"`
@@ -85,6 +88,18 @@ type aiResolvedKey struct {
 	sharedAvailable bool
 }
 
+type AIProviderAccessError struct {
+	Code    int
+	Message string
+}
+
+func (e *AIProviderAccessError) Error() string {
+	if e == nil {
+		return "AI provider access error"
+	}
+	return e.Message
+}
+
 type aiProviderConfig struct {
 	provider string
 	model    string
@@ -106,6 +121,7 @@ func NewAIMarketService(credentials *ExternalAPICredentialService) *AIMarketServ
 func (s *AIMarketService) Status(userID int) (AIMarketStatus, error) {
 	providers := make([]AIProviderStatus, 0, len(SupportedAIProviders))
 	for _, provider := range SupportedAIProviders {
+		enabled := s.providerEnabled(provider)
 		resolved, err := s.resolveKey(userID, provider)
 		if err != nil {
 			return AIMarketStatus{}, err
@@ -118,11 +134,22 @@ func (s *AIMarketService) Status(userID int) (AIMarketStatus, error) {
 
 		status := AIProviderStatus{
 			Provider:           provider,
-			Enabled:            strings.TrimSpace(resolved.key) != "",
+			Enabled:            enabled,
+			Available:          enabled && strings.TrimSpace(resolved.key) != "",
 			SharedKeyAvailable: resolved.sharedAvailable,
 			UserKeyAvailable:   resolved.userAvailable,
-			ActiveKeySource:    resolved.activeSource,
 			Model:              s.providerConfig(provider).model,
+		}
+		switch {
+		case !enabled:
+			status.AvailabilityStatus = "disabled"
+			status.UnavailableReason = "Disabled by administrator"
+		case !status.Available:
+			status.AvailabilityStatus = "not_configured"
+			status.UnavailableReason = "No active API credentials configured"
+		default:
+			status.AvailabilityStatus = "available"
+			status.ActiveKeySource = resolved.activeSource
 		}
 		if info != nil {
 			status.Label = info.Label
@@ -149,6 +176,21 @@ func (s *AIMarketService) SaveUserKey(userID int, payload AICredentialPayload) (
 	return s.credentials.Save(userID, provider, payload.APIKey, label)
 }
 
+func (s *AIMarketService) SaveSharedKey(payload AICredentialPayload) (*ExternalAPICredentialInfo, error) {
+	provider, err := normalizeAIProvider(payload.Provider)
+	if err != nil {
+		return nil, err
+	}
+	label := strings.TrimSpace(payload.Label)
+	if label == "" {
+		label = fmt.Sprintf("%s shared key", providerDisplayName(provider))
+	}
+	if s.credentials == nil {
+		return nil, fmt.Errorf("credential service is not configured")
+	}
+	return s.credentials.SaveShared(provider, payload.APIKey, label)
+}
+
 func (s *AIMarketService) DeleteUserKey(userID int, provider string) error {
 	normalized, err := normalizeAIProvider(provider)
 	if err != nil {
@@ -157,8 +199,19 @@ func (s *AIMarketService) DeleteUserKey(userID int, provider string) error {
 	return s.credentials.Delete(userID, normalized)
 }
 
+func (s *AIMarketService) DeleteSharedKey(provider string) error {
+	normalized, err := normalizeAIProvider(provider)
+	if err != nil {
+		return err
+	}
+	if s.credentials == nil {
+		return fmt.Errorf("credential service is not configured")
+	}
+	return s.credentials.DeleteShared(normalized)
+}
+
 func (s *AIMarketService) SelectMarkets(ctx context.Context, userID int, req AIMarketSelectionRequest) (*AIMarketSelectionResponse, error) {
-	provider, err := normalizeAIProvider(req.Provider)
+	provider, resolved, err := s.resolveUsableKey(userID, req.Provider)
 	if err != nil {
 		return nil, err
 	}
@@ -172,14 +225,6 @@ func (s *AIMarketService) SelectMarkets(ctx context.Context, userID int, req AIM
 	markets := normalizeMarkets(req.Markets)
 	if len(markets) < 2 {
 		return nil, fmt.Errorf("at least two dYdX markets are required for AI selection")
-	}
-
-	resolved, err := s.resolveKey(userID, provider)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return fallbackAIMarketSelection(provider, mode, markets, limit, "No AI key is configured for the selected provider."), nil
 	}
 
 	criteria := normalizeAIMarketCriteria(req.Criteria, mode)
@@ -204,14 +249,43 @@ func (s *AIMarketService) SelectMarkets(ctx context.Context, userID int, req AIM
 	}, nil
 }
 
+func (s *AIMarketService) resolveUsableKey(userID int, provider string) (string, aiResolvedKey, error) {
+	normalized, err := normalizeAIProvider(provider)
+	if err != nil {
+		return "", aiResolvedKey{}, err
+	}
+
+	if !s.providerEnabled(normalized) {
+		return normalized, aiResolvedKey{}, &AIProviderAccessError{
+			Code:    http.StatusForbidden,
+			Message: fmt.Sprintf("%s is disabled by administrator", providerDisplayName(normalized)),
+		}
+	}
+
+	resolved, err := s.resolveKey(userID, normalized)
+	if err != nil {
+		return normalized, aiResolvedKey{}, err
+	}
+
+	if strings.TrimSpace(resolved.key) == "" {
+		return normalized, aiResolvedKey{}, &AIProviderAccessError{
+			Code:    http.StatusConflict,
+			Message: fmt.Sprintf("%s is not configured with active credentials", providerDisplayName(normalized)),
+		}
+	}
+
+	return normalized, resolved, nil
+}
+
 func (s *AIMarketService) resolveKey(userID int, provider string) (aiResolvedKey, error) {
 	normalized, err := normalizeAIProvider(provider)
 	if err != nil {
 		return aiResolvedKey{}, err
 	}
 
+	sharedEnvKey := strings.TrimSpace(os.Getenv(sharedAIKeyEnv(normalized)))
 	resolved := aiResolvedKey{
-		sharedAvailable: strings.TrimSpace(os.Getenv(sharedAIKeyEnv(normalized))) != "",
+		sharedAvailable: sharedEnvKey != "",
 		activeSource:    "none",
 	}
 
@@ -226,14 +300,51 @@ func (s *AIMarketService) resolveKey(userID int, provider string) (aiResolvedKey
 			resolved.activeSource = "user"
 			return resolved, nil
 		}
+
+		sharedKey, sharedOk, sharedErr := s.credentials.ResolveSharedKey(normalized)
+		if sharedErr != nil {
+			return resolved, fmt.Errorf("failed to resolve shared %s API key: %w", providerDisplayName(normalized), sharedErr)
+		}
+		if sharedOk && strings.TrimSpace(sharedKey) != "" {
+			resolved.sharedAvailable = true
+			resolved.key = strings.TrimSpace(sharedKey)
+			resolved.activeSource = "shared"
+			return resolved, nil
+		}
 	}
 
-	if resolved.sharedAvailable {
-		resolved.key = strings.TrimSpace(os.Getenv(sharedAIKeyEnv(normalized)))
+	if sharedEnvKey != "" {
+		resolved.key = sharedEnvKey
 		resolved.activeSource = "shared"
 	}
 
 	return resolved, nil
+}
+
+func (s *AIMarketService) providerEnabled(provider string) bool {
+	var key string
+	switch provider {
+	case ExternalAPIProviderDeepSeek:
+		key = "AI_PROVIDER_DEEPSEEK_ENABLED"
+	case ExternalAPIProviderClaude:
+		key = "AI_PROVIDER_CLAUDE_ENABLED"
+	default:
+		key = "AI_PROVIDER_OPENAI_ENABLED"
+	}
+
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if raw == "" {
+		return true
+	}
+
+	switch raw {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	case "0", "false", "no", "off", "disabled":
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *AIMarketService) callProvider(ctx context.Context, apiKey string, provider string, mode string, markets []string, limit int, strategy string, criteria AIMarketCriteria) (*AIMarketSelectionResponse, error) {
@@ -679,16 +790,9 @@ func (s *AIMarketService) ExplainBacktest(ctx context.Context, userID int, req A
 	if err != nil {
 		provider = ExternalAPIProviderDeepSeek
 	}
-	resolved, err := s.resolveKey(userID, provider)
+	provider, resolved, err := s.resolveUsableKey(userID, provider)
 	if err != nil {
 		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return &AITextResponse{
-			Provider: provider,
-			Content:  "No AI key configured. Add a DeepSeek, OpenAI, or Claude key in Settings → AI Providers to enable AI explanations.",
-			UsedAI:   false,
-		}, nil
 	}
 
 	markets := strings.Join(req.Markets, ", ")
@@ -724,12 +828,9 @@ func (s *AIMarketService) SuggestStrategyParams(ctx context.Context, userID int,
 	if err != nil {
 		provider = ExternalAPIProviderDeepSeek
 	}
-	resolved, err := s.resolveKey(userID, provider)
+	provider, resolved, err := s.resolveUsableKey(userID, provider)
 	if err != nil {
 		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return &AITextResponse{Provider: provider, Content: "No AI key configured.", UsedAI: false}, nil
 	}
 
 	paramsJSON, _ := json.Marshal(req.CurrentParams)
@@ -777,12 +878,9 @@ func (s *AIMarketService) RuntimeDigest(ctx context.Context, userID int, req AIR
 	if err != nil {
 		provider = ExternalAPIProviderDeepSeek
 	}
-	resolved, err := s.resolveKey(userID, provider)
+	provider, resolved, err := s.resolveUsableKey(userID, provider)
 	if err != nil {
 		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return &AITextResponse{Provider: provider, Content: "No AI key configured.", UsedAI: false}, nil
 	}
 
 	network := req.Network

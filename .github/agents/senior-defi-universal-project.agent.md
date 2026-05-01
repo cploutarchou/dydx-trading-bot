@@ -62,3 +62,9 @@ Run only what is relevant to touched scope:
 - No runtime safety regressions for live trading paths.
 - No stale docs after behavior change.
 - No speculative rewrites; prefer smallest robust fix.
+
+## Latest context snapshot (2026-05)
+
+- Frontend includes a dashboard-first backtest intelligence flow with active-run quick access and freshness telemetry.
+- Backend backtest list route is DB-backed and delegated status/progress normalization is centralized in route helpers.
+- Bot runtime contracts to preserve: canonical API entrypoint, service-token overlap behavior, strict readiness semantics.

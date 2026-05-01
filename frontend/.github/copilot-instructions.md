@@ -6,6 +6,16 @@ Preferred service agent: `.github/agents/senior-react-defi-product.agent.md`
 
 React 19 + TypeScript + Vite frontend for **dYdX trading bot platform** - full-stack UI for backtesting, strategy management, and live bot operations. Frontend uses the Go backend on `localhost:8888`, which orchestrates/proxies Bot API operations.
 
+## Authoritative current-state overrides (2026-05)
+
+Use these as source-of-truth when any statement below conflicts:
+
+- Auth route state currently comes from `src/store/auth.ts` in app routing paths; do not assume `enhancedAuth.ts` is the active route guard source.
+- API access is mixed in current production code: React Query hooks exist, but several important screens still use direct component fetch/poll patterns (for example, `BacktestList`, `BotManager`, `StrategyManager`).
+- `src/pages/Backtests.tsx` is now a primary operator page with `dashboard` / `new` / `runs` views and active-run quick access cards.
+- Active-run cards use per-run status polling and freshness cues (status/progress normalization + updated-age + stale border escalation).
+- Preserve backend-only integration boundary (`frontend -> backend`) and avoid direct bot API coupling from browser code.
+
 ## Architecture & Tech Stack
 
 | Layer             | Technology                     | Purpose                                  |

@@ -54,3 +54,9 @@ Build a production-grade DeFi product surface that is fast, responsive, informat
 - Run `npm run lint`.
 - Run `npm run build`.
 - Update `frontend/README.md` or frontend architecture notes when patterns or boundaries change.
+
+## Latest context snapshot (2026-05)
+
+- `src/pages/Backtests.tsx` is a core operator surface with dashboard/new/runs modes and active-run quick access.
+- Active-run cards rely on per-run status polling with freshness labeling and stale-border escalation.
+- `src/components/StrategyManager.tsx` includes runtime heartbeat, stale/delayed cues, and density presets for operator workflows.

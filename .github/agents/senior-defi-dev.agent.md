@@ -56,3 +56,9 @@ This is a monorepo:
 - Backtests: must use walk-forward or out-of-sample splits; never fit and evaluate on the same window.
 - Risk sizing: always express in terms of account equity percentage; never hard-code notional sizes.
 - Slippage/fees: must be modeled in backtest P&L — never report gross returns as net.
+
+## Latest context snapshot (2026-05)
+
+- Frontend strategy/backtest operator UX now surfaces runtime heartbeat freshness and active-run telemetry prominently.
+- Backend delegated routes normalize status aliases (`pending/running/completed/...`) and progress aliases (`progress_pct/progress_percent/progress`) for contract stability.
+- Migration updates in PostgreSQL paths were hardened for transaction-safe startup execution.

@@ -22,6 +22,14 @@ and operational safety controls.
 
 Bot instances run as **separate processes** (not threads), with isolated state files in `bot_states/`.
 
+## Authoritative current-state overrides (2026-05)
+
+Use these as source-of-truth when in doubt:
+
+- Canonical API remains `src/api/server.py`; preserve compatibility wrappers without duplicating business logic.
+- Backend relies on normalized status/progress fields for delegated backtest/runtime contracts; avoid removing aliases without coordinated backend/frontend updates.
+- Service-token overlap and `/ready` strictness are active operational contracts and should remain covered by tests when touched.
+
 ## Critical Development Patterns
 
 ### 1) Environment-first imports

@@ -24,3 +24,9 @@ Use this file when the task is primarily inside the React frontend service.
 - `../docs/architecture/README.md`
 - `../docs/architecture/FINTECH_UI_STANDARDS.md`
 - `../docs/guides/TROUBLESHOOTING.md`
+
+## Current implementation hotspots (2026-05)
+
+- `src/pages/Backtests.tsx` — backtest intelligence dashboard/new/runs UX and active-run quick access.
+- `src/components/StrategyManager.tsx` — runtime operations UX with heartbeat/status telemetry.
+- `src/components/BacktestList.tsx` — run archive with active polling and status normalization behavior.

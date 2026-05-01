@@ -6,6 +6,7 @@ import api, {
     type AIMarketProvider,
     type AISuggestParamsRequest,
 } from '../api';
+import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
 
 interface Props {
@@ -27,12 +28,6 @@ interface PendingApplyPreview {
   patch: Partial<Strategy>;
 }
 
-const PROVIDERS: { value: AIMarketProvider; label: string }[] = [
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'claude', label: 'Claude' },
-];
-
 export function AIStrategyAdvisor({
   strategy,
   lastError = '',
@@ -49,6 +44,22 @@ export function AIStrategyAdvisor({
   const [applyLoading, setApplyLoading] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [pendingApplyPreview, setPendingApplyPreview] = useState<PendingApplyPreview | null>(null);
+  const {
+    availableProviders,
+    unavailableProviders,
+    statusMap,
+    isLoading: providerStatusLoading,
+  } = useAIProviderAvailability();
+
+  useEffect(() => {
+    if (availableProviders.length === 0) {
+      return;
+    }
+
+    if (!availableProviders.includes(provider)) {
+      setProvider(availableProviders[0]);
+    }
+  }, [availableProviders, provider]);
 
   useEffect(() => {
     if (!pendingApplyPreview) return;
@@ -286,19 +297,19 @@ export function AIStrategyAdvisor({
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
-            disabled={loading}
+            disabled={loading || providerStatusLoading || availableProviders.length === 0}
             className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
           >
-            {PROVIDERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
+            {availableProviders.map((p) => (
+              <option key={p} value={p}>
+                {getAIProviderLabel(p)}
               </option>
             ))}
           </select>
 
           <button
             onClick={runSuggest}
-            disabled={loading}
+            disabled={loading || availableProviders.length === 0}
             className="flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 py-2 text-xs font-medium text-white transition hover:bg-emerald-600 disabled:opacity-50"
           >
             {loading ? (
@@ -331,10 +342,22 @@ export function AIStrategyAdvisor({
         </p>
       )}
 
+      {!providerStatusLoading && availableProviders.length === 0 && (
+        <div className="mt-3 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+          No AI providers are currently available for your account.{' '}
+          {unavailableProviders
+            .map(
+              (item) =>
+                `${getAIProviderLabel(item)}: ${statusMap[item]?.unavailable_reason || 'Not configured'}`
+            )
+            .join(' · ')}
+        </div>
+      )}
+
       {loading && (
         <div className="mt-4 flex items-center gap-3 text-sm text-slate-400">
           <Loader className="h-4 w-4 animate-spin text-emerald-400" />
-          Analysing strategy with {PROVIDERS.find((p) => p.value === provider)?.label ?? provider}…
+          Analysing strategy with {getAIProviderLabel(provider)}…
         </div>
       )}
 

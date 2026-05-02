@@ -19,6 +19,11 @@ class _DummySession:
         self.closed = True
 
 
+class _FailingWebSocket:
+    async def send_json(self, _message):
+        raise RuntimeError("socket not connected")
+
+
 def test_send_initial_state_backtest_channel_emits_snapshot(monkeypatch):
     session = _DummySession()
 
@@ -41,7 +46,9 @@ def test_send_initial_state_backtest_channel_emits_snapshot(monkeypatch):
     monkeypatch.setattr(websocket_server, "BacktestRepository", _FakeRepository)
 
     ws = _DummyWebSocket()
-    asyncio.run(websocket_server.WebSocketServer.send_initial_state(ws, "backtest-run-123"))
+    asyncio.run(
+        websocket_server.WebSocketServer.send_initial_state(ws, "backtest-run-123")
+    )
 
     assert session.closed is True
     assert len(ws.messages) == 2
@@ -130,7 +137,9 @@ def test_send_stats_resolves_string_instance_id_to_numeric_bot_id(monkeypatch):
     monkeypatch.setattr(websocket_server.db, "get_session", lambda: _DummySession())
     monkeypatch.setattr(websocket_server, "UnitOfWork", _FakeCoreUow)
     monkeypatch.setattr(websocket_server, "UnitOfWorkRealtime", _FakeRealtimeUow)
-    monkeypatch.setattr(websocket_server.manager, "send_personal_message", _fake_send_personal_message)
+    monkeypatch.setattr(
+        websocket_server.manager, "send_personal_message", _fake_send_personal_message
+    )
 
     ws = _DummyWebSocket()
     asyncio.run(websocket_server.WebSocketServer.send_stats(ws, "strategy-1-9"))
@@ -139,3 +148,38 @@ def test_send_stats_resolves_string_instance_id_to_numeric_bot_id(monkeypatch):
     assert sent_messages[0]["type"] == "stats"
     assert sent_messages[0]["data"]["total_open_positions"] == 2
     assert sent_messages[0]["data"]["daily_trades_opened"] == 1
+
+
+def test_send_backtest_status_tracks_per_run_send_failures(monkeypatch):
+    session = _DummySession()
+    websocket_server.manager.send_metrics.clear()
+    monkeypatch.setenv("BACKTEST_WS_FAILURE_ALERT_THRESHOLD", "1")
+    monkeypatch.setattr(websocket_server.db, "get_session", lambda: session)
+
+    class _FakeRepository:
+        def __init__(self, db_session):
+            assert db_session is session
+
+        def get_run(self, run_id: str):
+            assert run_id == "run-metrics"
+            return {
+                "status": "running",
+                "progress_pct": 10.0,
+                "current_pair": "BTC-USD/ETH-USD",
+                "current_task": "processing pair",
+                "updated_at": "2026-04-08T20:41:16Z",
+            }
+
+    monkeypatch.setattr(websocket_server, "BacktestRepository", _FakeRepository)
+
+    ws = _FailingWebSocket()
+    sent = asyncio.run(
+        websocket_server.WebSocketServer.send_backtest_status(ws, "run-metrics")
+    )
+
+    assert sent is False
+    metrics = websocket_server.manager.get_backtest_send_failure_metrics("run-metrics")
+    assert metrics["run_id"] == "run-metrics"
+    assert metrics["metrics"]["total_send_failures"] >= 1
+    assert metrics["metrics"]["consecutive_send_failures"] >= 1
+    assert metrics["alert_recommended"] is True

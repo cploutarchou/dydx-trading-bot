@@ -7,13 +7,14 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy.orm import Session, defer
 
-from internal.domain.models import BacktestRun
+from internal.domain.models import BacktestRun, BacktestRunRequestPayload
 
 
 class BacktestRepository:
     """Repository for backtest operations."""
 
     _memory_runs: Dict[str, Dict[str, Any]] = {}
+    _memory_request_snapshots: Dict[str, Dict[str, Any]] = {}
 
     def __init__(self, session: Optional[Session]):
         self.session = session
@@ -38,7 +39,9 @@ class BacktestRepository:
         return dt.isoformat()
 
     @staticmethod
-    def _parse_dt(value: Any, *, default: Optional[datetime] = None) -> Optional[datetime]:
+    def _parse_dt(
+        value: Any, *, default: Optional[datetime] = None
+    ) -> Optional[datetime]:
         if value is None or value == "":
             return default
         if isinstance(value, datetime):
@@ -94,6 +97,14 @@ class BacktestRepository:
         payload["updated_at"] = cls._serialize_dt(payload.get("updated_at")) or now
         return payload
 
+    @staticmethod
+    def _sanitize_request_payload(payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {}
+        cleaned = dict(payload)
+        cleaned.pop("_runtime_control", None)
+        return cleaned
+
     @classmethod
     def _record_to_summary_dict(cls, record: BacktestRun) -> Dict[str, Any]:
         """Lightweight projection used for list queries — omits large JSON blob columns."""
@@ -128,28 +139,69 @@ class BacktestRepository:
             "updated_at": cls._serialize_dt(record.updated_at),
         }
 
-    @classmethod
-    def _record_to_dict(cls, record: BacktestRun) -> Dict[str, Any]:
+    def _record_to_dict(self, record: BacktestRun) -> Dict[str, Any]:
+        request_payload = dict(record.request_json or {})
+        if not request_payload:
+            request_payload = self._get_request_snapshot(record.run_id)
         return {
-            **cls._record_to_summary_dict(record),
-            "request": dict(record.request_json or {}),
+            **self._record_to_summary_dict(record),
+            "request": request_payload,
             "trades": list(record.trades_json or []),
             "position_snapshots": list(record.position_snapshots_json or []),
             "daily_pnl": list(record.daily_pnl_json or []),
         }
 
+    def _upsert_request_snapshot(self, run_id: str, request_payload: Any) -> None:
+        cleaned = self._sanitize_request_payload(request_payload)
+        if not cleaned:
+            return
+
+        if self.session is None:
+            BacktestRepository._memory_request_snapshots[run_id] = cleaned
+            return
+
+        snapshot = (
+            self.session.query(BacktestRunRequestPayload)
+            .filter(BacktestRunRequestPayload.run_id == run_id)
+            .first()
+        )
+        if snapshot is None:
+            snapshot = BacktestRunRequestPayload(run_id=run_id)
+            self.session.add(snapshot)
+
+        # Immutable-ish snapshot semantics: only fill if missing.
+        if not dict(snapshot.request_json or {}):
+            snapshot.request_json = cleaned
+
+    def _get_request_snapshot(self, run_id: str) -> Dict[str, Any]:
+        if self.session is None:
+            return dict(BacktestRepository._memory_request_snapshots.get(run_id) or {})
+
+        snapshot = (
+            self.session.query(BacktestRunRequestPayload)
+            .filter(BacktestRunRequestPayload.run_id == run_id)
+            .first()
+        )
+        if snapshot is None:
+            return {}
+        return dict(snapshot.request_json or {})
+
     def save_run(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = self._normalize_run_data(run_data)
         run_id = str(payload["run_id"])
+        incoming_request_payload = (
+            run_data.get("request") if isinstance(run_data, dict) else None
+        )
 
         if self.session is None:
+            cleaned_request = self._sanitize_request_payload(incoming_request_payload)
+            if cleaned_request:
+                BacktestRepository._memory_request_snapshots[run_id] = cleaned_request
             BacktestRepository._memory_runs[run_id] = payload
             return dict(payload)
 
         record = (
-            self.session.query(BacktestRun)
-            .filter(BacktestRun.run_id == run_id)
-            .first()
+            self.session.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
         )
         if record is None:
             record = BacktestRun(run_id=run_id)
@@ -163,9 +215,7 @@ class BacktestRepository:
         record.total_pnl = float(payload.get("total_pnl", 0.0) or 0.0)
         record.win_rate = float(payload.get("win_rate", 0.0) or 0.0)
         record.sharpe_ratio = float(payload.get("sharpe_ratio", 0.0) or 0.0)
-        record.max_drawdown_pct = float(
-            payload.get("max_drawdown_pct", 0.0) or 0.0
-        )
+        record.max_drawdown_pct = float(payload.get("max_drawdown_pct", 0.0) or 0.0)
         record.total_trades = int(payload.get("total_trades", 0) or 0)
         record.profit_factor = float(payload.get("profit_factor", 0.0) or 0.0)
         record.start_date = str(payload.get("start_date") or "")
@@ -177,7 +227,9 @@ class BacktestRepository:
         record.position_snapshots_json = payload.get("position_snapshots") or []
         record.daily_pnl_json = payload.get("daily_pnl") or []
         record.cancel_requested = bool(payload.get("cancel_requested", False))
-        record.created_at = self._parse_dt(payload.get("created_at"), default=self._now())
+        record.created_at = self._parse_dt(
+            payload.get("created_at"), default=self._now()
+        )
         record.started_at = self._parse_dt(payload.get("started_at"))
         record.completed_at = self._parse_dt(
             payload.get("completed_at") or payload.get("finished_at")
@@ -188,7 +240,11 @@ class BacktestRepository:
             if payload.get("timeout_seconds") is not None
             else None
         )
-        record.updated_at = self._parse_dt(payload.get("updated_at"), default=self._now())
+        record.updated_at = self._parse_dt(
+            payload.get("updated_at"), default=self._now()
+        )
+
+        self._upsert_request_snapshot(run_id, incoming_request_payload)
 
         self.session.commit()
         self.session.refresh(record)
@@ -208,11 +264,11 @@ class BacktestRepository:
         return self._record_to_dict(record) if record else None
 
     def list_runs(
-            self,
-            limit: Optional[int] = None,
-            offset: int = 0,
-            status_filter: Optional[str] = None,
-            days_filter: Optional[int] = None,
+        self,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        status_filter: Optional[str] = None,
+        days_filter: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         if self.session is None:
             runs = list(BacktestRepository._memory_runs.values())
@@ -225,19 +281,18 @@ class BacktestRepository:
                     for r in runs
                     if (self._parse_dt(r.get("created_at")) or self._now()) >= cutoff
                 ]
-            runs = sorted(runs, key=lambda row: str(row.get("updated_at", "")), reverse=True)
+            runs = sorted(
+                runs, key=lambda row: str(row.get("updated_at", "")), reverse=True
+            )
             if limit is None:
                 return [dict(row) for row in runs[offset:]]
-            return [dict(row) for row in runs[offset: offset + limit]]
+            return [dict(row) for row in runs[offset : offset + limit]]
 
-        query = (
-            self.session.query(BacktestRun)
-            .options(
-                defer(BacktestRun.request_json),
-                defer(BacktestRun.trades_json),
-                defer(BacktestRun.position_snapshots_json),
-                defer(BacktestRun.daily_pnl_json),
-            )
+        query = self.session.query(BacktestRun).options(
+            defer(BacktestRun.request_json),
+            defer(BacktestRun.trades_json),
+            defer(BacktestRun.position_snapshots_json),
+            defer(BacktestRun.daily_pnl_json),
         )
         if status_filter:
             query = query.filter(BacktestRun.status == status_filter)
@@ -255,7 +310,10 @@ class BacktestRepository:
     def delete_run(self, run_id: str) -> bool:
         normalized_run_id = str(run_id)
         if self.session is None:
-            return BacktestRepository._memory_runs.pop(normalized_run_id, None) is not None
+            BacktestRepository._memory_request_snapshots.pop(normalized_run_id, None)
+            return (
+                BacktestRepository._memory_runs.pop(normalized_run_id, None) is not None
+            )
 
         record = (
             self.session.query(BacktestRun)
@@ -264,15 +322,23 @@ class BacktestRepository:
         )
         if record is None:
             return False
+
+        snapshot = (
+            self.session.query(BacktestRunRequestPayload)
+            .filter(BacktestRunRequestPayload.run_id == normalized_run_id)
+            .first()
+        )
+        if snapshot is not None:
+            self.session.delete(snapshot)
         self.session.delete(record)
         self.session.commit()
         return True
 
     def count_runs(
-            self,
-            *,
-            statuses: Optional[Sequence[str]] = None,
-            days_filter: Optional[int] = None,
+        self,
+        *,
+        statuses: Optional[Sequence[str]] = None,
+        days_filter: Optional[int] = None,
     ) -> int:
         if self.session is None:
             runs = self.list_runs(limit=None, offset=0, days_filter=days_filter)

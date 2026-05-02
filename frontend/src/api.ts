@@ -1962,14 +1962,10 @@ class ApiClient {
 
   async runBacktest(data: BacktestRequest): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    try {
-      const normalizedPayload = normalizeBacktestPayload(data);
-      const response = await this.client.post('/api/v1/backtests/run', normalizedPayload);
-      guardRunBacktestContract(response.data);
-      return response.data;
-    } catch (error: unknown) {
-      throw new Error(getErrorMessage(error));
-    }
+    const normalizedPayload = normalizeBacktestPayload(data);
+    const response = await this.client.post('/api/v1/backtests/run', normalizedPayload);
+    guardRunBacktestContract(response.data);
+    return response.data;
   }
 
   async getPerpetualMarkets(limit: number = 0): Promise<ApiResponse<PerpetualMarketsResponse>> {

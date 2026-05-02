@@ -248,4 +248,22 @@ class BacktestRun(Base):
     completed_at = Column(DateTime, nullable=True, index=True)
     deadline_at = Column(DateTime, nullable=True)
     timeout_seconds = Column(Float, nullable=True)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    updated_at = Column(
+        DateTime, default=utc_now, onupdate=utc_now, nullable=False, index=True
+    )
+
+
+class BacktestRunRequestPayload(Base):
+    __tablename__ = "backtest_run_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        String(64),
+        ForeignKey("backtest_runtime_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    request_json = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)

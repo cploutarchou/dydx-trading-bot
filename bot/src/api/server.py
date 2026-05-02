@@ -365,6 +365,37 @@ def _bot_recovery_diagnostics() -> Dict[str, Any]:
         }
 
 
+def _bot_db_sync_diagnostics() -> Dict[str, Any]:
+    if not _bot_manager_ready():
+        return {
+            "active": False,
+            "remaining_seconds": 0.0,
+            "cooldown_seconds": _read_positive_int_env("BOT_DB_SYNC_COOLDOWN_SECONDS", 20),
+            "log_every_seconds": _read_positive_int_env(
+                "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS", 15
+            ),
+            "state": "unavailable",
+            "last_error": "bot manager unavailable",
+        }
+
+    try:
+        diagnostics = bot_manager.get_db_sync_backoff_diagnostics()
+        diagnostics["state"] = "ok"
+        return diagnostics
+    except Exception as exc:
+        logger.warning("Failed to read bot DB sync diagnostics: {}", exc)
+        return {
+            "active": False,
+            "remaining_seconds": 0.0,
+            "cooldown_seconds": _read_positive_int_env("BOT_DB_SYNC_COOLDOWN_SECONDS", 20),
+            "log_every_seconds": _read_positive_int_env(
+                "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS", 15
+            ),
+            "state": "error",
+            "last_error": str(exc),
+        }
+
+
 def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
     """Normalize max_pairs semantics.
 
@@ -2250,6 +2281,7 @@ async def health_check():
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message="API is healthy",
         )
@@ -2273,6 +2305,7 @@ async def readiness_check():
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message=(
                 "Bot API is ready"
@@ -2413,6 +2446,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                         "backtest_runtime": runtime_health,
                         "backtest_limits": backtest_limits,
                         "bot_recovery": _bot_recovery_diagnostics(),
+                        "bot_db_sync": _bot_db_sync_diagnostics(),
                     },
                     message="System status available; bot manager unavailable",
                 )
@@ -2455,6 +2489,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message="System status retrieved successfully",
         )

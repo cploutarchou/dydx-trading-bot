@@ -526,6 +526,25 @@ func normalizeBotJobsPayload(payload map[string]interface{}) map[string]interfac
 	return payload
 }
 
+func ensureBotDBSyncDiagnostics(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return payload
+	}
+	data := asMap(payload["data"])
+	if data == nil {
+		return payload
+	}
+	if _, exists := data["bot_db_sync"]; exists {
+		return payload
+	}
+	data["bot_db_sync"] = map[string]interface{}{
+		"active":            false,
+		"remaining_seconds": 0.0,
+		"state":             "unavailable",
+	}
+	return payload
+}
+
 func normalizedPercentValue(value float64) float64 {
 	if value >= 0 && value <= 1 {
 		return value * 100.0
@@ -2166,7 +2185,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 		c.Set("bot_api_client", requestClient)
 		delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
-			return requestClient.SystemStatus()
+			result, err := requestClient.SystemStatus()
+			if err != nil {
+				return nil, err
+			}
+			return ensureBotDBSyncDiagnostics(result), nil
 		})
 	})
 

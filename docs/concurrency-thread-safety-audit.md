@@ -90,8 +90,8 @@ Auditor: GitHub Copilot (GPT-5.3-Codex)
   **Function/Area:** `tasks` + done callbacks  
   **Risk:** Low/Medium  
   **Issue:** DB writes in done callbacks are sync and can block loop under high completion throughput.  
-  **Recommended fix:** Move persistence writes to executor/worker queue if throughput demands it.  
-  **Estimated effort:** M
+  **Recommended fix:** **Applied** in-process persistence serialization + progress-write throttling to reduce QueuePool pressure in high-concurrency backtest runs.  
+  **Estimated effort:** M (done)
 
 - **File:** `bot/src/trading/bot_agents_state.py`  
   **Function/Area:** dual-write DB + file fallback  
@@ -232,6 +232,27 @@ Auditor: GitHub Copilot (GPT-5.3-Codex)
 
 **Effect:** Restores lint pipeline operability so concurrency regressions can be caught again by normal static checks.
 
+### 8) Phase-6 async job DB-pressure hardening (QueuePool exhaustion mitigation)
+
+**Files:**
+
+- `bot/src/infrastructure/use_cases/async_job_manager.py`
+- `bot/tests/test_async_job_manager.py`
+
+**Changes:**
+
+- Added in-process persistence serialization lock in `AsyncJobManager._with_uow` to avoid bursty concurrent DB checkout pressure from job-state writes.
+- Added progress write-throttling in `mark_progress`:
+  - minimum time interval gate (`JOB_PROGRESS_MIN_INTERVAL_SECONDS`, default `1.5`)
+  - minimum delta gate (`JOB_PROGRESS_MIN_DELTA_PCT`, default `1.0`)
+  - always persists terminal progress (`0%` / `100%`) and clears per-job checkpoints on terminal state transitions.
+- Improved `mark_failed` fallback error messaging for empty exception strings (stores exception class name instead of blank error).
+- Added focused tests:
+  - `test_mark_progress_is_throttled`
+  - `test_mark_failed_uses_fallback_message_for_empty_error`
+
+**Effect:** Significantly reduces job-persistence write amplification and DB pool contention during concurrent backtest execution while preserving terminal status durability.
+
 ---
 
 ## Remaining recommendations (prioritized)
@@ -254,6 +275,29 @@ The application is **materially improved with DB-idempotent child sync and atomi
 - ✅ **Fixed now:** key same-process race windows, DB-level idempotent child-sync writes (trades/positions/candles), and atomic per-user run admission across concurrent backend replicas.
 - ✅ **Fixed now (added):** cache-miss coalescing for News/Codex to suppress concurrent upstream fan-out.
 - ✅ **Fixed now (added):** backend golangci-lint v2 config compatibility; lint pipeline no longer fails at parse/config stage.
+- ✅ **Fixed now (added):** bot async-job persistence pressure controls (serialized persistence + throttled progress writes) to mitigate QueuePool exhaustion.
 - ⚠️ **Still open:** fallback-session lifecycle hygiene, optional Codex cache-pruning policy, and non-blocking lint backlog reduction.
 
 Given current changes, both same-process and multi-replica sync behavior are more deterministic for backtest child data. Complete the remaining recommendations for full platform-level concurrency robustness.
+
+---
+
+## Operational controls update (2026-05-02)
+
+Added **per-user resource quotas** with admin-managed defaults and runtime enforcement:
+
+- `users.max_active_backtests` (default `10`)
+- `users.max_strategies` (default `10`)
+- `users.max_bot_instances` (default `10`)
+
+Enforcement points:
+
+- delegated backtest creation admission in `backend/internal/routes/bot_api_delegate_routes.go`
+- strategy creation in `backend/internal/handlers/strategy_handler.go` and backtest→strategy creation path in `backend/internal/routes/strategy_routes.go`
+- bot instance creation in `backend/internal/handlers/bot_instance_handler.go`
+
+Admin-edit surface:
+
+- backoffice/admin user management payloads + UI in `frontend/src/components/AdminAccessControlSettings.tsx`
+
+This reduces noisy-capacity failure modes by moving per-user limits from static env assumptions into explicit operator controls.

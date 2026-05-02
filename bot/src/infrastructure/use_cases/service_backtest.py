@@ -2550,7 +2550,7 @@ class BacktestService:
             ),
         }
 
-    def get_runtime_health(self) -> Dict[str, int]:
+    def get_runtime_health(self) -> Dict[str, Any]:
         """Runtime counters used by orchestration and health endpoints."""
         runs = [
             self._resolve_stale_run_data(run)
@@ -2560,11 +2560,18 @@ class BacktestService:
         queued_or_running = [
             r for r in runs if self._canonical_status(r.get("status")) in active_statuses
         ]
-        return {
+        health: Dict[str, Any] = {
             "queue_depth": len(queued_or_running),
             "active_jobs": len(self._tasks),
             "total_runs": len(runs),
         }
+        if hasattr(async_job_manager, "get_runtime_metrics"):
+            try:
+                health.update(async_job_manager.get_runtime_metrics())
+            except Exception:
+                # Keep health endpoint resilient even if optional metrics fail.
+                pass
+        return health
 
     def get_backtest_analytics(self, run_id: str) -> Optional[Dict[str, Any]]:
         data = self._load_run_data(run_id)

@@ -515,3 +515,27 @@ def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
     assert payload["data"]["password_configured"] is True
     assert payload["data"]["max_connections"] == 10
     assert payload["data"]["count"] == 1
+
+
+def test_check_backtest_admission_blocks_on_persistence_overload(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setenv("BACKTEST_BLOCK_ON_PERSISTENCE_OVERLOAD", "true")
+
+    class _OverloadedService:
+        def get_runtime_health(self):
+            return {
+                "queue_depth": 0,
+                "active_jobs": 0,
+                "total_runs": 0,
+                "persistence_pool_overloaded": True,
+                "persistence_pool_overload_events_recent": 3,
+            }
+
+    response = server._check_backtest_admission(_OverloadedService())
+    assert response is not None
+
+    payload = json.loads(response.body)
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "backtest_capacity_reached"
+    assert payload["data"]["reason"] == "persistence_pool_overload"
+    assert payload["data"]["cannot_accept_new_runs"] is True

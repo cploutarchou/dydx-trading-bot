@@ -10,6 +10,7 @@ import (
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +19,7 @@ import (
 type StrategyHandler struct {
 	service        *services.StrategyService
 	runtimeService *services.StrategyRuntimeService
+	userRepo       *repository.UserRepository
 }
 
 type strategyPayload struct {
@@ -258,10 +260,15 @@ func parseExplicitRuntimeNetwork(value string) (string, error) {
 }
 
 // NewStrategyHandler creates a new strategy handler
-func NewStrategyHandler(service *services.StrategyService, runtimeService *services.StrategyRuntimeService) *StrategyHandler {
+func NewStrategyHandler(
+	service *services.StrategyService,
+	runtimeService *services.StrategyRuntimeService,
+	userRepo *repository.UserRepository,
+) *StrategyHandler {
 	return &StrategyHandler{
 		service:        service,
 		runtimeService: runtimeService,
+		userRepo:       userRepo,
 	}
 }
 
@@ -288,8 +295,37 @@ func (h *StrategyHandler) CreateStrategy(c *gin.Context) {
 		return
 	}
 
+	userIDInt := userID.(int)
+	maxStrategies := 10
+	if h.userRepo != nil {
+		if user, userErr := h.userRepo.GetByID(userIDInt); userErr == nil && user != nil && user.MaxStrategies > 0 {
+			maxStrategies = user.MaxStrategies
+		}
+	}
+	currentStrategies, countErr := h.service.ListStrategies(userIDInt)
+	if countErr != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to enforce strategy quota: %v", countErr),
+		})
+		return
+	}
+	if len(currentStrategies) >= maxStrategies {
+		c.JSON(http.StatusTooManyRequests, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error: fmt.Sprintf(
+				"Strategy limit reached for this account (%d/%d). Ask an admin to increase your strategy quota.",
+				len(currentStrategies),
+				maxStrategies,
+			),
+		})
+		return
+	}
+
 	strategy, err := h.service.CreateStrategy(
-		userID.(int),
+		userIDInt,
 		req.Name,
 		req.Description,
 		req.Category,

@@ -180,6 +180,18 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 	return strategies, rows.Err()
 }
 
+func (r *StrategyRepository) CountStrategiesByUser(userID int) (int, error) {
+	var count int
+	err := r.db.QueryRow(
+		`SELECT COUNT(*) FROM backtest_strategies WHERE user_id = $1 AND deleted_at IS NULL`,
+		userID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count strategies: %w", err)
+	}
+	return count, nil
+}
+
 // UpdateStrategy updates an existing strategy
 func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) error {
 	if strings.TrimSpace(strategy.RuntimeStrategy) == "" {

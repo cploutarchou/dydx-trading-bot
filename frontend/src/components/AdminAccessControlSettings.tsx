@@ -1,23 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import {
-  Loader2,
-  LockKeyhole,
-  RotateCcw,
-  ShieldCheck,
-  Trash2,
-  UserCog,
-  UserPlus,
-  Users,
+	ChevronDown,
+	Loader2,
+	LockKeyhole,
+	RotateCcw,
+	ShieldCheck,
+	Trash2,
+	UserCog,
+	UserPlus,
+	Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import api, {
-  AccessControlPermission,
-  AdminUser,
-  CreateAdminUserPayload,
-  CreateCustomRolePayload,
-  ResetAdminUserMFAResponse,
-  UpdateAdminUserPayload,
+	AccessControlPermission,
+	AdminUser,
+	CreateAdminUserPayload,
+	CreateCustomRolePayload,
+	ResetAdminUserMFAResponse,
+	UpdateAdminUserPayload,
 } from '../api';
 import { ibPortalHref } from '../pages/ib/paths';
 import { useAuthStore } from '../store/auth';
@@ -29,6 +30,9 @@ interface UserDraft {
   full_name: string;
   role: string;
   is_active: boolean;
+  max_active_backtests: number;
+  max_strategies: number;
+  max_bot_instances: number;
 }
 
 type RegistrationMode = 'open' | 'disabled' | 'invitation_only';
@@ -52,6 +56,37 @@ interface CustomRoleDraft {
   description: string;
 }
 
+type AccessControlSubmenuKey = 'overview' | 'platform_access' | 'team_access' | 'role_permissions';
+
+interface AccessControlSubmenuItem {
+  key: AccessControlSubmenuKey;
+  label: string;
+  description: string;
+}
+
+const ACCESS_CONTROL_SUBMENU_ITEMS: AccessControlSubmenuItem[] = [
+  {
+    key: 'overview',
+    label: 'Overview',
+    description: 'Summary and posture',
+  },
+  {
+    key: 'platform_access',
+    label: 'Platform Access',
+    description: 'MFA, registration, portals',
+  },
+  {
+    key: 'team_access',
+    label: 'Team Access',
+    description: 'Users and limits',
+  },
+  {
+    key: 'role_permissions',
+    label: 'Role Permissions',
+    description: 'Module permission matrix',
+  },
+];
+
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof AxiosError) {
     const payload = error.response?.data as Record<string, unknown> | undefined;
@@ -72,6 +107,9 @@ const createDraftFromUser = (user: AdminUser): UserDraft => ({
   full_name: user.full_name || '',
   role: user.role,
   is_active: user.is_active,
+  max_active_backtests: Number(user.max_active_backtests ?? 10),
+  max_strategies: Number(user.max_strategies ?? 10),
+  max_bot_instances: Number(user.max_bot_instances ?? 10),
 });
 
 const hasDraftChanges = (user: AdminUser, draft: UserDraft | undefined): boolean => {
@@ -80,7 +118,10 @@ const hasDraftChanges = (user: AdminUser, draft: UserDraft | undefined): boolean
     draft.email !== user.email ||
     draft.full_name !== (user.full_name || '') ||
     draft.role !== user.role ||
-    draft.is_active !== user.is_active
+    draft.is_active !== user.is_active ||
+    draft.max_active_backtests !== Number(user.max_active_backtests ?? 10) ||
+    draft.max_strategies !== Number(user.max_strategies ?? 10) ||
+    draft.max_bot_instances !== Number(user.max_bot_instances ?? 10)
   );
 };
 
@@ -139,6 +180,14 @@ export function AdminAccessControlSettings() {
     display_name: '',
     description: '',
   });
+  const [activeSubmenu, setActiveSubmenu] = useState<AccessControlSubmenuKey>('overview');
+  const [mobileSubmenuOpen, setMobileSubmenuOpen] = useState(false);
+  const subsectionRefs = useRef<Record<AccessControlSubmenuKey, HTMLDivElement | null>>({
+    overview: null,
+    platform_access: null,
+    team_access: null,
+    role_permissions: null,
+  });
   const [createForm, setCreateForm] = useState<CreateAdminUserPayload>({
     username: '',
     email: '',
@@ -146,6 +195,9 @@ export function AdminAccessControlSettings() {
     role: 'client',
     full_name: '',
     is_active: true,
+    max_active_backtests: 10,
+    max_strategies: 10,
+    max_bot_instances: 10,
   });
 
   const usersQuery = useQuery({
@@ -243,6 +295,58 @@ export function AdminAccessControlSettings() {
     );
   }, [platformSettingsQuery.data]);
 
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visibleEntries = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+
+        const topVisible = visibleEntries[0];
+        if (!topVisible) {
+          return;
+        }
+
+        const sectionKey = topVisible.target.getAttribute('data-access-control-section');
+        if (!sectionKey) {
+          return;
+        }
+
+        if (
+          sectionKey === 'overview' ||
+          sectionKey === 'platform_access' ||
+          sectionKey === 'team_access' ||
+          sectionKey === 'role_permissions'
+        ) {
+          setActiveSubmenu(sectionKey);
+        }
+      },
+      {
+        threshold: [0.2, 0.45, 0.7],
+        rootMargin: '-110px 0px -45% 0px',
+      }
+    );
+
+    const sectionElements = Object.values(subsectionRefs.current).filter(
+      (element): element is HTMLDivElement => element !== null
+    );
+
+    sectionElements.forEach((element) => observer.observe(element));
+
+    return () => {
+      sectionElements.forEach((element) => observer.unobserve(element));
+      observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mobileSubmenuOpen) {
+      return;
+    }
+
+    setMobileSubmenuOpen(false);
+  }, [activeSubmenu, mobileSubmenuOpen]);
+
   const updateRegistrationPolicyMutation = useMutation({
     mutationFn: async ({
       mode,
@@ -293,6 +397,9 @@ export function AdminAccessControlSettings() {
         role: 'client',
         full_name: '',
         is_active: true,
+        max_active_backtests: 10,
+        max_strategies: 10,
+        max_bot_instances: 10,
       });
       successToast(
         'User created',
@@ -331,13 +438,8 @@ export function AdminAccessControlSettings() {
   });
 
   const updateRolePermissionsMutation = useMutation({
-    mutationFn: async ({
-      role,
-      permissionKeys,
-    }: {
-      role: string;
-      permissionKeys: string[];
-    }) => api.updateRolePermissions(role, permissionKeys),
+    mutationFn: async ({ role, permissionKeys }: { role: string; permissionKeys: string[] }) =>
+      api.updateRolePermissions(role, permissionKeys),
     onSuccess: (_, variables) => {
       successToast('Permissions updated', `${variables.role} permissions are now active.`);
       void queryClient.invalidateQueries({ queryKey: ['backoffice', 'access-control'] });
@@ -446,14 +548,7 @@ export function AdminAccessControlSettings() {
 
   const users = usersQuery.data?.users || [];
   const roles = accessControlQuery.data?.roles ||
-    usersQuery.data?.roles || [
-    'admin',
-    'user',
-    'accounting',
-    'marketing',
-    'agent',
-    'client',
-  ];
+    usersQuery.data?.roles || ['admin', 'user', 'accounting', 'marketing', 'agent', 'client'];
   const roleCatalog =
     accessControlQuery.data?.role_catalog ||
     roles.map((role) => ({
@@ -501,7 +596,11 @@ export function AdminAccessControlSettings() {
         ? 'open'
         : 'disabled';
 
-  const handleDraftChange = (userId: number, field: keyof UserDraft, value: string | boolean) => {
+  const handleDraftChange = (
+    userId: number,
+    field: keyof UserDraft,
+    value: string | boolean | number
+  ) => {
     setDrafts((prev) => ({
       ...prev,
       [String(userId)]: {
@@ -510,6 +609,9 @@ export function AdminAccessControlSettings() {
           full_name: '',
           role: 'client',
           is_active: true,
+          max_active_backtests: 10,
+          max_strategies: 10,
+          max_bot_instances: 10,
         }),
         [field]: value,
       },
@@ -525,6 +627,15 @@ export function AdminAccessControlSettings() {
     if (draft.full_name !== (user.full_name || '')) payload.full_name = draft.full_name;
     if (draft.role !== user.role) payload.role = draft.role;
     if (draft.is_active !== user.is_active) payload.is_active = draft.is_active;
+    if (draft.max_active_backtests !== Number(user.max_active_backtests ?? 10)) {
+      payload.max_active_backtests = draft.max_active_backtests;
+    }
+    if (draft.max_strategies !== Number(user.max_strategies ?? 10)) {
+      payload.max_strategies = draft.max_strategies;
+    }
+    if (draft.max_bot_instances !== Number(user.max_bot_instances ?? 10)) {
+      payload.max_bot_instances = draft.max_bot_instances;
+    }
 
     if (Object.keys(payload).length === 0) {
       return;
@@ -543,11 +654,7 @@ export function AdminAccessControlSettings() {
     });
   };
 
-  const handleRolePermissionToggle = (
-    role: string,
-    permissionKey: string,
-    enabled: boolean
-  ) => {
+  const handleRolePermissionToggle = (role: string, permissionKey: string, enabled: boolean) => {
     const current = new Set(rolePermissionSet[role] || []);
     if (enabled) {
       current.add(permissionKey);
@@ -585,9 +692,93 @@ export function AdminAccessControlSettings() {
     '/dashboard'
   );
 
+  const handleSubmenuSelect = (key: AccessControlSubmenuKey) => {
+    setActiveSubmenu(key);
+    setMobileSubmenuOpen(false);
+    subsectionRefs.current[key]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const activeSubmenuItem =
+    ACCESS_CONTROL_SUBMENU_ITEMS.find((item) => item.key === activeSubmenu) ||
+    ACCESS_CONTROL_SUBMENU_ITEMS[0];
+
   return (
     <div className="space-y-6">
-      <div className="premium-panel">
+      <div className="sticky top-4 z-10 rounded-2xl border border-slate-700/70 bg-slate-900/95 p-2 backdrop-blur">
+        <div className="md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileSubmenuOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between rounded-xl border border-slate-700/70 bg-slate-950/50 px-3 py-2 text-left text-slate-200 transition hover:border-slate-500"
+            aria-expanded={mobileSubmenuOpen}
+            aria-label="Toggle access control submenu"
+          >
+            <span>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em]">
+                {activeSubmenuItem.label}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400">{activeSubmenuItem.description}</p>
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 text-slate-400 transition-transform ${mobileSubmenuOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {mobileSubmenuOpen && (
+            <div className="mt-2 space-y-2 rounded-xl border border-slate-700/70 bg-slate-950/50 p-2">
+              {ACCESS_CONTROL_SUBMENU_ITEMS.map((item) => {
+                const isActive = activeSubmenu === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => handleSubmenuSelect(item.key)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+                      isActive
+                        ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-200'
+                        : 'border-slate-700/70 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-slate-100'
+                    }`}
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em]">
+                      {item.label}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-400">{item.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="hidden gap-2 md:grid md:grid-cols-2 xl:grid-cols-4">
+          {ACCESS_CONTROL_SUBMENU_ITEMS.map((item) => {
+            const isActive = activeSubmenu === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => handleSubmenuSelect(item.key)}
+                className={`rounded-xl border px-3 py-2 text-left transition ${
+                  isActive
+                    ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-200'
+                    : 'border-slate-700/70 bg-slate-950/40 text-slate-300 hover:border-slate-500 hover:text-slate-100'
+                }`}
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.16em]">{item.label}</p>
+                <p className="mt-1 text-[11px] text-slate-400">{item.description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        ref={(element) => {
+          subsectionRefs.current.overview = element;
+        }}
+        data-access-control-section="overview"
+        className="premium-panel"
+      >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="premium-kicker">Admin Access Control</div>
@@ -668,7 +859,13 @@ export function AdminAccessControlSettings() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.92fr,1.08fr]">
-        <div className="premium-panel">
+        <div
+          ref={(element) => {
+            subsectionRefs.current.platform_access = element;
+          }}
+          data-access-control-section="platform_access"
+          className="premium-panel"
+        >
           <h3 className="text-lg font-semibold text-white">Platform access</h3>
           <p className="mt-1 text-sm text-slate-400">
             Make registration policy obvious here instead of hiding it in generic configuration.
@@ -943,6 +1140,48 @@ export function AdminAccessControlSettings() {
                 placeholder="Temporary password"
                 className="premium-input md:col-span-2"
               />
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={Number(createForm.max_active_backtests ?? 10)}
+                onChange={(event) =>
+                  setCreateForm((prev) => ({
+                    ...prev,
+                    max_active_backtests: Math.max(1, Number(event.target.value || 10)),
+                  }))
+                }
+                placeholder="Max active backtests"
+                className="premium-input"
+              />
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={Number(createForm.max_strategies ?? 10)}
+                onChange={(event) =>
+                  setCreateForm((prev) => ({
+                    ...prev,
+                    max_strategies: Math.max(1, Number(event.target.value || 10)),
+                  }))
+                }
+                placeholder="Max strategies"
+                className="premium-input"
+              />
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={Number(createForm.max_bot_instances ?? 10)}
+                onChange={(event) =>
+                  setCreateForm((prev) => ({
+                    ...prev,
+                    max_bot_instances: Math.max(1, Number(event.target.value || 10)),
+                  }))
+                }
+                placeholder="Max bot instances"
+                className="premium-input md:col-span-2"
+              />
             </div>
 
             <label className="mt-4 flex items-center gap-3 text-sm text-slate-300">
@@ -975,7 +1214,6 @@ export function AdminAccessControlSettings() {
               )}
               Create platform user
             </button>
-
           </div>
 
           <div className="mt-6 rounded-2xl border border-slate-700/60 bg-slate-950/50 p-5">
@@ -1018,8 +1256,7 @@ export function AdminAccessControlSettings() {
               type="button"
               onClick={handleCreateCustomRole}
               disabled={
-                createCustomRoleMutation.isPending ||
-                customRoleDraft.role.trim().length < 2
+                createCustomRoleMutation.isPending || customRoleDraft.role.trim().length < 2
               }
               className="mt-5 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
@@ -1033,7 +1270,13 @@ export function AdminAccessControlSettings() {
           </div>
         </div>
 
-        <div className="premium-panel">
+        <div
+          ref={(element) => {
+            subsectionRefs.current.team_access = element;
+          }}
+          data-access-control-section="team_access"
+          className="premium-panel"
+        >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-white">User roles and account state</h3>
@@ -1209,6 +1452,63 @@ export function AdminAccessControlSettings() {
                             : 'User is suspended from login'}
                         </label>
                       </div>
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Max active backtests
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={draft.max_active_backtests}
+                          onChange={(event) =>
+                            handleDraftChange(
+                              user.id,
+                              'max_active_backtests',
+                              Math.max(1, Number(event.target.value || 10))
+                            )
+                          }
+                          className="premium-input"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Max strategies
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={draft.max_strategies}
+                          onChange={(event) =>
+                            handleDraftChange(
+                              user.id,
+                              'max_strategies',
+                              Math.max(1, Number(event.target.value || 10))
+                            )
+                          }
+                          className="premium-input"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Max bot instances
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={draft.max_bot_instances}
+                          onChange={(event) =>
+                            handleDraftChange(
+                              user.id,
+                              'max_bot_instances',
+                              Math.max(1, Number(event.target.value || 10))
+                            )
+                          }
+                          className="premium-input"
+                        />
+                      </div>
                     </div>
 
                     {isSelf && (
@@ -1226,7 +1526,13 @@ export function AdminAccessControlSettings() {
         </div>
       </div>
 
-      <div className="premium-panel">
+      <div
+        ref={(element) => {
+          subsectionRefs.current.role_permissions = element;
+        }}
+        data-access-control-section="role_permissions"
+        className="premium-panel"
+      >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-white">Role permissions by module</h3>

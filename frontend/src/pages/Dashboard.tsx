@@ -1,10 +1,9 @@
 /**
- * Dashboard – Premium redesign
- * ─ Hero greeting + live clock
- * ─ Animated KPI cards (8)
+ * Dashboard – simplified operator cockpit
+ * ─ Greeting + live desk state
+ * ─ Primary KPI cards
  * ─ TradingView cumulative PnL chart
- * ─ Active runs monitor + Quick Launch accordion
- * ─ Full BacktestList
+ * ─ Active runtime monitor + recent activity
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -13,41 +12,22 @@ import {
     AlertCircle,
     ArrowRight,
     BarChart2,
-    ChevronDown,
-    ChevronUp,
     Clock,
-    Layers3,
-    Newspaper,
     Play,
     Rocket,
-    ShieldCheck,
     Sparkles,
     Target,
     TrendingDown,
     TrendingUp,
-    Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
-import { BacktestList } from '../components/BacktestList';
-import { BacktestRunner } from '../components/BacktestRunner';
-import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
-import { CoinDeskNewsPanel } from '../components/CoinDeskNewsPanel';
+import { useBotInstances } from '../api/hooks';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
-import { SyncHealthPanel } from '../components/SyncHealthPanel';
-import {
-    type BacktestRun,
-    buildIntelligence,
-    formatCurrency as formatIntelligenceCurrency,
-    formatPercent as formatIntelligencePercent,
-} from '../features/backtests/intelligence';
-import {
-    buildCodexAssetContextRequest,
-    formatPct as formatCodexPct,
-    formatUsd as formatCodexUsd,
-} from '../features/codex/marketIntel';
+import { EmptyState, InlineNotice } from '../components/ui/PlatformUI';
+import type { BacktestRun } from '../features/backtests/intelligence';
 import { useAuthStore } from '../store/auth';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -72,6 +52,15 @@ interface DashboardStats {
   avgPnlPerRun: number;
   activeRuns: BacktestRunSummary[];
   pnlTimeSeries: PnlPoint[];
+}
+
+interface RuntimeBotSummary {
+  instance_id: string;
+  status?: string;
+  instance_name?: string;
+  strategy?: string;
+  error_message?: string;
+  started_at?: string;
 }
 
 const DASHBOARD_STATS_TIMEOUT_MS = 30000;
@@ -225,69 +214,30 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
   );
 };
 
-const StrategySpotlightCard: React.FC<{
-  title: string;
-  subtitle: string;
-  href: string;
-  icon: React.ReactNode;
-  accentClass: string;
-  titleValue?: string;
-  primaryMetric?: string;
-  secondaryMetric?: string;
-  emptyMessage: string;
-}> = ({
-  title,
-  subtitle,
-  href,
-  icon,
-  accentClass,
-  titleValue,
-  primaryMetric,
-  secondaryMetric,
-  emptyMessage,
-}) => (
-  <div className="operator-section-card p-5">
-    <div className="mb-4 flex items-start justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <div className={`rounded-lg p-2.5 ${accentClass}`}>{icon}</div>
-        <div>
-          <p className="text-sm font-semibold text-white">{title}</p>
-          <p className="text-xs text-slate-500">{subtitle}</p>
-        </div>
-      </div>
-      <Link
-        to={href}
-        className="inline-flex items-center gap-1 text-xs font-medium text-cyan-300 transition hover:text-cyan-200"
-      >
-        Open
-        <ArrowRight className="h-3.5 w-3.5" />
-      </Link>
-    </div>
-
-    {titleValue ? (
-      <>
-        <p className="text-lg font-semibold text-white">{titleValue}</p>
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <p className="text-slate-500">Primary</p>
-            <p className="font-semibold text-slate-200">{primaryMetric}</p>
-          </div>
-          <div>
-            <p className="text-slate-500">Secondary</p>
-            <p className="font-semibold text-slate-200">{secondaryMetric}</p>
-          </div>
-        </div>
-      </>
-    ) : (
-      <p className="text-sm text-slate-400">{emptyMessage}</p>
-    )}
-  </div>
-);
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const toRecord = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+
+const normalizeRuntimeBots = (value: unknown): RuntimeBotSummary[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const record = toRecord(item);
+          const instanceId = typeof record.instance_id === 'string' ? record.instance_id : '';
+          return {
+            instance_id: instanceId,
+            status: typeof record.status === 'string' ? record.status : undefined,
+            instance_name:
+              typeof record.instance_name === 'string' ? record.instance_name : undefined,
+            strategy: typeof record.strategy === 'string' ? record.strategy : undefined,
+            error_message:
+              typeof record.error_message === 'string' ? record.error_message : undefined,
+            started_at: typeof record.started_at === 'string' ? record.started_at : undefined,
+          };
+        })
+        .filter((bot) => bot.instance_id.length > 0)
+    : [];
 
 const safeNum = (v: unknown, fallback = 0): number => {
   const n = Number(v);
@@ -380,7 +330,6 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [runs, setRuns] = useState<BacktestRunSummary[]>([]);
   const [stats, setStats] = useState<DashboardStats>({
     total: 0,
@@ -398,7 +347,6 @@ export const DashboardPage: React.FC = () => {
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [statsWarning, setStatsWarning] = useState<string | null>(null);
-  const [launcherOpen, setLauncherOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isComputingRef = useRef(false);
   const activeComputeIdRef = useRef(0);
@@ -476,7 +424,7 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     void computeStats();
-  }, [computeStats, refreshTrigger]);
+  }, [computeStats]);
 
   useEffect(() => {
     if (stats.running > 0 && !pollRef.current) {
@@ -495,9 +443,6 @@ export const DashboardPage: React.FC = () => {
 
   // Animated counters
   const countTotal = useCountUp(stats.total);
-  const countComplete = useCountUp(stats.completed);
-  const countFailed = useCountUp(stats.failed);
-  const countTrades = useCountUp(stats.totalTrades);
 
   const fmtPnl = (v: number) =>
     (v >= 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -525,6 +470,21 @@ export const DashboardPage: React.FC = () => {
     staleTime: 60_000,
   });
 
+  const botsQuery = useBotInstances({ limit: 100 });
+  const runtimeBots = useMemo(
+    () => normalizeRuntimeBots(botsQuery.data?.data),
+    [botsQuery.data?.data]
+  );
+  const runningRuntimeBots = runtimeBots.filter(
+    (bot) => String(bot.status ?? '').toUpperCase() === 'RUNNING'
+  );
+  const degradedRuntimeBots = runtimeBots.filter((bot) =>
+    ['FAILED', 'ERROR'].includes(String(bot.status ?? '').toUpperCase())
+  );
+  const transitioningRuntimeBots = runtimeBots.filter((bot) =>
+    ['STARTING', 'STOPPING'].includes(String(bot.status ?? '').toUpperCase())
+  );
+
   // Fetch how many strategy runtimes are currently live so the Active Now KPI
   // reflects real trading activity, not just active backtest runs.
   const strategyRuntimesQuery = useQuery({
@@ -545,59 +505,30 @@ export const DashboardPage: React.FC = () => {
     refetchInterval: 30_000,
   });
   const runningStrategyCount = strategyRuntimesQuery.data ?? 0;
-  const totalActiveCount = stats.running + runningStrategyCount;
+  const totalActiveCount = stats.running + runningStrategyCount + runningRuntimeBots.length;
   const countRunning = useCountUp(totalActiveCount);
-  const intelligence = useMemo(() => buildIntelligence(runs, new Map<number, string>()), [runs]);
-  const spotlightIntelRequest = useMemo(() => {
-    const strategiesById = new Map(
-      (strategiesQuery.data ?? [])
-        .filter((strategy) => Number.isInteger(strategy.id) && strategy.id > 0)
-        .map((strategy) => [strategy.id, strategy])
-    );
-
-    return buildCodexAssetContextRequest(
-      [intelligence.bestStrategy, intelligence.safestStrategy, intelligence.mostConsistentStrategy]
-        .filter((strategy): strategy is NonNullable<typeof strategy> => Boolean(strategy))
-        .map((aggregate) => ({
-          label: aggregate.label,
-          symbol: strategiesById.get(aggregate.strategyId ?? -1)?.benchmark_symbol,
-        })),
-      1
-    );
-  }, [
-    intelligence.bestStrategy,
-    intelligence.mostConsistentStrategy,
-    intelligence.safestStrategy,
-    strategiesQuery.data,
-  ]);
-
-  const codexOverviewQuery = useQuery({
-    queryKey: ['codex', 'dashboard-overview'],
-    queryFn: async () => {
-      const response = await api.getCodexMarketOverview(1, 3);
-      return response.data;
-    },
-    staleTime: 30_000,
-  });
+  const botActiveCount = runningRuntimeBots.length + runningStrategyCount;
+  const attentionCount = degradedRuntimeBots.length + stats.failed;
+  const countAttention = useCountUp(attentionCount);
 
   return (
     <PageContainer size="wide" className="space-y-6">
-      <section className="operator-hero animate-fade-in px-6 py-6 sm:px-8 sm:py-8">
-        <div className="relative grid gap-6 xl:grid-cols-[1.18fr,0.82fr]">
+      <section className="operator-hero animate-fade-in px-5 py-5 sm:px-6">
+        <div className="relative grid gap-5 xl:grid-cols-[1.1fr,0.9fr]">
           <div>
             <div className="surface-label">
               <Sparkles className="h-3.5 w-3.5" />
-              Operator cockpit
+              Client dashboard
             </div>
-            <h1 className="mt-5 max-w-3xl text-3xl font-bold text-white sm:text-4xl">
-              {greeting}, {user?.username ?? 'Trader'}.
+            <h1 className="mt-4 max-w-3xl text-2xl font-bold text-white sm:text-3xl">
+              {greeting}, {user?.username ?? 'Trader'}
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-              Watch live runs, research quality, and market context from one steady desk before
-              moving capital into the next strategy cycle.
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+              A simple operating view for the current desk: live activity, portfolio P&amp;L,
+              backtest status, and anything that needs attention.
             </p>
 
-            <div className="mt-5 flex flex-wrap gap-3">
+            <div className="mt-4 flex flex-wrap gap-2">
               <div className="operator-status-pill" data-tone="accent">
                 <Clock className="h-3.5 w-3.5" />
                 <LiveClock />
@@ -610,8 +541,14 @@ export const DashboardPage: React.FC = () => {
                   className={`h-2 w-2 rounded-full ${totalActiveCount > 0 ? 'bg-cyan-300 animate-pulse' : 'bg-emerald-300'}`}
                 />
                 {totalActiveCount > 0
-                  ? `${totalActiveCount} active${runningStrategyCount > 0 ? ` (${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'})` : ''}`
-                  : 'No active runs'}
+                  ? `${totalActiveCount} active${
+                      runningRuntimeBots.length > 0
+                        ? ` (${runningRuntimeBots.length} bot${runningRuntimeBots.length === 1 ? '' : 's'})`
+                        : runningStrategyCount > 0
+                          ? ` (${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'})`
+                          : ''
+                    }`
+                  : 'No live activity'}
               </div>
               <div
                 className="operator-status-pill"
@@ -625,132 +562,68 @@ export const DashboardPage: React.FC = () => {
                 {fmtPnl(stats.totalPnl)} lifetime P&amp;L
               </div>
             </div>
-
-            <div className="operator-mini-grid mt-6">
-              <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase text-slate-500">Date</p>
-                <p className="mt-2 text-sm font-semibold text-white">
-                  {new Date().toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">Session context</p>
-              </div>
-              <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase text-slate-500">Completed</p>
-                <p className="mt-2 text-xl font-semibold text-white">{stats.completed}</p>
-                <p className="mt-1 text-xs text-slate-500">Quality-scored runs</p>
-              </div>
-              <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase text-slate-500">Trades simulated</p>
-                <p className="mt-2 text-xl font-semibold text-white">{fmtN(countTrades)}</p>
-                <p className="mt-1 text-xs text-slate-500">Loaded run archive</p>
-              </div>
-              <div className="operator-hero-panel px-4 py-4">
-                <p className="text-[10px] uppercase text-slate-500">Best Sharpe</p>
-                <p className="mt-2 text-xl font-semibold text-white">
-                  {stats.bestSharpe.toFixed(2)}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">Top risk-adjusted score</p>
-              </div>
-            </div>
           </div>
 
-          <div className="grid gap-4">
-            <div className="operator-hero-panel px-5 py-5">
-              <div className="flex items-start gap-3">
-                <div className="premium-icon-wrap text-teal-300">
-                  <Activity className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">Live readiness</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-400">
-                    Active run progress, sync health, and launch controls remain in the first
-                    viewport during execution.
-                  </p>
-                </div>
+          <div className="operator-hero-panel p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white">Next best actions</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Move through research, validation, deployment, then monitoring.
+                </p>
               </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="metric-tile px-4 py-4">
-                  <p className="text-[10px] uppercase text-slate-500">Quality signal</p>
-                  <p className="mt-2 text-sm font-semibold text-emerald-300">
-                    {stats.bestWinRate > 0 ? fmtPct(stats.bestWinRate) : 'Awaiting completed runs'}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Best observed win rate</p>
-                </div>
-                <div className="metric-tile px-4 py-4">
-                  <p className="text-[10px] uppercase text-slate-500">Average run</p>
-                  <p
-                    className={`mt-2 text-sm font-semibold ${
-                      stats.avgPnlPerRun >= 0 ? 'text-emerald-300' : 'text-rose-300'
-                    }`}
-                  >
-                    {fmtPnl(stats.avgPnlPerRun)}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Mean P&amp;L across completed runs</p>
-                </div>
-              </div>
+              <span
+                className="operator-status-pill"
+                data-tone={attentionCount > 0 ? 'danger' : 'positive'}
+              >
+                {attentionCount > 0
+                  ? `${attentionCount} alert${attentionCount === 1 ? '' : 's'}`
+                  : 'Desk healthy'}
+              </span>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setLauncherOpen((open) => !open)}
-                className="operator-action-card p-4 text-left"
-              >
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <Link to="/market-intel" className="operator-action-card p-3 text-left">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
-                    <Rocket className="h-5 w-5" />
+                  <div className="rounded-lg bg-teal-500/10 p-2 text-teal-300">
+                    <Sparkles className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">Quick launch</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
-                      {launcherOpen ? 'Collapse the launch form' : 'Open the backtest launcher'}
-                    </p>
-                  </div>
-                </div>
-              </button>
-              <Link to="/backtests" className="operator-action-card p-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-emerald-500/10 p-2.5 text-emerald-300">
-                    <Target className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">Backtest intelligence</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Open rankings, strategy trust signals, and the full run archive.
-                    </p>
+                    <p className="text-sm font-semibold text-white">Research market</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Open Market Intel.</p>
                   </div>
                 </div>
               </Link>
-              <Link to="/bots" className="operator-action-card p-4">
+              <Link to="/strategies" className="operator-action-card p-3 text-left">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-amber-500/10 p-2.5 text-amber-300">
-                    <Play className="h-5 w-5" />
+                  <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-300">
+                    <Target className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">Bot Manager</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Monitor health, degraded state, and instance actions from the Bot Manager
-                      desk.
-                    </p>
+                    <p className="text-sm font-semibold text-white">Build strategy</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Tune or create logic.</p>
                   </div>
                 </div>
               </Link>
-              <Link to="/codex" className="operator-action-card p-4">
+              <Link to="/backtests/new" className="operator-action-card p-3 text-left">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-teal-500/10 p-2.5 text-teal-300">
-                    <Newspaper className="h-5 w-5" />
+                  <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
+                    <Rocket className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">Market context</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Keep macro and asset context close to research and runtime decisions.
-                    </p>
+                    <p className="text-sm font-semibold text-white">Run backtest</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Validate before launch.</p>
+                  </div>
+                </div>
+              </Link>
+              <Link to="/bots" className="operator-action-card p-3">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-lg bg-amber-500/10 p-2 text-amber-300">
+                    <Play className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Deploy bot</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Control live runtimes.</p>
                   </div>
                 </div>
               </Link>
@@ -771,198 +644,46 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
-          label="Total Runs"
-          icon={<BarChart2 className="w-5 h-5" />}
-          value={statsLoading ? '—' : fmtN(countTotal)}
-          subtitle={`${stats.completed} completed`}
-          color="teal"
+          label="Live Activity"
+          icon={<Activity className="w-5 h-5" />}
+          value={statsLoading ? '—' : fmtN(countRunning)}
+          subtitle={`${botActiveCount} bot/runtime, ${stats.running} backtest`}
+          color={totalActiveCount > 0 ? 'cyan' : 'teal'}
+          trend={totalActiveCount > 0 ? 'up' : 'neutral'}
           animDelay={0}
         />
         <KpiCard
-          label="Completed"
-          icon={<Target className="w-5 h-5" />}
-          value={statsLoading ? '—' : fmtN(countComplete)}
-          subtitle={
-            stats.total > 0
-              ? `${((stats.completed / stats.total) * 100).toFixed(0)}% success`
-              : undefined
-          }
-          color="green"
+          label="Backtest Archive"
+          icon={<BarChart2 className="w-5 h-5" />}
+          value={statsLoading ? '—' : fmtN(countTotal)}
+          subtitle={`${stats.completed} completed, ${stats.failed} failed`}
+          color="teal"
           animDelay={60}
         />
-        <KpiCard
-          label="Active Now"
-          icon={<Activity className="w-5 h-5" />}
-          value={statsLoading ? '—' : fmtN(countRunning)}
-          subtitle={
-            runningStrategyCount > 0
-              ? `${runningStrategyCount} strategy runtime${runningStrategyCount === 1 ? '' : 's'} live`
-              : stats.running > 0
-                ? 'Backtest in progress'
-                : 'All idle'
-          }
-          color={totalActiveCount > 0 ? 'cyan' : 'teal'}
-          trend={totalActiveCount > 0 ? 'up' : 'neutral'}
-          animDelay={120}
-        />
-        <KpiCard
-          label="Failed / Cancelled"
-          icon={<AlertCircle className="w-5 h-5" />}
-          value={statsLoading ? '—' : fmtN(countFailed)}
-          subtitle={stats.failed === 0 ? 'No failures' : 'Review errors'}
-          color={stats.failed > 0 ? 'rose' : 'emerald'}
-          animDelay={180}
-        />
-      </div>
-
-      {/* ── KPI row 2 ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard
           label="Lifetime P&L"
           icon={<TrendingUp className="w-5 h-5" />}
           value={statsLoading ? '—' : fmtPnl(stats.totalPnl)}
-          subtitle={`avg ${fmtPnl(stats.avgPnlPerRun)}/run`}
+          subtitle={`avg ${fmtPnl(stats.avgPnlPerRun)}/completed run`}
           color={stats.totalPnl >= 0 ? 'green' : 'red'}
           trend={stats.totalPnl >= 0 ? 'up' : 'down'}
-          animDelay={240}
+          animDelay={120}
         />
         <KpiCard
-          label="Best Win Rate"
-          icon={<Zap className="w-5 h-5" />}
-          value={statsLoading ? '—' : fmtPct(stats.bestWinRate)}
-          subtitle="Best completed run"
-          color="amber"
-          animDelay={300}
-        />
-        <KpiCard
-          label="Best Sharpe"
-          icon={<Rocket className="w-5 h-5" />}
-          value={statsLoading ? '—' : stats.bestSharpe.toFixed(2)}
-          subtitle="Risk-adj. return"
-          color="cyan"
-          animDelay={360}
-        />
-        <KpiCard
-          label="Trades Simulated"
-          icon={<Play className="w-5 h-5" />}
-          value={statsLoading ? '—' : fmtN(countTrades)}
-          subtitle="Across all runs"
-          color="cyan"
-          animDelay={420}
+          label="Needs Attention"
+          icon={<AlertCircle className="w-5 h-5" />}
+          value={statsLoading ? '—' : fmtN(countAttention)}
+          subtitle={
+            attentionCount > 0
+              ? `${degradedRuntimeBots.length} bot, ${stats.failed} backtest`
+              : 'No runtime or backtest alerts'
+          }
+          color={attentionCount > 0 ? 'rose' : 'emerald'}
+          animDelay={180}
         />
       </div>
-
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        <StrategySpotlightCard
-          title="Best Strategy"
-          subtitle="Highest blended score"
-          href="/backtests"
-          icon={<Sparkles className="h-5 w-5 text-emerald-300" />}
-          accentClass="bg-emerald-500/10"
-          titleValue={intelligence.bestStrategy?.label}
-          primaryMetric={
-            intelligence.bestStrategy
-              ? `P&L ${formatIntelligenceCurrency(intelligence.bestStrategy.totalPnl)}`
-              : undefined
-          }
-          secondaryMetric={
-            intelligence.bestStrategy
-              ? `Sharpe ${intelligence.bestStrategy.avgSharpe.toFixed(2)}`
-              : undefined
-          }
-          emptyMessage="Run a few completed backtests to rank your top-performing setup."
-        />
-        <StrategySpotlightCard
-          title="Safest Strategy"
-          subtitle="Lowest drawdown among viable runs"
-          href="/backtests"
-          icon={<ShieldCheck className="h-5 w-5 text-cyan-300" />}
-          accentClass="bg-cyan-500/10"
-          titleValue={intelligence.safestStrategy?.label}
-          primaryMetric={
-            intelligence.safestStrategy
-              ? `Drawdown ${formatIntelligencePercent(intelligence.safestStrategy.avgDrawdownPct)}`
-              : undefined
-          }
-          secondaryMetric={
-            intelligence.safestStrategy
-              ? `Sharpe ${intelligence.safestStrategy.avgSharpe.toFixed(2)}`
-              : undefined
-          }
-          emptyMessage="Safety rankings appear once completed runs have drawdown data."
-        />
-        <StrategySpotlightCard
-          title="Most Consistent"
-          subtitle="Best profitability discipline"
-          href="/backtests"
-          icon={<Layers3 className="h-5 w-5 text-amber-300" />}
-          accentClass="bg-amber-500/10"
-          titleValue={intelligence.mostConsistentStrategy?.label}
-          primaryMetric={
-            intelligence.mostConsistentStrategy
-              ? `Hit rate ${formatIntelligencePercent(intelligence.mostConsistentStrategy.profitabilityRatePct)}`
-              : undefined
-          }
-          secondaryMetric={
-            intelligence.mostConsistentStrategy
-              ? `${intelligence.mostConsistentStrategy.completedRuns} completed runs`
-              : undefined
-          }
-          emptyMessage="Consistency scoring needs a few completed runs before it becomes meaningful."
-        />
-        <div
-          className="operator-section-card relative overflow-hidden p-5"
-          style={{
-            background:
-              'linear-gradient(135deg, rgba(18,24,25,.96) 0%, rgba(9,13,14,.94) 58%, rgba(20,83,74,.22) 100%)',
-          }}
-        >
-          <div className="relative">
-            <div className="mb-3 inline-flex rounded-lg border border-teal-500/20 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase text-teal-300">
-              Market Intel
-            </div>
-            <h2 className="text-lg font-semibold text-white">Codex.io Snapshot</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Keep one eye on fast movers and another on liquid, safer setups before you jump from
-              analysis into action.
-            </p>
-            <div className="mt-4 space-y-3">
-              {[
-                ...(codexOverviewQuery.data?.movers ?? []).slice(0, 1),
-                ...(codexOverviewQuery.data?.safe_movers ?? []).slice(0, 1),
-              ].map((token) => (
-                <div
-                  key={token.id}
-                  className="rounded-lg border border-slate-700/60 bg-stone-950/55 px-3 py-2"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">{token.symbol}</p>
-                      <p className="text-xs text-slate-500">{formatCodexUsd(token.price_usd)}</p>
-                    </div>
-                    <p
-                      className={`text-sm font-semibold ${token.price_change_pct_24h >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                    >
-                      {formatCodexPct(token.price_change_pct_24h)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <Link
-              to="/codex"
-              className="mt-5 inline-flex items-center gap-2 rounded-lg border border-teal-500/30 bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-100 transition hover:bg-teal-500/20"
-            >
-              Open Market Intel
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      <CodexAssetIntelStrip title="Strategy Asset Context" request={spotlightIntelRequest} />
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.22fr,0.78fr]">
         <div
@@ -998,42 +719,102 @@ export const DashboardPage: React.FC = () => {
 
         <div className="grid gap-6">
           <div
-            className="operator-section-card overflow-hidden animate-fade-slide-up"
+            className="operator-section-card p-5 animate-fade-slide-up"
             style={{ animationDelay: '280ms' }}
           >
-            <button
-              type="button"
-              onClick={() => setLauncherOpen((open) => !open)}
-              className="flex w-full items-center justify-between px-5 py-4 transition-colors hover:bg-slate-900/35"
-            >
+            <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-cyan-500/10 p-2.5 text-cyan-300">
-                  <Rocket className="h-4 w-4" />
+                  <Play className="h-4 w-4" />
                 </div>
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-white">Quick launch backtest</p>
+                <div>
+                  <p className="text-sm font-semibold text-white">Live bot runtime</p>
                   <p className="text-xs text-slate-400">
-                    Open the runner without leaving the dashboard workflow.
+                    Active bots, degraded state, and runtime transitions stay visible here.
                   </p>
                 </div>
               </div>
-              <div className="text-slate-400">
-                {launcherOpen ? (
-                  <ChevronUp className="h-5 w-5" />
-                ) : (
-                  <ChevronDown className="h-5 w-5" />
-                )}
-              </div>
-            </button>
+              <span
+                className="operator-status-pill"
+                data-tone={runningRuntimeBots.length > 0 ? 'positive' : 'warning'}
+              >
+                {runningRuntimeBots.length > 0 ? `${runningRuntimeBots.length} running` : 'No bots live'}
+              </span>
+            </div>
 
-            {launcherOpen && (
-              <div className="border-t border-slate-800/80">
-                <BacktestRunner
-                  onBacktestComplete={() => {
-                    setRefreshTrigger((t) => t + 1);
-                    setLauncherOpen(false);
-                  }}
+            <div className="grid grid-cols-3 gap-3 border-b border-slate-800/70 pb-4 text-center">
+              <div>
+                <p className="text-[11px] text-slate-500">Instances</p>
+                <p className="text-sm font-semibold text-white">
+                  {botsQuery.isLoading ? '—' : runtimeBots.length}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500">Transitioning</p>
+                <p className="text-sm font-semibold text-cyan-300">
+                  {transitioningRuntimeBots.length}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500">Needs attention</p>
+                <p
+                  className={`text-sm font-semibold ${
+                    degradedRuntimeBots.length > 0 ? 'text-rose-300' : 'text-emerald-300'
+                  }`}
+                >
+                  {degradedRuntimeBots.length}
+                </p>
+              </div>
+            </div>
+
+            {botsQuery.isError ? (
+              <InlineNotice
+                tone="danger"
+                title="Bot runtime state unavailable"
+                description={
+                  botsQuery.error instanceof Error
+                    ? botsQuery.error.message
+                    : 'Unable to load runtime state from the backend.'
+                }
+                className="mt-4"
+              />
+            ) : runningRuntimeBots.length === 0 ? (
+              <div className="mt-4">
+                <EmptyState
+                  icon={Play}
+                  title="No live bots are running"
+                  description="Deploy from a validated strategy/backtest or start an existing runtime from the Bots desk."
+                  action={
+                    <Link to="/bots" className="premium-button premium-button-primary px-4 py-2 text-sm">
+                      Open Bots
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  }
                 />
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {runningRuntimeBots.slice(0, 4).map((bot) => (
+                  <Link
+                    key={bot.instance_id}
+                    to="/bots"
+                    className="block rounded-lg border border-slate-700/60 bg-slate-950/45 p-3 transition hover:border-cyan-500/40 hover:bg-slate-900/70"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {bot.instance_name || bot.instance_id}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {bot.strategy || 'runtime'} · {bot.started_at ? `started ${new Date(bot.started_at).toLocaleTimeString()}` : 'start time unavailable'}
+                        </p>
+                      </div>
+                      <span className="operator-status-pill" data-tone="positive">
+                        {bot.status}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
               </div>
             )}
           </div>
@@ -1069,7 +850,7 @@ export const DashboardPage: React.FC = () => {
                 </div>
                 <p className="text-sm text-slate-400">No active runs right now</p>
                 <p className="text-xs text-slate-500">
-                  Use quick launch to start a new research cycle.
+                  Open Backtests when you are ready to start a new validation cycle.
                 </p>
               </div>
             ) : (
@@ -1106,67 +887,65 @@ export const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-        <CoinDeskNewsPanel compact />
-        <div className="grid gap-6">
-          <div className="animate-fade-slide-up" style={{ animationDelay: '390ms' }}>
-            <SyncHealthPanel />
-          </div>
-
-          <div className="operator-section-card p-5">
-            <div className="flex items-start gap-3">
-              <div className="premium-icon-wrap text-cyan-300">
-                <Newspaper className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Market context, not just metrics
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-slate-400">
-                  Use the newsroom and market-intel workspace together so operator decisions stay
-                  tied to the broader market regime.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 grid grid-cols-1 gap-3">
-              <Link to="/news" className="operator-action-card p-4">
-                <p className="text-sm font-semibold text-white">Open Market News</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  See the full CoinDesk-powered newsroom view.
-                </p>
-              </Link>
-              <Link to="/codex" className="operator-action-card p-4">
-                <p className="text-sm font-semibold text-white">Open Market Intel</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Inspect movers, safer tokens, and asset context in one place.
-                </p>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section
         className="operator-section-card p-5 animate-fade-slide-up"
         style={{ animationDelay: '420ms' }}
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-white">Backtest activity tape</h2>
+            <h2 className="text-xl font-semibold text-white">Recent activity</h2>
             <p className="text-sm text-slate-400">
-              Every run remains visible here with soft refresh behavior for active jobs.
+              Latest validation and runtime signals, with deep reports kept under Backtests.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setLauncherOpen(true)}
-            className="premium-button premium-button-secondary px-4 py-2 text-sm"
-          >
-            Launch a backtest
+          <Link to="/backtests/runs" className="premium-button premium-button-secondary px-4 py-2 text-sm">
+            Open runs
             <ArrowRight className="h-4 w-4" />
-          </button>
+          </Link>
         </div>
-        <BacktestList runs={runs} loading={statsLoading} error={statsError} />
+        {statsLoading ? (
+          <div className="rounded-lg border border-slate-800 bg-slate-950/45 p-5 text-sm text-slate-400">
+            Loading recent activity...
+          </div>
+        ) : runs.length === 0 ? (
+          <EmptyState
+            icon={Activity}
+            title="No activity yet"
+            description="Validated backtests, running jobs, and bot events will appear here once the desk has data."
+            action={
+              <Link to="/backtests/new" className="premium-button premium-button-primary px-4 py-2 text-sm">
+                Run first backtest
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            }
+          />
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {runs.slice(0, 6).map((run) => (
+              <Link
+                key={run.run_id}
+                to={`/backtest/${run.run_id}`}
+                className="rounded-lg border border-slate-800 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-900/70"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white">
+                      {run.name || run.run_id}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {String(run.status ?? 'unknown').toUpperCase()}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-sm font-semibold ${safeNum(run.total_pnl) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                  >
+                    {fmtPnl(safeNum(run.total_pnl))}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
     </PageContainer>
   );

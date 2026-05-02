@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
   issues-exit-code: 1
@@ -9,36 +11,34 @@ run:
 
 output:
   formats:
-    - format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
-  sort-results: true
+    text:
+      path: stdout
   show-stats: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - bodyclose
     - errcheck
     - errorlint
     - errname
-    - gosimple
     - govet
     - ineffassign
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
-    - typecheck
     - unused
     - wastedassign
 
+  exclusions:
+    paths:
+      - vendor
+      - .idea
+      - migrations
+      - ".*\\.pb\\.go$"
+      - ".*_generated\\.go$"
+
 issues:
-  exclude-use-default: false
   uniq-by-line: true
-  exclude-dirs:
-    - vendor
-    - .idea
-    - migrations
-  exclude-files:
-    - ".*\\.pb\\.go$"
-    - ".*_generated\\.go$"
+  max-issues-per-linter: 0
+  max-same-issues: 0

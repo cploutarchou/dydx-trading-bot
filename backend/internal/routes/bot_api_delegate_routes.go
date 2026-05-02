@@ -1,10 +1,12 @@
 package routes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -152,6 +154,27 @@ func normalizeBacktestRunPayload(config map[string]interface{}) map[string]inter
 	}
 
 	return normalized
+}
+
+func readPositiveIntEnv(defaultValue int, keys ...string) int {
+	for _, key := range keys {
+		raw := strings.TrimSpace(os.Getenv(key))
+		if raw == "" {
+			continue
+		}
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			continue
+		}
+		if value < 0 {
+			return 0
+		}
+		return value
+	}
+	if defaultValue < 0 {
+		return 0
+	}
+	return defaultValue
 }
 
 func asMap(value interface{}) map[string]interface{} {
@@ -503,6 +526,25 @@ func normalizeBotJobsPayload(payload map[string]interface{}) map[string]interfac
 	return payload
 }
 
+func ensureBotDBSyncDiagnostics(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return payload
+	}
+	data := asMap(payload["data"])
+	if data == nil {
+		return payload
+	}
+	if _, exists := data["bot_db_sync"]; exists {
+		return payload
+	}
+	data["bot_db_sync"] = map[string]interface{}{
+		"active":            false,
+		"remaining_seconds": 0.0,
+		"state":             "unavailable",
+	}
+	return payload
+}
+
 func normalizedPercentValue(value float64) float64 {
 	if value >= 0 && value <= 1 {
 		return value * 100.0
@@ -810,8 +852,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 // optionally persists backtest run status snapshots into local DB tables.
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
 	backtestRepo := (*repository.BacktestRepository)(nil)
+	userRepo := (*repository.UserRepository)(nil)
 	if backtestSync != nil && backtestSync.DB() != nil {
 		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
+		userRepo = repository.NewUserRepository(backtestSync.DB())
 	}
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
@@ -1017,36 +1061,123 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			result map[string]interface{}
 			err    error
 		)
-		if c.FullPath() == "/api/v1/backtests/run" {
-			result, err = requestClient.CreateBacktestRun(config)
-		} else {
-			result, err = requestClient.CreateBacktest(config)
-		}
-		if err != nil {
-			respondBotAPIError(c, err)
-			return
-		}
-		// The bot service initial response may omit start_date/end_date (e.g.
-		// when queued via Celery or the dates default to empty string).
-		// Back-fill them from the request config so both the sync DB record and
-		// the frontend response contain the period the user actually requested.
-		for _, field := range []string{"start_date", "end_date"} {
-			requestVal, hasInConfig := config[field]
-			if !hasInConfig {
-				continue
+
+		executeCreate := func() error {
+			if c.FullPath() == "/api/v1/backtests/run" {
+				result, err = requestClient.CreateBacktestRun(config)
+			} else {
+				result, err = requestClient.CreateBacktest(config)
 			}
-			// Fix at root level (flat response from bot service)
-			if existing, ok := result[field]; !ok || existing == nil || existing == "" {
-				result[field] = requestVal
+			if err != nil {
+				return err
 			}
-			// Fix inside the wrapped "data" envelope (api_response wrapper)
-			if dataMap, ok := result["data"].(map[string]interface{}); ok {
-				if existing, ok := dataMap[field]; !ok || existing == nil || existing == "" {
-					dataMap[field] = requestVal
+
+			// The bot service initial response may omit start_date/end_date (e.g.
+			// when queued via Celery or the dates default to empty string).
+			// Back-fill them from the request config so both the sync DB record and
+			// the frontend response contain the period the user actually requested.
+			for _, field := range []string{"start_date", "end_date"} {
+				requestVal, hasInConfig := config[field]
+				if !hasInConfig {
+					continue
+				}
+				// Fix at root level (flat response from bot service)
+				if existing, ok := result[field]; !ok || existing == nil || existing == "" {
+					result[field] = requestVal
+				}
+				// Fix inside the wrapped "data" envelope (api_response wrapper)
+				if dataMap, ok := result["data"].(map[string]interface{}); ok {
+					if existing, ok := dataMap[field]; !ok || existing == nil || existing == "" {
+						dataMap[field] = requestVal
+					}
+				}
+			}
+
+			syncRun(c, result)
+			return nil
+		}
+
+		admissionEnabled := false
+		admissionUserID := 0
+		maxActivePerUser := 0
+		if backtestRepo != nil {
+			if userIDValue, exists := c.Get("user_id"); exists {
+				if userID, ok := userIDValue.(int); ok && userID > 0 {
+					admissionUserID = userID
+					maxActivePerUser = 10
+					if userRepo != nil {
+						if user, userErr := userRepo.GetByID(admissionUserID); userErr == nil && user != nil && user.MaxActiveBacktests > 0 {
+							maxActivePerUser = user.MaxActiveBacktests
+						}
+					}
+					if maxActivePerUser <= 0 {
+						maxActivePerUser = readPositiveIntEnv(
+							10,
+							"BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+							"BACKEND_BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+						)
+					}
+					admissionEnabled = maxActivePerUser > 0
 				}
 			}
 		}
-		syncRun(c, result)
+
+		if admissionEnabled {
+			capacityReached := false
+			activeCount := 0
+
+			lockCtx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+			defer cancel()
+
+			admissionErr := backtestRepo.WithUserAdmissionLock(lockCtx, admissionUserID, func() error {
+				count, countErr := backtestRepo.CountActiveRunsByUserID(admissionUserID)
+				if countErr != nil {
+					return countErr
+				}
+				activeCount = count
+				if activeCount >= maxActivePerUser {
+					capacityReached = true
+					return nil
+				}
+				return executeCreate()
+			})
+			if admissionErr != nil {
+				var transportErr *services.BotAPITransportError
+				var apiErr *services.BotAPIError
+				if errors.As(admissionErr, &transportErr) || errors.As(admissionErr, &apiErr) {
+					respondBotAPIError(c, admissionErr)
+					return
+				}
+
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to evaluate backtest admission limits",
+					"error":     admissionErr.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			if capacityReached {
+				c.Header("Retry-After", "15")
+				respondBacktestEnvelope(c, http.StatusTooManyRequests, "Backtest capacity reached for this account", map[string]interface{}{
+					"error":                 "backtest_user_capacity_reached",
+					"active_runs":           activeCount,
+					"max_active_runs":       maxActivePerUser,
+					"retry_after_seconds":   15,
+					"admission_scope":       "per_user",
+					"admission_enforced_by": "backend_user_quota",
+				})
+				return
+			}
+		} else {
+			if err := executeCreate(); err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+		}
+
 		respondBacktestEnvelope(c, http.StatusOK, "Backtest created successfully", result)
 	}
 
@@ -2054,7 +2185,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 		c.Set("bot_api_client", requestClient)
 		delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
-			return requestClient.SystemStatus()
+			result, err := requestClient.SystemStatus()
+			if err != nil {
+				return nil, err
+			}
+			return ensureBotDBSyncDiagnostics(result), nil
 		})
 	})
 

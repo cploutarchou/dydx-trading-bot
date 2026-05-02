@@ -34,10 +34,21 @@ interface BacktestRun {
   updated_at?: string;
   error?: string;
   error_message?: string;
+  strategy_id?: number;
+  strategy_name?: string;
+  request?: Record<string, unknown>;
 }
 
 type FailureDiagnostic = {
-  category: 'data' | 'network' | 'timeout' | 'config' | 'runtime' | 'unknown';
+  category:
+    | 'data'
+    | 'network'
+    | 'timeout'
+    | 'config'
+    | 'runtime'
+    | 'interruption'
+    | 'capacity'
+    | 'unknown';
   summary: string;
   hint: string;
 };
@@ -131,9 +142,18 @@ function calcEta(startedAt: string | undefined, progressPct: number): string | n
 
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLL_INTERVAL_MS = 30000;
+const LIVE_SYNC_STALE_AFTER_MS = 30000;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const getEnvelopeValue = (payload: Record<string, unknown>, key: string): unknown => {
+  const nested = toRecord(payload.data);
+  if (key in nested) {
+    return nested[key];
+  }
+  return payload[key];
+};
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
@@ -163,6 +183,28 @@ const formatUtcDate = (value?: string): string => {
   return parsed.toISOString().substring(0, 10);
 };
 
+const formatLiveSyncAge = (value?: string): string | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const deltaMs = Date.now() - parsed.getTime();
+  if (deltaMs < 0) return 'just now';
+  const sec = Math.floor(deltaMs / 1000);
+  if (sec < 5) return 'just now';
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
+};
+
+const getLinkedStrategyId = (run: BacktestRun): number | null => {
+  const direct = Number(run.strategy_id);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  const requestId = Number(run.request?.strategy_id);
+  return Number.isInteger(requestId) && requestId > 0 ? requestId : null;
+};
+
 const classifyFailureDiagnostic = (run: BacktestRun): FailureDiagnostic => {
   const rawMessage = String(run.error_message || run.error || '').trim();
   const normalized = rawMessage.toLowerCase();
@@ -180,6 +222,28 @@ const classifyFailureDiagnostic = (run: BacktestRun): FailureDiagnostic => {
       category: 'timeout',
       summary: rawMessage,
       hint: 'Try a shorter period or fewer pairs, then re-run and monitor progress cadence.',
+    };
+  }
+
+  if (
+    /interrupted|reload|restart|orphaned|worker task may have been interrupted/.test(normalized)
+  ) {
+    return {
+      category: 'interruption',
+      summary: rawMessage,
+      hint: 'This usually means worker/API lifecycle interruption. Verify worker uptime and use retry/restart for the run.',
+    };
+  }
+
+  if (
+    /capacity|saturated|too many active|queue depth|admission|429|rate limit|retry-after/.test(
+      normalized
+    )
+  ) {
+    return {
+      category: 'capacity',
+      summary: rawMessage,
+      hint: 'System concurrency limits were reached. Wait for active runs to finish or reduce parallel submissions.',
     };
   }
 
@@ -240,6 +304,13 @@ export const BacktestList: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
   const [pollFailures, setPollFailures] = useState(0);
+  const [liveSyncMeta, setLiveSyncMeta] = useState<{
+    syncedRuns: number;
+    updatedAt: string | null;
+  }>({
+    syncedRuns: 0,
+    updatedAt: null,
+  });
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
   const activeRequestIdRef = useRef(0);
@@ -311,7 +382,7 @@ export const BacktestList: React.FC<{
     const raw = toRecord(response);
     const rawData = toRecord(raw.data);
 
-    return Array.isArray(rawData.backtests)
+    const runs = Array.isArray(rawData.backtests)
       ? (rawData.backtests as BacktestRun[])
       : Array.isArray(raw?.backtests)
         ? (raw.backtests as BacktestRun[])
@@ -320,6 +391,89 @@ export const BacktestList: React.FC<{
           : Array.isArray(raw?.runs)
             ? (raw.runs as BacktestRun[])
             : [];
+
+    const activeRuns = runs
+      .filter((run) => {
+        const status = normalizeStatus(run.status, run);
+        return status === 'RUNNING' || status === 'PENDING';
+      })
+      .slice(0, 12);
+
+    if (activeRuns.length === 0) {
+      setLiveSyncMeta({ syncedRuns: 0, updatedAt: null });
+      return runs;
+    }
+
+    const statusSettled = await Promise.allSettled(
+      activeRuns.map(async (run) => {
+        const statusResponse = await api.getBacktestStatus(run.run_id);
+        const payload = toRecord(statusResponse);
+
+        return {
+          run_id: run.run_id,
+          status: String(getEnvelopeValue(payload, 'status') ?? run.status),
+          progress_pct: normalizePercent(
+            Number(
+              getEnvelopeValue(payload, 'progress_pct') ??
+                getEnvelopeValue(payload, 'progress_percent') ??
+                getEnvelopeValue(payload, 'progress')
+            )
+          ),
+          progress_percent: normalizePercent(
+            Number(
+              getEnvelopeValue(payload, 'progress_percent') ??
+                getEnvelopeValue(payload, 'progress_pct') ??
+                getEnvelopeValue(payload, 'progress')
+            )
+          ),
+          progress: normalizePercent(
+            Number(
+              getEnvelopeValue(payload, 'progress') ??
+                getEnvelopeValue(payload, 'progress_pct') ??
+                getEnvelopeValue(payload, 'progress_percent')
+            )
+          ),
+          current_pair:
+            typeof getEnvelopeValue(payload, 'current_pair') === 'string'
+              ? String(getEnvelopeValue(payload, 'current_pair'))
+              : run.current_pair,
+          current_task:
+            typeof getEnvelopeValue(payload, 'current_task') === 'string'
+              ? String(getEnvelopeValue(payload, 'current_task'))
+              : run.current_task,
+          updated_at:
+            typeof getEnvelopeValue(payload, 'updated_at') === 'string'
+              ? String(getEnvelopeValue(payload, 'updated_at'))
+              : run.updated_at,
+          error:
+            typeof getEnvelopeValue(payload, 'error') === 'string'
+              ? String(getEnvelopeValue(payload, 'error'))
+              : run.error,
+          error_message:
+            typeof getEnvelopeValue(payload, 'error_message') === 'string'
+              ? String(getEnvelopeValue(payload, 'error_message'))
+              : run.error_message,
+        } satisfies Partial<BacktestRun> & { run_id: string };
+      })
+    );
+
+    const liveByRunId = new Map<string, Partial<BacktestRun>>();
+    statusSettled.forEach((result) => {
+      if (result.status !== 'fulfilled') {
+        return;
+      }
+      liveByRunId.set(result.value.run_id, result.value);
+    });
+
+    setLiveSyncMeta({
+      syncedRuns: liveByRunId.size,
+      updatedAt: liveByRunId.size > 0 ? new Date().toISOString() : null,
+    });
+
+    return runs.map((run) => ({
+      ...run,
+      ...(liveByRunId.get(run.run_id) ?? {}),
+    }));
   };
 
   const loadBacktests = async (showBlockingLoader: boolean = true) => {
@@ -408,6 +562,7 @@ export const BacktestList: React.FC<{
               <tr>
                 {[
                   'Run ID',
+                  'Strategy',
                   'Started',
                   'Period',
                   'Trades',
@@ -487,6 +642,13 @@ export const BacktestList: React.FC<{
     if (statusFilter === 'ALL') return true;
     return normalizeStatus(run.status, run) === statusFilter;
   });
+  const liveSyncAge = formatLiveSyncAge(liveSyncMeta.updatedAt ?? undefined);
+  const liveSyncHealthy = liveSyncMeta.syncedRuns > 0;
+  const liveSyncStale = (() => {
+    if (!liveSyncMeta.updatedAt || !liveSyncHealthy) return false;
+    const ageMs = Date.now() - new Date(liveSyncMeta.updatedAt).getTime();
+    return Number.isFinite(ageMs) && ageMs > LIVE_SYNC_STALE_AFTER_MS;
+  })();
 
   const formatPct = (value: number | undefined | null) => {
     const normalized = normalizePercent(value);
@@ -509,9 +671,32 @@ export const BacktestList: React.FC<{
             {displayRuns.length} total run{displayRuns.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-stone-950 px-3 py-2 text-xs text-slate-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-          Soft refresh for active jobs
+        <div className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-stone-950 px-3 py-2 text-xs text-slate-400">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              liveSyncHealthy ? (liveSyncStale ? 'bg-amber-300' : 'bg-emerald-300') : 'bg-cyan-300'
+            }`}
+          />
+          <span>Soft refresh for active jobs</span>
+          <span className="text-slate-600">•</span>
+          <span
+            className={
+              liveSyncHealthy
+                ? liveSyncStale
+                  ? 'text-amber-300'
+                  : 'text-emerald-300'
+                : 'text-slate-500'
+            }
+            title={
+              liveSyncHealthy
+                ? 'Active rows are merged with per-run status endpoint values.'
+                : 'No active rows are currently receiving live status merges.'
+            }
+          >
+            {liveSyncHealthy
+              ? `${liveSyncStale ? 'Live sync stale' : 'Live synced'} (${liveSyncMeta.syncedRuns})${liveSyncAge ? ` · ${liveSyncAge}` : ''}`
+              : 'Live sync idle'}
+          </span>
         </div>
       </div>
 
@@ -577,13 +762,13 @@ export const BacktestList: React.FC<{
               </div>
               <p className="text-sm font-medium text-slate-300">No runs recorded yet</p>
               <p className="text-xs text-slate-500">
-                Kick off a new backtest from the Dashboard to populate this list.
+                Kick off a new backtest ticket to populate this list.
               </p>
               <a
-                href="/dashboard"
+                href="/backtests/new"
                 className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-300 transition-colors hover:bg-cyan-500/20"
               >
-                Go to Dashboard →
+                New Backtest →
               </a>
             </div>
           ) : (
@@ -611,6 +796,9 @@ export const BacktestList: React.FC<{
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
                   Run ID
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
+                  Strategy
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">
                   Started
@@ -656,6 +844,7 @@ export const BacktestList: React.FC<{
                 const eta = isActive
                   ? calcEta(run.started_at || run.created_at, progressPct)
                   : null;
+                const linkedStrategyId = getLinkedStrategyId(run);
 
                 return (
                   <React.Fragment key={run.run_id}>
@@ -669,6 +858,19 @@ export const BacktestList: React.FC<{
                           <div className="text-slate-400 font-sans truncate max-w-28">
                             {run.name}
                           </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        {linkedStrategyId ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/strategies/${linkedStrategyId}/edit`)}
+                            className="rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-xs font-semibold text-cyan-200 transition hover:border-cyan-400/60"
+                          >
+                            {run.strategy_name || `Strategy #${linkedStrategyId}`}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-500">Manual</span>
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm">{formatUtcDateTime(run.created_at)}</td>
@@ -718,7 +920,7 @@ export const BacktestList: React.FC<{
                     {/* ── Progress sub-row (RUNNING / PENDING only) ─────── */}
                     {isActive && (
                       <tr className="border-b border-slate-700 bg-stone-950/55">
-                        <td colSpan={10} className="px-4 pb-3 pt-1">
+                        <td colSpan={11} className="px-4 pb-3 pt-1">
                           {/* Progress bar */}
                           <div className="flex items-center gap-2 mb-1.5">
                             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700">
@@ -756,7 +958,7 @@ export const BacktestList: React.FC<{
 
                     {isFailed && failureDiagnostic && (
                       <tr className="border-b border-slate-700 bg-rose-950/20">
-                        <td colSpan={10} className="px-4 pb-3 pt-2">
+                        <td colSpan={11} className="px-4 pb-3 pt-2">
                           <div className="flex flex-wrap items-center gap-3 text-xs">
                             <span className="rounded-lg border border-rose-700/60 bg-rose-900/40 px-2 py-0.5 uppercase text-rose-200">
                               {failureDiagnostic.category}

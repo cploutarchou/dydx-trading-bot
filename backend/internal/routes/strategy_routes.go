@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -17,6 +18,7 @@ import (
 // RegisterStrategyRoutes registers strategy API routes
 func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 	strategyRepo := repository.NewStrategyRepository(database.DB)
+	userRepo := repository.NewUserRepository(database.DB)
 	keyRepo := repository.NewKeyRepository(database.DB)
 	botInstanceRepo := repository.NewBotInstanceRepository(database.DB)
 	settingsRepo := repository.NewSettingsRepository(database.DB)
@@ -33,7 +35,7 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 	botAPIClient := services.NewBotAPIClient(botAPIURL, os.Getenv("BOT_API_TOKEN"))
 	botInstanceService := services.NewBotInstanceService(botInstanceRepo, botAPIClient)
 	runtimeService := services.NewStrategyRuntimeService(strategyService, keyService, telegramService, botInstanceService, botInstanceRepo)
-	strategyHandler := handlers.NewStrategyHandler(strategyService, runtimeService)
+	strategyHandler := handlers.NewStrategyHandler(strategyService, runtimeService, userRepo)
 
 	v1 := router.Group("/api/v1")
 	{
@@ -90,6 +92,32 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 						Success:   false,
 						Timestamp: time.Now().UTC().Format(time.RFC3339),
 						Error:     "Unauthorized",
+					})
+					return
+				}
+
+				maxStrategies := 10
+				if user, userErr := userRepo.GetByID(userID); userErr == nil && user != nil && user.MaxStrategies > 0 {
+					maxStrategies = user.MaxStrategies
+				}
+				currentStrategies, countErr := strategyRepo.CountStrategiesByUser(userID)
+				if countErr != nil {
+					c.JSON(http.StatusInternalServerError, handlers.APIResponse{
+						Success:   false,
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+						Error:     fmt.Sprintf("Failed to enforce strategy quota: %v", countErr),
+					})
+					return
+				}
+				if currentStrategies >= maxStrategies {
+					c.JSON(http.StatusTooManyRequests, handlers.APIResponse{
+						Success:   false,
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+						Error: fmt.Sprintf(
+							"Strategy limit reached for this account (%d/%d). Ask an admin to increase your strategy quota.",
+							currentStrategies,
+							maxStrategies,
+						),
 					})
 					return
 				}

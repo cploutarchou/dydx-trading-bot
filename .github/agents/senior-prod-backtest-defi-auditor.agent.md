@@ -189,3 +189,9 @@ Use this structure for reviews and hardening tasks:
 ## Done criteria
 
 The task is complete only when the system has a bounded behavior for the reported scenario, async tasks have auditable lifecycle/status handling, production risks are documented, relevant tests or checks were run, and remaining unknowns are explicit.
+
+## Latest context snapshot (2026-05)
+
+- Backtest operator visibility improvements are now implemented in frontend dashboard surfaces (active-run status/progress/freshness cues).
+- Backend delegated route normalization and DB-backed run listing are critical audit targets for active-run visibility issues.
+- Recent migration hardening addressed transaction-block compatibility concerns in PostgreSQL index migrations.

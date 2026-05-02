@@ -5,6 +5,7 @@ import {
   DatabaseZap,
   ExternalLink,
   Loader2,
+  Newspaper,
   Search,
   ShieldCheck,
   Sparkles,
@@ -13,7 +14,13 @@ import {
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import api, { type CodexTokenSummary } from '../api';
 import { PageContainer } from '../components/PageContainer';
+import { PortalSubnav } from '../components/ui/PlatformUI';
 import { CODEX_NETWORK_OPTIONS, confidenceTone, formatPct, formatUsd } from '../features/codex/marketIntel';
+
+const MARKET_INTEL_TABS = [
+  { path: '/market-intel', label: 'Token Intel', icon: Sparkles },
+  { path: '/market-intel/news', label: 'Market News', icon: Newspaper },
+] as const;
 
 const TokenCard: React.FC<{
   token: CodexTokenSummary;
@@ -168,6 +175,7 @@ export const CodexPage: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6">
+      <PortalSubnav tabs={MARKET_INTEL_TABS} label="Market Intel" />
       <section
         className="relative overflow-hidden rounded-3xl border border-slate-700/60 px-6 py-6 sm:px-8"
         style={{
@@ -181,10 +189,10 @@ export const CodexPage: React.FC = () => {
           <div className="max-w-3xl">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
               <Sparkles className="h-3.5 w-3.5" />
-              Codex.io Market Intel
+              Market Intel
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              Find trending movers, safer liquid tokens, and sharper market context without leaving the app.
+              Find trending movers, safer liquid tokens, and sharper research context before strategy work.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               This workspace is tuned for the Codex.io free plan: query-only, backend-proxied, cached, and throttled so you get useful token intelligence without leaking API keys into the browser.

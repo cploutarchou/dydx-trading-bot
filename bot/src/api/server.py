@@ -131,6 +131,46 @@ DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
 
+def _optional_env_int(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _runtime_db_pool_warnings(config: DatabaseConfig) -> List[str]:
+    warnings: List[str] = []
+    configured_max_connections = _optional_env_int("DB_MAX_CONNECTIONS")
+
+    if (
+        configured_max_connections is not None
+        and configured_max_connections > 0
+        and configured_max_connections < config.pool_size
+    ):
+        warnings.append(
+            "DB_MAX_CONNECTIONS ({}) is lower than DB_POOL_SIZE ({}). "
+            "Effective max_overflow is clamped to 0; increase DB_MAX_CONNECTIONS or reduce DB_POOL_SIZE."
+            .format(configured_max_connections, config.pool_size)
+        )
+
+    if config.timeout_seconds <= 5:
+        warnings.append(
+            "DB_TIMEOUT is {}s; low pool timeout can amplify transient saturation into repeated persistence failures."
+            .format(config.timeout_seconds)
+        )
+
+    if config.pool_size <= 5:
+        warnings.append(
+            "DB_POOL_SIZE is {}; this is small for concurrent backtests and runtime writes."
+            .format(config.pool_size)
+        )
+
+    return warnings
+
+
 class StrategyRequest(BaseModel):
     """UI-compatible strategy payload."""
 
@@ -365,6 +405,37 @@ def _bot_recovery_diagnostics() -> Dict[str, Any]:
         }
 
 
+def _bot_db_sync_diagnostics() -> Dict[str, Any]:
+    if not _bot_manager_ready():
+        return {
+            "active": False,
+            "remaining_seconds": 0.0,
+            "cooldown_seconds": _read_positive_int_env("BOT_DB_SYNC_COOLDOWN_SECONDS", 20),
+            "log_every_seconds": _read_positive_int_env(
+                "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS", 15
+            ),
+            "state": "unavailable",
+            "last_error": "bot manager unavailable",
+        }
+
+    try:
+        diagnostics = bot_manager.get_db_sync_backoff_diagnostics()
+        diagnostics["state"] = "ok"
+        return diagnostics
+    except Exception as exc:
+        logger.warning("Failed to read bot DB sync diagnostics: {}", exc)
+        return {
+            "active": False,
+            "remaining_seconds": 0.0,
+            "cooldown_seconds": _read_positive_int_env("BOT_DB_SYNC_COOLDOWN_SECONDS", 20),
+            "log_every_seconds": _read_positive_int_env(
+                "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS", 15
+            ),
+            "state": "error",
+            "last_error": str(exc),
+        }
+
+
 def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
     """Normalize max_pairs semantics.
 
@@ -377,6 +448,126 @@ def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return cap if cap > 0 else None
+
+
+def _read_positive_int_env(name: str, default: int = 0) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return max(0, int(default))
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning("Invalid {}='{}'; using default {}", name, raw, default)
+        return max(0, int(default))
+    return max(0, parsed)
+
+
+def _read_bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return bool(default)
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _backtest_admission_limit_snapshot() -> Dict[str, int]:
+    max_active = _read_positive_int_env("BACKTEST_MAX_ACTIVE_RUNS_GLOBAL", 10)
+    max_queue_depth = _read_positive_int_env("BACKTEST_MAX_QUEUE_DEPTH", max_active)
+    max_in_process = _read_positive_int_env("BACKTEST_MAX_IN_PROCESS_BACKTEST_JOBS", max_active)
+    retry_after_seconds = _read_positive_int_env("BACKTEST_ADMISSION_RETRY_AFTER_SECONDS", 15)
+    return {
+        "max_active_runs_global": max_active,
+        "max_queue_depth": max_queue_depth,
+        "max_in_process_jobs": max_in_process,
+        "retry_after_seconds": retry_after_seconds,
+    }
+
+
+def _check_backtest_admission(service: BacktestService) -> Optional[JSONResponse]:
+    if not hasattr(service, "get_runtime_health"):
+        return None
+
+    limits = _backtest_admission_limit_snapshot()
+    runtime_health = service.get_runtime_health()
+    queue_depth = int(runtime_health.get("queue_depth", 0) or 0)
+    active_jobs = int(runtime_health.get("active_jobs", 0) or 0)
+    persistence_overloaded = bool(runtime_health.get("persistence_pool_overloaded", False))
+    block_on_persistence_overload = _read_bool_env(
+        "BACKTEST_BLOCK_ON_PERSISTENCE_OVERLOAD",
+        True,
+    )
+
+    blocked_reason = ""
+    if block_on_persistence_overload and persistence_overloaded:
+        blocked_reason = "persistence_pool_overload"
+    elif limits["max_active_runs_global"] > 0 and queue_depth >= limits["max_active_runs_global"]:
+        blocked_reason = "global_active_limit_reached"
+    elif limits["max_queue_depth"] > 0 and queue_depth >= limits["max_queue_depth"]:
+        blocked_reason = "queue_depth_limit_reached"
+    elif limits["max_in_process_jobs"] > 0 and active_jobs >= limits["max_in_process_jobs"]:
+        blocked_reason = "in_process_limit_reached"
+
+    if not blocked_reason:
+        return None
+
+    if blocked_reason == "persistence_pool_overload":
+        message = (
+            "Backtest capacity is temporarily saturated due to runtime overload. "
+            "Please retry shortly; no additional runs can be accepted right now."
+        )
+    else:
+        message = (
+            "Backtest capacity is temporarily saturated. "
+            "Please retry shortly or reduce concurrent runs."
+        )
+
+    response = api_response(
+        success=False,
+        status_code=429,
+        message=message,
+        data={
+            "error": "backtest_capacity_reached",
+            "reason": blocked_reason,
+            "cannot_accept_new_runs": True,
+            "runtime_health": runtime_health,
+            "limits": limits,
+        },
+    )
+    response.headers["Retry-After"] = str(max(1, limits["retry_after_seconds"]))
+    return response
+
+
+def _backtest_capacity_snapshot(runtime_health: Dict[str, Any]) -> Dict[str, Any]:
+    limits = _backtest_admission_limit_snapshot()
+    return {
+        "queue_depth": int(runtime_health.get("queue_depth", 0) or 0),
+        "active_jobs": int(runtime_health.get("active_jobs", 0) or 0),
+        "total_runs": int(runtime_health.get("total_runs", 0) or 0),
+        "persistence_pool_overloaded": bool(
+            runtime_health.get("persistence_pool_overloaded", False)
+        ),
+        "persistence_pool_overload_events_recent": int(
+            runtime_health.get("persistence_pool_overload_events_recent", 0) or 0
+        ),
+        "progress_updates_persisted": int(
+            runtime_health.get("progress_updates_persisted", 0) or 0
+        ),
+        "progress_updates_skipped": int(
+            runtime_health.get("progress_updates_skipped", 0) or 0
+        ),
+        "progress_skip_ratio": float(runtime_health.get("progress_skip_ratio", 0.0) or 0.0),
+        "max_active_runs_global": limits["max_active_runs_global"],
+        "max_queue_depth": limits["max_queue_depth"],
+        "max_in_process_jobs": limits["max_in_process_jobs"],
+        "retry_after_seconds": limits["retry_after_seconds"],
+        "stale_heartbeat_seconds": _read_positive_int_env(
+            "BACKTEST_STALE_HEARTBEAT_SECONDS",
+            int(BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS),
+        ),
+        "max_active_runs_per_user": _read_positive_int_env(
+            "BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+            0,
+        ),
+    }
 
 
 async def _resolve_backtest_markets(
@@ -727,6 +918,16 @@ async def lifespan(_: FastAPI):
         runtime_db_config.cutover_mode,
         runtime_db_config.field_source,
     )
+    logger.info(
+        "Runtime DB pool: pool_size={} max_overflow={} timeout_seconds={} max_connections={}",
+        runtime_db_config.pool_size,
+        runtime_db_config.max_overflow,
+        runtime_db_config.timeout_seconds,
+        runtime_db_config.pool_size + runtime_db_config.max_overflow,
+    )
+    pool_warnings = _runtime_db_pool_warnings(runtime_db_config)
+    for warning in pool_warnings:
+        logger.warning("Runtime DB pool config warning: {}", warning)
     if not db.health_check():
         raise RuntimeError("Bot database health check failed during API startup")
     db.create_all_tables()
@@ -1279,6 +1480,7 @@ async def create_bot_instance(
                     else {}
                 ),
             }
+            session = None
             try:
                 session = db.get_session()
                 uow = UnitOfWork(session)
@@ -1309,14 +1511,17 @@ async def create_bot_instance(
                     f"Bot instance created via API: {config.instance_id}",
                     details={"instance_name": config.instance_name},
                 )
-
-                session.close()
                 logger.info(
                     f"Bot instance '{config.instance_id}' persisted to database"
                 )
             except Exception as db_error:
                 logger.warning(f"Failed to persist bot to database: {db_error}")
+                if session is not None:
+                    session.rollback()
                 # Continue anyway - bot was created in manager
+            finally:
+                if session is not None:
+                    session.close()
 
             _send_bot_lifecycle_notification(
                 "created",
@@ -1415,6 +1620,7 @@ async def delete_bot_instance(
         result = await bot_manager.delete_instance(instance_id)
 
         if result.success:
+            session = None
             try:
                 session = db.get_session()
                 uow = UnitOfWork(session)
@@ -1427,11 +1633,15 @@ async def delete_bot_instance(
                         "Bot instance deleted via API",
                     )
                 uow.bots.delete_bot(instance_id)
-                session.close()
             except Exception as db_error:
                 logger.warning(
                     f"Failed to delete bot instance '{instance_id}' from database: {db_error}"
                 )
+                if session is not None:
+                    session.rollback()
+            finally:
+                if session is not None:
+                    session.close()
             _send_bot_lifecycle_notification(
                 "deleted",
                 instance_id,
@@ -2104,6 +2314,7 @@ async def health_check():
     """API health check"""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
+        backtest_limits = _backtest_capacity_snapshot(runtime_health)
         return api_response(
             success=True,
             data={
@@ -2111,7 +2322,9 @@ async def health_check():
                 "api_version": "1.0.0",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
+                "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message="API is healthy",
         )
@@ -2122,6 +2335,7 @@ async def readiness_check():
     """Strict readiness probe for orchestrators and deployment gates."""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
+        backtest_limits = _backtest_capacity_snapshot(runtime_health)
         ready = _bot_manager_ready()
         status_code = 200 if ready else 503
 
@@ -2132,7 +2346,9 @@ async def readiness_check():
                 "bot_manager_ready": ready,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
+                "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message=(
                 "Bot API is ready"
@@ -2258,6 +2474,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
     try:
         with backtest_service_scope() as service:
             runtime_health = service.get_runtime_health()
+            backtest_limits = _backtest_capacity_snapshot(runtime_health)
             if not _bot_manager_ready():
                 return api_response(
                     success=True,
@@ -2270,7 +2487,9 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                         },
                         "api_info": {"version": "1.0.0", "uptime_hours": "N/A"},
                         "backtest_runtime": runtime_health,
+                        "backtest_limits": backtest_limits,
                         "bot_recovery": _bot_recovery_diagnostics(),
+                        "bot_db_sync": _bot_db_sync_diagnostics(),
                     },
                     message="System status available; bot manager unavailable",
                 )
@@ -2311,7 +2530,9 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                     "uptime_hours": "N/A",  # Could implement uptime tracking
                 },
                 "backtest_runtime": runtime_health,
+                "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message="System status retrieved successfully",
         )
@@ -2928,6 +3149,9 @@ async def create_backtest(
             normalized_request = request
 
         with backtest_service_scope() as service:
+            blocked = _check_backtest_admission(service)
+            if blocked is not None:
+                return blocked
             result = await service.create_and_run_backtest(
                 normalized_request, _broadcast_backtest_progress
             )
@@ -2993,6 +3217,9 @@ async def run_backtest_compat(
             backtest_request = _manual_backtest_request(request, resolved_pairs)
 
         with backtest_service_scope() as service:
+            blocked = _check_backtest_admission(service)
+            if blocked is not None:
+                return blocked
             result = await service.create_and_run_backtest(
                 backtest_request, _broadcast_backtest_progress
             )

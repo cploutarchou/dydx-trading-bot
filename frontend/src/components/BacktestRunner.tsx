@@ -1,8 +1,10 @@
 import { useMutation } from '@tanstack/react-query';
+import { AxiosError } from 'axios';
 import { Play } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
+import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { useStrategyStore } from '../store/strategies';
 import { useToastStore } from './ErrorBoundary';
 import { InlineNotice } from './ui/PlatformUI';
@@ -65,6 +67,22 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return error instanceof Error ? error.message : fallback;
 };
 
+const toPositiveInteger = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const extractUserBacktestQuota = (payload: unknown): number | null => {
+  const root = toRecord(payload);
+  const data = toRecord(root.data);
+  return (
+    toPositiveInteger(data.max_active_backtests) ?? toPositiveInteger(root.max_active_backtests)
+  );
+};
+
+const countActiveBacktests = (payload: unknown): number =>
+  extractBacktestRuns(payload).filter((run) => isActiveBacktestRun(run)).length;
+
 const extractRunId = (result: unknown): string | null => {
   const record = toRecord(result);
   if (typeof record.run_id === 'string') return record.run_id;
@@ -77,9 +95,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 }) => {
   type ApiBacktestRequest = Parameters<typeof api.runBacktest>[0];
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { strategies, fetchStrategies } = useStrategyStore();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
+  const warningToast = useToastStore((state) => state.warning);
   const [useStrategy, setUseStrategy] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
   const [formData, setFormData] = useState<BacktestRunRequest>({
@@ -109,6 +129,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(false);
   const [marketsError, setMarketsError] = useState<string | null>(null);
+  const requestedStrategyId = useMemo(() => {
+    const raw = searchParams.get('strategy_id');
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [searchParams]);
   const presets = [
     {
       id: 'disciplined',
@@ -232,55 +257,74 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     }
   };
 
-  const handleStrategyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = e.target.value ? parseInt(e.target.value) : null;
-    setSelectedStrategyId(id);
+  const applyStrategyDefaults = useCallback(
+    (id: number | null, enabled: boolean) => {
+      setSelectedStrategyId(id);
 
-    if (id && useStrategy) {
-      const strategy = strategies.find((s) => s.id === id);
-      if (strategy) {
-        const strategyMarkets = Array.isArray(strategy.selected_markets)
-          ? strategy.selected_markets
-          : [];
-        setSelectedMarkets(strategyMarkets.slice(0, 20));
-        setFormData((prev) => ({
-          ...prev,
-          strategy_id: id,
-          initial_balance:
-            strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
-          benchmark_symbol: strategy.benchmark_symbol || prev.benchmark_symbol,
-          trading_parameters: {
-            ...prev.trading_parameters,
-            resolution: strategy.candle_resolution || strategy.resolution,
-            candle_resolution: strategy.candle_resolution || strategy.resolution,
-            zscore_threshold: strategy.zscore_threshold,
-            stats_window: strategy.stats_window,
-            max_half_life: strategy.max_half_life,
-            usd_per_trade: strategy.usd_per_trade,
-            usd_min_collateral: strategy.usd_min_collateral,
-            close_at_zscore_cross: strategy.close_at_zscore_cross,
-            find_cointegrated_pairs: strategy.find_cointegrated_pairs,
-            manage_exits: strategy.manage_exits,
-            place_trades: strategy.place_trades,
-            abort_all_positions: strategy.abort_all_positions,
-            max_positions: strategy.max_positions,
-            max_drawdown_pct: strategy.max_drawdown_pct,
-            stop_loss_pct: strategy.stop_loss_pct,
-            take_profit_pct: strategy.take_profit_pct,
-            trailing_stop_pct: strategy.trailing_stop_pct,
-            rebalance_interval_hours: strategy.rebalance_interval_hours,
-            position_timeout_hours: strategy.position_timeout_hours,
-            transaction_fee: strategy.transaction_fee,
-            slippage: strategy.slippage,
-            risk_free_rate: strategy.risk_free_rate,
-            benchmark_symbol: strategy.benchmark_symbol,
-            max_history_days: strategy.max_history_days,
-            pair_selection_mode: strategy.pair_selection_mode,
-          },
-        }));
+      if (id && enabled) {
+        const strategy = strategies.find((s) => s.id === id);
+        if (strategy) {
+          const strategyMarkets = Array.isArray(strategy.selected_markets)
+            ? strategy.selected_markets
+            : [];
+          setSelectedMarkets(strategyMarkets.slice(0, 20));
+          setFormData((prev) => ({
+            ...prev,
+            strategy_id: id,
+            initial_balance:
+              strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
+            benchmark_symbol: strategy.benchmark_symbol || prev.benchmark_symbol,
+            trading_parameters: {
+              ...prev.trading_parameters,
+              resolution: strategy.candle_resolution || strategy.resolution,
+              candle_resolution: strategy.candle_resolution || strategy.resolution,
+              zscore_threshold: strategy.zscore_threshold,
+              stats_window: strategy.stats_window,
+              max_half_life: strategy.max_half_life,
+              usd_per_trade: strategy.usd_per_trade,
+              usd_min_collateral: strategy.usd_min_collateral,
+              close_at_zscore_cross: strategy.close_at_zscore_cross,
+              find_cointegrated_pairs: strategy.find_cointegrated_pairs,
+              manage_exits: strategy.manage_exits,
+              place_trades: strategy.place_trades,
+              abort_all_positions: strategy.abort_all_positions,
+              max_positions: strategy.max_positions,
+              max_drawdown_pct: strategy.max_drawdown_pct,
+              stop_loss_pct: strategy.stop_loss_pct,
+              take_profit_pct: strategy.take_profit_pct,
+              trailing_stop_pct: strategy.trailing_stop_pct,
+              rebalance_interval_hours: strategy.rebalance_interval_hours,
+              position_timeout_hours: strategy.position_timeout_hours,
+              transaction_fee: strategy.transaction_fee,
+              slippage: strategy.slippage,
+              risk_free_rate: strategy.risk_free_rate,
+              benchmark_symbol: strategy.benchmark_symbol,
+              max_history_days: strategy.max_history_days,
+              pair_selection_mode: strategy.pair_selection_mode,
+            },
+          }));
+        }
       }
-    }
+    },
+    [strategies]
+  );
+
+  const handleStrategyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value ? parseInt(e.target.value, 10) : null;
+    applyStrategyDefaults(id, useStrategy);
   };
+
+  useEffect(() => {
+    if (
+      !requestedStrategyId ||
+      strategies.length === 0 ||
+      selectedStrategyId === requestedStrategyId
+    ) {
+      return;
+    }
+    setUseStrategy(true);
+    applyStrategyDefaults(requestedStrategyId, true);
+  }, [applyStrategyDefaults, requestedStrategyId, selectedStrategyId, strategies.length]);
 
   const toggleMarket = (market: string) => {
     setSelectedMarkets((prev) => {
@@ -331,6 +375,23 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         setError(message);
         errorToast('Market selection needs attention', message);
         return;
+      }
+
+      setLoading(true);
+
+      const [currentUserResponse, backtestListResponse] = await Promise.all([
+        api.getCurrentUser(),
+        api.listBacktests(0, 250),
+      ]);
+      const userQuota = extractUserBacktestQuota(currentUserResponse);
+      if (userQuota !== null) {
+        const activeBacktests = countActiveBacktests(backtestListResponse);
+        if (activeBacktests >= userQuota) {
+          const message = `You already have ${activeBacktests} active backtest${activeBacktests === 1 ? '' : 's'}. Your admin limit is ${userQuota}. Wait for an active run to complete before starting another one.`;
+          setError(message);
+          warningToast('Active backtest limit reached', message);
+          return;
+        }
       }
 
       // Ensure max_history_days covers the full requested period plus a warmup
@@ -408,7 +469,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         },
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
       } satisfies BacktestRunRequest;
-      setLoading(true);
       const result = await runBacktestMutation.mutateAsync(cleanedData as ApiBacktestRequest);
       const runId = extractRunId(result);
 
@@ -429,7 +489,29 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
     } catch (err: unknown) {
       console.error('❌ BacktestRunner: Error:', err);
-      const message = getErrorMessage(err, 'Failed to start backtest');
+      const fallbackMessage = getErrorMessage(err, 'Failed to start backtest');
+      let message = fallbackMessage;
+
+      if (err instanceof AxiosError) {
+        const statusCode = err.response?.status;
+        const payload = toRecord(err.response?.data);
+        const reason =
+          typeof payload.reason === 'string'
+            ? payload.reason
+            : typeof toRecord(payload.data).reason === 'string'
+              ? String(toRecord(payload.data).reason)
+              : '';
+
+        if (statusCode === 429) {
+          message =
+            reason === 'backtest_user_capacity_reached'
+              ? 'You reached your active backtest quota. Wait for a run to finish or ask an admin to raise your limit.'
+              : reason === 'persistence_pool_overload'
+                ? 'Backtest capacity is temporarily saturated by persistence load. Please retry shortly.'
+                : fallbackMessage;
+        }
+      }
+
       setError(message);
       errorToast('Unable to start backtest', message);
     } finally {
@@ -539,7 +621,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           </p>
           <p className="mt-1 text-xs text-slate-500">
             {useStrategy && selectedStrategyId
-              ? 'Saved defaults loaded with overrides still available.'
+              ? `Saved strategy #${selectedStrategyId} loaded. This run will stay linked to that strategy.`
               : 'Operators set assumptions directly before queueing the run.'}
           </p>
         </div>
@@ -581,6 +663,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                 setUseStrategy(e.target.checked);
                 if (!e.target.checked) {
                   setSelectedStrategyId(null);
+                  setFormData((prev) => {
+                    const next = { ...prev };
+                    delete next.strategy_id;
+                    return next;
+                  });
                 }
               }}
               className="h-4 w-4 rounded border-slate-700 bg-stone-950 text-cyan-500"
@@ -605,7 +692,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
               {selectedStrategyId && (
                 <p className="mt-2 text-xs text-cyan-300">
-                  Strategy parameters loaded below — you can override them before running.
+                  Strategy #{selectedStrategyId} parameters loaded below. The backtest payload will
+                  include this relation so results can link back to the source strategy.
                 </p>
               )}
             </>

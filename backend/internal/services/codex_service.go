@@ -161,6 +161,12 @@ type cacheEntry struct {
 	value     any
 }
 
+type codexInFlightCall struct {
+	done  chan struct{}
+	value any
+	err   error
+}
+
 type serialRateLimiter struct {
 	mu       sync.Mutex
 	interval time.Duration
@@ -210,6 +216,8 @@ type CodexService struct {
 	limiter      *serialRateLimiter
 	cacheMu      sync.RWMutex
 	cache        map[string]cacheEntry
+	inFlightMu   sync.Mutex
+	inFlight     map[string]*codexInFlightCall
 }
 
 type CodexServiceError struct {
@@ -238,6 +246,7 @@ func NewCodexServiceFromEnv(credentials *ExternalAPICredentialService) *CodexSer
 		sharedAPIKey: strings.TrimSpace(os.Getenv(codexSharedKeyEnvVar)),
 		limiter:      newSerialRateLimiter(defaultCodexRequestsPerSecond),
 		cache:        make(map[string]cacheEntry),
+		inFlight:     make(map[string]*codexInFlightCall),
 	}
 }
 
@@ -300,15 +309,20 @@ func (s *CodexService) GetMarketOverview(ctx context.Context, userID int, networ
 		}
 	}
 
-	resolved, err := s.resolveAPIKey(userID)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
-	}
+	value, err := s.doSingleFlight(cacheKey, func() (any, error) {
+		if cached, ok := s.getCached(cacheKey); ok {
+			return cached, nil
+		}
 
-	query := `
+		resolved, err := s.resolveAPIKey(userID)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(resolved.key) == "" {
+			return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
+		}
+
+		query := `
 		query CodexMarketOverview($network: [Int!], $limit: Int!, $moversRankings: [TokenRanking], $safeRankings: [TokenRanking]) {
 			movers: filterTokens(
 				filters: {
@@ -364,38 +378,48 @@ func (s *CodexService) GetMarketOverview(ctx context.Context, userID int, networ
 		}
 	`
 
-	var response struct {
-		Movers struct {
-			Results []codexTokenFilterResult `json:"results"`
-		} `json:"movers"`
-		Safe struct {
-			Results []codexTokenFilterResult `json:"results"`
-		} `json:"safe"`
-	}
+		var response struct {
+			Movers struct {
+				Results []codexTokenFilterResult `json:"results"`
+			} `json:"movers"`
+			Safe struct {
+				Results []codexTokenFilterResult `json:"results"`
+			} `json:"safe"`
+		}
 
-	err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
-		"network": []int{networkID},
-		"limit":   limit,
-		"moversRankings": []map[string]string{
-			{"attribute": "change24", "direction": "DESC"},
-			{"attribute": "volume24", "direction": "DESC"},
-		},
-		"safeRankings": []map[string]string{
-			{"attribute": "liquidity", "direction": "DESC"},
-			{"attribute": "volume24", "direction": "DESC"},
-		},
-	}, &response)
+		err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
+			"network": []int{networkID},
+			"limit":   limit,
+			"moversRankings": []map[string]string{
+				{"attribute": "change24", "direction": "DESC"},
+				{"attribute": "volume24", "direction": "DESC"},
+			},
+			"safeRankings": []map[string]string{
+				{"attribute": "liquidity", "direction": "DESC"},
+				{"attribute": "volume24", "direction": "DESC"},
+			},
+		}, &response)
+		if err != nil {
+			return nil, err
+		}
+
+		overview := &CodexMarketOverview{
+			NetworkID:   networkID,
+			Movers:      mapTokenResults(response.Movers.Results),
+			SafeMovers:  mapTokenResults(response.Safe.Results),
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		s.setCached(cacheKey, overview, defaultCodexOverviewTTL)
+		return overview, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	overview := &CodexMarketOverview{
-		NetworkID:   networkID,
-		Movers:      mapTokenResults(response.Movers.Results),
-		SafeMovers:  mapTokenResults(response.Safe.Results),
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	overview, ok := value.(*CodexMarketOverview)
+	if !ok || overview == nil {
+		return nil, fmt.Errorf("unexpected market overview cache type")
 	}
-	s.setCached(cacheKey, overview, defaultCodexOverviewTTL)
 	return overview, nil
 }
 
@@ -414,20 +438,25 @@ func (s *CodexService) SearchTokens(ctx context.Context, userID int, queryText s
 		}
 	}
 
-	resolved, err := s.resolveAPIKey(userID)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
-	}
+	value, err := s.doSingleFlight(cacheKey, func() (any, error) {
+		if cached, ok := s.getCached(cacheKey); ok {
+			return cached, nil
+		}
 
-	var filters map[string]any
-	if networkID != nil && *networkID > 0 {
-		filters = map[string]any{"network": []int{*networkID}}
-	}
+		resolved, err := s.resolveAPIKey(userID)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(resolved.key) == "" {
+			return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
+		}
 
-	query := `
+		var filters map[string]any
+		if networkID != nil && *networkID > 0 {
+			filters = map[string]any{"network": []int{*networkID}}
+		}
+
+		query := `
 		query CodexTokenSearch($phrase: String!, $filters: TokenFilters, $limit: Int!) {
 			filterTokens(
 				phrase: $phrase,
@@ -462,23 +491,33 @@ func (s *CodexService) SearchTokens(ctx context.Context, userID int, queryText s
 			}
 		}
 	`
-	var response struct {
-		FilterTokens struct {
-			Results []codexTokenFilterResult `json:"results"`
-		} `json:"filterTokens"`
-	}
+		var response struct {
+			FilterTokens struct {
+				Results []codexTokenFilterResult `json:"results"`
+			} `json:"filterTokens"`
+		}
 
-	err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
-		"phrase":  queryText,
-		"filters": filters,
-		"limit":   limit,
-	}, &response)
+		err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
+			"phrase":  queryText,
+			"filters": filters,
+			"limit":   limit,
+		}, &response)
+		if err != nil {
+			return nil, err
+		}
+
+		results := mapTokenResults(response.FilterTokens.Results)
+		s.setCached(cacheKey, results, defaultCodexSearchTTL)
+		return results, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	results := mapTokenResults(response.FilterTokens.Results)
-	s.setCached(cacheKey, results, defaultCodexSearchTTL)
+	results, ok := value.([]CodexTokenSummary)
+	if !ok {
+		return nil, fmt.Errorf("unexpected token search cache type")
+	}
 	return results, nil
 }
 
@@ -494,16 +533,21 @@ func (s *CodexService) GetTokenDetail(ctx context.Context, userID int, networkID
 		}
 	}
 
-	resolved, err := s.resolveAPIKey(userID)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
-	}
+	value, err := s.doSingleFlight(cacheKey, func() (any, error) {
+		if cached, ok := s.getCached(cacheKey); ok {
+			return cached, nil
+		}
 
-	tokenID := fmt.Sprintf("%s:%d", address, networkID)
-	query := `
+		resolved, err := s.resolveAPIKey(userID)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(resolved.key) == "" {
+			return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
+		}
+
+		tokenID := fmt.Sprintf("%s:%d", address, networkID)
+		query := `
 		query CodexTokenDetail($tokenAddress: String!, $networkId: Int!, $tokenIds: [String]) {
 			token(input: { address: $tokenAddress, networkId: $networkId }) {
 				id
@@ -566,48 +610,58 @@ func (s *CodexService) GetTokenDetail(ctx context.Context, userID int, networkID
 		}
 	`
 
-	var response struct {
-		Token        codexEnhancedToken `json:"token"`
-		FilterTokens struct {
-			Results []codexTokenFilterResult `json:"results"`
-		} `json:"filterTokens"`
-		ListPairsWithMetadataForToken struct {
-			Results []codexPairMetadataResult `json:"results"`
-		} `json:"listPairsWithMetadataForToken"`
-	}
+		var response struct {
+			Token        codexEnhancedToken `json:"token"`
+			FilterTokens struct {
+				Results []codexTokenFilterResult `json:"results"`
+			} `json:"filterTokens"`
+			ListPairsWithMetadataForToken struct {
+				Results []codexPairMetadataResult `json:"results"`
+			} `json:"listPairsWithMetadataForToken"`
+		}
 
-	err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
-		"tokenAddress": address,
-		"networkId":    networkID,
-		"tokenIds":     []string{tokenID},
-	}, &response)
+		err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
+			"tokenAddress": address,
+			"networkId":    networkID,
+			"tokenIds":     []string{tokenID},
+		}, &response)
+		if err != nil {
+			return nil, err
+		}
+
+		summary := CodexTokenSummary{
+			ID:        tokenID,
+			Address:   address,
+			NetworkID: networkID,
+			Name:      response.Token.Name,
+			Symbol:    response.Token.Symbol,
+			IsScam:    response.Token.IsScam,
+		}
+		if len(response.FilterTokens.Results) > 0 {
+			summary = mapTokenResults(response.FilterTokens.Results)[0]
+		}
+
+		detail := &CodexTokenDetail{
+			Token:             summary,
+			Description:       strings.TrimSpace(response.Token.Description),
+			ImageSmallURL:     response.Token.ImageSmallURL,
+			ImageLargeURL:     response.Token.ImageLargeURL,
+			ImageBannerURL:    response.Token.ImageBannerURL,
+			CirculatingSupply: parseFloatString(response.Token.CirculatingSupply),
+			TotalSupply:       parseFloatString(response.Token.TotalSupply),
+			TopPairs:          mapPairResults(response.ListPairsWithMetadataForToken.Results),
+		}
+		s.setCached(cacheKey, detail, defaultCodexDetailTTL)
+		return detail, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	summary := CodexTokenSummary{
-		ID:        tokenID,
-		Address:   address,
-		NetworkID: networkID,
-		Name:      response.Token.Name,
-		Symbol:    response.Token.Symbol,
-		IsScam:    response.Token.IsScam,
+	detail, ok := value.(*CodexTokenDetail)
+	if !ok || detail == nil {
+		return nil, fmt.Errorf("unexpected token detail cache type")
 	}
-	if len(response.FilterTokens.Results) > 0 {
-		summary = mapTokenResults(response.FilterTokens.Results)[0]
-	}
-
-	detail := &CodexTokenDetail{
-		Token:             summary,
-		Description:       strings.TrimSpace(response.Token.Description),
-		ImageSmallURL:     response.Token.ImageSmallURL,
-		ImageLargeURL:     response.Token.ImageLargeURL,
-		ImageBannerURL:    response.Token.ImageBannerURL,
-		CirculatingSupply: parseFloatString(response.Token.CirculatingSupply),
-		TotalSupply:       parseFloatString(response.Token.TotalSupply),
-		TopPairs:          mapPairResults(response.ListPairsWithMetadataForToken.Results),
-	}
-	s.setCached(cacheKey, detail, defaultCodexDetailTTL)
 	return detail, nil
 }
 
@@ -624,16 +678,21 @@ func (s *CodexService) GetTokenChart(ctx context.Context, userID int, networkID 
 		}
 	}
 
-	resolved, err := s.resolveAPIKey(userID)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(resolved.key) == "" {
-		return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
-	}
+	value, err := s.doSingleFlight(cacheKey, func() (any, error) {
+		if cached, ok := s.getCached(cacheKey); ok {
+			return cached, nil
+		}
 
-	tokenID := fmt.Sprintf("%s:%d", address, networkID)
-	query := `
+		resolved, err := s.resolveAPIKey(userID)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(resolved.key) == "" {
+			return nil, &CodexServiceError{Code: http.StatusServiceUnavailable, Message: "Codex.io is not configured"}
+		}
+
+		tokenID := fmt.Sprintf("%s:%d", address, networkID)
+		query := `
 		query CodexTokenChart($symbol: String!, $from: Int!, $to: Int!, $resolution: String!, $countback: Int!) {
 			getTokenBars(
 				symbol: $symbol,
@@ -658,28 +717,38 @@ func (s *CodexService) GetTokenChart(ctx context.Context, userID int, networkID 
 		}
 	`
 
-	var response struct {
-		GetTokenBars codexBarsResponse `json:"getTokenBars"`
-	}
+		var response struct {
+			GetTokenBars codexBarsResponse `json:"getTokenBars"`
+		}
 
-	err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
-		"symbol":     tokenID,
-		"from":       fromUnix,
-		"to":         toUnix,
-		"resolution": resolution,
-		"countback":  countback,
-	}, &response)
+		err = s.executeQuery(ctx, resolved.key, traceID, query, map[string]any{
+			"symbol":     tokenID,
+			"from":       fromUnix,
+			"to":         toUnix,
+			"resolution": resolution,
+			"countback":  countback,
+		}, &response)
+		if err != nil {
+			return nil, err
+		}
+
+		chart := &CodexTokenChart{
+			TokenID:     tokenID,
+			Interval:    strings.ToLower(interval),
+			Points:      mapBars(response.GetTokenBars),
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		s.setCached(cacheKey, chart, defaultCodexChartTTL)
+		return chart, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	chart := &CodexTokenChart{
-		TokenID:     tokenID,
-		Interval:    strings.ToLower(interval),
-		Points:      mapBars(response.GetTokenBars),
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	chart, ok := value.(*CodexTokenChart)
+	if !ok || chart == nil {
+		return nil, fmt.Errorf("unexpected token chart cache type")
 	}
-	s.setCached(cacheKey, chart, defaultCodexChartTTL)
 	return chart, nil
 }
 
@@ -859,6 +928,31 @@ func (s *CodexService) setCached(key string, value any, ttl time.Duration) {
 		expiresAt: time.Now().Add(ttl),
 		value:     value,
 	}
+}
+
+func (s *CodexService) doSingleFlight(key string, fn func() (any, error)) (any, error) {
+	s.inFlightMu.Lock()
+	if s.inFlight == nil {
+		s.inFlight = make(map[string]*codexInFlightCall)
+	}
+	if call, ok := s.inFlight[key]; ok {
+		s.inFlightMu.Unlock()
+		<-call.done
+		return call.value, call.err
+	}
+
+	call := &codexInFlightCall{done: make(chan struct{})}
+	s.inFlight[key] = call
+	s.inFlightMu.Unlock()
+
+	call.value, call.err = fn()
+
+	s.inFlightMu.Lock()
+	delete(s.inFlight, key)
+	close(call.done)
+	s.inFlightMu.Unlock()
+
+	return call.value, call.err
 }
 
 func defaultCapabilities() CodexCapabilities {

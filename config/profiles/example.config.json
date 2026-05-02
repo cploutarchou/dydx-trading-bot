@@ -1,97 +1,97 @@
 {
-  "metadata": {
-    "environment": "development",
-    "description": "Example encrypted runtime profile for the dYdX trading monorepo"
-  },
-  "frontend": {
-    "VITE_API_URL": "http://localhost:8888",
-    "VITE_FORCE_MOCK_DATA": false
-  },
-  "shared": {
-    "APP_ENV": "development",
-    "ENVIRONMENT": "development",
-    "IS_TESTNET": true,
-    "API_PORT": 8888,
-    "PROXY_HTTP_PORT": 8080,
-    "FRONTEND_URL": "http://localhost:5173"
-  },
-  "security": {
-    "SECRET_KEY": "change-me-secret-key-min-32-characters",
-    "JWT_SECRET_KEY": "change-me-secret-key-min-32-characters",
-    "ENCRYPTION_KEY": "change-me-encryption-key-min-32-bytes",
-    "JWT_ALGORITHM": "HS256",
-    "ACCESS_TOKEN_EXPIRE_MINUTES": 30,
-    "REFRESH_TOKEN_EXPIRE_DAYS": 7
-  },
-  "backend": {
-    "BOT_API_URL": "http://127.0.0.1:8889",
-    "BOT_API_USE_SERVICE_TOKEN": true,
-    "BOT_API_TOKEN": "change-me-bot-service-token",
-    "BOT_API_TOKEN_PREVIOUS": "",
-    "BOT_API_TOKENS": "",
-    "API_BYPASS_AUTH": false
-  },
-  "database": {
-    "DB_TYPE": "postgresql",
-    "DB_HOST": "localhost",
-    "DB_PORT": 5432,
-    "DB_NAME": "dydx_bot",
-    "DB_USER": "dydx_bot",
-    "DB_PASSWORD": "change-me-db-password",
-    "DB_TIMEOUT": 5,
-    "DB_ENABLED": true,
-    "DB_POOL_SIZE": 5,
-    "DB_MAX_CONNECTIONS": 10,
-    "DB_MAX_OVERFLOW": 10,
-    "SSL_MODE": false,
-    "DB_ECHO_SQL": false,
-    "POSTGRES_HOST": "localhost",
-    "POSTGRES_PORT": 5432,
-    "POSTGRES_DB": "dydx_bot",
-    "POSTGRES_USER": "dydx_bot",
-    "POSTGRES_PASSWORD": "change-me-db-password"
-  },
-  "bot_database": {
-    "BOT_DB_CUTOVER_MODE": "dedicated",
-    "BOT_DB_HOST": "localhost",
-    "BOT_DB_PORT": 5433,
-    "BOT_DB_NAME": "dydx_bot",
-    "BOT_DB_USER": "dydx_bot",
-    "BOT_DB_PASSWORD": "change-me-db-password"
-  },
-  "redis": {
-    "REDIS_ENABLED": true,
-    "REDIS_HOST": "localhost",
-    "REDIS_PORT": 6379,
-    "REDIS_DB": 0,
-    "REDIS_SSL": false,
-    "REDIS_TIMEOUT": 5,
-    "REDIS_CACHE_TTL": 86400,
-    "REDIS_MAX_CONNECTIONS": 10
-  },
-  "bot_api": {
-    "BOT_API_HOST": "0.0.0.0",
-    "BOT_API_PORT": 8889,
-    "BOT_API_RELOAD": true,
-    "BOT_API_WORKERS": 1,
-    "BOT_MANAGER_MONITOR_INTERVAL_SECONDS": 10,
-    "BOT_STARTUP_GRACE_SECONDS": 0.2
-  },
-  "observability": {
-    "LOG_LEVEL": "INFO",
-    "LOKI_ENABLED": false,
-    "LOKI_LABELS": "{}",
-    "LOKI_URL": "",
-    "LOKI_PUSH_URL": "",
-    "LOKI_USERNAME": "",
-    "LOKI_PASSWORD": "",
-    "LOKI_TENANT_ID": ""
-  },
-  "integrations": {
-    "CODEX_IO_BASE_URL": "https://graph.codex.io/graphql",
-    "CODEX_IO_API_KEY": "",
-    "COINDESK_RSS_URL": "https://www.coindesk.com/arc/outboundfeeds/rss/",
-    "MAILGUN_API_BASE_URL": "",
-    "MAILGUN_API_BASE_URL_EU": ""
-  }
+	"metadata": {
+		"environment": "development",
+		"description": "Example encrypted runtime profile for the dYdX trading monorepo"
+	},
+	"frontend": {
+		"VITE_API_URL": "http://localhost:8888",
+		"VITE_FORCE_MOCK_DATA": false
+	},
+	"shared": {
+		"APP_ENV": "development",
+		"ENVIRONMENT": "development",
+		"IS_TESTNET": true,
+		"API_PORT": 8888,
+		"PROXY_HTTP_PORT": 8080,
+		"FRONTEND_URL": "http://localhost:5173"
+	},
+	"security": {
+		"SECRET_KEY": "change-me-secret-key-min-32-characters",
+		"JWT_SECRET_KEY": "change-me-secret-key-min-32-characters",
+		"ENCRYPTION_KEY": "change-me-encryption-key-min-32-bytes",
+		"JWT_ALGORITHM": "HS256",
+		"ACCESS_TOKEN_EXPIRE_MINUTES": 30,
+		"REFRESH_TOKEN_EXPIRE_DAYS": 7
+	},
+	"backend": {
+		"BOT_API_URL": "http://127.0.0.1:8889",
+		"BOT_API_USE_SERVICE_TOKEN": true,
+		"BOT_API_TOKEN": "change-me-bot-service-token",
+		"BOT_API_TOKEN_PREVIOUS": "",
+		"BOT_API_TOKENS": "",
+		"API_BYPASS_AUTH": false
+	},
+	"database": {
+		"DB_TYPE": "postgresql",
+		"DB_HOST": "localhost",
+		"DB_PORT": 5432,
+		"DB_NAME": "dydx_bot",
+		"DB_USER": "dydx_bot",
+		"DB_PASSWORD": "change-me-db-password",
+		"DB_TIMEOUT": 60,
+		"DB_ENABLED": true,
+		"DB_POOL_SIZE": 30,
+		"DB_MAX_CONNECTIONS": 90,
+		"DB_MAX_OVERFLOW": 60,
+		"SSL_MODE": false,
+		"DB_ECHO_SQL": false,
+		"POSTGRES_HOST": "localhost",
+		"POSTGRES_PORT": 5432,
+		"POSTGRES_DB": "dydx_bot",
+		"POSTGRES_USER": "dydx_bot",
+		"POSTGRES_PASSWORD": "change-me-db-password"
+	},
+	"bot_database": {
+		"BOT_DB_CUTOVER_MODE": "dedicated",
+		"BOT_DB_HOST": "localhost",
+		"BOT_DB_PORT": 5433,
+		"BOT_DB_NAME": "dydx_bot",
+		"BOT_DB_USER": "dydx_bot",
+		"BOT_DB_PASSWORD": "change-me-db-password"
+	},
+	"redis": {
+		"REDIS_ENABLED": true,
+		"REDIS_HOST": "localhost",
+		"REDIS_PORT": 6379,
+		"REDIS_DB": 0,
+		"REDIS_SSL": false,
+		"REDIS_TIMEOUT": 5,
+		"REDIS_CACHE_TTL": 86400,
+		"REDIS_MAX_CONNECTIONS": 10
+	},
+	"bot_api": {
+		"BOT_API_HOST": "0.0.0.0",
+		"BOT_API_PORT": 8889,
+		"BOT_API_RELOAD": true,
+		"BOT_API_WORKERS": 1,
+		"BOT_MANAGER_MONITOR_INTERVAL_SECONDS": 10,
+		"BOT_STARTUP_GRACE_SECONDS": 0.2
+	},
+	"observability": {
+		"LOG_LEVEL": "INFO",
+		"LOKI_ENABLED": false,
+		"LOKI_LABELS": "{}",
+		"LOKI_URL": "",
+		"LOKI_PUSH_URL": "",
+		"LOKI_USERNAME": "",
+		"LOKI_PASSWORD": "",
+		"LOKI_TENANT_ID": ""
+	},
+	"integrations": {
+		"CODEX_IO_BASE_URL": "https://graph.codex.io/graphql",
+		"CODEX_IO_API_KEY": "",
+		"COINDESK_RSS_URL": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+		"MAILGUN_API_BASE_URL": "",
+		"MAILGUN_API_BASE_URL_EU": ""
+	}
 }

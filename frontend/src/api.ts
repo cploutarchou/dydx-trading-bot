@@ -258,6 +258,9 @@ interface UserProfile extends Record<string, unknown> {
 
 export interface AdminUser extends UserProfile {
   updated_at: string;
+  max_active_backtests?: number;
+  max_strategies?: number;
+  max_bot_instances?: number;
 }
 
 export interface AdminUserListResponse extends Record<string, unknown> {
@@ -303,6 +306,9 @@ export interface CreateAdminUserPayload extends Record<string, unknown> {
   role: string;
   full_name?: string;
   is_active?: boolean;
+  max_active_backtests?: number;
+  max_strategies?: number;
+  max_bot_instances?: number;
 }
 
 export interface UpdateAdminUserPayload extends Record<string, unknown> {
@@ -310,6 +316,9 @@ export interface UpdateAdminUserPayload extends Record<string, unknown> {
   full_name?: string;
   role?: string;
   is_active?: boolean;
+  max_active_backtests?: number;
+  max_strategies?: number;
+  max_bot_instances?: number;
 }
 
 export interface ChangePasswordPayload extends Record<string, unknown> {
@@ -1217,9 +1226,15 @@ interface StrategyRuntimeResponse extends Record<string, unknown> {
   bot_status?: string;
   is_running: boolean;
   process_id?: number | null;
+  trades_executed?: number;
+  pnl?: number;
+  win_rate?: number;
+  open_positions?: number;
+  uptime_seconds?: number;
   last_error?: string;
   started_at?: string;
   stopped_at?: string;
+  runtime_updated_at?: string;
   last_run_at?: string;
   next_run_at?: string;
   updated_at?: string;
@@ -1947,14 +1962,10 @@ class ApiClient {
 
   async runBacktest(data: BacktestRequest): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
-    try {
-      const normalizedPayload = normalizeBacktestPayload(data);
-      const response = await this.client.post('/api/v1/backtests/run', normalizedPayload);
-      guardRunBacktestContract(response.data);
-      return response.data;
-    } catch (error: unknown) {
-      throw new Error(getErrorMessage(error));
-    }
+    const normalizedPayload = normalizeBacktestPayload(data);
+    const response = await this.client.post('/api/v1/backtests/run', normalizedPayload);
+    guardRunBacktestContract(response.data);
+    return response.data;
   }
 
   async getPerpetualMarkets(limit: number = 0): Promise<ApiResponse<PerpetualMarketsResponse>> {

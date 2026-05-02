@@ -12,6 +12,9 @@ type User struct {
 	Username               string     `db:"username" json:"username"`
 	Email                  string     `db:"email" json:"email"`
 	Role                   string     `db:"role" json:"role"`
+	MaxActiveBacktests     int        `db:"max_active_backtests" json:"max_active_backtests"`
+	MaxStrategies          int        `db:"max_strategies" json:"max_strategies"`
+	MaxBotInstances        int        `db:"max_bot_instances" json:"max_bot_instances"`
 	FullName               string     `db:"full_name" json:"full_name"`
 	Avatar                 string     `db:"avatar" json:"avatar"`
 	IsActive               bool       `db:"is_active" json:"is_active"`

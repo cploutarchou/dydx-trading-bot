@@ -1716,6 +1716,7 @@ class BotInstanceManager:
 
     async def cleanup_dead_processes(self):
         """Cleanup dead processes and update instance statuses"""
+        state_changed = False
         for instance_id in list(self.processes.keys()):
             process = self.processes[instance_id]
             if process.poll() is not None:  # Process is dead
@@ -1728,6 +1729,7 @@ class BotInstanceManager:
                     if instance_id in self.instances:
                         self.instances[instance_id].recovery_state = "recovering"
                         self.instances[instance_id].recovery_reason = error_message
+                    state_changed = True
                     await self._publish_strategy_status(
                         instance_id,
                         event="error",
@@ -1739,7 +1741,8 @@ class BotInstanceManager:
                     process_id=getattr(process, "pid", None),
                 )
 
-        self._save_instances_state()
+        if state_changed:
+            self._save_instances_state()
 
         # P1.7: Check for stale heartbeats and mark as degraded
         await self._check_liveness_and_degrade()
@@ -1747,6 +1750,7 @@ class BotInstanceManager:
     async def _check_liveness_and_degrade(self):
         """P1.7: Monitor heartbeat staleness and degrade status if needed"""
         now = datetime.now(timezone.utc)
+        state_changed = False
         for instance_id, instance in list(self.instances.items()):
             if instance.status not in {BotStatus.RUNNING, BotStatus.DEGRADED}:
                 continue
@@ -1770,11 +1774,15 @@ class BotInstanceManager:
                 instance.recovery_state = "degraded"
                 instance.recovery_reason = f"Heartbeat stale for {time_since_heartbeat:.0f}s"
                 instance.status = BotStatus.DEGRADED
+                state_changed = True
                 await self._publish_strategy_status(
                     instance_id,
                     event="degraded",
                     message="Runtime heartbeat stale; operating with caution",
                 )
+
+        if state_changed:
+            self._save_instances_state()
 
     def get_recovery_diagnostics(self) -> Dict[str, Any]:
         """Return startup recovery diagnostics for observability endpoints."""

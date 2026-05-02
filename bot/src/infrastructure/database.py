@@ -72,10 +72,10 @@ class DatabaseConfig:
         self.shared_target_matches_runtime = self._runtime_matches_shared_target()
         self._validate_db_ownership_guardrail()
         self.echo_sql = self._env_bool("DB_ECHO_SQL", default=False)
-        self.timeout_seconds = self._env_int("DB_TIMEOUT", 10)
-        self.pool_size = self._env_int("DB_POOL_SIZE", 5)
+        self.timeout_seconds = self._env_int("DB_TIMEOUT", 20)
+        self.pool_size = self._env_int("DB_POOL_SIZE", 10)
         max_connections = self._env_int("DB_MAX_CONNECTIONS", 0)
-        configured_overflow = self._env_int("DB_MAX_OVERFLOW", 10)
+        configured_overflow = self._env_int("DB_MAX_OVERFLOW", 20)
         if max_connections > 0:
             configured_overflow = max(0, max_connections - self.pool_size)
         self.max_overflow = configured_overflow

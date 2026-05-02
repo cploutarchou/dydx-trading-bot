@@ -365,6 +365,37 @@ def _bot_recovery_diagnostics() -> Dict[str, Any]:
         }
 
 
+def _bot_db_sync_diagnostics() -> Dict[str, Any]:
+    if not _bot_manager_ready():
+        return {
+            "active": False,
+            "remaining_seconds": 0.0,
+            "cooldown_seconds": _read_positive_int_env("BOT_DB_SYNC_COOLDOWN_SECONDS", 20),
+            "log_every_seconds": _read_positive_int_env(
+                "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS", 15
+            ),
+            "state": "unavailable",
+            "last_error": "bot manager unavailable",
+        }
+
+    try:
+        diagnostics = bot_manager.get_db_sync_backoff_diagnostics()
+        diagnostics["state"] = "ok"
+        return diagnostics
+    except Exception as exc:
+        logger.warning("Failed to read bot DB sync diagnostics: {}", exc)
+        return {
+            "active": False,
+            "remaining_seconds": 0.0,
+            "cooldown_seconds": _read_positive_int_env("BOT_DB_SYNC_COOLDOWN_SECONDS", 20),
+            "log_every_seconds": _read_positive_int_env(
+                "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS", 15
+            ),
+            "state": "error",
+            "last_error": str(exc),
+        }
+
+
 def _normalize_requested_pair_cap(raw_cap: Any) -> Optional[int]:
     """Normalize max_pairs semantics.
 
@@ -399,9 +430,9 @@ def _read_bool_env(name: str, default: bool = False) -> bool:
 
 
 def _backtest_admission_limit_snapshot() -> Dict[str, int]:
-    max_active = _read_positive_int_env("BACKTEST_MAX_ACTIVE_RUNS_GLOBAL", 100)
+    max_active = _read_positive_int_env("BACKTEST_MAX_ACTIVE_RUNS_GLOBAL", 10)
     max_queue_depth = _read_positive_int_env("BACKTEST_MAX_QUEUE_DEPTH", max_active)
-    max_in_process = _read_positive_int_env("BACKTEST_MAX_IN_PROCESS_BACKTEST_JOBS", 0)
+    max_in_process = _read_positive_int_env("BACKTEST_MAX_IN_PROCESS_BACKTEST_JOBS", max_active)
     retry_after_seconds = _read_positive_int_env("BACKTEST_ADMISSION_RETRY_AFTER_SECONDS", 15)
     return {
         "max_active_runs_global": max_active,
@@ -846,6 +877,13 @@ async def lifespan(_: FastAPI):
         runtime_db_config.db_name,
         runtime_db_config.cutover_mode,
         runtime_db_config.field_source,
+    )
+    logger.info(
+        "Runtime DB pool: pool_size={} max_overflow={} timeout_seconds={} max_connections={}",
+        runtime_db_config.pool_size,
+        runtime_db_config.max_overflow,
+        runtime_db_config.timeout_seconds,
+        runtime_db_config.pool_size + runtime_db_config.max_overflow,
     )
     if not db.health_check():
         raise RuntimeError("Bot database health check failed during API startup")
@@ -1399,6 +1437,7 @@ async def create_bot_instance(
                     else {}
                 ),
             }
+            session = None
             try:
                 session = db.get_session()
                 uow = UnitOfWork(session)
@@ -1429,14 +1468,17 @@ async def create_bot_instance(
                     f"Bot instance created via API: {config.instance_id}",
                     details={"instance_name": config.instance_name},
                 )
-
-                session.close()
                 logger.info(
                     f"Bot instance '{config.instance_id}' persisted to database"
                 )
             except Exception as db_error:
                 logger.warning(f"Failed to persist bot to database: {db_error}")
+                if session is not None:
+                    session.rollback()
                 # Continue anyway - bot was created in manager
+            finally:
+                if session is not None:
+                    session.close()
 
             _send_bot_lifecycle_notification(
                 "created",
@@ -1535,6 +1577,7 @@ async def delete_bot_instance(
         result = await bot_manager.delete_instance(instance_id)
 
         if result.success:
+            session = None
             try:
                 session = db.get_session()
                 uow = UnitOfWork(session)
@@ -1547,11 +1590,15 @@ async def delete_bot_instance(
                         "Bot instance deleted via API",
                     )
                 uow.bots.delete_bot(instance_id)
-                session.close()
             except Exception as db_error:
                 logger.warning(
                     f"Failed to delete bot instance '{instance_id}' from database: {db_error}"
                 )
+                if session is not None:
+                    session.rollback()
+            finally:
+                if session is not None:
+                    session.close()
             _send_bot_lifecycle_notification(
                 "deleted",
                 instance_id,
@@ -2234,6 +2281,7 @@ async def health_check():
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message="API is healthy",
         )
@@ -2257,6 +2305,7 @@ async def readiness_check():
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message=(
                 "Bot API is ready"
@@ -2397,6 +2446,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                         "backtest_runtime": runtime_health,
                         "backtest_limits": backtest_limits,
                         "bot_recovery": _bot_recovery_diagnostics(),
+                        "bot_db_sync": _bot_db_sync_diagnostics(),
                     },
                     message="System status available; bot manager unavailable",
                 )
@@ -2439,6 +2489,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
                 "bot_recovery": _bot_recovery_diagnostics(),
+                "bot_db_sync": _bot_db_sync_diagnostics(),
             },
             message="System status retrieved successfully",
         )

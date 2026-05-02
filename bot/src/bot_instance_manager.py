@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,9 +70,52 @@ class BotInstanceManager:
             "live_auto_recovery": {},
             "last_error": None,
         }
+        self._db_sync_backoff_until_monotonic = 0.0
+        self._db_sync_backoff_notice_after_monotonic = 0.0
 
         # Load existing instances from disk
         self._load_existing_instances()
+
+    @staticmethod
+    def _read_positive_float_env(name: str, default: float) -> float:
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return max(0.0, float(default))
+        try:
+            parsed = float(raw)
+        except ValueError:
+            logger.warning("Invalid {}='{}'; using default {}", name, raw, default)
+            return max(0.0, float(default))
+        return max(0.0, parsed)
+
+    @staticmethod
+    def _looks_like_pool_overload(exc: BaseException) -> bool:
+        message = str(exc).lower()
+        return (
+            "queuepool limit" in message
+            or ("connection timed out" in message and "sqlalche.me/e/20/3o7r" in message)
+        )
+
+    def _db_sync_backoff_active(self) -> bool:
+        return time.monotonic() < self._db_sync_backoff_until_monotonic
+
+    def _activate_db_sync_backoff(self, exc: BaseException) -> None:
+        cooldown_seconds = self._read_positive_float_env(
+            "BOT_DB_SYNC_COOLDOWN_SECONDS",
+            20.0,
+        )
+        log_every_seconds = self._read_positive_float_env(
+            "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS",
+            15.0,
+        )
+        now = time.monotonic()
+        self._db_sync_backoff_until_monotonic = now + cooldown_seconds
+        self._db_sync_backoff_notice_after_monotonic = now + log_every_seconds
+        logger.warning(
+            "Activating bot manager DB sync cooldown for {:.1f}s after persistence overload: {}",
+            cooldown_seconds,
+            exc,
+        )
 
     @staticmethod
     def _resolved_environment() -> str:
@@ -533,6 +577,22 @@ class BotInstanceManager:
         """Sync runtime state back into PostgreSQL so it stays authoritative across restarts."""
         if not self._db_persistence_enabled():
             return
+
+        if self._db_sync_backoff_active():
+            now = time.monotonic()
+            if now >= self._db_sync_backoff_notice_after_monotonic:
+                remaining = max(0.0, self._db_sync_backoff_until_monotonic - now)
+                log_every_seconds = self._read_positive_float_env(
+                    "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS",
+                    15.0,
+                )
+                self._db_sync_backoff_notice_after_monotonic = now + log_every_seconds
+                logger.warning(
+                    "Skipping bot manager DB sync due to active overload cooldown ({:.1f}s remaining)",
+                    remaining,
+                )
+            return
+
         session = None
         try:
             session = db.get_session()
@@ -593,8 +653,14 @@ class BotInstanceManager:
                 record.config = persisted_config
 
             session.commit()
+            if self._db_sync_backoff_until_monotonic > 0.0:
+                logger.info("Bot manager DB sync recovered; clearing overload cooldown")
+            self._db_sync_backoff_until_monotonic = 0.0
+            self._db_sync_backoff_notice_after_monotonic = 0.0
         except Exception as exc:
             logger.warning("Failed to sync bot manager state to database: {}", exc)
+            if self._looks_like_pool_overload(exc):
+                self._activate_db_sync_backoff(exc)
             if session is not None:
                 session.rollback()
         finally:
@@ -1716,6 +1782,7 @@ class BotInstanceManager:
 
     async def cleanup_dead_processes(self):
         """Cleanup dead processes and update instance statuses"""
+        state_changed = False
         for instance_id in list(self.processes.keys()):
             process = self.processes[instance_id]
             if process.poll() is not None:  # Process is dead
@@ -1728,6 +1795,7 @@ class BotInstanceManager:
                     if instance_id in self.instances:
                         self.instances[instance_id].recovery_state = "recovering"
                         self.instances[instance_id].recovery_reason = error_message
+                    state_changed = True
                     await self._publish_strategy_status(
                         instance_id,
                         event="error",
@@ -1739,7 +1807,8 @@ class BotInstanceManager:
                     process_id=getattr(process, "pid", None),
                 )
 
-        self._save_instances_state()
+        if state_changed:
+            self._save_instances_state()
 
         # P1.7: Check for stale heartbeats and mark as degraded
         await self._check_liveness_and_degrade()
@@ -1747,6 +1816,7 @@ class BotInstanceManager:
     async def _check_liveness_and_degrade(self):
         """P1.7: Monitor heartbeat staleness and degrade status if needed"""
         now = datetime.now(timezone.utc)
+        state_changed = False
         for instance_id, instance in list(self.instances.items()):
             if instance.status not in {BotStatus.RUNNING, BotStatus.DEGRADED}:
                 continue
@@ -1770,11 +1840,15 @@ class BotInstanceManager:
                 instance.recovery_state = "degraded"
                 instance.recovery_reason = f"Heartbeat stale for {time_since_heartbeat:.0f}s"
                 instance.status = BotStatus.DEGRADED
+                state_changed = True
                 await self._publish_strategy_status(
                     instance_id,
                     event="degraded",
                     message="Runtime heartbeat stale; operating with caution",
                 )
+
+        if state_changed:
+            self._save_instances_state()
 
     def get_recovery_diagnostics(self) -> Dict[str, Any]:
         """Return startup recovery diagnostics for observability endpoints."""
@@ -1789,6 +1863,28 @@ class BotInstanceManager:
             "skipped_instances": list(skipped_instances) if isinstance(skipped_instances, list) else [],
             "live_auto_recovery": dict(self.recovery_diagnostics.get("live_auto_recovery") or {}),
             "last_error": self.recovery_diagnostics.get("last_error"),
+        }
+
+    def get_db_sync_backoff_diagnostics(self) -> Dict[str, Any]:
+        """Return DB sync overload cooldown diagnostics for health surfaces."""
+        now = time.monotonic()
+        backoff_until = float(self._db_sync_backoff_until_monotonic or 0.0)
+        active = now < backoff_until
+        remaining_seconds = max(0.0, backoff_until - now)
+        return {
+            "active": active,
+            "remaining_seconds": round(remaining_seconds, 2),
+            "cooldown_seconds": self._read_positive_float_env(
+                "BOT_DB_SYNC_COOLDOWN_SECONDS",
+                20.0,
+            ),
+            "log_every_seconds": self._read_positive_float_env(
+                "BOT_DB_SYNC_BACKOFF_LOG_EVERY_SECONDS",
+                15.0,
+            ),
+            "notice_after_monotonic": float(
+                self._db_sync_backoff_notice_after_monotonic or 0.0
+            ),
         }
 
     async def shutdown(self, *, stop_active: bool = False):

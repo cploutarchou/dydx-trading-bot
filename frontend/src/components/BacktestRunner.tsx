@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import { AxiosError } from 'axios';
 import { Play } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -238,54 +239,57 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     }
   };
 
-  const applyStrategyDefaults = useCallback((id: number | null, enabled: boolean) => {
-    setSelectedStrategyId(id);
+  const applyStrategyDefaults = useCallback(
+    (id: number | null, enabled: boolean) => {
+      setSelectedStrategyId(id);
 
-    if (id && enabled) {
-      const strategy = strategies.find((s) => s.id === id);
-      if (strategy) {
-        const strategyMarkets = Array.isArray(strategy.selected_markets)
-          ? strategy.selected_markets
-          : [];
-        setSelectedMarkets(strategyMarkets.slice(0, 20));
-        setFormData((prev) => ({
-          ...prev,
-          strategy_id: id,
-          initial_balance:
-            strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
-          benchmark_symbol: strategy.benchmark_symbol || prev.benchmark_symbol,
-          trading_parameters: {
-            ...prev.trading_parameters,
-            resolution: strategy.candle_resolution || strategy.resolution,
-            candle_resolution: strategy.candle_resolution || strategy.resolution,
-            zscore_threshold: strategy.zscore_threshold,
-            stats_window: strategy.stats_window,
-            max_half_life: strategy.max_half_life,
-            usd_per_trade: strategy.usd_per_trade,
-            usd_min_collateral: strategy.usd_min_collateral,
-            close_at_zscore_cross: strategy.close_at_zscore_cross,
-            find_cointegrated_pairs: strategy.find_cointegrated_pairs,
-            manage_exits: strategy.manage_exits,
-            place_trades: strategy.place_trades,
-            abort_all_positions: strategy.abort_all_positions,
-            max_positions: strategy.max_positions,
-            max_drawdown_pct: strategy.max_drawdown_pct,
-            stop_loss_pct: strategy.stop_loss_pct,
-            take_profit_pct: strategy.take_profit_pct,
-            trailing_stop_pct: strategy.trailing_stop_pct,
-            rebalance_interval_hours: strategy.rebalance_interval_hours,
-            position_timeout_hours: strategy.position_timeout_hours,
-            transaction_fee: strategy.transaction_fee,
-            slippage: strategy.slippage,
-            risk_free_rate: strategy.risk_free_rate,
-            benchmark_symbol: strategy.benchmark_symbol,
-            max_history_days: strategy.max_history_days,
-            pair_selection_mode: strategy.pair_selection_mode,
-          },
-        }));
+      if (id && enabled) {
+        const strategy = strategies.find((s) => s.id === id);
+        if (strategy) {
+          const strategyMarkets = Array.isArray(strategy.selected_markets)
+            ? strategy.selected_markets
+            : [];
+          setSelectedMarkets(strategyMarkets.slice(0, 20));
+          setFormData((prev) => ({
+            ...prev,
+            strategy_id: id,
+            initial_balance:
+              strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
+            benchmark_symbol: strategy.benchmark_symbol || prev.benchmark_symbol,
+            trading_parameters: {
+              ...prev.trading_parameters,
+              resolution: strategy.candle_resolution || strategy.resolution,
+              candle_resolution: strategy.candle_resolution || strategy.resolution,
+              zscore_threshold: strategy.zscore_threshold,
+              stats_window: strategy.stats_window,
+              max_half_life: strategy.max_half_life,
+              usd_per_trade: strategy.usd_per_trade,
+              usd_min_collateral: strategy.usd_min_collateral,
+              close_at_zscore_cross: strategy.close_at_zscore_cross,
+              find_cointegrated_pairs: strategy.find_cointegrated_pairs,
+              manage_exits: strategy.manage_exits,
+              place_trades: strategy.place_trades,
+              abort_all_positions: strategy.abort_all_positions,
+              max_positions: strategy.max_positions,
+              max_drawdown_pct: strategy.max_drawdown_pct,
+              stop_loss_pct: strategy.stop_loss_pct,
+              take_profit_pct: strategy.take_profit_pct,
+              trailing_stop_pct: strategy.trailing_stop_pct,
+              rebalance_interval_hours: strategy.rebalance_interval_hours,
+              position_timeout_hours: strategy.position_timeout_hours,
+              transaction_fee: strategy.transaction_fee,
+              slippage: strategy.slippage,
+              risk_free_rate: strategy.risk_free_rate,
+              benchmark_symbol: strategy.benchmark_symbol,
+              max_history_days: strategy.max_history_days,
+              pair_selection_mode: strategy.pair_selection_mode,
+            },
+          }));
+        }
       }
-    }
-  }, [strategies]);
+    },
+    [strategies]
+  );
 
   const handleStrategyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value ? parseInt(e.target.value, 10) : null;
@@ -293,7 +297,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   };
 
   useEffect(() => {
-    if (!requestedStrategyId || strategies.length === 0 || selectedStrategyId === requestedStrategyId) {
+    if (
+      !requestedStrategyId ||
+      strategies.length === 0 ||
+      selectedStrategyId === requestedStrategyId
+    ) {
       return;
     }
     setUseStrategy(true);
@@ -447,7 +455,29 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
     } catch (err: unknown) {
       console.error('❌ BacktestRunner: Error:', err);
-      const message = getErrorMessage(err, 'Failed to start backtest');
+      const fallbackMessage = getErrorMessage(err, 'Failed to start backtest');
+      let message = fallbackMessage;
+
+      if (err instanceof AxiosError) {
+        const statusCode = err.response?.status;
+        const payload = toRecord(err.response?.data);
+        const reason =
+          typeof payload.reason === 'string'
+            ? payload.reason
+            : typeof toRecord(payload.data).reason === 'string'
+              ? String(toRecord(payload.data).reason)
+              : '';
+
+        if (statusCode === 429) {
+          message =
+            reason === 'backtest_user_capacity_reached'
+              ? 'You reached your active backtest quota. Wait for a run to finish or ask an admin to raise your limit.'
+              : reason === 'persistence_pool_overload'
+                ? 'Backtest capacity is temporarily saturated by persistence load. Please retry shortly.'
+                : fallbackMessage;
+        }
+      }
+
       setError(message);
       errorToast('Unable to start backtest', message);
     } finally {
@@ -555,7 +585,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           <p className="mt-2 text-sm font-semibold text-white">
             {useStrategy && selectedStrategyId ? 'Strategy-linked' : 'Manual ticket'}
           </p>
-            <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500">
             {useStrategy && selectedStrategyId
               ? `Saved strategy #${selectedStrategyId} loaded. This run will stay linked to that strategy.`
               : 'Operators set assumptions directly before queueing the run.'}

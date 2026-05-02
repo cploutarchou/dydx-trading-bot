@@ -391,6 +391,13 @@ def _read_positive_int_env(name: str, default: int = 0) -> int:
     return max(0, parsed)
 
 
+def _read_bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return bool(default)
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _backtest_admission_limit_snapshot() -> Dict[str, int]:
     max_active = _read_positive_int_env("BACKTEST_MAX_ACTIVE_RUNS_GLOBAL", 100)
     max_queue_depth = _read_positive_int_env("BACKTEST_MAX_QUEUE_DEPTH", max_active)
@@ -412,9 +419,16 @@ def _check_backtest_admission(service: BacktestService) -> Optional[JSONResponse
     runtime_health = service.get_runtime_health()
     queue_depth = int(runtime_health.get("queue_depth", 0) or 0)
     active_jobs = int(runtime_health.get("active_jobs", 0) or 0)
+    persistence_overloaded = bool(runtime_health.get("persistence_pool_overloaded", False))
+    block_on_persistence_overload = _read_bool_env(
+        "BACKTEST_BLOCK_ON_PERSISTENCE_OVERLOAD",
+        True,
+    )
 
     blocked_reason = ""
-    if limits["max_active_runs_global"] > 0 and queue_depth >= limits["max_active_runs_global"]:
+    if block_on_persistence_overload and persistence_overloaded:
+        blocked_reason = "persistence_pool_overload"
+    elif limits["max_active_runs_global"] > 0 and queue_depth >= limits["max_active_runs_global"]:
         blocked_reason = "global_active_limit_reached"
     elif limits["max_queue_depth"] > 0 and queue_depth >= limits["max_queue_depth"]:
         blocked_reason = "queue_depth_limit_reached"
@@ -424,16 +438,25 @@ def _check_backtest_admission(service: BacktestService) -> Optional[JSONResponse
     if not blocked_reason:
         return None
 
+    if blocked_reason == "persistence_pool_overload":
+        message = (
+            "Backtest capacity is temporarily saturated due to runtime overload. "
+            "Please retry shortly; no additional runs can be accepted right now."
+        )
+    else:
+        message = (
+            "Backtest capacity is temporarily saturated. "
+            "Please retry shortly or reduce concurrent runs."
+        )
+
     response = api_response(
         success=False,
         status_code=429,
-        message=(
-            "Backtest capacity is temporarily saturated. "
-            "Please retry shortly or reduce concurrent runs."
-        ),
+        message=message,
         data={
             "error": "backtest_capacity_reached",
             "reason": blocked_reason,
+            "cannot_accept_new_runs": True,
             "runtime_health": runtime_health,
             "limits": limits,
         },
@@ -448,6 +471,19 @@ def _backtest_capacity_snapshot(runtime_health: Dict[str, Any]) -> Dict[str, Any
         "queue_depth": int(runtime_health.get("queue_depth", 0) or 0),
         "active_jobs": int(runtime_health.get("active_jobs", 0) or 0),
         "total_runs": int(runtime_health.get("total_runs", 0) or 0),
+        "persistence_pool_overloaded": bool(
+            runtime_health.get("persistence_pool_overloaded", False)
+        ),
+        "persistence_pool_overload_events_recent": int(
+            runtime_health.get("persistence_pool_overload_events_recent", 0) or 0
+        ),
+        "progress_updates_persisted": int(
+            runtime_health.get("progress_updates_persisted", 0) or 0
+        ),
+        "progress_updates_skipped": int(
+            runtime_health.get("progress_updates_skipped", 0) or 0
+        ),
+        "progress_skip_ratio": float(runtime_health.get("progress_skip_ratio", 0.0) or 0.0),
         "max_active_runs_global": limits["max_active_runs_global"],
         "max_queue_depth": limits["max_queue_depth"],
         "max_in_process_jobs": limits["max_in_process_jobs"],

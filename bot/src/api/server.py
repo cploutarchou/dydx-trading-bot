@@ -948,8 +948,27 @@ async def lifespan(_: FastAPI):
     """Manage startup and shutdown lifecycle for the Bot API."""
     global bot_manager_monitor_task
 
-    # Runtime default: route backtest execution through Celery workers unless explicitly overridden.
-    os.environ.setdefault("BACKTEST_WORKER_BACKEND", "celery")
+    # Runtime default: route backtest execution through Celery workers if the broker is reachable,
+    # otherwise fall back to asyncio so tasks don't silently queue with no consumer.
+    if "BACKTEST_WORKER_BACKEND" not in os.environ:
+        _worker_backend = "asyncio"
+        try:
+            from src.infrastructure.workers.celery_app import celery_app
+
+            _ping = celery_app.control.ping(timeout=2.0, limit=1)
+            if _ping:
+                _worker_backend = "celery"
+                logger.info("Celery broker reachable — backtest worker backend: celery")
+            else:
+                logger.warning(
+                    "Celery ping returned no workers — backtest worker backend falling back to asyncio"
+                )
+        except Exception as _celery_probe_err:
+            logger.warning(
+                "Celery broker not reachable ({}); backtest worker backend: asyncio",
+                _celery_probe_err,
+            )
+        os.environ["BACKTEST_WORKER_BACKEND"] = _worker_backend
 
     logger.info("Starting Bot API Server...")
     runtime_db_config = DatabaseConfig()

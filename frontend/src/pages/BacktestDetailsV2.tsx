@@ -337,6 +337,12 @@ const classifyFailureDiagnostic = (message?: string | null) => {
       hint: 'Try a shorter backtest window or fewer pairs and watch progress cadence.',
     };
   }
+  if (/cancel|cancelled|canceled|user stopped|stop requested/.test(normalized)) {
+    return {
+      category: 'cancelled',
+      hint: 'This run was stopped manually. Restart or retry it when ready.',
+    };
+  }
   if (/heartbeat|stale|stalled|worker task|interrupted|restarted/.test(normalized)) {
     return {
       category: 'runtime',
@@ -1828,13 +1834,15 @@ export const BacktestDetailsV2: React.FC = () => {
                   Reason: <span className="break-words font-mono">{failureReason}</span>
                 </p>
               )}
-              <div className="mt-3 rounded-xl border border-red-700/60 bg-slate-950/45 p-3 text-xs text-slate-200">
-                <p className="uppercase tracking-[0.14em] text-red-300">Diagnostic category</p>
-                <p className="mt-1 font-semibold capitalize text-white">
-                  {failureDiagnostic.category}
-                </p>
-                <p className="mt-2 text-slate-300">Next step: {failureDiagnostic.hint}</p>
-              </div>
+              {failureDiagnostic.category !== 'cancelled' && (
+                <div className="mt-3 rounded-xl border border-red-700/60 bg-slate-950/45 p-3 text-xs text-slate-200">
+                  <p className="uppercase tracking-[0.14em] text-red-300">Diagnostic category</p>
+                  <p className="mt-1 font-semibold capitalize text-white">
+                    {failureDiagnostic.category}
+                  </p>
+                  <p className="mt-2 text-slate-300">Next step: {failureDiagnostic.hint}</p>
+                </div>
+              )}
             </div>
           )}
           {isCompleted && (
@@ -1873,9 +1881,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
               <div className="grid min-w-full gap-2 sm:grid-cols-2 xl:min-w-[420px]">
                 <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                    Relation
-                  </p>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Relation</p>
                   <p className="mt-1 text-sm font-semibold text-slate-100">
                     {linkedStrategyId ? `Strategy #${linkedStrategyId}` : 'Unlinked'}
                   </p>

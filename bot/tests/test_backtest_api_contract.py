@@ -23,7 +23,9 @@ class _StubService:
     def list_backtest_runs(self, **_kwargs):
         return _ModelDumpObject(
             {
-                "runs": [{"run_id": "run-1", "status": "completed", "progress_pct": 100.0}],
+                "runs": [
+                    {"run_id": "run-1", "status": "completed", "progress_pct": 100.0}
+                ],
                 "total": 1,
             }
         )
@@ -39,7 +41,11 @@ class _StubService:
         )
 
     def get_backtest_trades(self, **_kwargs):
-        return [_ModelDumpObject({"trade_id": "t-1", "market_1": "BTC-USD", "market_2": "ETH-USD"})]
+        return [
+            _ModelDumpObject(
+                {"trade_id": "t-1", "market_1": "BTC-USD", "market_2": "ETH-USD"}
+            )
+        ]
 
     def get_position_snapshots(self, **_kwargs):
         return [{"timestamp": "2026-01-01T00:00:00Z", "positions": []}]
@@ -81,7 +87,9 @@ class _StubService:
             "interruption_error": "Backtest interrupted by API reload or restart",
             "dry_run": bool(dry_run),
             "candidates": [{"run_id": "run-orphaned", "status": "running"}],
-            "reconciled": ([] if dry_run else [{"run_id": "run-orphaned", "status": "failed"}]),
+            "reconciled": (
+                [] if dry_run else [{"run_id": "run-orphaned", "status": "failed"}]
+            ),
             "candidate_count": 1,
             "reconciled_count": 0 if dry_run else 1,
         }
@@ -160,6 +168,28 @@ def test_list_backtests_exposes_backtests_alias(monkeypatch):
 def test_backtest_status_exposes_progress_alias(monkeypatch):
     server = _load_server_module()
     monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+    monkeypatch.setattr(
+        server.manager,
+        "get_backtest_send_failure_metrics",
+        lambda run_id: {
+            "run_id": run_id,
+            "alert_threshold": 5,
+            "alert_window_seconds": 60.0,
+            "metrics": {
+                "total_send_attempts": 0,
+                "total_send_successes": 0,
+                "total_send_failures": 0,
+                "consecutive_send_failures": 0,
+                "recent_send_failures": 0,
+                "last_error_type": None,
+                "last_error_repr": None,
+                "last_failure_at": None,
+                "last_success_at": None,
+                "updated_at": None,
+            },
+            "alert_recommended": False,
+        },
+    )
 
     response = asyncio.run(_call(server.get_backtest_status("run-abc")))
     payload = json.loads(response.body)
@@ -168,6 +198,43 @@ def test_backtest_status_exposes_progress_alias(monkeypatch):
     assert payload["data"]["run_id"] == "run-abc"
     assert payload["data"]["progress"] == payload["data"]["progress_pct"]
     assert payload["data"]["count"] == 1
+    assert payload["data"]["websocket_send_metrics"]["run_id"] == "run-abc"
+
+
+def test_backtest_websocket_metrics_endpoint_exposes_run_scoped_payload(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+    monkeypatch.setattr(
+        server.manager,
+        "get_backtest_send_failure_metrics",
+        lambda run_id: {
+            "run_id": run_id,
+            "alert_threshold": 5,
+            "alert_window_seconds": 60.0,
+            "metrics": {
+                "total_send_attempts": 12,
+                "total_send_successes": 9,
+                "total_send_failures": 3,
+                "consecutive_send_failures": 2,
+                "recent_send_failures": 2,
+                "last_error_type": "RuntimeError",
+                "last_error_repr": "RuntimeError('socket')",
+                "last_failure_at": "2026-05-03T00:00:00Z",
+                "last_success_at": "2026-05-03T00:00:10Z",
+                "updated_at": "2026-05-03T00:00:10Z",
+            },
+            "alert_recommended": False,
+        },
+    )
+
+    response = asyncio.run(_call(server.get_backtest_websocket_metrics("run-abc")))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["run_id"] == "run-abc"
+    assert payload["data"]["status"] == "running"
+    assert payload["data"]["metrics"]["run_id"] == "run-abc"
+    assert payload["data"]["metrics"]["metrics"]["total_send_failures"] == 3
 
 
 def test_run_scoped_trade_and_snapshot_routes_include_run_id(monkeypatch):
@@ -228,6 +295,32 @@ def test_sync_health_endpoint_returns_runtime_counters(monkeypatch):
     assert payload["data"]["queue_depth"] == 2
     assert payload["data"]["active_jobs"] == 1
     assert payload["data"]["total_runs"] == 5
+
+
+def test_restart_returns_409_when_original_request_payload_missing(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(_call(server.restart_backtest("run-abc")))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 409
+    assert payload["success"] is False
+    assert "payload is unavailable" in payload["message"]
+    assert payload["data"]["error"] == "missing_original_request_payload"
+
+
+def test_retry_returns_409_when_original_request_payload_missing(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(_call(server.retry_backtest("run-abc")))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 409
+    assert payload["success"] is False
+    assert "payload is unavailable" in payload["message"]
+    assert payload["data"]["error"] == "missing_original_request_payload"
 
 
 def test_interrupted_runs_endpoint_exposes_ops_visibility_fields(monkeypatch):
@@ -292,9 +385,9 @@ def test_openapi_documents_standard_response_envelope():
     assert "/api/v1/capabilities" in schema["paths"]
     assert "/api/v1/runtime/db-config" in schema["paths"]
 
-    status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"]["responses"][
-        "200"
-    ]["content"]["application/json"]["schema"]
+    status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"][
+        "responses"
+    ]["200"]["content"]["application/json"]["schema"]
     all_of = status_schema.get("allOf", [])
 
     assert any(

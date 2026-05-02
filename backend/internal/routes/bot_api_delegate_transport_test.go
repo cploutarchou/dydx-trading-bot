@@ -394,3 +394,51 @@ func TestDelegatedRoute_UpstreamMessageField_StillPassedThrough(t *testing.T) {
 		t.Fatalf("unexpected response body: %v", body)
 	}
 }
+
+func TestDelegatedRoute_SystemStatusIncludesBotDBSyncDiagnostics(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"status":"healthy","bot_db_sync":{"active":true,"remaining_seconds":9.5,"state":"ok"}}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	router, dbConn := setupTransportRouter(t, upstream.URL, nil)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginTransportTestUser(t, backendServer.URL)
+
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/system/status", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("execute request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected object data payload, got: %T", body["data"])
+	}
+	diagnostics, ok := data["bot_db_sync"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bot_db_sync diagnostics object, got: %T", data["bot_db_sync"])
+	}
+	if diagnostics["state"] != "ok" {
+		t.Fatalf("expected bot_db_sync.state=ok, got: %v", diagnostics["state"])
+	}
+}

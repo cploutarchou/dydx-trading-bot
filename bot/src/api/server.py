@@ -131,6 +131,46 @@ DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
 
+def _optional_env_int(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _runtime_db_pool_warnings(config: DatabaseConfig) -> List[str]:
+    warnings: List[str] = []
+    configured_max_connections = _optional_env_int("DB_MAX_CONNECTIONS")
+
+    if (
+        configured_max_connections is not None
+        and configured_max_connections > 0
+        and configured_max_connections < config.pool_size
+    ):
+        warnings.append(
+            "DB_MAX_CONNECTIONS ({}) is lower than DB_POOL_SIZE ({}). "
+            "Effective max_overflow is clamped to 0; increase DB_MAX_CONNECTIONS or reduce DB_POOL_SIZE."
+            .format(configured_max_connections, config.pool_size)
+        )
+
+    if config.timeout_seconds <= 5:
+        warnings.append(
+            "DB_TIMEOUT is {}s; low pool timeout can amplify transient saturation into repeated persistence failures."
+            .format(config.timeout_seconds)
+        )
+
+    if config.pool_size <= 5:
+        warnings.append(
+            "DB_POOL_SIZE is {}; this is small for concurrent backtests and runtime writes."
+            .format(config.pool_size)
+        )
+
+    return warnings
+
+
 class StrategyRequest(BaseModel):
     """UI-compatible strategy payload."""
 
@@ -885,6 +925,9 @@ async def lifespan(_: FastAPI):
         runtime_db_config.timeout_seconds,
         runtime_db_config.pool_size + runtime_db_config.max_overflow,
     )
+    pool_warnings = _runtime_db_pool_warnings(runtime_db_config)
+    for warning in pool_warnings:
+        logger.warning("Runtime DB pool config warning: {}", warning)
     if not db.health_check():
         raise RuntimeError("Bot database health check failed during API startup")
     db.create_all_tables()

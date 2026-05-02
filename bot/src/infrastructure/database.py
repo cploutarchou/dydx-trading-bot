@@ -1,8 +1,9 @@
 """Database configuration and connection management for PostgreSQL only."""
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 from urllib.parse import urlparse
 
 from alembic import command
@@ -72,10 +73,10 @@ class DatabaseConfig:
         self.shared_target_matches_runtime = self._runtime_matches_shared_target()
         self._validate_db_ownership_guardrail()
         self.echo_sql = self._env_bool("DB_ECHO_SQL", default=False)
-        self.timeout_seconds = self._env_int("DB_TIMEOUT", 20)
-        self.pool_size = self._env_int("DB_POOL_SIZE", 10)
+        self.timeout_seconds = self._env_int("DB_TIMEOUT", 60)
+        self.pool_size = self._env_int("DB_POOL_SIZE", 30)
         max_connections = self._env_int("DB_MAX_CONNECTIONS", 0)
-        configured_overflow = self._env_int("DB_MAX_OVERFLOW", 20)
+        configured_overflow = self._env_int("DB_MAX_OVERFLOW", 60)
         if max_connections > 0:
             configured_overflow = max(0, max_connections - self.pool_size)
         self.max_overflow = configured_overflow
@@ -325,6 +326,7 @@ class DatabaseManager:
     _instance: Optional["DatabaseManager"] = None
     _engine: Optional[Engine] = None
     _session_factory: Optional[sessionmaker] = None
+    _fork_hook_registered: bool = False
 
     def __new__(cls):
         if cls._instance is None:
@@ -334,6 +336,27 @@ class DatabaseManager:
     def __init__(self):
         if self._engine is None:
             self._initialize()
+        self._register_fork_hook()
+
+    def _register_fork_hook(self):
+        if self._fork_hook_registered:
+            return
+        register_at_fork = getattr(os, "register_at_fork", None)
+        if register_at_fork is None:
+            return
+
+        register_at_fork(after_in_child=self._after_fork_child_reset)
+        self._fork_hook_registered = True
+
+    def _after_fork_child_reset(self):
+        """Ensure child processes never reuse inherited pooled DB sockets."""
+        if self._engine is None:
+            return
+        try:
+            self._engine.dispose()
+            logger.info("Disposed inherited SQLAlchemy pool in forked child process")
+        except Exception as exc:
+            logger.warning("Failed disposing inherited SQLAlchemy pool in child: {}", exc)
 
     def _initialize(self):
         """Initialize database engine and session factory"""
@@ -375,6 +398,19 @@ class DatabaseManager:
         if self._session_factory is None:
             self._initialize()
         return self._session_factory()
+
+    @contextmanager
+    def session_scope(self) -> Iterator[Session]:
+        """Provide a transactional session scope with safe cleanup."""
+        session = self.get_session()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def create_all_tables(self):
         """Create all database tables from models"""

@@ -15,6 +15,7 @@ import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState 
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
+import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
@@ -80,6 +81,25 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   }
   return fallback;
 };
+
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const toPositiveInteger = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const extractUserBacktestQuota = (payload: unknown): number | null => {
+  const root = toRecord(payload);
+  const data = toRecord(root.data);
+  return (
+    toPositiveInteger(data.max_active_backtests) ?? toPositiveInteger(root.max_active_backtests)
+  );
+};
+
+const countActiveBacktests = (payload: unknown): number =>
+  extractBacktestRuns(payload).filter((run) => isActiveBacktestRun(run)).length;
 
 const asNumber = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -996,6 +1016,25 @@ export default function StrategyManager() {
 
   const handleRunBacktest = async (strategy: Strategy) => {
     try {
+      const [currentUserResponse, backtestListResponse] = await Promise.all([
+        apiClient.getCurrentUser(),
+        apiClient.listBacktests(0, 250),
+      ]);
+      const userQuota = extractUserBacktestQuota(currentUserResponse);
+      if (userQuota !== null) {
+        const activeBacktests = countActiveBacktests(backtestListResponse);
+        if (activeBacktests >= userQuota) {
+          showTransientMessage(
+            {
+              type: 'error',
+              text: `⚠️ Active backtest limit reached (${activeBacktests}/${userQuota}). Wait for an active run to complete before starting another one.`,
+            },
+            6000
+          );
+          return;
+        }
+      }
+
       const endDate = new Date();
       const startDate = new Date(endDate);
       startDate.setDate(startDate.getDate() - 30);

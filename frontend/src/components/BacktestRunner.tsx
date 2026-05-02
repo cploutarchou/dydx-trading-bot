@@ -4,6 +4,7 @@ import { Play } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
+import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { useStrategyStore } from '../store/strategies';
 import { useToastStore } from './ErrorBoundary';
 import { InlineNotice } from './ui/PlatformUI';
@@ -66,6 +67,22 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return error instanceof Error ? error.message : fallback;
 };
 
+const toPositiveInteger = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const extractUserBacktestQuota = (payload: unknown): number | null => {
+  const root = toRecord(payload);
+  const data = toRecord(root.data);
+  return (
+    toPositiveInteger(data.max_active_backtests) ?? toPositiveInteger(root.max_active_backtests)
+  );
+};
+
+const countActiveBacktests = (payload: unknown): number =>
+  extractBacktestRuns(payload).filter((run) => isActiveBacktestRun(run)).length;
+
 const extractRunId = (result: unknown): string | null => {
   const record = toRecord(result);
   if (typeof record.run_id === 'string') return record.run_id;
@@ -82,6 +99,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const { strategies, fetchStrategies } = useStrategyStore();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
+  const warningToast = useToastStore((state) => state.warning);
   const [useStrategy, setUseStrategy] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
   const [formData, setFormData] = useState<BacktestRunRequest>({
@@ -359,6 +377,23 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         return;
       }
 
+      setLoading(true);
+
+      const [currentUserResponse, backtestListResponse] = await Promise.all([
+        api.getCurrentUser(),
+        api.listBacktests(0, 250),
+      ]);
+      const userQuota = extractUserBacktestQuota(currentUserResponse);
+      if (userQuota !== null) {
+        const activeBacktests = countActiveBacktests(backtestListResponse);
+        if (activeBacktests >= userQuota) {
+          const message = `You already have ${activeBacktests} active backtest${activeBacktests === 1 ? '' : 's'}. Your admin limit is ${userQuota}. Wait for an active run to complete before starting another one.`;
+          setError(message);
+          warningToast('Active backtest limit reached', message);
+          return;
+        }
+      }
+
       // Ensure max_history_days covers the full requested period plus a warmup
       // buffer so the bot service doesn't silently cap the backtest window.
       const periodDays =
@@ -434,7 +469,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         },
         ...(useStrategy && selectedStrategyId && { strategy_id: selectedStrategyId }),
       } satisfies BacktestRunRequest;
-      setLoading(true);
       const result = await runBacktestMutation.mutateAsync(cleanedData as ApiBacktestRequest);
       const runId = extractRunId(result);
 

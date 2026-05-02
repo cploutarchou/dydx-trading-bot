@@ -47,6 +47,11 @@ class AsyncJobManager:
             1,
             int(os.getenv("JOB_PERSISTENCE_OVERLOAD_FAILURE_THRESHOLD", "3") or 3),
         )
+        self._pool_overload_cooldown_seconds = max(
+            1.0,
+            float(os.getenv("JOB_PERSISTENCE_OVERLOAD_COOLDOWN_SECONDS", "20") or 20),
+        )
+        self._persistence_backoff_until = 0.0
 
     @staticmethod
     def _looks_like_pool_overload(exc: BaseException) -> bool:
@@ -69,6 +74,24 @@ class AsyncJobManager:
             now = time.monotonic()
             self._pool_overload_events.append(now)
             self._trim_pool_overload_events_locked(now)
+            self._persistence_backoff_until = max(
+                self._persistence_backoff_until,
+                now + self._pool_overload_cooldown_seconds,
+            )
+
+    def _record_persistence_success(self) -> None:
+        with self._metrics_lock:
+            self._pool_overload_events.clear()
+            self._persistence_backoff_until = 0.0
+
+    def _persistence_backoff_remaining_seconds(self) -> float:
+        with self._metrics_lock:
+            now = time.monotonic()
+            remaining = self._persistence_backoff_until - now
+            return max(0.0, remaining)
+
+    def _should_skip_persistence_due_to_backoff(self) -> bool:
+        return self._persistence_backoff_remaining_seconds() > 0.0
 
     def get_runtime_metrics(self) -> dict[str, Any]:
         with self._metrics_lock:
@@ -79,6 +102,7 @@ class AsyncJobManager:
             total_updates = skipped + persisted
             skip_ratio = (float(skipped) / float(total_updates)) if total_updates > 0 else 0.0
             recent_pool_events = len(self._pool_overload_events)
+            backoff_remaining = max(0.0, self._persistence_backoff_until - now)
             return {
                 "progress_updates_persisted": persisted,
                 "progress_updates_skipped": skipped,
@@ -89,6 +113,9 @@ class AsyncJobManager:
                 ),
                 "persistence_pool_overload_window_seconds": self._pool_overload_window_seconds,
                 "persistence_pool_overload_threshold": self._pool_overload_threshold,
+                "persistence_backoff_active": backoff_remaining > 0.0,
+                "persistence_backoff_remaining_seconds": round(backoff_remaining, 3),
+                "persistence_backoff_cooldown_seconds": self._pool_overload_cooldown_seconds,
             }
 
     def _should_persist_progress(self, job_id: str, progress_pct: float) -> bool:
@@ -121,21 +148,24 @@ class AsyncJobManager:
         if not self._persistence_configured():
             logger.debug("job_persistence_skipped reason=no_explicit_database_target")
             return None
-        session = None
+        if self._should_skip_persistence_due_to_backoff():
+            remaining = self._persistence_backoff_remaining_seconds()
+            logger.debug(
+                "job_persistence_skipped reason=pool_overload_backoff remaining_seconds={}",
+                round(remaining, 3),
+            )
+            return None
         try:
             with self._persistence_lock:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-                return operation(uow)
+                with db.session_scope() as session:
+                    uow = UnitOfWork(session)
+                    result = operation(uow)
+                    self._record_persistence_success()
+                    return result
         except Exception as exc:
             logger.warning("job_persistence_failed error={}", exc)
             self._record_persistence_failure(exc)
-            if session is not None:
-                session.rollback()
             return None
-        finally:
-            if session is not None:
-                session.close()
 
     @staticmethod
     def _persistence_configured() -> bool:

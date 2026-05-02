@@ -833,8 +833,10 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 // optionally persists backtest run status snapshots into local DB tables.
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
 	backtestRepo := (*repository.BacktestRepository)(nil)
+	userRepo := (*repository.UserRepository)(nil)
 	if backtestSync != nil && backtestSync.DB() != nil {
 		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
+		userRepo = repository.NewUserRepository(backtestSync.DB())
 	}
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
@@ -1083,11 +1085,19 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			if userIDValue, exists := c.Get("user_id"); exists {
 				if userID, ok := userIDValue.(int); ok && userID > 0 {
 					admissionUserID = userID
-					maxActivePerUser = readPositiveIntEnv(
-						10,
-						"BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
-						"BACKEND_BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
-					)
+					maxActivePerUser = 10
+					if userRepo != nil {
+						if user, userErr := userRepo.GetByID(admissionUserID); userErr == nil && user != nil && user.MaxActiveBacktests > 0 {
+							maxActivePerUser = user.MaxActiveBacktests
+						}
+					}
+					if maxActivePerUser <= 0 {
+						maxActivePerUser = readPositiveIntEnv(
+							10,
+							"BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+							"BACKEND_BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+						)
+					}
 					admissionEnabled = maxActivePerUser > 0
 				}
 			}
@@ -1138,7 +1148,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 					"max_active_runs":       maxActivePerUser,
 					"retry_after_seconds":   15,
 					"admission_scope":       "per_user",
-					"admission_enforced_by": "backend",
+					"admission_enforced_by": "backend_user_quota",
 				})
 				return
 			}

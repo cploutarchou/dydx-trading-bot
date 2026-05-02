@@ -279,3 +279,25 @@ The application is **materially improved with DB-idempotent child sync and atomi
 - ⚠️ **Still open:** fallback-session lifecycle hygiene, optional Codex cache-pruning policy, and non-blocking lint backlog reduction.
 
 Given current changes, both same-process and multi-replica sync behavior are more deterministic for backtest child data. Complete the remaining recommendations for full platform-level concurrency robustness.
+
+---
+
+## Operational controls update (2026-05-02)
+
+Added **per-user resource quotas** with admin-managed defaults and runtime enforcement:
+
+- `users.max_active_backtests` (default `10`)
+- `users.max_strategies` (default `10`)
+- `users.max_bot_instances` (default `10`)
+
+Enforcement points:
+
+- delegated backtest creation admission in `backend/internal/routes/bot_api_delegate_routes.go`
+- strategy creation in `backend/internal/handlers/strategy_handler.go` and backtest→strategy creation path in `backend/internal/routes/strategy_routes.go`
+- bot instance creation in `backend/internal/handlers/bot_instance_handler.go`
+
+Admin-edit surface:
+
+- backoffice/admin user management payloads + UI in `frontend/src/components/AdminAccessControlSettings.tsx`
+
+This reduces noisy-capacity failure modes by moving per-user limits from static env assumptions into explicit operator controls.

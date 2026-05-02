@@ -258,6 +258,9 @@ interface UserProfile extends Record<string, unknown> {
 
 export interface AdminUser extends UserProfile {
   updated_at: string;
+  max_active_backtests?: number;
+  max_strategies?: number;
+  max_bot_instances?: number;
 }
 
 export interface AdminUserListResponse extends Record<string, unknown> {
@@ -303,6 +306,9 @@ export interface CreateAdminUserPayload extends Record<string, unknown> {
   role: string;
   full_name?: string;
   is_active?: boolean;
+  max_active_backtests?: number;
+  max_strategies?: number;
+  max_bot_instances?: number;
 }
 
 export interface UpdateAdminUserPayload extends Record<string, unknown> {
@@ -310,6 +316,9 @@ export interface UpdateAdminUserPayload extends Record<string, unknown> {
   full_name?: string;
   role?: string;
   is_active?: boolean;
+  max_active_backtests?: number;
+  max_strategies?: number;
+  max_bot_instances?: number;
 }
 
 export interface ChangePasswordPayload extends Record<string, unknown> {

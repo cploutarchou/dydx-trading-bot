@@ -26,8 +26,9 @@ func extractAuthToken(c *gin.Context) string {
 }
 
 type BotInstanceHandler struct {
-	service *services.BotInstanceService
-	repo    *repository.BotInstanceRepository
+	service  *services.BotInstanceService
+	repo     *repository.BotInstanceRepository
+	userRepo *repository.UserRepository
 }
 
 func unwrapBotAPIEnvelope(payload map[string]interface{}) map[string]interface{} {
@@ -94,10 +95,15 @@ func isRecoverableBotStatsError(err error) bool {
 		strings.Contains(message, "not reachable")
 }
 
-func NewBotInstanceHandler(service *services.BotInstanceService, repo *repository.BotInstanceRepository) *BotInstanceHandler {
+func NewBotInstanceHandler(
+	service *services.BotInstanceService,
+	repo *repository.BotInstanceRepository,
+	userRepo *repository.UserRepository,
+) *BotInstanceHandler {
 	return &BotInstanceHandler{
-		service: service,
-		repo:    repo,
+		service:  service,
+		repo:     repo,
+		userRepo: userRepo,
 	}
 }
 
@@ -278,13 +284,42 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 		req.Strategy = "default"
 	}
 
+	userIDInt := userID.(int)
+	maxBotInstances := 10
+	if h.userRepo != nil {
+		if user, userErr := h.userRepo.GetByID(userIDInt); userErr == nil && user != nil && user.MaxBotInstances > 0 {
+			maxBotInstances = user.MaxBotInstances
+		}
+	}
+	currentBotInstances, countErr := h.repo.CountBotInstancesByUserID(userIDInt)
+	if countErr != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to enforce bot instance quota: %v", countErr),
+		})
+		return
+	}
+	if currentBotInstances >= maxBotInstances {
+		c.JSON(http.StatusTooManyRequests, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error: fmt.Sprintf(
+				"Bot instance limit reached for this account (%d/%d). Ask an admin to increase your bot quota.",
+				currentBotInstances,
+				maxBotInstances,
+			),
+		})
+		return
+	}
+
 	configJSON, _ := json.Marshal(req.Config)
 	tradingParamsJSON, _ := json.Marshal(req.TradingParams)
 
 	instance := &models.BotInstance{
 		InstanceID:   req.InstanceID,
 		InstanceName: req.InstanceName,
-		UserID:       userID.(int),
+		UserID:       userIDInt,
 		Status:       "stopped",
 		Network:      req.Network,
 		Strategy:     req.Strategy,

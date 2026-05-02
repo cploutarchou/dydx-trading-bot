@@ -14,6 +14,7 @@ import (
 
 func RegisterBotInstanceRoutes(router *gin.Engine, database *db.Database) {
 	botInstanceRepo := repository.NewBotInstanceRepository(database.DB)
+	userRepo := repository.NewUserRepository(database.DB)
 	botTradeRepo := repository.NewBotTradeRepository(database.DB)
 	botPositionRepo := repository.NewBotPositionRepository(database.DB)
 
@@ -26,7 +27,7 @@ func RegisterBotInstanceRoutes(router *gin.Engine, database *db.Database) {
 	botAPIClient := services.NewBotAPIClient(botAPIURL, botAPIToken)
 
 	botInstanceService := services.NewBotInstanceService(botInstanceRepo, botAPIClient)
-	botInstanceHandler := handlers.NewBotInstanceHandler(botInstanceService, botInstanceRepo)
+	botInstanceHandler := handlers.NewBotInstanceHandler(botInstanceService, botInstanceRepo, userRepo)
 
 	v1 := router.Group("/api/v1")
 	{

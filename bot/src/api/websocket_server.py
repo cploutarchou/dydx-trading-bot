@@ -4,7 +4,9 @@ Provides live position updates, market data, and P&L tracking
 """
 
 import json
-from typing import Dict, Set
+import os
+import time
+from typing import Any, Dict, Optional, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
 from internal.repository.repository_realtime import UnitOfWorkRealtime
@@ -26,6 +28,230 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         self.user_subscriptions: Dict[WebSocket, Set[str]] = {}
+        self.send_metrics: Dict[str, Dict[str, Any]] = {}
+
+    @staticmethod
+    def _is_backtest_channel(channel_id: str) -> bool:
+        return str(channel_id or "").startswith("backtest-")
+
+    @staticmethod
+    def _backtest_run_id(channel_id: str) -> str:
+        return str(channel_id or "").removeprefix("backtest-")
+
+    @staticmethod
+    def _positive_int_env(name: str, default: int) -> int:
+        raw = os.getenv(name)
+        if raw in (None, ""):
+            return max(1, int(default))
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return max(1, int(default))
+
+    @staticmethod
+    def _positive_float_env(name: str, default: float) -> float:
+        raw = os.getenv(name)
+        if raw in (None, ""):
+            return max(1.0, float(default))
+        try:
+            return max(1.0, float(raw))
+        except (TypeError, ValueError):
+            return max(1.0, float(default))
+
+    def _run_metrics_bucket(self, run_id: str) -> Dict[str, Any]:
+        bucket = self.send_metrics.get(run_id)
+        if bucket is not None:
+            return bucket
+
+        bucket = {
+            "run_id": run_id,
+            "total_send_attempts": 0,
+            "total_send_successes": 0,
+            "total_send_failures": 0,
+            "consecutive_send_failures": 0,
+            "last_error_type": None,
+            "last_error_repr": None,
+            "last_failure_at": None,
+            "last_success_at": None,
+            "recent_failure_timestamps": [],
+            "updated_at": utc_now_iso(),
+        }
+        self.send_metrics[run_id] = bucket
+        return bucket
+
+    def _prune_recent_failures(self, bucket: Dict[str, Any], now_ts: float) -> None:
+        window_seconds = self._positive_float_env(
+            "BACKTEST_WS_FAILURE_ALERT_WINDOW_SECONDS", 60.0
+        )
+        cutoff = now_ts - window_seconds
+        recent = bucket.get("recent_failure_timestamps") or []
+        bucket["recent_failure_timestamps"] = [t for t in recent if t >= cutoff]
+
+    def _record_send_success(self, channel_id: Optional[str]) -> None:
+        if not channel_id or not self._is_backtest_channel(channel_id):
+            return
+        run_id = self._backtest_run_id(channel_id)
+        if not run_id:
+            return
+        bucket = self._run_metrics_bucket(run_id)
+        now_ts = time.time()
+        bucket["total_send_attempts"] += 1
+        bucket["total_send_successes"] += 1
+        bucket["consecutive_send_failures"] = 0
+        bucket["last_success_at"] = utc_now_iso()
+        bucket["updated_at"] = bucket["last_success_at"]
+        self._prune_recent_failures(bucket, now_ts)
+
+    def _record_send_failure(
+        self,
+        channel_id: Optional[str],
+        exc: Exception,
+        *,
+        operation: str,
+    ) -> None:
+        if not channel_id or not self._is_backtest_channel(channel_id):
+            return
+        run_id = self._backtest_run_id(channel_id)
+        if not run_id:
+            return
+
+        bucket = self._run_metrics_bucket(run_id)
+        now_ts = time.time()
+        bucket["total_send_attempts"] += 1
+        bucket["total_send_failures"] += 1
+        bucket["consecutive_send_failures"] += 1
+        bucket["last_error_type"] = type(exc).__name__
+        bucket["last_error_repr"] = repr(exc)
+        bucket["last_failure_at"] = utc_now_iso()
+        bucket["updated_at"] = bucket["last_failure_at"]
+        recent = bucket.get("recent_failure_timestamps") or []
+        recent.append(now_ts)
+        bucket["recent_failure_timestamps"] = recent
+        self._prune_recent_failures(bucket, now_ts)
+
+        alert_threshold = self._positive_int_env(
+            "BACKTEST_WS_FAILURE_ALERT_THRESHOLD", 5
+        )
+        recent_failures = len(bucket.get("recent_failure_timestamps") or [])
+        if (
+            bucket["consecutive_send_failures"] >= alert_threshold
+            or recent_failures >= alert_threshold
+        ):
+            logger.warning(
+                "backtest_ws_send_failure_alert run_id={} operation={} consecutive_failures={} recent_failures={} threshold={} last_error_type={} last_error_repr={!r}",
+                run_id,
+                operation,
+                bucket["consecutive_send_failures"],
+                recent_failures,
+                alert_threshold,
+                bucket["last_error_type"],
+                bucket["last_error_repr"],
+            )
+
+    def get_backtest_send_failure_metrics(self, run_id: str) -> Dict[str, Any]:
+        run_key = str(run_id or "").strip()
+        if not run_key:
+            return {
+                "run_id": run_key,
+                "alert_threshold": self._positive_int_env(
+                    "BACKTEST_WS_FAILURE_ALERT_THRESHOLD", 5
+                ),
+                "alert_window_seconds": self._positive_float_env(
+                    "BACKTEST_WS_FAILURE_ALERT_WINDOW_SECONDS", 60.0
+                ),
+                "metrics": None,
+            }
+
+        existing = self.send_metrics.get(run_key)
+        if existing is None:
+            return {
+                "run_id": run_key,
+                "alert_threshold": self._positive_int_env(
+                    "BACKTEST_WS_FAILURE_ALERT_THRESHOLD", 5
+                ),
+                "alert_window_seconds": self._positive_float_env(
+                    "BACKTEST_WS_FAILURE_ALERT_WINDOW_SECONDS", 60.0
+                ),
+                "metrics": {
+                    "total_send_attempts": 0,
+                    "total_send_successes": 0,
+                    "total_send_failures": 0,
+                    "consecutive_send_failures": 0,
+                    "recent_send_failures": 0,
+                    "last_error_type": None,
+                    "last_error_repr": None,
+                    "last_failure_at": None,
+                    "last_success_at": None,
+                    "updated_at": None,
+                },
+                "alert_recommended": False,
+            }
+
+        now_ts = time.time()
+        self._prune_recent_failures(existing, now_ts)
+        bucket = dict(existing)
+        recent_failures = len(bucket.get("recent_failure_timestamps") or [])
+        alert_threshold = self._positive_int_env(
+            "BACKTEST_WS_FAILURE_ALERT_THRESHOLD", 5
+        )
+        alert_window_seconds = self._positive_float_env(
+            "BACKTEST_WS_FAILURE_ALERT_WINDOW_SECONDS", 60.0
+        )
+        alert_recommended = (
+            int(bucket.get("consecutive_send_failures", 0) or 0) >= alert_threshold
+            or recent_failures >= alert_threshold
+        )
+
+        return {
+            "run_id": run_key,
+            "alert_threshold": alert_threshold,
+            "alert_window_seconds": alert_window_seconds,
+            "metrics": {
+                "total_send_attempts": int(bucket.get("total_send_attempts", 0) or 0),
+                "total_send_successes": int(bucket.get("total_send_successes", 0) or 0),
+                "total_send_failures": int(bucket.get("total_send_failures", 0) or 0),
+                "consecutive_send_failures": int(
+                    bucket.get("consecutive_send_failures", 0) or 0
+                ),
+                "recent_send_failures": recent_failures,
+                "last_error_type": bucket.get("last_error_type"),
+                "last_error_repr": bucket.get("last_error_repr"),
+                "last_failure_at": bucket.get("last_failure_at"),
+                "last_success_at": bucket.get("last_success_at"),
+                "updated_at": bucket.get("updated_at"),
+            },
+            "alert_recommended": alert_recommended,
+        }
+
+    def get_backtest_send_failure_summary(self) -> Dict[str, Any]:
+        alert_threshold = self._positive_int_env(
+            "BACKTEST_WS_FAILURE_ALERT_THRESHOLD", 5
+        )
+        alert_window_seconds = self._positive_float_env(
+            "BACKTEST_WS_FAILURE_ALERT_WINDOW_SECONDS", 60.0
+        )
+
+        runs = []
+        for run_id in sorted(self.send_metrics.keys()):
+            run_metrics = self.get_backtest_send_failure_metrics(run_id)
+            if run_metrics.get("metrics") is not None:
+                runs.append(run_metrics)
+
+        total_failures = sum(
+            int((row.get("metrics") or {}).get("total_send_failures", 0) or 0)
+            for row in runs
+        )
+        runs_with_alerts = [
+            row.get("run_id") for row in runs if row.get("alert_recommended")
+        ]
+
+        return {
+            "alert_threshold": alert_threshold,
+            "alert_window_seconds": alert_window_seconds,
+            "tracked_runs": len(runs),
+            "total_send_failures": total_failures,
+            "runs_with_alerts": runs_with_alerts,
+        }
 
     async def connect(self, websocket: WebSocket, bot_instance_id: str):
         """Register new WebSocket connection"""
@@ -52,6 +278,18 @@ class ConnectionManager:
         self.user_subscriptions.pop(websocket, None)
         logger.info(f"Client disconnected from bot {bot_instance_id}")
 
+    def _drop_connection(self, websocket: WebSocket):
+        """Remove websocket from all tracked channels/subscriptions."""
+        channels = list(self.user_subscriptions.get(websocket, set()))
+        for channel in channels:
+            connections = self.active_connections.get(channel)
+            if not connections:
+                continue
+            connections.discard(websocket)
+            if not connections:
+                self.active_connections.pop(channel, None)
+        self.user_subscriptions.pop(websocket, None)
+
     async def broadcast_to_bot(self, bot_instance_id: str, message: Dict):
         """Broadcast message to all clients connected to a bot"""
         if bot_instance_id not in self.active_connections:
@@ -61,20 +299,50 @@ class ConnectionManager:
         for connection in self.active_connections[bot_instance_id]:
             try:
                 await connection.send_json(message)
-            except RuntimeError as e:
-                logger.warning(f"Failed to send message: {e}")
+                self._record_send_success(bot_instance_id)
+            except Exception as e:
+                self._record_send_failure(
+                    bot_instance_id,
+                    e,
+                    operation="broadcast_to_bot",
+                )
+                logger.warning(
+                    "Failed to send broadcast message on channel {}: type={} error={!r}",
+                    bot_instance_id,
+                    type(e).__name__,
+                    e,
+                )
                 disconnected.add(connection)
 
         # Clean up disconnected clients
         for connection in disconnected:
-            self.active_connections[bot_instance_id].discard(connection)
+            self._drop_connection(connection)
 
-    async def send_personal_message(self, message: Dict, websocket: WebSocket):
+    async def send_personal_message(
+        self,
+        message: Dict,
+        websocket: WebSocket,
+        *,
+        channel_id: Optional[str] = None,
+    ) -> bool:
         """Send message to specific client"""
         try:
             await websocket.send_json(message)
-        except RuntimeError as e:
-            logger.warning(f"Failed to send personal message: {e}")
+            self._record_send_success(channel_id)
+            return True
+        except Exception as e:
+            self._record_send_failure(
+                channel_id,
+                e,
+                operation="send_personal_message",
+            )
+            logger.warning(
+                "Failed to send personal message: type={} error={!r}",
+                type(e).__name__,
+                e,
+            )
+            self._drop_connection(websocket)
+            return False
 
 
 manager = ConnectionManager()
@@ -226,7 +494,9 @@ class WebSocketServer:
             message = "Backtest completed"
         elif current_task == "failed" or status == "failed":
             level = "error"
-            message = str(data.get("error_message") or data.get("error") or "Backtest failed")
+            message = str(
+                data.get("error_message") or data.get("error") or "Backtest failed"
+            )
         elif current_task == "cancelled" or status == "cancelled":
             level = "warning"
             message = "Backtest cancelled"
@@ -260,7 +530,12 @@ class WebSocketServer:
 
         try:
             # Send initial state
-            await WebSocketServer.send_initial_state(websocket, bot_instance_id)
+            initial_state_sent = await WebSocketServer.send_initial_state(
+                websocket, bot_instance_id
+            )
+            if not initial_state_sent:
+                manager.disconnect(websocket, bot_instance_id)
+                return
 
             # Handle incoming messages
             while True:
@@ -273,26 +548,30 @@ class WebSocketServer:
         except WebSocketDisconnect:
             manager.disconnect(websocket, bot_instance_id)
         except Exception as e:
-            logger.error(f"WebSocket error: {e}")
+            logger.error(
+                "WebSocket error for {}: type={} error={!r}",
+                bot_instance_id,
+                type(e).__name__,
+                e,
+            )
             manager.disconnect(websocket, bot_instance_id)
 
     @staticmethod
-    async def send_initial_state(websocket: WebSocket, bot_instance_id: str):
+    async def send_initial_state(websocket: WebSocket, bot_instance_id: str) -> bool:
         """Send current bot state when client connects"""
         session = None
         try:
             if WebSocketServer._is_backtest_channel(bot_instance_id):
-                await WebSocketServer.send_backtest_status(
+                return await WebSocketServer.send_backtest_status(
                     websocket, WebSocketServer._backtest_run_id(bot_instance_id)
                 )
-                return
 
             session = db.get_session()
             uow = UnitOfWorkRealtime(session)
 
             bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
             if bot_id is None:
-                await manager.send_personal_message(
+                sent = await manager.send_personal_message(
                     {
                         "type": "initial_state",
                         "timestamp": utc_now_iso(),
@@ -301,7 +580,7 @@ class WebSocketServer:
                     },
                     websocket,
                 )
-                return
+                return sent
             # Get open positions
             positions = uow.positions.get_open_positions(bot_id)
             # Get market data
@@ -313,34 +592,29 @@ class WebSocketServer:
                 "type": "initial_state",
                 "timestamp": utc_now_iso(),
                 "data": {
-                    "positions": [
-                        serialize_realtime_position(p)
-                        for p in positions
-                    ],
+                    "positions": [serialize_realtime_position(p) for p in positions],
                     "market_data": [
                         serialize_market_core(m, include_volatility=True)
                         for m in market_data
                     ],
                     "stats": {
-                        "total_open_positions": stats.total_open_positions
-                        if stats
-                        else 0,
-                        "total_unrealized_pnl": float(stats.total_unrealized_pnl)
-                        if stats
-                        else 0,
-                        "total_unrealized_pnl_pct": float(
-                            stats.total_unrealized_pnl_pct
-                        )
-                        if stats
-                        else 0,
+                        "total_open_positions": (
+                            stats.total_open_positions if stats else 0
+                        ),
+                        "total_unrealized_pnl": (
+                            float(stats.total_unrealized_pnl) if stats else 0
+                        ),
+                        "total_unrealized_pnl_pct": (
+                            float(stats.total_unrealized_pnl_pct) if stats else 0
+                        ),
                         "daily_pnl": float(stats.daily_pnl) if stats else 0,
                         "daily_pnl_pct": float(stats.daily_pnl_pct) if stats else 0,
-                        "daily_trades_opened": stats.daily_trades_opened
-                        if stats
-                        else 0,
-                        "daily_trades_closed": stats.daily_trades_closed
-                        if stats
-                        else 0,
+                        "daily_trades_opened": (
+                            stats.daily_trades_opened if stats else 0
+                        ),
+                        "daily_trades_closed": (
+                            stats.daily_trades_closed if stats else 0
+                        ),
                         "daily_win_rate": (
                             serialize_stats_risk_fields(stats)["daily_win_rate"]
                             if stats
@@ -350,10 +624,16 @@ class WebSocketServer:
                 },
             }
 
-            await manager.send_personal_message(message, websocket)
+            return await manager.send_personal_message(message, websocket)
 
         except Exception as e:
-            logger.error(f"Error sending initial state: {e}")
+            logger.error(
+                "Error sending initial state for {}: type={} error={!r}",
+                bot_instance_id,
+                type(e).__name__,
+                e,
+            )
+            return False
         finally:
             if session is not None:
                 session.close()
@@ -369,13 +649,16 @@ class WebSocketServer:
                 {"type": "pong", "timestamp": utc_now_iso()}, websocket
             )
 
-        elif (
-                message_type == "request_status"
-                and WebSocketServer._is_backtest_channel(bot_instance_id)
+        elif message_type == "request_status" and WebSocketServer._is_backtest_channel(
+            bot_instance_id
         ):
-            await WebSocketServer.send_backtest_status(
+            sent = await WebSocketServer.send_backtest_status(
                 websocket, WebSocketServer._backtest_run_id(bot_instance_id)
             )
+            if sent is False:
+                raise RuntimeError(
+                    "Backtest websocket status send failed; closing connection"
+                )
 
         elif message_type == "request_positions":
             # Client requests position list
@@ -452,22 +735,30 @@ class WebSocketServer:
             message = {
                 "type": "stats",
                 "timestamp": utc_now_iso(),
-                "data": {
-                    "total_open_positions": stats.total_open_positions if stats else 0,
-                    "total_unrealized_pnl": float(stats.total_unrealized_pnl)
+                "data": (
+                    {
+                        "total_open_positions": (
+                            stats.total_open_positions if stats else 0
+                        ),
+                        "total_unrealized_pnl": (
+                            float(stats.total_unrealized_pnl) if stats else 0
+                        ),
+                        "total_unrealized_pnl_pct": (
+                            float(stats.total_unrealized_pnl_pct) if stats else 0
+                        ),
+                        "daily_pnl": float(stats.daily_pnl) if stats else 0,
+                        "daily_pnl_pct": float(stats.daily_pnl_pct) if stats else 0,
+                        "daily_trades_opened": (
+                            stats.daily_trades_opened if stats else 0
+                        ),
+                        "daily_trades_closed": (
+                            stats.daily_trades_closed if stats else 0
+                        ),
+                        **(serialize_stats_risk_fields(stats) if stats else {}),
+                    }
                     if stats
-                    else 0,
-                    "total_unrealized_pnl_pct": float(stats.total_unrealized_pnl_pct)
-                    if stats
-                    else 0,
-                    "daily_pnl": float(stats.daily_pnl) if stats else 0,
-                    "daily_pnl_pct": float(stats.daily_pnl_pct) if stats else 0,
-                    "daily_trades_opened": stats.daily_trades_opened if stats else 0,
-                    "daily_trades_closed": stats.daily_trades_closed if stats else 0,
-                    **(serialize_stats_risk_fields(stats) if stats else {}),
-                }
-                if stats
-                else {},
+                    else {}
+                ),
             }
 
             await manager.send_personal_message(message, websocket)
@@ -503,9 +794,9 @@ class WebSocketServer:
                         **serialize_market_core(m, include_volatility=False),
                         "rsi": float(m.rsi) if m.rsi else None,
                         "macd": float(m.macd) if m.macd else None,
-                        "funding_rate": float(m.funding_rate)
-                        if m.funding_rate
-                        else None,
+                        "funding_rate": (
+                            float(m.funding_rate) if m.funding_rate else None
+                        ),
                     }
                     for m in market_data
                 ],
@@ -520,7 +811,7 @@ class WebSocketServer:
                 session.close()
 
     @staticmethod
-    async def send_backtest_status(websocket: WebSocket, run_id: str):
+    async def send_backtest_status(websocket: WebSocket, run_id: str) -> bool:
         """Send backtest status to client on initial connect or explicit request."""
         session = None
         try:
@@ -540,14 +831,37 @@ class WebSocketServer:
                 }
                 log_message = None
             else:
-                message = WebSocketServer._build_backtest_status_message(run_id, run_data)
-                log_message = WebSocketServer._build_backtest_log_message(run_id, run_data)
+                message = WebSocketServer._build_backtest_status_message(
+                    run_id, run_data
+                )
+                log_message = WebSocketServer._build_backtest_log_message(
+                    run_id, run_data
+                )
 
-            await manager.send_personal_message(message, websocket)
+            sent = await manager.send_personal_message(
+                message,
+                websocket,
+                channel_id=f"backtest-{run_id}",
+            )
+            if not sent:
+                return False
             if log_message is not None:
-                await manager.send_personal_message(log_message, websocket)
+                sent_log = await manager.send_personal_message(
+                    log_message,
+                    websocket,
+                    channel_id=f"backtest-{run_id}",
+                )
+                if not sent_log:
+                    return False
+            return True
         except Exception as e:
-            logger.error(f"Error sending backtest status: {e}")
+            logger.error(
+                "Error sending backtest status run_id={}: type={} error={!r}",
+                run_id,
+                type(e).__name__,
+                e,
+            )
+            return False
         finally:
             if session is not None:
                 session.close()

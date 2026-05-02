@@ -32,6 +32,18 @@ func (r *UserRepository) SupportsMFA() bool {
 	return r.hasMFAEnabledColumn()
 }
 
+func (r *UserRepository) hasMaxActiveBacktestsColumn() bool {
+	return r.hasUserColumn("max_active_backtests")
+}
+
+func (r *UserRepository) hasMaxStrategiesColumn() bool {
+	return r.hasUserColumn("max_strategies")
+}
+
+func (r *UserRepository) hasMaxBotInstancesColumn() bool {
+	return r.hasUserColumn("max_bot_instances")
+}
+
 func (r *UserRepository) hasUserColumn(columnName string) bool {
 	rows, err := r.db.Query(`SELECT * FROM users LIMIT 0`)
 	if err != nil {
@@ -69,9 +81,24 @@ func (r *UserRepository) selectUserColumns() string {
 	if r.hasMFAEnabledColumn() {
 		mfaEnabledExpr = "COALESCE(mfa_enabled, FALSE)"
 	}
+	maxActiveBacktestsExpr := "10"
+	if r.hasMaxActiveBacktestsColumn() {
+		maxActiveBacktestsExpr = "COALESCE(max_active_backtests, 10)"
+	}
+	maxStrategiesExpr := "10"
+	if r.hasMaxStrategiesColumn() {
+		maxStrategiesExpr = "COALESCE(max_strategies, 10)"
+	}
+	maxBotInstancesExpr := "10"
+	if r.hasMaxBotInstancesColumn() {
+		maxBotInstancesExpr = "COALESCE(max_bot_instances, 10)"
+	}
 
 	return fmt.Sprintf(
-		`id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), full_name, avatar, hashed_password, is_active, is_admin, %s, %s, last_login, created_at, updated_at`,
+		`id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), %s, %s, %s, full_name, avatar, hashed_password, is_active, is_admin, %s, %s, last_login, created_at, updated_at`,
+		maxActiveBacktestsExpr,
+		maxStrategiesExpr,
+		maxBotInstancesExpr,
 		mfaEnabledExpr,
 		passwordChangeExpr,
 	)
@@ -81,48 +108,69 @@ func (r *UserRepository) selectUserColumns() string {
 func (r *UserRepository) Create(user *models.User) error {
 	user.Role = models.NormalizeUserRole(user.Role, user.IsAdmin)
 	now := time.Now()
-	var err error
+
+	columns := []string{
+		"username",
+		"email",
+		"role",
+		"full_name",
+		"avatar",
+		"hashed_password",
+		"is_active",
+		"is_admin",
+	}
+	args := []interface{}{
+		user.Username,
+		user.Email,
+		user.Role,
+		user.FullName,
+		user.Avatar,
+		user.Password,
+		user.IsActive,
+		user.IsAdmin,
+	}
 
 	if r.hasPasswordChangeRequiredColumn() {
-		query := `
-			INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, password_change_required, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-			RETURNING id, created_at, updated_at
-		`
-		err = r.db.QueryRow(
-			query,
-			user.Username,
-			user.Email,
-			user.Role,
-			user.FullName,
-			user.Avatar,
-			user.Password,
-			user.IsActive,
-			user.IsAdmin,
-			user.PasswordChangeRequired,
-			now,
-			now,
-		).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
-	} else {
-		query := `
-			INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-			RETURNING id, created_at, updated_at
-		`
-		err = r.db.QueryRow(
-			query,
-			user.Username,
-			user.Email,
-			user.Role,
-			user.FullName,
-			user.Avatar,
-			user.Password,
-			user.IsActive,
-			user.IsAdmin,
-			now,
-			now,
-		).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+		columns = append(columns, "password_change_required")
+		args = append(args, user.PasswordChangeRequired)
 	}
+	if r.hasMaxActiveBacktestsColumn() {
+		if user.MaxActiveBacktests <= 0 {
+			user.MaxActiveBacktests = 10
+		}
+		columns = append(columns, "max_active_backtests")
+		args = append(args, user.MaxActiveBacktests)
+	}
+	if r.hasMaxStrategiesColumn() {
+		if user.MaxStrategies <= 0 {
+			user.MaxStrategies = 10
+		}
+		columns = append(columns, "max_strategies")
+		args = append(args, user.MaxStrategies)
+	}
+	if r.hasMaxBotInstancesColumn() {
+		if user.MaxBotInstances <= 0 {
+			user.MaxBotInstances = 10
+		}
+		columns = append(columns, "max_bot_instances")
+		args = append(args, user.MaxBotInstances)
+	}
+
+	columns = append(columns, "created_at", "updated_at")
+	args = append(args, now, now)
+
+	placeholders := make([]string, len(args))
+	for i := range args {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO users (%s)
+		VALUES (%s)
+		RETURNING id, created_at, updated_at
+	`, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+
+	err := r.db.QueryRow(query, args...).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
@@ -145,6 +193,9 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 		&user.Username,
 		&user.Email,
 		&user.Role,
+		&user.MaxActiveBacktests,
+		&user.MaxStrategies,
+		&user.MaxBotInstances,
 		&user.FullName,
 		&user.Avatar,
 		&user.Password,
@@ -181,6 +232,9 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 		&user.Username,
 		&user.Email,
 		&user.Role,
+		&user.MaxActiveBacktests,
+		&user.MaxStrategies,
+		&user.MaxBotInstances,
 		&user.FullName,
 		&user.Avatar,
 		&user.Password,
@@ -217,6 +271,9 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 		&user.Username,
 		&user.Email,
 		&user.Role,
+		&user.MaxActiveBacktests,
+		&user.MaxStrategies,
+		&user.MaxBotInstances,
 		&user.FullName,
 		&user.Avatar,
 		&user.Password,
@@ -266,6 +323,9 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 			&user.Username,
 			&user.Email,
 			&user.Role,
+			&user.MaxActiveBacktests,
+			&user.MaxStrategies,
+			&user.MaxBotInstances,
 			&user.FullName,
 			&user.Avatar,
 			&user.Password,
@@ -363,6 +423,9 @@ func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, 
 			&user.Username,
 			&user.Email,
 			&user.Role,
+			&user.MaxActiveBacktests,
+			&user.MaxStrategies,
+			&user.MaxBotInstances,
 			&user.FullName,
 			&user.Avatar,
 			&user.Password,
@@ -403,55 +466,67 @@ func (r *UserRepository) CountActiveAdmins() (int, error) {
 func (r *UserRepository) Update(user *models.User) error {
 	user.Role = models.NormalizeUserRole(user.Role, user.IsAdmin)
 	now := time.Now()
-	var (
-		result sql.Result
-		err    error
-	)
+
+	args := []interface{}{
+		user.Username,
+		user.Email,
+		user.Role,
+		user.FullName,
+		user.Avatar,
+		user.Password,
+		user.IsActive,
+		user.IsAdmin,
+	}
+	setClauses := []string{
+		"username = $1",
+		"email = $2",
+		"role = $3",
+		"full_name = $4",
+		"avatar = $5",
+		"hashed_password = $6",
+		"is_active = $7",
+		"is_admin = $8",
+	}
 
 	if r.hasPasswordChangeRequiredColumn() {
-		query := `
-			UPDATE users
-			SET username = $1, email = $2, role = $3, full_name = $4, avatar = $5, hashed_password = $6,
-			    is_active = $7, is_admin = $8, password_change_required = $9, last_login = $10, updated_at = $11
-			WHERE id = $12
-		`
-		result, err = r.db.Exec(
-			query,
-			user.Username,
-			user.Email,
-			user.Role,
-			user.FullName,
-			user.Avatar,
-			user.Password,
-			user.IsActive,
-			user.IsAdmin,
-			user.PasswordChangeRequired,
-			user.LastLogin,
-			now,
-			user.ID,
-		)
-	} else {
-		query := `
-			UPDATE users
-			SET username = $1, email = $2, role = $3, full_name = $4, avatar = $5, hashed_password = $6,
-			    is_active = $7, is_admin = $8, last_login = $9, updated_at = $10
-			WHERE id = $11
-		`
-		result, err = r.db.Exec(
-			query,
-			user.Username,
-			user.Email,
-			user.Role,
-			user.FullName,
-			user.Avatar,
-			user.Password,
-			user.IsActive,
-			user.IsAdmin,
-			user.LastLogin,
-			now,
-			user.ID,
-		)
+		args = append(args, user.PasswordChangeRequired)
+		setClauses = append(setClauses, fmt.Sprintf("password_change_required = $%d", len(args)))
 	}
+	if r.hasMaxActiveBacktestsColumn() {
+		if user.MaxActiveBacktests <= 0 {
+			user.MaxActiveBacktests = 10
+		}
+		args = append(args, user.MaxActiveBacktests)
+		setClauses = append(setClauses, fmt.Sprintf("max_active_backtests = $%d", len(args)))
+	}
+	if r.hasMaxStrategiesColumn() {
+		if user.MaxStrategies <= 0 {
+			user.MaxStrategies = 10
+		}
+		args = append(args, user.MaxStrategies)
+		setClauses = append(setClauses, fmt.Sprintf("max_strategies = $%d", len(args)))
+	}
+	if r.hasMaxBotInstancesColumn() {
+		if user.MaxBotInstances <= 0 {
+			user.MaxBotInstances = 10
+		}
+		args = append(args, user.MaxBotInstances)
+		setClauses = append(setClauses, fmt.Sprintf("max_bot_instances = $%d", len(args)))
+	}
+
+	args = append(args, user.LastLogin)
+	setClauses = append(setClauses, fmt.Sprintf("last_login = $%d", len(args)))
+	args = append(args, now)
+	setClauses = append(setClauses, fmt.Sprintf("updated_at = $%d", len(args)))
+	args = append(args, user.ID)
+
+	query := fmt.Sprintf(`
+		UPDATE users
+		SET %s
+		WHERE id = $%d
+	`, strings.Join(setClauses, ", "), len(args))
+
+	result, err := r.db.Exec(query, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)

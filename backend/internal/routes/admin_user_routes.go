@@ -23,12 +23,15 @@ type adminUserListResponse struct {
 }
 
 type createAdminUserRequest struct {
-	Username string `json:"username" binding:"required"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
-	FullName string `json:"full_name"`
-	Role     string `json:"role"`
-	IsActive *bool  `json:"is_active"`
+	Username           string `json:"username" binding:"required"`
+	Email              string `json:"email" binding:"required,email"`
+	Password           string `json:"password" binding:"required,min=6"`
+	FullName           string `json:"full_name"`
+	Role               string `json:"role"`
+	IsActive           *bool  `json:"is_active"`
+	MaxActiveBacktests *int   `json:"max_active_backtests"`
+	MaxStrategies      *int   `json:"max_strategies"`
+	MaxBotInstances    *int   `json:"max_bot_instances"`
 }
 
 type resetUserMFAResponse struct {
@@ -38,14 +41,27 @@ type resetUserMFAResponse struct {
 }
 
 type updateAdminUserRequest struct {
-	Email    *string `json:"email"`
-	FullName *string `json:"full_name"`
-	Role     *string `json:"role"`
-	IsActive *bool   `json:"is_active"`
+	Email              *string `json:"email"`
+	FullName           *string `json:"full_name"`
+	Role               *string `json:"role"`
+	IsActive           *bool   `json:"is_active"`
+	MaxActiveBacktests *int    `json:"max_active_backtests"`
+	MaxStrategies      *int    `json:"max_strategies"`
+	MaxBotInstances    *int    `json:"max_bot_instances"`
 }
 
 type updateUserRoleRequest struct {
 	Role string `json:"role" binding:"required"`
+}
+
+func normalizeUserQuota(raw *int) (int, error) {
+	if raw == nil {
+		return 10, nil
+	}
+	if *raw < 1 || *raw > 1000 {
+		return 0, fmt.Errorf("quota must be between 1 and 1000")
+	}
+	return *raw, nil
 }
 
 type createCustomRoleRequest struct {
@@ -535,11 +551,38 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 		if req.IsActive != nil {
 			isActive = *req.IsActive
 		}
+		maxActiveBacktests, quotaErr := normalizeUserQuota(req.MaxActiveBacktests)
+		if quotaErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("invalid max_active_backtests: %v", quotaErr),
+			})
+			return
+		}
+		maxStrategies, quotaErr := normalizeUserQuota(req.MaxStrategies)
+		if quotaErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("invalid max_strategies: %v", quotaErr),
+			})
+			return
+		}
+		maxBotInstances, quotaErr := normalizeUserQuota(req.MaxBotInstances)
+		if quotaErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("invalid max_bot_instances: %v", quotaErr),
+			})
+			return
+		}
 
 		user := &models.User{
 			Username:               strings.TrimSpace(req.Username),
 			Email:                  strings.TrimSpace(req.Email),
 			Role:                   normalizedRole,
+			MaxActiveBacktests:     maxActiveBacktests,
+			MaxStrategies:          maxStrategies,
+			MaxBotInstances:        maxBotInstances,
 			FullName:               strings.TrimSpace(req.FullName),
 			IsActive:               isActive,
 			IsAdmin:                isAdmin,
@@ -677,6 +720,36 @@ func updateAdminUserWithRequest(database *sql.DB, c *gin.Context, req updateAdmi
 	}
 	if req.FullName != nil {
 		user.FullName = strings.TrimSpace(*req.FullName)
+	}
+	if req.MaxActiveBacktests != nil {
+		if *req.MaxActiveBacktests < 1 || *req.MaxActiveBacktests > 1000 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "max_active_backtests must be between 1 and 1000",
+			})
+			return
+		}
+		user.MaxActiveBacktests = *req.MaxActiveBacktests
+	}
+	if req.MaxStrategies != nil {
+		if *req.MaxStrategies < 1 || *req.MaxStrategies > 1000 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "max_strategies must be between 1 and 1000",
+			})
+			return
+		}
+		user.MaxStrategies = *req.MaxStrategies
+	}
+	if req.MaxBotInstances != nil {
+		if *req.MaxBotInstances < 1 || *req.MaxBotInstances > 1000 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "max_bot_instances must be between 1 and 1000",
+			})
+			return
+		}
+		user.MaxBotInstances = *req.MaxBotInstances
 	}
 	user.Role = nextRole
 	user.IsAdmin = nextRole == "admin"

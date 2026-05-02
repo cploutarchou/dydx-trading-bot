@@ -87,6 +87,9 @@ type UserResponse struct {
 	Username               string `json:"username"`
 	Email                  string `json:"email"`
 	Role                   string `json:"role"`
+	MaxActiveBacktests     int    `json:"max_active_backtests"`
+	MaxStrategies          int    `json:"max_strategies"`
+	MaxBotInstances        int    `json:"max_bot_instances"`
 	FullName               string `json:"full_name"`
 	Avatar                 string `json:"avatar"`
 	IsActive               bool   `json:"is_active"`
@@ -229,6 +232,9 @@ func toUserResponse(user *models.User, privilegedMFARequired bool) UserResponse 
 		Username:               user.Username,
 		Email:                  user.Email,
 		Role:                   models.NormalizeUserRole(user.Role, user.IsAdmin),
+		MaxActiveBacktests:     user.MaxActiveBacktests,
+		MaxStrategies:          user.MaxStrategies,
+		MaxBotInstances:        user.MaxBotInstances,
 		FullName:               user.FullName,
 		Avatar:                 user.Avatar,
 		IsActive:               user.IsActive,

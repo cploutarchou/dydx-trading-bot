@@ -276,6 +276,18 @@ func (r *BotInstanceRepository) ListBotInstancesByUserID(userID int, limit int, 
 	return instances, nil
 }
 
+func (r *BotInstanceRepository) CountBotInstancesByUserID(userID int) (int, error) {
+	var count int
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM bot_instances WHERE user_id = $1`, userID).Scan(&count)
+	if err != nil {
+		if isUndefinedColumnError(err) {
+			return 0, fmt.Errorf("failed to count bot instances: current schema missing user_id; run migrations before enforcing user-scoped bot quotas")
+		}
+		return 0, fmt.Errorf("failed to count bot instances: %w", err)
+	}
+	return count, nil
+}
+
 // UpdateBotInstanceStatus updates the status of a bot instance
 func (r *BotInstanceRepository) UpdateBotInstanceStatus(instanceID string, status string) error {
 	query := `

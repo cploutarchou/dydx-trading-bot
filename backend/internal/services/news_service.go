@@ -62,11 +62,20 @@ type NewsService struct {
 
 	cacheMu sync.RWMutex
 	cache   *newsCacheEntry
+
+	inFlightMu sync.Mutex
+	inFlight   map[string]*newsInFlightCall
 }
 
 type newsCacheEntry struct {
 	expiresAt time.Time
 	value     *CoinDeskNewsResponse
+}
+
+type newsInFlightCall struct {
+	done  chan struct{}
+	value *CoinDeskNewsResponse
+	err   error
 }
 
 type coinDeskRSS struct {
@@ -101,6 +110,7 @@ func NewNewsServiceFromEnv(credentials *ExternalAPICredentialService) *NewsServi
 		httpClient:  &http.Client{Timeout: 12 * time.Second},
 		credentials: credentials,
 		feedURL:     feedURL,
+		inFlight:    make(map[string]*newsInFlightCall),
 	}
 }
 
@@ -153,65 +163,97 @@ func (s *NewsService) GetLatestCoinDeskNews(ctx context.Context, limit int) (*Co
 		return cached, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.feedURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create CoinDesk news request: %w", err)
-	}
-
-	if key, ok, err := s.credentials.ResolveSharedKey(ExternalAPIProviderCoinDesk); err == nil && ok && strings.TrimSpace(key) != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-		req.Header.Set("X-API-Key", key)
-	}
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reach CoinDesk feed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("CoinDesk feed returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CoinDesk feed: %w", err)
-	}
-
-	var feed coinDeskRSS
-	if err := xml.Unmarshal(body, &feed); err != nil {
-		return nil, fmt.Errorf("failed to parse CoinDesk RSS feed: %w", err)
-	}
-
-	articles := make([]CoinDeskArticle, 0, min(limit, len(feed.Channel.Items)))
-	for _, item := range feed.Channel.Items {
-		if len(articles) >= limit {
-			break
+	flightKey := fmt.Sprintf("coindesk:%d", limit)
+	return s.fetchCoinDeskNewsSingleFlight(flightKey, func() (*CoinDeskNewsResponse, error) {
+		if cached := s.getCached(limit); cached != nil {
+			return cached, nil
 		}
-		articles = append(articles, CoinDeskArticle{
-			ID:          fallbackArticleID(item),
-			Title:       strings.TrimSpace(item.Title),
-			URL:         strings.TrimSpace(item.Link),
-			Summary:     strings.TrimSpace(item.Description),
-			Author:      strings.TrimSpace(item.Creator),
-			Category:    firstCategory(item.Categories),
-			PublishedAt: parseRSSDate(item.PubDate),
-			ImageURL:    firstMediaURL(item.Media),
-			Tags:        collectTags(item.Categories),
-		})
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.feedURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CoinDesk news request: %w", err)
+		}
+
+		if key, ok, err := s.credentials.ResolveSharedKey(ExternalAPIProviderCoinDesk); err == nil && ok && strings.TrimSpace(key) != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+			req.Header.Set("X-API-Key", key)
+		}
+
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reach CoinDesk feed: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			return nil, fmt.Errorf("CoinDesk feed returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CoinDesk feed: %w", err)
+		}
+
+		var feed coinDeskRSS
+		if err := xml.Unmarshal(body, &feed); err != nil {
+			return nil, fmt.Errorf("failed to parse CoinDesk RSS feed: %w", err)
+		}
+
+		articles := make([]CoinDeskArticle, 0, min(limit, len(feed.Channel.Items)))
+		for _, item := range feed.Channel.Items {
+			if len(articles) >= limit {
+				break
+			}
+			articles = append(articles, CoinDeskArticle{
+				ID:          fallbackArticleID(item),
+				Title:       strings.TrimSpace(item.Title),
+				URL:         strings.TrimSpace(item.Link),
+				Summary:     strings.TrimSpace(item.Description),
+				Author:      strings.TrimSpace(item.Creator),
+				Category:    firstCategory(item.Categories),
+				PublishedAt: parseRSSDate(item.PubDate),
+				ImageURL:    firstMediaURL(item.Media),
+				Tags:        collectTags(item.Categories),
+			})
+		}
+
+		response := &CoinDeskNewsResponse{
+			Provider:    "coindesk",
+			Source:      "coindesk_rss",
+			FeedURL:     s.feedURL,
+			LastBuildAt: parseRSSDate(feed.Channel.LastBuildDate),
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			Articles:    articles,
+		}
+		s.setCached(response)
+		return response, nil
+	})
+}
+
+func (s *NewsService) fetchCoinDeskNewsSingleFlight(key string, fn func() (*CoinDeskNewsResponse, error)) (*CoinDeskNewsResponse, error) {
+	s.inFlightMu.Lock()
+	if s.inFlight == nil {
+		s.inFlight = make(map[string]*newsInFlightCall)
+	}
+	if call, ok := s.inFlight[key]; ok {
+		s.inFlightMu.Unlock()
+		<-call.done
+		return call.value, call.err
 	}
 
-	response := &CoinDeskNewsResponse{
-		Provider:    "coindesk",
-		Source:      "coindesk_rss",
-		FeedURL:     s.feedURL,
-		LastBuildAt: parseRSSDate(feed.Channel.LastBuildDate),
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Articles:    articles,
-	}
-	s.setCached(response)
-	return response, nil
+	call := &newsInFlightCall{done: make(chan struct{})}
+	s.inFlight[key] = call
+	s.inFlightMu.Unlock()
+
+	call.value, call.err = fn()
+
+	s.inFlightMu.Lock()
+	delete(s.inFlight, key)
+	close(call.done)
+	s.inFlightMu.Unlock()
+
+	return call.value, call.err
 }
 
 func (s *NewsService) getCached(limit int) *CoinDeskNewsResponse {

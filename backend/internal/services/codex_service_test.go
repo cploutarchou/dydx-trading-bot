@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	_ "modernc.org/sqlite"
@@ -193,5 +195,81 @@ func TestCodexServiceExecuteQueryMapsUnauthorized(t *testing.T) {
 	var serviceErr *CodexServiceError
 	if !strings.Contains(err.Error(), "rejected") || !errors.As(err, &serviceErr) || serviceErr.StatusCode() != http.StatusUnauthorized {
 		t.Fatalf("unexpected error: %#v", err)
+	}
+}
+
+func TestCodexServiceSearchCoalescesConcurrentCacheMisses(t *testing.T) {
+	var requests int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		time.Sleep(80 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"filterTokens": {
+					"results": [
+						{
+							"token": {
+								"id": "0xeth:1",
+								"address": "0xeth",
+								"networkId": 1,
+								"name": "Ether",
+								"symbol": "ETH",
+								"isScam": false
+							},
+							"priceUSD": "3200.5",
+							"change1": "0.012",
+							"change4": "0.018",
+							"change24": "0.085",
+							"liquidity": "500000",
+							"volume24": "1200000",
+							"marketCap": "2500000000",
+							"txnCount24": 870,
+							"exchanges": [{"name": "Uniswap"}]
+						}
+					]
+				}
+			}
+		}`))
+	}))
+	defer upstream.Close()
+
+	service := &CodexService{
+		baseURL:      upstream.URL,
+		httpClient:   upstream.Client(),
+		sharedAPIKey: "shared-codex-key",
+		limiter:      newSerialRateLimiter(1000),
+		cache:        make(map[string]cacheEntry),
+	}
+
+	const workers = 10
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var failures int32
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			results, err := service.SearchTokens(context.Background(), 1, "ETH", nil, 5, "trace-codex-coalesced")
+			if err != nil {
+				atomic.AddInt32(&failures, 1)
+				return
+			}
+			if len(results) != 1 || results[0].Symbol != "ETH" {
+				atomic.AddInt32(&failures, 1)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if failures != 0 {
+		t.Fatalf("expected zero failures, got %d", failures)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("expected exactly one upstream request under concurrent miss, got %d", got)
 	}
 }

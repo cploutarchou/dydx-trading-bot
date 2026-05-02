@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -103,11 +104,25 @@ type BacktestSyncHealth struct {
 }
 
 type BacktestSyncRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	runLocks sync.Map
 }
 
 func NewBacktestSyncRepository(db *sql.DB) *BacktestSyncRepository {
 	return &BacktestSyncRepository{db: db}
+}
+
+func (r *BacktestSyncRepository) withRunLock(runID string, fn func() error) error {
+	if strings.TrimSpace(runID) == "" {
+		return fn()
+	}
+
+	lockValue, _ := r.runLocks.LoadOrStore(runID, &sync.Mutex{})
+	lock := lockValue.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+
+	return fn()
 }
 
 func (r *BacktestSyncRepository) DB() *sql.DB {
@@ -139,17 +154,18 @@ func nullableFloat64Value(value sql.NullFloat64) interface{} {
 }
 
 func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayload) error {
-	if payload.RunID == "" {
-		return fmt.Errorf("run_id is required")
-	}
-	if payload.StartDate == "" {
-		payload.StartDate = time.Now().UTC().Format("2006-01-02")
-	}
-	if payload.EndDate == "" {
-		payload.EndDate = payload.StartDate
-	}
+	return r.withRunLock(payload.RunID, func() error {
+		if payload.RunID == "" {
+			return fmt.Errorf("run_id is required")
+		}
+		if payload.StartDate == "" {
+			payload.StartDate = time.Now().UTC().Format("2006-01-02")
+		}
+		if payload.EndDate == "" {
+			payload.EndDate = payload.StartDate
+		}
 
-	updateQuery := `
+		updateQuery := `
 		UPDATE backtest_runs
 		SET status = $1,
 			user_id = $2,
@@ -172,41 +188,41 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 		WHERE run_id = $19
 	`
 
-	result, err := r.db.Exec(
-		updateQuery,
-		payload.Status,
-		payload.UserID,
-		payload.StartDate,
-		payload.EndDate,
-		payload.NumPairs,
-		payload.TotalMarkets,
-		nullableStringValue(payload.Resolution),
-		nullableStringValue(payload.Config),
-		payload.StartedAt,
-		payload.CompletedAt,
-		payload.DurationSeconds,
-		nullableStringValue(payload.ErrorMessage),
-		nullableInt64Value(payload.TotalTrades),
-		nullableInt64Value(payload.WinningTrades),
-		nullableInt64Value(payload.LosingTrades),
-		nullableFloat64Value(payload.WinRate),
-		nullableFloat64Value(payload.TotalPnL),
-		nullableFloat64Value(payload.TotalPnLUSD),
-		payload.RunID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update backtest run: %w", err)
-	}
+		result, err := r.db.Exec(
+			updateQuery,
+			payload.Status,
+			payload.UserID,
+			payload.StartDate,
+			payload.EndDate,
+			payload.NumPairs,
+			payload.TotalMarkets,
+			nullableStringValue(payload.Resolution),
+			nullableStringValue(payload.Config),
+			payload.StartedAt,
+			payload.CompletedAt,
+			payload.DurationSeconds,
+			nullableStringValue(payload.ErrorMessage),
+			nullableInt64Value(payload.TotalTrades),
+			nullableInt64Value(payload.WinningTrades),
+			nullableInt64Value(payload.LosingTrades),
+			nullableFloat64Value(payload.WinRate),
+			nullableFloat64Value(payload.TotalPnL),
+			nullableFloat64Value(payload.TotalPnLUSD),
+			payload.RunID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update backtest run: %w", err)
+		}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check updated rows: %w", err)
-	}
-	if rows > 0 {
-		return nil
-	}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to check updated rows: %w", err)
+		}
+		if rows > 0 {
+			return nil
+		}
 
-	insertQuery := `
+		insertQuery := `
 		INSERT INTO backtest_runs (
 			run_id, status, created_at, started_at, completed_at, duration_seconds,
 			start_date, end_date, num_pairs, total_markets, resolution, config,
@@ -220,129 +236,69 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 		)
 	`
 
-	_, err = r.db.Exec(
-		insertQuery,
-		payload.RunID,
-		payload.Status,
-		time.Now().UTC(),
-		payload.StartedAt,
-		payload.CompletedAt,
-		payload.DurationSeconds,
-		payload.StartDate,
-		payload.EndDate,
-		payload.NumPairs,
-		payload.TotalMarkets,
-		nullableStringValue(payload.Resolution),
-		nullableStringValue(payload.Config),
-		nullableInt64Value(payload.TotalTrades),
-		nullableInt64Value(payload.WinningTrades),
-		nullableInt64Value(payload.LosingTrades),
-		nullableFloat64Value(payload.WinRate),
-		nullableFloat64Value(payload.TotalPnL),
-		nullableFloat64Value(payload.TotalPnLUSD),
-		nullableStringValue(payload.ErrorMessage),
-		payload.UserID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to insert backtest run: %w", err)
-	}
+		_, err = r.db.Exec(
+			insertQuery,
+			payload.RunID,
+			payload.Status,
+			time.Now().UTC(),
+			payload.StartedAt,
+			payload.CompletedAt,
+			payload.DurationSeconds,
+			payload.StartDate,
+			payload.EndDate,
+			payload.NumPairs,
+			payload.TotalMarkets,
+			nullableStringValue(payload.Resolution),
+			nullableStringValue(payload.Config),
+			nullableInt64Value(payload.TotalTrades),
+			nullableInt64Value(payload.WinningTrades),
+			nullableInt64Value(payload.LosingTrades),
+			nullableFloat64Value(payload.WinRate),
+			nullableFloat64Value(payload.TotalPnL),
+			nullableFloat64Value(payload.TotalPnLUSD),
+			nullableStringValue(payload.ErrorMessage),
+			payload.UserID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert backtest run: %w", err)
+		}
 
-	return nil
+		return nil
+	})
 }
 
 func (r *BacktestSyncRepository) UpsertBacktestTrades(runID string, items []BacktestTradeSyncPayload) error {
-	if len(items) == 0 {
-		return nil
-	}
-	runPK, fkColumn, err := r.resolveRunAndFKColumn("backtest_trades", runID)
-	if err != nil {
-		return err
-	}
-
-	for _, item := range items {
-		if strings.TrimSpace(item.TradeID) == "" {
-			continue
+	return r.withRunLock(runID, func() error {
+		if len(items) == 0 {
+			return nil
 		}
-		if item.EntryTimestamp == nil {
-			now := time.Now().UTC()
-			item.EntryTimestamp = &now
-		}
-		if item.Market1 == "" {
-			item.Market1 = "UNKNOWN"
-		}
-		if item.Market2 == "" {
-			item.Market2 = "UNKNOWN"
-		}
-		if item.Side1 == "" {
-			item.Side1 = "BUY"
-		}
-		if item.Side2 == "" {
-			item.Side2 = "SELL"
-		}
-
-		updateQuery := fmt.Sprintf(`
-			UPDATE backtest_trades
-			SET %s = $1,
-				market_1 = $2,
-				market_2 = $3,
-				entry_timestamp = $4,
-				entry_price_1 = $5,
-				entry_price_2 = $6,
-				entry_z_score = $7,
-				side_1 = $8,
-				side_2 = $9,
-				size_1 = $10,
-				size_2 = $11,
-				exit_timestamp = $12,
-				exit_price_1 = $13,
-				exit_price_2 = $14,
-				exit_z_score = $15,
-				pnl = $16,
-				pnl_pct = $17,
-				duration_hours = $18,
-				hedge_ratio = $19,
-				transaction_fee = $20,
-				slippage = $21
-			WHERE trade_id = $22
-		`, fkColumn)
-
-		result, err := r.db.Exec(
-			updateQuery,
-			runPK,
-			item.Market1,
-			item.Market2,
-			item.EntryTimestamp,
-			item.EntryPrice1,
-			item.EntryPrice2,
-			item.EntryZScore,
-			item.Side1,
-			item.Side2,
-			item.Size1,
-			item.Size2,
-			item.ExitTimestamp,
-			item.ExitPrice1,
-			item.ExitPrice2,
-			item.ExitZScore,
-			item.PnL,
-			item.PnLPct,
-			item.DurationHours,
-			item.HedgeRatio,
-			item.TransactionFee,
-			item.Slippage,
-			item.TradeID,
-		)
+		runPK, fkColumn, err := r.resolveRunAndFKColumn("backtest_trades", runID)
 		if err != nil {
-			return fmt.Errorf("failed to update backtest trade: %w", err)
-		}
-		rows, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed checking trade rows affected: %w", err)
-		}
-		if rows > 0 {
-			continue
+			return err
 		}
 
-		insertQuery := fmt.Sprintf(`
+		for _, item := range items {
+			if strings.TrimSpace(item.TradeID) == "" {
+				continue
+			}
+			if item.EntryTimestamp == nil {
+				now := time.Now().UTC()
+				item.EntryTimestamp = &now
+			}
+			if item.Market1 == "" {
+				item.Market1 = "UNKNOWN"
+			}
+			if item.Market2 == "" {
+				item.Market2 = "UNKNOWN"
+			}
+			if item.Side1 == "" {
+				item.Side1 = "BUY"
+			}
+			if item.Side2 == "" {
+				item.Side2 = "SELL"
+			}
+
+			upsertQuery := fmt.Sprintf(`
 			INSERT INTO backtest_trades (
 				%s, trade_id, market_1, market_2, entry_timestamp,
 				entry_price_1, entry_price_2, entry_z_score,
@@ -356,132 +312,98 @@ func (r *BacktestSyncRepository) UpsertBacktestTrades(runID string, items []Back
 				$13, $14, $15, $16,
 				$17, $18, $19, $20, $21, $22
 			)
-		`, fkColumn)
+			ON CONFLICT (trade_id) DO UPDATE SET
+				%s = EXCLUDED.%s,
+				market_1 = EXCLUDED.market_1,
+				market_2 = EXCLUDED.market_2,
+				entry_timestamp = EXCLUDED.entry_timestamp,
+				entry_price_1 = EXCLUDED.entry_price_1,
+				entry_price_2 = EXCLUDED.entry_price_2,
+				entry_z_score = EXCLUDED.entry_z_score,
+				side_1 = EXCLUDED.side_1,
+				side_2 = EXCLUDED.side_2,
+				size_1 = EXCLUDED.size_1,
+				size_2 = EXCLUDED.size_2,
+				exit_timestamp = EXCLUDED.exit_timestamp,
+				exit_price_1 = EXCLUDED.exit_price_1,
+				exit_price_2 = EXCLUDED.exit_price_2,
+				exit_z_score = EXCLUDED.exit_z_score,
+				pnl = EXCLUDED.pnl,
+				pnl_pct = EXCLUDED.pnl_pct,
+				duration_hours = EXCLUDED.duration_hours,
+				hedge_ratio = EXCLUDED.hedge_ratio,
+				transaction_fee = EXCLUDED.transaction_fee,
+				slippage = EXCLUDED.slippage
+		`, fkColumn, fkColumn, fkColumn)
 
-		if _, err := r.db.Exec(
-			insertQuery,
-			runPK,
-			item.TradeID,
-			item.Market1,
-			item.Market2,
-			item.EntryTimestamp,
-			item.EntryPrice1,
-			item.EntryPrice2,
-			item.EntryZScore,
-			item.Side1,
-			item.Side2,
-			item.Size1,
-			item.Size2,
-			item.ExitTimestamp,
-			item.ExitPrice1,
-			item.ExitPrice2,
-			item.ExitZScore,
-			item.PnL,
-			item.PnLPct,
-			item.DurationHours,
-			item.HedgeRatio,
-			item.TransactionFee,
-			item.Slippage,
-		); err != nil {
-			return fmt.Errorf("failed to insert backtest trade: %w", err)
+			if _, err := r.db.Exec(
+				upsertQuery,
+				runPK,
+				item.TradeID,
+				item.Market1,
+				item.Market2,
+				item.EntryTimestamp,
+				item.EntryPrice1,
+				item.EntryPrice2,
+				item.EntryZScore,
+				item.Side1,
+				item.Side2,
+				item.Size1,
+				item.Size2,
+				item.ExitTimestamp,
+				item.ExitPrice1,
+				item.ExitPrice2,
+				item.ExitZScore,
+				item.PnL,
+				item.PnLPct,
+				item.DurationHours,
+				item.HedgeRatio,
+				item.TransactionFee,
+				item.Slippage,
+			); err != nil {
+				return fmt.Errorf("failed to insert backtest trade: %w", err)
+			}
 		}
-	}
 
-	return nil
+		return nil
+	})
 }
 
 func (r *BacktestSyncRepository) UpsertBacktestPositions(runID string, items []BacktestPositionSyncPayload) error {
-	if len(items) == 0 {
-		return nil
-	}
-	runPK, fkColumn, err := r.resolveRunAndFKColumn("backtest_positions", runID)
-	if err != nil {
-		return err
-	}
-
-	for _, item := range items {
-		if strings.TrimSpace(item.PositionID) == "" {
-			continue
+	return r.withRunLock(runID, func() error {
+		if len(items) == 0 {
+			return nil
 		}
-		if item.EntryTimestamp == nil {
-			now := time.Now().UTC()
-			item.EntryTimestamp = &now
-		}
-		if item.Market1 == "" {
-			item.Market1 = "UNKNOWN"
-		}
-		if item.Market2 == "" {
-			item.Market2 = "UNKNOWN"
-		}
-		if item.Status == "" {
-			item.Status = "OPEN"
-		}
-		if item.Side1 == "" {
-			item.Side1 = "BUY"
-		}
-		if item.Side2 == "" {
-			item.Side2 = "SELL"
-		}
-
-		updateQuery := fmt.Sprintf(`
-			UPDATE backtest_positions
-			SET %s = $1,
-				market_1 = $2,
-				market_2 = $3,
-				status = $4,
-				entry_timestamp = $5,
-				close_timestamp = $6,
-				entry_price_1 = $7,
-				entry_price_2 = $8,
-				entry_z_score = $9,
-				current_price_1 = $10,
-				current_price_2 = $11,
-				current_z_score = $12,
-				size_1 = $13,
-				size_2 = $14,
-				side_1 = $15,
-				side_2 = $16,
-				hedge_ratio = $17,
-				unrealized_pnl = $18,
-				realized_pnl = $19
-			WHERE position_id = $20
-		`, fkColumn)
-
-		result, err := r.db.Exec(
-			updateQuery,
-			runPK,
-			item.Market1,
-			item.Market2,
-			item.Status,
-			item.EntryTimestamp,
-			item.CloseTimestamp,
-			item.EntryPrice1,
-			item.EntryPrice2,
-			item.EntryZScore,
-			item.CurrentPrice1,
-			item.CurrentPrice2,
-			item.CurrentZScore,
-			item.Size1,
-			item.Size2,
-			item.Side1,
-			item.Side2,
-			item.HedgeRatio,
-			item.UnrealizedPnL,
-			item.RealizedPnL,
-			item.PositionID,
-		)
+		runPK, fkColumn, err := r.resolveRunAndFKColumn("backtest_positions", runID)
 		if err != nil {
-			return fmt.Errorf("failed to update backtest position: %w", err)
-		}
-		rows, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed checking position rows affected: %w", err)
-		}
-		if rows > 0 {
-			continue
+			return err
 		}
 
-		insertQuery := fmt.Sprintf(`
+		for _, item := range items {
+			if strings.TrimSpace(item.PositionID) == "" {
+				continue
+			}
+			if item.EntryTimestamp == nil {
+				now := time.Now().UTC()
+				item.EntryTimestamp = &now
+			}
+			if item.Market1 == "" {
+				item.Market1 = "UNKNOWN"
+			}
+			if item.Market2 == "" {
+				item.Market2 = "UNKNOWN"
+			}
+			if item.Status == "" {
+				item.Status = "OPEN"
+			}
+			if item.Side1 == "" {
+				item.Side1 = "BUY"
+			}
+			if item.Side2 == "" {
+				item.Side2 = "SELL"
+			}
+
+			upsertQuery := fmt.Sprintf(`
 			INSERT INTO backtest_positions (
 				%s, position_id, market_1, market_2, status,
 				entry_timestamp, close_timestamp,
@@ -497,90 +419,78 @@ func (r *BacktestSyncRepository) UpsertBacktestPositions(runID string, items []B
 				$14, $15, $16, $17, $18,
 				$19, $20
 			)
-		`, fkColumn)
+			ON CONFLICT (position_id) DO UPDATE SET
+				%s = EXCLUDED.%s,
+				market_1 = EXCLUDED.market_1,
+				market_2 = EXCLUDED.market_2,
+				status = EXCLUDED.status,
+				entry_timestamp = EXCLUDED.entry_timestamp,
+				close_timestamp = EXCLUDED.close_timestamp,
+				entry_price_1 = EXCLUDED.entry_price_1,
+				entry_price_2 = EXCLUDED.entry_price_2,
+				entry_z_score = EXCLUDED.entry_z_score,
+				current_price_1 = EXCLUDED.current_price_1,
+				current_price_2 = EXCLUDED.current_price_2,
+				current_z_score = EXCLUDED.current_z_score,
+				size_1 = EXCLUDED.size_1,
+				size_2 = EXCLUDED.size_2,
+				side_1 = EXCLUDED.side_1,
+				side_2 = EXCLUDED.side_2,
+				hedge_ratio = EXCLUDED.hedge_ratio,
+				unrealized_pnl = EXCLUDED.unrealized_pnl,
+				realized_pnl = EXCLUDED.realized_pnl
+		`, fkColumn, fkColumn, fkColumn)
 
-		if _, err := r.db.Exec(
-			insertQuery,
-			runPK,
-			item.PositionID,
-			item.Market1,
-			item.Market2,
-			item.Status,
-			item.EntryTimestamp,
-			item.CloseTimestamp,
-			item.EntryPrice1,
-			item.EntryPrice2,
-			item.EntryZScore,
-			item.CurrentPrice1,
-			item.CurrentPrice2,
-			item.CurrentZScore,
-			item.Size1,
-			item.Size2,
-			item.Side1,
-			item.Side2,
-			item.HedgeRatio,
-			item.UnrealizedPnL,
-			item.RealizedPnL,
-		); err != nil {
-			return fmt.Errorf("failed to insert backtest position: %w", err)
+			if _, err := r.db.Exec(
+				upsertQuery,
+				runPK,
+				item.PositionID,
+				item.Market1,
+				item.Market2,
+				item.Status,
+				item.EntryTimestamp,
+				item.CloseTimestamp,
+				item.EntryPrice1,
+				item.EntryPrice2,
+				item.EntryZScore,
+				item.CurrentPrice1,
+				item.CurrentPrice2,
+				item.CurrentZScore,
+				item.Size1,
+				item.Size2,
+				item.Side1,
+				item.Side2,
+				item.HedgeRatio,
+				item.UnrealizedPnL,
+				item.RealizedPnL,
+			); err != nil {
+				return fmt.Errorf("failed to insert backtest position: %w", err)
+			}
 		}
-	}
 
-	return nil
+		return nil
+	})
 }
 
 func (r *BacktestSyncRepository) UpsertBacktestCandles(runID string, items []BacktestCandleSyncPayload) error {
-	if len(items) == 0 {
-		return nil
-	}
-	runPK, fkColumn, err := r.resolveRunAndFKColumn("backtest_candles", runID)
-	if err != nil {
-		return err
-	}
-
-	for _, item := range items {
-		if item.Timestamp == nil || strings.TrimSpace(item.Market) == "" {
-			continue
+	return r.withRunLock(runID, func() error {
+		if len(items) == 0 {
+			return nil
 		}
-		if item.Resolution == "" {
-			item.Resolution = "1HOUR"
-		}
-
-		updateQuery := fmt.Sprintf(`
-			UPDATE backtest_candles
-			SET open_price = $1,
-				high_price = $2,
-				low_price = $3,
-				close_price = $4,
-				volume = $5,
-				trades_count = $6
-			WHERE %s = $7 AND market = $8 AND timestamp = $9 AND resolution = $10
-		`, fkColumn)
-		result, err := r.db.Exec(
-			updateQuery,
-			item.OpenPrice,
-			item.HighPrice,
-			item.LowPrice,
-			item.ClosePrice,
-			item.Volume,
-			item.TradesCount,
-			runPK,
-			item.Market,
-			item.Timestamp,
-			item.Resolution,
-		)
+		runPK, fkColumn, err := r.resolveRunAndFKColumn("backtest_candles", runID)
 		if err != nil {
-			return fmt.Errorf("failed to update backtest candle: %w", err)
-		}
-		rows, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed checking candle rows affected: %w", err)
-		}
-		if rows > 0 {
-			continue
+			return err
 		}
 
-		insertQuery := fmt.Sprintf(`
+		for _, item := range items {
+			if item.Timestamp == nil || strings.TrimSpace(item.Market) == "" {
+				continue
+			}
+			if item.Resolution == "" {
+				item.Resolution = "1HOUR"
+			}
+
+			upsertQuery := fmt.Sprintf(`
 			INSERT INTO backtest_candles (
 				%s, market, timestamp, resolution, open_price,
 				high_price, low_price, close_price, volume, trades_count, created_at
@@ -588,26 +498,34 @@ func (r *BacktestSyncRepository) UpsertBacktestCandles(runID string, items []Bac
 				$1, $2, $3, $4, $5,
 				$6, $7, $8, $9, $10, $11
 			)
-		`, fkColumn)
-		if _, err := r.db.Exec(
-			insertQuery,
-			runPK,
-			item.Market,
-			item.Timestamp,
-			item.Resolution,
-			item.OpenPrice,
-			item.HighPrice,
-			item.LowPrice,
-			item.ClosePrice,
-			item.Volume,
-			item.TradesCount,
-			time.Now().UTC(),
-		); err != nil {
-			return fmt.Errorf("failed to insert backtest candle: %w", err)
+			ON CONFLICT (%s, market, timestamp, resolution) DO UPDATE SET
+				open_price = EXCLUDED.open_price,
+				high_price = EXCLUDED.high_price,
+				low_price = EXCLUDED.low_price,
+				close_price = EXCLUDED.close_price,
+				volume = EXCLUDED.volume,
+				trades_count = EXCLUDED.trades_count
+		`, fkColumn, fkColumn)
+			if _, err := r.db.Exec(
+				upsertQuery,
+				runPK,
+				item.Market,
+				item.Timestamp,
+				item.Resolution,
+				item.OpenPrice,
+				item.HighPrice,
+				item.LowPrice,
+				item.ClosePrice,
+				item.Volume,
+				item.TradesCount,
+				time.Now().UTC(),
+			); err != nil {
+				return fmt.Errorf("failed to insert backtest candle: %w", err)
+			}
 		}
-	}
 
-	return nil
+		return nil
+	})
 }
 
 func (r *BacktestSyncRepository) resolveRunAndFKColumn(tableName, runID string) (int, string, error) {

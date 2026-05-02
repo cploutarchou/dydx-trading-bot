@@ -228,6 +228,9 @@ const toOptionalNumber = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const toOptionalString = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+
 type CapacityRiskModel = {
   label: string;
   detail: string;
@@ -339,6 +342,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     const payload = toObject(systemStatusQuery.data);
     const runtime = toObject(payload.backtest_runtime);
     const limits = toObject(payload.backtest_limits);
+    const botDBSync = toObject(payload.bot_db_sync);
 
     const queueDepth = toFiniteNumber(runtime.queue_depth, 0);
     const activeJobs = toFiniteNumber(runtime.active_jobs, 0);
@@ -349,6 +353,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     const maxPerUser = toOptionalNumber(limits.max_active_runs_per_user);
     const retryAfterSeconds = toOptionalNumber(limits.retry_after_seconds);
     const staleHeartbeatSeconds = toOptionalNumber(limits.stale_heartbeat_seconds);
+    const botDBSyncActive = Boolean(botDBSync.active);
+    const botDBSyncRemainingSeconds = toOptionalNumber(botDBSync.remaining_seconds);
+    const botDBSyncState = toOptionalString(botDBSync.state);
 
     const queueUtilizationPct =
       maxQueueDepth && maxQueueDepth > 0
@@ -366,6 +373,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       retryAfterSeconds,
       staleHeartbeatSeconds,
       queueUtilizationPct,
+      botDBSyncActive,
+      botDBSyncRemainingSeconds,
+      botDBSyncState,
     };
   }, [systemStatusQuery.data]);
 
@@ -981,6 +991,30 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${capacityRisk.dotClass}`} />
                     Capacity {capacityRisk.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={scrollToCapacityPanel}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                      backtestCapacity.botDBSyncActive
+                        ? 'border-amber-500/45 bg-amber-500/10 text-amber-300'
+                        : 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                    } transition hover:brightness-110`}
+                    title={
+                      backtestCapacity.botDBSyncActive
+                        ? `DB sync cooldown active (${Math.ceil(backtestCapacity.botDBSyncRemainingSeconds ?? 0)}s remaining) · state ${backtestCapacity.botDBSyncState || 'unknown'} — click to view capacity panel`
+                        : `DB sync ${backtestCapacity.botDBSyncState || 'ok'} — click to view capacity panel`
+                    }
+                    aria-label="Scroll to backtest capacity panel"
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        backtestCapacity.botDBSyncActive ? 'bg-amber-400' : 'bg-emerald-400'
+                      }`}
+                    />
+                    {backtestCapacity.botDBSyncActive
+                      ? `DB sync cooldown · ${Math.ceil(backtestCapacity.botDBSyncRemainingSeconds ?? 0)}s`
+                      : 'DB sync stable'}
                   </button>
                   <Link
                     to="/backtests/runs"

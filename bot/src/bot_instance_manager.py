@@ -1446,6 +1446,20 @@ class BotInstanceManager:
 
     async def delete_instance(self, instance_id: str) -> BotOperationResult:
         """Delete bot instance and cleanup files"""
+        lock = self._get_instance_lock(instance_id)
+        if lock.locked():
+            return BotOperationResult(
+                success=False,
+                message=f"Instance {instance_id} already has a lifecycle operation in progress",
+                instance_id=instance_id,
+                status=BotStatus.STOPPING,
+            )
+
+        async with lock:
+            return await self._delete_instance_locked(instance_id)
+
+    async def _delete_instance_locked(self, instance_id: str) -> BotOperationResult:
+        """Delete bot instance and cleanup files while holding per-instance lifecycle lock."""
         try:
             # Stop instance first if running
             if (
@@ -1459,6 +1473,8 @@ class BotInstanceManager:
             # Remove from memory
             if instance_id in self.instances:
                 del self.instances[instance_id]
+            self.processes.pop(instance_id, None)
+            self.instance_locks.pop(instance_id, None)
             self._close_instance_log(instance_id)
 
             # Cleanup state files

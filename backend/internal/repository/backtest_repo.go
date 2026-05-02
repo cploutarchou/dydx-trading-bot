@@ -1,21 +1,119 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
 type BacktestRepository struct {
-	db *sql.DB
+	db             *sql.DB
+	admissionLocks sync.Map
 }
 
 func NewBacktestRepository(db *sql.DB) *BacktestRepository {
 	return &BacktestRepository{db: db}
+}
+
+var errAdvisoryLockUnsupported = errors.New("postgres advisory locks unsupported")
+
+func backtestAdmissionLockKey(userID int) int64 {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(fmt.Sprintf("backtest-admission:%d", userID)))
+	return int64(hasher.Sum64())
+}
+
+func isAdvisoryLockUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "function pg_try_advisory_lock") && strings.Contains(lower, "does not exist") {
+		return true
+	}
+	return strings.Contains(lower, "no such function") && strings.Contains(lower, "pg_try_advisory_lock")
+}
+
+func (r *BacktestRepository) withInProcessAdmissionLock(userID int, fn func() error) error {
+	lockValue, _ := r.admissionLocks.LoadOrStore(userID, &sync.Mutex{})
+	lock := lockValue.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
+}
+
+func (r *BacktestRepository) withPostgresAdvisoryAdmissionLock(ctx context.Context, userID int, fn func() error) error {
+	if r == nil || r.db == nil {
+		return errAdvisoryLockUnsupported
+	}
+
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire database connection for admission lock: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	lockKey := backtestAdmissionLockKey(userID)
+	for {
+		var acquired bool
+		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, lockKey).Scan(&acquired); err != nil {
+			if isAdvisoryLockUnsupportedError(err) {
+				return errAdvisoryLockUnsupported
+			}
+			return fmt.Errorf("failed to acquire postgres advisory lock for user %d: %w", userID, err)
+		}
+		if acquired {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for admission lock for user %d: %w", userID, ctx.Err())
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	defer func() {
+		if _, unlockErr := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey); unlockErr != nil {
+			log.Printf("failed to release postgres advisory lock for user %d: %v", userID, unlockErr)
+		}
+	}()
+
+	return fn()
+}
+
+// WithUserAdmissionLock serializes admission checks per user.
+//
+// Behavior:
+// - PostgreSQL: uses pg advisory locks (cross-replica safe).
+// - Other engines/test setups: falls back to in-process mutex lock.
+func (r *BacktestRepository) WithUserAdmissionLock(ctx context.Context, userID int, fn func() error) error {
+	if userID <= 0 {
+		return fmt.Errorf("invalid user id")
+	}
+	if fn == nil {
+		return fmt.Errorf("admission callback is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := r.withPostgresAdvisoryAdmissionLock(ctx, userID, fn); err != nil {
+		if errors.Is(err, errAdvisoryLockUnsupported) {
+			return r.withInProcessAdmissionLock(userID, fn)
+		}
+		return err
+	}
+
+	return nil
 }
 
 type CandleFilter struct {

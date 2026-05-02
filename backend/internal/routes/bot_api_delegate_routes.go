@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -1035,77 +1036,119 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 		config = normalizeBacktestRunPayload(config)
 
-		if backtestRepo != nil {
-			userIDValue, exists := c.Get("user_id")
-			userID, ok := userIDValue.(int)
-			if exists && ok && userID > 0 {
-				maxActivePerUser := readPositiveIntEnv(
-					10,
-					"BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
-					"BACKEND_BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
-				)
-				if maxActivePerUser > 0 {
-					activeCount, countErr := backtestRepo.CountActiveRunsByUserID(userID)
-					if countErr != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{
-							"success":   false,
-							"message":   "Failed to evaluate backtest admission limits",
-							"error":     countErr.Error(),
-							"timestamp": time.Now().UTC().Format(time.RFC3339),
-							"trace_id":  middleware.GetTraceID(c),
-						})
-						return
-					}
-					if activeCount >= maxActivePerUser {
-						c.Header("Retry-After", "15")
-						respondBacktestEnvelope(c, http.StatusTooManyRequests, "Backtest capacity reached for this account", map[string]interface{}{
-							"error":                 "backtest_user_capacity_reached",
-							"active_runs":           activeCount,
-							"max_active_runs":       maxActivePerUser,
-							"retry_after_seconds":   15,
-							"admission_scope":       "per_user",
-							"admission_enforced_by": "backend",
-						})
-						return
-					}
-				}
-			}
-		}
-
 		var (
 			result map[string]interface{}
 			err    error
 		)
-		if c.FullPath() == "/api/v1/backtests/run" {
-			result, err = requestClient.CreateBacktestRun(config)
-		} else {
-			result, err = requestClient.CreateBacktest(config)
-		}
-		if err != nil {
-			respondBotAPIError(c, err)
-			return
-		}
-		// The bot service initial response may omit start_date/end_date (e.g.
-		// when queued via Celery or the dates default to empty string).
-		// Back-fill them from the request config so both the sync DB record and
-		// the frontend response contain the period the user actually requested.
-		for _, field := range []string{"start_date", "end_date"} {
-			requestVal, hasInConfig := config[field]
-			if !hasInConfig {
-				continue
+
+		executeCreate := func() error {
+			if c.FullPath() == "/api/v1/backtests/run" {
+				result, err = requestClient.CreateBacktestRun(config)
+			} else {
+				result, err = requestClient.CreateBacktest(config)
 			}
-			// Fix at root level (flat response from bot service)
-			if existing, ok := result[field]; !ok || existing == nil || existing == "" {
-				result[field] = requestVal
+			if err != nil {
+				return err
 			}
-			// Fix inside the wrapped "data" envelope (api_response wrapper)
-			if dataMap, ok := result["data"].(map[string]interface{}); ok {
-				if existing, ok := dataMap[field]; !ok || existing == nil || existing == "" {
-					dataMap[field] = requestVal
+
+			// The bot service initial response may omit start_date/end_date (e.g.
+			// when queued via Celery or the dates default to empty string).
+			// Back-fill them from the request config so both the sync DB record and
+			// the frontend response contain the period the user actually requested.
+			for _, field := range []string{"start_date", "end_date"} {
+				requestVal, hasInConfig := config[field]
+				if !hasInConfig {
+					continue
+				}
+				// Fix at root level (flat response from bot service)
+				if existing, ok := result[field]; !ok || existing == nil || existing == "" {
+					result[field] = requestVal
+				}
+				// Fix inside the wrapped "data" envelope (api_response wrapper)
+				if dataMap, ok := result["data"].(map[string]interface{}); ok {
+					if existing, ok := dataMap[field]; !ok || existing == nil || existing == "" {
+						dataMap[field] = requestVal
+					}
+				}
+			}
+
+			syncRun(c, result)
+			return nil
+		}
+
+		admissionEnabled := false
+		admissionUserID := 0
+		maxActivePerUser := 0
+		if backtestRepo != nil {
+			if userIDValue, exists := c.Get("user_id"); exists {
+				if userID, ok := userIDValue.(int); ok && userID > 0 {
+					admissionUserID = userID
+					maxActivePerUser = readPositiveIntEnv(
+						10,
+						"BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+						"BACKEND_BACKTEST_MAX_ACTIVE_RUNS_PER_USER",
+					)
+					admissionEnabled = maxActivePerUser > 0
 				}
 			}
 		}
-		syncRun(c, result)
+
+		if admissionEnabled {
+			capacityReached := false
+			activeCount := 0
+
+			lockCtx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+			defer cancel()
+
+			admissionErr := backtestRepo.WithUserAdmissionLock(lockCtx, admissionUserID, func() error {
+				count, countErr := backtestRepo.CountActiveRunsByUserID(admissionUserID)
+				if countErr != nil {
+					return countErr
+				}
+				activeCount = count
+				if activeCount >= maxActivePerUser {
+					capacityReached = true
+					return nil
+				}
+				return executeCreate()
+			})
+			if admissionErr != nil {
+				var transportErr *services.BotAPITransportError
+				var apiErr *services.BotAPIError
+				if errors.As(admissionErr, &transportErr) || errors.As(admissionErr, &apiErr) {
+					respondBotAPIError(c, admissionErr)
+					return
+				}
+
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to evaluate backtest admission limits",
+					"error":     admissionErr.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			if capacityReached {
+				c.Header("Retry-After", "15")
+				respondBacktestEnvelope(c, http.StatusTooManyRequests, "Backtest capacity reached for this account", map[string]interface{}{
+					"error":                 "backtest_user_capacity_reached",
+					"active_runs":           activeCount,
+					"max_active_runs":       maxActivePerUser,
+					"retry_after_seconds":   15,
+					"admission_scope":       "per_user",
+					"admission_enforced_by": "backend",
+				})
+				return
+			}
+		} else {
+			if err := executeCreate(); err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+		}
+
 		respondBacktestEnvelope(c, http.StatusOK, "Backtest created successfully", result)
 	}
 

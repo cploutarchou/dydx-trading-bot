@@ -15,7 +15,9 @@ interface Props {
   lastError?: string;
   recentBacktests?: AIBacktestSummary[];
   defaultProvider?: AIMarketProvider;
-  onApplyParams?: (params: Partial<Strategy>) => Promise<void> | void;
+  onApplyParams?: (
+    params: Partial<Strategy>
+  ) => Promise<Array<keyof Strategy> | void> | Array<keyof Strategy> | void;
 }
 
 interface ParsedSuggestion {
@@ -231,11 +233,19 @@ export function AIStrategyAdvisor({
     setApplyError(null);
     setApplyLoading(true);
     try {
-      await onApplyParams(pendingApplyPreview.patch);
-      const justApplied = pendingApplyPreview.items.map((i) => i.key);
+      const applyResult = await onApplyParams(pendingApplyPreview.patch);
+      const requestedKeys = pendingApplyPreview.items.map((i) => i.key);
+      const acknowledgedKeys = Array.isArray(applyResult)
+        ? applyResult.filter((key): key is keyof Strategy => requestedKeys.includes(key))
+        : requestedKeys;
+
+      if (acknowledgedKeys.length === 0) {
+        throw new Error('No suggestions were applied to editable strategy fields.');
+      }
+
       setAppliedKeys((prev) => {
         const next = new Set(prev);
-        justApplied.forEach((k) => next.add(k));
+        acknowledgedKeys.forEach((k) => next.add(k));
         return next;
       });
       setPendingApplyPreview(null);

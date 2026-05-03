@@ -320,6 +320,8 @@ const formatTimeAgo = (value: string | null | undefined): string => {
   return `${diffDays}d ago`;
 };
 
+const clampPercentage = (value: number): number => Math.max(0, Math.min(100, value));
+
 const classifyFailureDiagnostic = (message?: string | null) => {
   const summary = String(message || '').trim();
   const normalized = summary.toLowerCase();
@@ -1190,6 +1192,72 @@ export const BacktestDetailsV2: React.FC = () => {
   }, []);
   const topPairs = pairBreakdown.sort((a, b) => b.count - a.count || b.pnl - a.pnl).slice(0, 5);
   const requestPayload = asRecord(liveBacktest.request);
+  const requestTaskContext = asRecord(requestPayload?._task_context);
+  const requestMetadata = asRecord(requestTaskContext?.metadata);
+  const historyFetchTelemetry = asRecord(requestMetadata?.history_fetch_telemetry);
+  const historyFetchMarketsRecord = asRecord(historyFetchTelemetry?.markets);
+  const historyFetchTotalWindows = toNumber(historyFetchTelemetry?.total_windows, 0);
+  const historyFetchTotalRetries = toNumber(historyFetchTelemetry?.total_retries, 0);
+  const historyFetchTotalFailedWindows = toNumber(historyFetchTelemetry?.total_failed_windows, 0);
+  const historyFetchTotalBackoffSeconds = toNumber(historyFetchTelemetry?.total_backoff_seconds, 0);
+  const historyFetchAvgBackoffSeconds = toNumber(
+    historyFetchTelemetry?.avg_backoff_per_retry_seconds,
+    0
+  );
+  const historyFetchRetryRatePct =
+    historyFetchTotalWindows > 0 ? (historyFetchTotalRetries / historyFetchTotalWindows) * 100 : 0;
+  const historyFetchFailureRatePct =
+    historyFetchTotalWindows > 0
+      ? (historyFetchTotalFailedWindows / historyFetchTotalWindows) * 100
+      : 0;
+  const retryPressureScore = clampPercentage(
+    historyFetchRetryRatePct * 0.55 +
+      historyFetchFailureRatePct * 0.9 +
+      Math.min(12, historyFetchAvgBackoffSeconds * 3)
+  );
+  const retryPressureTone =
+    retryPressureScore < 30
+      ? 'text-emerald-300'
+      : retryPressureScore < 60
+        ? 'text-amber-300'
+        : 'text-rose-300';
+  const retryPressureLabel =
+    retryPressureScore < 30
+      ? 'Low pressure'
+      : retryPressureScore < 60
+        ? 'Moderate pressure'
+        : 'High pressure';
+  const historyFetchMarketRows = historyFetchMarketsRecord
+    ? Object.entries(historyFetchMarketsRecord)
+        .map(([market, telemetry]) => {
+          const telemetryRecord = asRecord(telemetry);
+          return {
+            market,
+            retries: toNumber(telemetryRecord?.retries, 0),
+            windows: toNumber(telemetryRecord?.windows, 0),
+            failedWindows: toNumber(telemetryRecord?.failed_windows, 0),
+            avgBackoff: toNumber(telemetryRecord?.avg_backoff_per_retry_seconds, 0),
+          };
+        })
+        .sort(
+          (left, right) =>
+            right.retries - left.retries ||
+            right.failedWindows - left.failedWindows ||
+            right.windows - left.windows
+        )
+        .slice(0, 6)
+    : ([] as Array<{
+        market: string;
+        retries: number;
+        windows: number;
+        failedWindows: number;
+        avgBackoff: number;
+      }>);
+  const hasHistoryFetchTelemetry =
+    historyFetchTelemetry !== null &&
+    (historyFetchTotalWindows > 0 ||
+      historyFetchTotalRetries > 0 ||
+      historyFetchMarketRows.length > 0);
   const requestParams = asRecord(requestPayload?.trading_parameters);
   const requestedPairs = Array.isArray(requestPayload?.pairs)
     ? requestPayload.pairs.map((pair) => String(pair)).filter(Boolean)
@@ -2194,6 +2262,93 @@ export const BacktestDetailsV2: React.FC = () => {
                     .
                   </p>
                 </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4 sm:col-span-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    History fetch telemetry
+                  </p>
+                  {hasHistoryFetchTelemetry ? (
+                    <>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+                        <span className={`font-semibold ${retryPressureTone}`}>
+                          Retry pressure: {retryPressureScore.toFixed(1)} / 100
+                        </span>
+                        <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-300">
+                          {retryPressureLabel}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                            Windows
+                          </p>
+                          <p className="mt-1 font-semibold text-slate-100">
+                            {historyFetchTotalWindows}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                            Retries
+                          </p>
+                          <p className="mt-1 font-semibold text-slate-100">
+                            {historyFetchTotalRetries}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                            Failed windows
+                          </p>
+                          <p className="mt-1 font-semibold text-slate-100">
+                            {historyFetchTotalFailedWindows}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                            Backoff
+                          </p>
+                          <p className="mt-1 font-semibold text-slate-100">
+                            {historyFetchTotalBackoffSeconds.toFixed(1)}s
+                          </p>
+                        </div>
+                      </div>
+                      {historyFetchMarketRows.length > 0 && (
+                        <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60">
+                          <table className="min-w-full text-left text-xs">
+                            <thead className="border-b border-slate-800 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                              <tr>
+                                <th className="px-3 py-2">Market</th>
+                                <th className="px-3 py-2">Retries</th>
+                                <th className="px-3 py-2">Windows</th>
+                                <th className="px-3 py-2">Failed</th>
+                                <th className="px-3 py-2">Avg backoff</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {historyFetchMarketRows.map((row) => (
+                                <tr
+                                  key={row.market}
+                                  className="border-b border-slate-800/60 text-slate-300 last:border-none"
+                                >
+                                  <td className="px-3 py-2 font-medium text-slate-100">
+                                    {row.market}
+                                  </td>
+                                  <td className="px-3 py-2">{row.retries}</td>
+                                  <td className="px-3 py-2">{row.windows}</td>
+                                  <td className="px-3 py-2">{row.failedWindows}</td>
+                                  <td className="px-3 py-2">{row.avgBackoff.toFixed(2)}s</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-400">
+                      No retry/backoff telemetry was captured for this run yet.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -2202,7 +2357,7 @@ export const BacktestDetailsV2: React.FC = () => {
           <div className="xl:col-span-2">
             <AIBacktestExplainer
               winRate={liveBacktest.win_rate}
-              totalPnlUsd={liveBacktest.total_pnl_usd}
+              totalPnlUsd={liveBacktest.total_pnl_usd ?? liveBacktest.total_pnl ?? 0}
               sharpeRatio={liveBacktest.sharpe_ratio}
               maxDrawdownPct={liveBacktest.max_drawdown_pct}
               totalTrades={liveBacktest.total_trades ?? 0}

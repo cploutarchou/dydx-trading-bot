@@ -1020,6 +1020,33 @@ export default function StrategyManager() {
   };
 
   const handleApplySuggestedParams = async (strategy: Strategy, params: Partial<Strategy>) => {
+    const editableKeys = new Set<keyof Strategy>([
+      'zscore_threshold',
+      'stats_window',
+      'max_half_life',
+      'usd_per_trade',
+      'usd_min_collateral',
+      'max_positions',
+      'max_drawdown_pct',
+      'stop_loss_pct',
+      'take_profit_pct',
+      'trailing_stop_pct',
+      'rebalance_interval_hours',
+      'position_timeout_hours',
+      'transaction_fee',
+      'slippage',
+      'max_history_days',
+      'risk_free_rate',
+      'resolution',
+      'candle_resolution',
+    ]);
+    const appliedKeys = (Object.keys(params) as Array<keyof Strategy>).filter((key) =>
+      editableKeys.has(key)
+    );
+    if (appliedKeys.length === 0) {
+      throw new Error('No editable strategy parameters were provided by AI suggestions.');
+    }
+
     const mergedConfig: Partial<Strategy> = {
       ...strategy,
       ...params,
@@ -1034,6 +1061,7 @@ export default function StrategyManager() {
         },
         4000
       );
+      return appliedKeys;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to apply AI suggestions';
       showTransientMessage({ type: 'error', text: `❌ ${msg}` }, 6000);

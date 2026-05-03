@@ -6,6 +6,8 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api, {
     DYDX_CANDLE_RESOLUTION_OPTIONS,
     normalizeDydxCandleResolution,
+    toAIBacktestSummary,
+    type AIBacktestSummary,
     type AIMarketProvider,
 } from '../api';
 import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
@@ -114,6 +116,7 @@ export default function StrategyBuilder() {
   const [aiMarketObjective, setAIMarketObjective] = useState<AIMarketObjective>('balanced');
   const [autoMarketLimit, setAutoMarketLimit] = useState(DEFAULT_AUTO_SELECTED_MARKETS);
   const [showPairPreview, setShowPairPreview] = useState(false);
+  const [recentBacktests, setRecentBacktests] = useState<AIBacktestSummary[]>([]);
   const { availableProviders: availableAIProviders, isLoading: aiProviderStatusLoading } =
     useAIProviderAvailability();
 
@@ -204,6 +207,48 @@ export default function StrategyBuilder() {
     if (isEditMode && strategyId) {
       loadStrategy(parseInt(strategyId, 10));
     }
+  }, [isEditMode, strategyId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRecentBacktests = async () => {
+      if (!isEditMode || !strategyId) {
+        if (!cancelled) {
+          setRecentBacktests([]);
+        }
+        return;
+      }
+
+      const parsedId = Number.parseInt(strategyId, 10);
+      if (!Number.isFinite(parsedId) || parsedId <= 0) {
+        if (!cancelled) {
+          setRecentBacktests([]);
+        }
+        return;
+      }
+
+      try {
+        const response = await api.listBacktestsByStrategy(parsedId, 5);
+        const items = Array.isArray(response.data?.backtests) ? response.data.backtests : [];
+        const summaries: AIBacktestSummary[] = items
+          .map((b) => toAIBacktestSummary(b))
+          .filter((summary): summary is AIBacktestSummary => summary !== null);
+
+        if (!cancelled) {
+          setRecentBacktests(summaries);
+        }
+      } catch {
+        if (!cancelled) {
+          setRecentBacktests([]);
+        }
+      }
+    };
+
+    void loadRecentBacktests();
+    return () => {
+      cancelled = true;
+    };
   }, [isEditMode, strategyId]);
 
   useEffect(() => {
@@ -862,7 +907,11 @@ export default function StrategyBuilder() {
           />
         </div>
 
-        <AIStrategyAdvisor strategy={strategyForAdvisor} onApplyParams={handleApplyAdvisorParams} />
+        <AIStrategyAdvisor
+          strategy={strategyForAdvisor}
+          recentBacktests={recentBacktests}
+          onApplyParams={handleApplyAdvisorParams}
+        />
 
         {/* Initial Investment Amount */}
         <div>

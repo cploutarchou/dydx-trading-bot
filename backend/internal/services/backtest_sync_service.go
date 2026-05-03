@@ -99,7 +99,9 @@ func (s *BacktestSyncService) SyncBacktestRun(userID int, upstream map[string]in
 		LosingTrades:    nullableIntField(payload, "losing_trades"),
 		WinRate:         nullableFloatField(payload, "win_rate"),
 		TotalPnL:        nullableFloatField(payload, "total_pnl"),
-		TotalPnLUSD:     nullableFloatField(payload, "total_pnl_usd"),
+		TotalPnLUSD:     nullableFloatField(payload, "total_pnl_usd", "total_pnl"),
+		SharpeRatio:     nullableFloatField(payload, "sharpe_ratio"),
+		MaxDrawdown:     nullableFloatField(payload, "max_drawdown", "max_drawdown_pct"),
 	}
 
 	return s.repo.UpsertBacktestRun(syncPayload)

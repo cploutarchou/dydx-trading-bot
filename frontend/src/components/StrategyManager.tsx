@@ -18,6 +18,7 @@ import apiClient, {
 	type AIBacktestSummary,
 	DYDX_CANDLE_RESOLUTION_OPTIONS,
 	normalizeDydxCandleResolution,
+	toAIBacktestSummary,
 } from '../api';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
@@ -299,14 +300,8 @@ export default function StrategyManager() {
       .then((resp) => {
         const items = Array.isArray(resp.data?.backtests) ? resp.data.backtests : [];
         const summaries: AIBacktestSummary[] = items
-          .filter((b) => typeof b.win_rate === 'number' || typeof b.total_pnl_usd === 'number')
-          .map((b) => ({
-            win_rate: Number(b.win_rate ?? 0),
-            total_pnl_usd: Number(b.total_pnl_usd ?? 0),
-            sharpe_ratio: Number(b.sharpe_ratio ?? 0),
-            max_drawdown_pct: Number(b.max_drawdown ?? 0),
-            total_trades: Number(b.total_trades ?? 0),
-          }));
+          .map((b) => toAIBacktestSummary(b))
+          .filter((summary): summary is AIBacktestSummary => summary !== null);
         setStrategyBacktests((prev) => {
           const next = new Map(prev);
           next.set(strategyId, summaries);

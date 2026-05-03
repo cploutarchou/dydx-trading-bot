@@ -73,6 +73,9 @@ const StrategyManager = lazy(() => import('./components/StrategyManager'));
 const AdminHubPage = lazy(() =>
   import('./pages/AdminHub').then((module) => ({ default: module.AdminHubPage }))
 );
+const AdminCeleryPage = lazy(() =>
+  import('./pages/AdminCelery').then((module) => ({ default: module.AdminCeleryPage }))
+);
 const BacktestDetailsV2 = lazy(() => import('./pages/BacktestDetailsV2'));
 const BacktestsPage = lazy(() =>
   import('./pages/Backtests').then((module) => ({ default: module.BacktestsPage }))
@@ -434,6 +437,14 @@ export const App: React.FC = () => {
                       </ProtectedRoute>
                     }
                   />
+                  <Route
+                    path="/admin/celery"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'super_admin', 'backoffice_admin']}>
+                        <AdminCeleryPage />
+                      </ProtectedRoute>
+                    }
+                  />
                 </>
               )}
 
@@ -452,6 +463,14 @@ export const App: React.FC = () => {
                     element={
                       <ProtectedRoute allowedRoles={BACKOFFICE_ROLES}>
                         <AdminHubPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/celery"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'super_admin', 'backoffice_admin']}>
+                        <AdminCeleryPage />
                       </ProtectedRoute>
                     }
                   />

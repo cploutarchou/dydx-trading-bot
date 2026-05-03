@@ -7,7 +7,8 @@ Repository-level guidance for coding agents working on this project.
 1. Read `../.github/copilot-instructions.md`
 2. Read `.github/copilot-instructions.md`
 3. Read `.github/CUSTOMIZATION_INDEX.md`
-4. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
+4. Read `.github/instructions/runtime-safety.instructions.md`
+5. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
 
 ## Primary goals
 
@@ -47,6 +48,9 @@ Repository-level guidance for coding agents working on this project.
 
 - Keep overlap support for `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, and `BOT_API_TOKENS`; if changed, update
   `tests/test_auth_middleware_service_token.py`.
+11. **Supervised async background work**
+    - Launch long-running/background tasks via `src/infrastructure/use_cases/async_job_manager.py` so task
+      failures/progress persist to job state and are visible to operators.
 
 ## Required checks for bot-runtime changes
 
@@ -61,6 +65,9 @@ Repository-level guidance for coding agents working on this project.
   lifecycle updates after runtime state changes.
 - Verify per-instance subprocess logs still write to `bot_states/bot_<instance_id>.log` and dead-process cleanup remains
   active when touching `src/bot_instance_manager.py`.
+- Run `tests/test_backtest_api_contract.py` when touching backtest routes/payloads to preserve backend-facing
+  status/progress and alias contracts.
+- Run `tests/test_async_job_manager.py` when touching background task orchestration (`async_job_manager`) behavior.
 - Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety paths.
 - Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for
   runtime/safety-impacting edits.
@@ -79,5 +86,6 @@ Repository-level guidance for coding agents working on this project.
 ## Latest bot context (2026-05)
 
 - Keep `src/api/server.py` as canonical API entrypoint and preserve compatibility wrappers (`app.py`, `start_api.py`).
+- Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated runtime/backtest contracts.
 - Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics remain active contracts with backend delegation.
 - Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates after runtime changes.

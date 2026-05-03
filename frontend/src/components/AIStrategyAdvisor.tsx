@@ -5,6 +5,7 @@ import api, {
     type AIBacktestSummary,
     type AIMarketProvider,
     type AISuggestParamsRequest,
+    toAIBacktestSummary,
 } from '../api';
 import { useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
@@ -252,6 +253,20 @@ export function AIStrategyAdvisor({
     setCollapsed(false);
     setAppliedKeys(new Set());
 
+    let hydratedRecentBacktests = recentBacktests;
+    const strategyId = Number(strategy.id);
+    if (hydratedRecentBacktests.length === 0 && Number.isFinite(strategyId) && strategyId > 0) {
+      try {
+        const response = await api.listBacktestsByStrategy(strategyId, 5);
+        const items = Array.isArray(response.data?.backtests) ? response.data.backtests : [];
+        hydratedRecentBacktests = items
+          .map((b) => toAIBacktestSummary(b))
+          .filter((summary): summary is AIBacktestSummary => summary !== null);
+      } catch {
+        hydratedRecentBacktests = recentBacktests;
+      }
+    }
+
     // Build a compact current-params map from known Strategy fields
     const currentParams: Record<string, unknown> = {
       zscore_threshold: strategy.zscore_threshold,
@@ -275,7 +290,7 @@ export function AIStrategyAdvisor({
       strategy_name: strategy.name,
       current_params: currentParams,
       last_error: lastError,
-      recent_backtests: recentBacktests,
+      recent_backtests: hydratedRecentBacktests,
     };
 
     try {

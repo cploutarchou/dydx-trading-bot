@@ -254,6 +254,19 @@ func loginDelegatedBacktestTestUser(t *testing.T, backendURL string) string {
 	return tokenResp.AccessToken
 }
 
+func validDelegatedBacktestRunBody(t *testing.T) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]interface{}{
+		"strategy":                  "pairs",
+		"pairs":                     []string{"BTC-USD", "ETH-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{"strategy": "pairs"},
+	})
+	if err != nil {
+		t.Fatalf("marshal delegated backtest body: %v", err)
+	}
+	return body
+}
+
 func TestDelegatedBacktestRoutes_EnforceUserScopedBacktestData(t *testing.T) {
 	upstreamStatusCalls := make(chan string, 1)
 	upstreamMux := http.NewServeMux()
@@ -376,7 +389,11 @@ func TestDelegatedBacktestRun_UsesCompatibilityRunEndpoint(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy":                  "pairs",
+		"pairs":                     []string{"BTC-USD", "ETH-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{"strategy": "pairs"},
+	})
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -417,7 +434,7 @@ func TestDelegatedBacktestRun_PassthroughsUpstreamStatus(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -458,7 +475,7 @@ func TestDelegatedBacktestRun_ForwardsCookieAliasTokenUpstream(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -483,6 +500,92 @@ func TestDelegatedBacktestRun_ForwardsCookieAliasTokenUpstream(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for upstream auth header")
+	}
+}
+
+func TestDelegatedBacktestRunRejectsMissingSelectedPairs(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("backend should reject missing selected pairs before delegating")
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy_payload_snapshot": map[string]interface{}{"strategy": "pairs"},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", resp.StatusCode)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got["error"] != "SELECTED_PAIRS_MISSING" {
+		t.Fatalf("unexpected response body: %v", got)
+	}
+}
+
+func TestDelegatedBacktestRunRejectsMissingStrategyID(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/strategies/404", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"Strategy '404' not found"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("backend should reject missing strategy before delegating run")
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy_id": 404,
+		"pairs":       []string{"BTC-USD", "ETH-USD"},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got["error"] != "STRATEGY_NOT_FOUND" {
+		t.Fatalf("unexpected response body: %v", got)
 	}
 }
 
@@ -635,7 +738,7 @@ func TestDelegatedBacktestRun_SyncsRunIntoLocalDB(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -693,7 +796,7 @@ func TestDelegatedBacktestStatus_UpdatesLocalDBStatus(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new create request: %v", err)
@@ -758,7 +861,7 @@ func TestDelegatedBacktestTrades_SyncsChildRowsIntoLocalDB(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createReq.Header.Set("Content-Type", "application/json")
@@ -817,7 +920,7 @@ func TestDelegatedBacktestPositionSnapshots_SyncsChildRowsIntoLocalDB(t *testing
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createReq.Header.Set("Content-Type", "application/json")
@@ -866,7 +969,7 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createReq.Header.Set("Content-Type", "application/json")

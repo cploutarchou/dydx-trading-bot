@@ -414,7 +414,7 @@ def test_capabilities_endpoint_lists_http_and_websocket_scopes():
     assert "WS /ws/backtests/{run_id}" in payload["data"]["websocket_channels"]
 
 
-def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
+def test_run_backtest_compat_errors_when_strategy_lookup_fails(monkeypatch):
     server = _load_server_module()
     stub_service = _RunStubService()
     monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
@@ -433,17 +433,38 @@ def test_run_backtest_compat_falls_back_when_strategy_lookup_fails(monkeypatch):
         start_date="2026-03-01",
         end_date="2026-03-31",
         strategy_id=1,
+        pairs=["BTC-USD", "ETH-USD"],
         timeout_seconds=120,
     )
 
     response = asyncio.run(_call(server.run_backtest_compat(request)))
     payload = json.loads(response.body)
 
-    assert payload["success"] is True
-    assert payload["data"]["run_id"] == "fallback-run"
-    assert payload["data"]["progress"] == 0.0
-    assert payload["data"]["timeout_seconds"] == 120
-    assert stub_service.progress_callback == server._broadcast_backtest_progress
+    assert response.status_code == 404
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "STRATEGY_NOT_FOUND"
+    assert stub_service.last_request is None
+
+
+def test_run_backtest_compat_errors_when_selected_pairs_missing(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=1,
+        timeout_seconds=120,
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 422
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "SELECTED_PAIRS_MISSING"
+    assert stub_service.last_request is None
 
 
 def test_strategy_to_backtest_request_preserves_request_trading_parameters():
@@ -485,6 +506,8 @@ def test_strategy_to_backtest_request_preserves_request_trading_parameters():
     assert result.trading_parameters["pair_selection_mode"] == "liquidity"
     assert result.trading_parameters["max_pairs"] == 6
     assert result.pairs == ["ETH-USD", "SOL-USD", "ADA-USD"]
+    assert result.selected_pairs == ["ETH-USD", "SOL-USD", "ADA-USD"]
+    assert result.strategy_payload_snapshot["id"] == 4
 
 
 def test_run_backtest_compat_preserves_explicit_payload_semantics(monkeypatch):
@@ -540,12 +563,14 @@ def test_run_backtest_compat_preserves_explicit_payload_semantics(monkeypatch):
 
     executed_request = stub_service.last_request
     assert executed_request.strategy_id == 7
+    assert executed_request.strategy_payload_snapshot["id"] == 7
     assert executed_request.start_date == "2026-03-01"
     assert executed_request.end_date == "2026-03-31"
     assert executed_request.initial_balance == 4321.0
     assert executed_request.max_pairs == 7
     assert executed_request.pair_selection_mode == "cointegration"
     assert executed_request.pairs == ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
+    assert executed_request.selected_pairs == ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
 
     # Explicit request values should win over strategy defaults.
     assert executed_request.trading_parameters["zscore_threshold"] == 1.1

@@ -55,4 +55,15 @@ describe('normalizeBacktestPayload', () => {
     expect(payload.trading_parameters?.resolution).toBe('4HOURS');
     expect(payload.trading_parameters?.candle_resolution).toBe('4HOURS');
   });
+
+  it('rejects backtest payloads without selected pairs', () => {
+    expect(() =>
+      normalizeBacktestPayload({
+        start_date: '2026-03-01',
+        end_date: '2026-03-31',
+        strategy_id: 12,
+        trading_parameters: {},
+      })
+    ).toThrow('Backtest payload requires selected pairs');
+  });
 });

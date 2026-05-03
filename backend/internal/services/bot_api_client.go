@@ -499,6 +499,12 @@ func (c *BotAPIClient) CreateBacktestRun(config map[string]interface{}) (map[str
 	return c.makeRequest("POST", "/api/v1/backtests/run", config)
 }
 
+// GetStrategy fetches a strategy from the bot strategy store.
+func (c *BotAPIClient) GetStrategy(strategyID int) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/strategies/%d", strategyID)
+	return c.makeRequest("GET", endpoint, nil)
+}
+
 // ListBacktests lists all backtests
 func (c *BotAPIClient) ListBacktests(limit int, offset int, status string) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/backtests?limit=%d&offset=%d", limit, offset)

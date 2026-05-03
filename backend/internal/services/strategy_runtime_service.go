@@ -130,9 +130,9 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 	}
 
 	if len(configuredSelectedMarkets) == 0 {
-		warnings = append(
-			warnings,
-			"No markets are explicitly selected. Launching will evaluate all active dYdX perpetual markets.",
+		blockers = append(
+			blockers,
+			"Selected pairs are required before launching a strategy runtime. Choose at least two dYdX perpetual markets or explicitly save an all-market strategy selection.",
 		)
 	}
 
@@ -266,6 +266,12 @@ func (s *StrategyRuntimeService) startRuntime(
 		return nil, err
 	}
 	runtimeState.Network = runtimeKey.Network
+	log.Printf(
+		"ℹ️ strategy_runtime_promotion strategy_id=%d target_environment=%s selected_pairs=%v",
+		strategy.ID,
+		runtimeKey.Network,
+		sanitizeRuntimeSelectedMarkets(strategy.SelectedMarketList()),
+	)
 
 	instanceRecord, existsLocally, err := s.ensureRuntimeInstance(strategy, runtimeState.InstanceID, runtimeKey)
 	if err != nil {
@@ -594,6 +600,12 @@ func (s *StrategyRuntimeService) buildTelegramParams(userID int) map[string]inte
 func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStrategy, network string) map[string]interface{} {
 	resolution := normalizeDydxCandleResolution(strategy.CandleResolution)
 	selectedMarkets := sanitizeRuntimeSelectedMarkets(strategy.SelectedMarketList())
+	log.Printf(
+		"ℹ️ strategy_runtime_selected_pairs strategy_id=%d network=%s selected_pairs=%v",
+		strategy.ID,
+		network,
+		selectedMarkets,
+	)
 	return map[string]interface{}{
 		"is_testnet":               !strings.EqualFold(network, "mainnet"),
 		"subaccount_number":        strategy.RuntimeSubaccount,
@@ -619,6 +631,7 @@ func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStr
 		"position_timeout_hours":   strategy.PositionTimeoutHours,
 		"pair_selection_mode":      strategy.PairSelectionMode,
 		"selected_markets":         selectedMarkets,
+		"selected_pairs":           selectedMarkets,
 	}
 }
 
@@ -647,8 +660,8 @@ func sanitizeRuntimeSelectedMarkets(markets []string) []string {
 		result = append(result, normalized)
 	}
 
-	// Pair-trading runtime requires at least two valid markets. If operators have
-	// fewer than two, fall back to dynamic market discovery instead of crashing.
+	// Pair-trading runtime requires at least two valid markets. Readiness blocks
+	// runtime launch when fewer are configured.
 	if len(result) < 2 {
 		return []string{}
 	}

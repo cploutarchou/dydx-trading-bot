@@ -462,6 +462,14 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 		if tradingParams["max_positions"] != float64(5) {
 			t.Fatalf("expected live risk fields in trading payload, got %+v", tradingParams)
 		}
+		selectedMarkets, _ := tradingParams["selected_markets"].([]interface{})
+		if len(selectedMarkets) != 2 || selectedMarkets[0] != "BTC-USD" || selectedMarkets[1] != "ETH-USD" {
+			t.Fatalf("expected exact selected markets in trading payload, got %+v", tradingParams["selected_markets"])
+		}
+		selectedPairs, _ := tradingParams["selected_pairs"].([]interface{})
+		if len(selectedPairs) != 2 || selectedPairs[0] != "BTC-USD" || selectedPairs[1] != "ETH-USD" {
+			t.Fatalf("expected exact selected pairs in trading payload, got %+v", tradingParams["selected_pairs"])
+		}
 		backtestingParams, _ := createPayload["backtesting_params"].(map[string]interface{})
 		if backtestingParams["starting_balance"] != float64(1000) {
 			t.Fatalf("expected backtesting defaults in create payload, got %+v", backtestingParams)
@@ -549,6 +557,50 @@ func TestStrategyRuntimeReadinessRoute(t *testing.T) {
 	}
 	if _, ok := data["available_collateral"].(float64); !ok {
 		t.Fatalf("expected available_collateral number in readiness payload, got %#v", data["available_collateral"])
+	}
+}
+
+func TestStrategyRuntimeReadinessBlocksMissingSelectedMarkets(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/runtime/preflight", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"ready":true,"blockers":[],"warnings":[]}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	if _, err := dbConn.Exec(`UPDATE backtest_strategies SET selected_markets = '[]' WHERE id = 101`); err != nil {
+		t.Fatalf("clear selected markets: %v", err)
+	}
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/101/start-readiness?network=testnet", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("readiness request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected readiness status: %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode readiness response: %v", err)
+	}
+	data, _ := payload["data"].(map[string]interface{})
+	if ready, _ := data["ready"].(bool); ready {
+		t.Fatalf("expected readiness ready=false when selected markets are missing")
+	}
+	blockers, _ := data["blockers"].([]interface{})
+	if len(blockers) == 0 || !strings.Contains(fmt.Sprint(blockers[0]), "Selected pairs are required") {
+		t.Fatalf("expected selected-pairs blocker, got %#v", blockers)
 	}
 }
 

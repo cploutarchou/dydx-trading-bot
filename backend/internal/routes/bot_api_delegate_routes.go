@@ -977,6 +977,68 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 	}
 
+	resyncBacktestRun := func(c *gin.Context, requestClient *services.BotAPIClient, runID string) (gin.H, error) {
+		result := gin.H{
+			"run_synced":       false,
+			"trades_synced":    false,
+			"positions_synced": false,
+			"candles_synced":   false,
+			"run_id":           runID,
+			"status":           "unknown",
+			"progress_percent": 0.0,
+			"progress_pct":     0.0,
+			"progress":         0.0,
+			"current_task":     nil,
+			"current_pair":     nil,
+			"sync_state":       "partial",
+		}
+
+		details, err := requestClient.GetBacktestDetails(runID)
+		if err != nil {
+			return result, err
+		}
+		details = normalizeBacktestDetailsPayload(details)
+		state := normalizeBacktestStatusFields(unwrapEnvelopePayload(details))
+		if v, ok := state["run_id"]; ok && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
+			result["run_id"] = v
+		}
+		if v, ok := state["status"]; ok {
+			result["status"] = v
+		}
+		for _, key := range []string{"progress_percent", "progress_pct", "progress", "current_task", "current_pair"} {
+			if v, ok := state[key]; ok {
+				result[key] = v
+			}
+		}
+		syncRun(c, details)
+		syncChildren(c, runID, details)
+		result["run_synced"] = true
+
+		tradesPayload, err := requestClient.GetBacktestTradesWithFilters(runID, 500, 0, false)
+		if err == nil {
+			syncChildren(c, runID, tradesPayload)
+			result["trades_synced"] = true
+		}
+
+		positionsPayload, err := requestClient.GetPositionSnapshots(runID, 500, 0, nil)
+		if err == nil {
+			syncChildren(c, runID, positionsPayload)
+			result["positions_synced"] = true
+		}
+
+		metricsPayload, err := requestClient.GetAdvancedPerformanceMetrics(runID, "BTC-USD")
+		if err == nil {
+			syncChildren(c, runID, metricsPayload)
+			result["candles_synced"] = true
+		}
+
+		if result["run_synced"] == true && result["trades_synced"] == true && result["positions_synced"] == true && result["candles_synced"] == true {
+			result["sync_state"] = "completed"
+		}
+
+		return result, nil
+	}
+
 	requireBacktestRunAccess := func(c *gin.Context, runID string) bool {
 		runID = strings.TrimSpace(runID)
 		if runID == "" || backtestRepo == nil {
@@ -1637,6 +1699,83 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		backtestGroup.GET("/interrupted", interruptedBacktestsHandler(false))
 		backtestGroup.POST("/interrupted/reconcile", reconcileInterruptedBacktestsHandler(false))
 
+		// Batch re-sync latest runs for current user to backfill historical metrics.
+		backtestGroup.POST("/resync-recent", func(c *gin.Context) {
+			if backtestSync == nil || backtestRepo == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"success":   false,
+					"error":     "backtest sync service unavailable",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+
+			userIDValue, exists := c.Get("user_id")
+			userID, ok := userIDValue.(int)
+			if !exists || !ok || userID <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"message":   "invalid user context",
+					"error":     "invalid user context",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			limit := 25
+			if l := c.Query("limit"); l != "" {
+				if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+					limit = parsed
+				}
+			}
+			if limit > 100 {
+				limit = 100
+			}
+
+			runs, err := backtestRepo.GetRunsByUserID(userID, 0, limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to list recent backtests",
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			results := make([]gin.H, 0, len(runs))
+			successCount := 0
+			failureCount := 0
+
+			for _, run := range runs {
+				runID := strings.TrimSpace(run.RunID)
+				if runID == "" {
+					continue
+				}
+				row, syncErr := resyncBacktestRun(c, requestClient, runID)
+				if syncErr != nil {
+					failureCount++
+					row["sync_state"] = "failed"
+					row["error"] = syncErr.Error()
+					results = append(results, row)
+					continue
+				}
+				successCount++
+				results = append(results, row)
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Recent backtest re-sync completed", map[string]interface{}{
+				"limit":            limit,
+				"processed":        len(results),
+				"success_count":    successCount,
+				"failure_count":    failureCount,
+				"run_sync_results": results,
+			})
+		})
+
 		// Create backtest
 		backtestGroup.POST("", createBacktestHandler)
 		// Frontend compatibility alias
@@ -1880,63 +2019,10 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			}
 
 			requestClient := getRequestBotAPIClient(c, apiClient)
-			result := gin.H{
-				"run_synced":       false,
-				"trades_synced":    false,
-				"positions_synced": false,
-				"candles_synced":   false,
-				"run_id":           runID,
-				"status":           "unknown",
-				"progress_percent": 0.0,
-				"progress_pct":     0.0,
-				"progress":         0.0,
-				"current_task":     nil,
-				"current_pair":     nil,
-				"sync_state":       "partial",
-			}
-
-			details, err := requestClient.GetBacktestDetails(runID)
+			result, err := resyncBacktestRun(c, requestClient, runID)
 			if err != nil {
 				respondBotAPIError(c, err)
 				return
-			}
-			details = normalizeBacktestDetailsPayload(details)
-			state := normalizeBacktestStatusFields(unwrapEnvelopePayload(details))
-			if v, ok := state["run_id"]; ok && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
-				result["run_id"] = v
-			}
-			if v, ok := state["status"]; ok {
-				result["status"] = v
-			}
-			for _, key := range []string{"progress_percent", "progress_pct", "progress", "current_task", "current_pair"} {
-				if v, ok := state[key]; ok {
-					result[key] = v
-				}
-			}
-			syncRun(c, details)
-			syncChildren(c, runID, details)
-			result["run_synced"] = true
-
-			tradesPayload, err := requestClient.GetBacktestTradesWithFilters(runID, 500, 0, false)
-			if err == nil {
-				syncChildren(c, runID, tradesPayload)
-				result["trades_synced"] = true
-			}
-
-			positionsPayload, err := requestClient.GetPositionSnapshots(runID, 500, 0, nil)
-			if err == nil {
-				syncChildren(c, runID, positionsPayload)
-				result["positions_synced"] = true
-			}
-
-			metricsPayload, err := requestClient.GetAdvancedPerformanceMetrics(runID, "BTC-USD")
-			if err == nil {
-				syncChildren(c, runID, metricsPayload)
-				result["candles_synced"] = true
-			}
-
-			if result["run_synced"] == true && result["trades_synced"] == true && result["positions_synced"] == true && result["candles_synced"] == true {
-				result["sync_state"] = "completed"
 			}
 
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest re-sync completed successfully", result)

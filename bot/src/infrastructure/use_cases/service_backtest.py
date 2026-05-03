@@ -152,6 +152,11 @@ class BacktestService:
     _MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
     _PROGRESS_CALLBACK_TIMEOUT_SECONDS = 5.0
     _HISTORY_REQUEST_TIMEOUT_SECONDS = 20.0
+    _HISTORY_MIN_INTERVAL_SECONDS = 0.15
+    _HISTORY_MAX_RETRIES = 6
+    _HISTORY_RETRY_BASE_SECONDS = 1.5
+    _HISTORY_RETRY_MAX_SECONDS = 20.0
+    _HISTORY_TELEMETRY_RECENT_FAILURES_LIMIT = 5
     _SIMULATION_YIELD_EVERY_STEPS = 200
     _HEAVY_PROGRESS_PERSIST_EVERY_PAIRS = 10
     _HEAVY_PROGRESS_PERSIST_EVERY_SECONDS = 15.0
@@ -908,6 +913,142 @@ class BacktestService:
     def _remaining_seconds(deadline_monotonic: float) -> float:
         return max(0.0, deadline_monotonic - time.monotonic())
 
+    @staticmethod
+    def _describe_exception(exc: BaseException) -> str:
+        text = str(exc).strip()
+        if text:
+            return text
+        return repr(exc)
+
+    @classmethod
+    def _extract_retry_after_seconds(cls, exc: BaseException) -> Optional[float]:
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return None
+        raw = headers.get("Retry-After") or headers.get("retry-after")
+        if raw is None:
+            return None
+        try:
+            parsed = float(str(raw).strip())
+        except (TypeError, ValueError):
+            return None
+        if parsed <= 0:
+            return None
+        return parsed
+
+    @classmethod
+    def _history_retry_delay_seconds(
+        cls,
+        attempt_index: int,
+        exc: BaseException,
+    ) -> float:
+        retry_after = cls._extract_retry_after_seconds(exc)
+        if retry_after is not None:
+            base_delay = retry_after
+        else:
+            configured_base = cls._env_positive_float(
+                "BACKTEST_HISTORY_RETRY_BASE_SECONDS",
+                cls._HISTORY_RETRY_BASE_SECONDS,
+            )
+            max_delay = cls._env_positive_float(
+                "BACKTEST_HISTORY_RETRY_MAX_SECONDS",
+                cls._HISTORY_RETRY_MAX_SECONDS,
+            )
+            base_delay = min(max_delay, configured_base * (2**attempt_index))
+
+        jitter = random.uniform(0.0, max(0.1, base_delay * 0.25))
+        return base_delay + jitter
+
+    @classmethod
+    def _history_fetch_summary(
+        cls,
+        history_telemetry: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        markets_summary: Dict[str, Any] = {}
+        total_windows = 0
+        total_retries = 0
+        total_attempts = 0
+        total_backoff_seconds = 0.0
+        total_failed_windows = 0
+
+        for market, metrics in sorted(history_telemetry.items()):
+            windows = int(metrics.get("windows") or 0)
+            retries = int(metrics.get("retries") or 0)
+            attempts = int(metrics.get("attempts") or 0)
+            failed_windows = int(metrics.get("failed_windows") or 0)
+            backoff_seconds = float(metrics.get("backoff_seconds") or 0.0)
+            timeout_errors = int(metrics.get("timeout_errors") or 0)
+            http_errors = int(metrics.get("http_errors") or 0)
+            max_attempts_per_window = int(metrics.get("max_attempts_per_window") or 0)
+
+            total_windows += windows
+            total_retries += retries
+            total_attempts += attempts
+            total_backoff_seconds += backoff_seconds
+            total_failed_windows += failed_windows
+
+            markets_summary[market] = {
+                "windows": windows,
+                "attempts": attempts,
+                "retries": retries,
+                "failed_windows": failed_windows,
+                "timeout_errors": timeout_errors,
+                "http_errors": http_errors,
+                "backoff_seconds": round(backoff_seconds, 3),
+                "avg_backoff_per_retry_seconds": (
+                    round(
+                        backoff_seconds / retries,
+                        3,
+                    )
+                    if retries > 0
+                    else 0.0
+                ),
+                "avg_attempts_per_window": (
+                    round(attempts / windows, 3) if windows > 0 else 0.0
+                ),
+                "max_attempts_per_window": max_attempts_per_window,
+                "recent_failures": list(metrics.get("recent_failures") or []),
+            }
+
+        return {
+            "version": 1,
+            "markets_count": len(markets_summary),
+            "total_windows": total_windows,
+            "total_attempts": total_attempts,
+            "total_retries": total_retries,
+            "total_failed_windows": total_failed_windows,
+            "total_backoff_seconds": round(total_backoff_seconds, 3),
+            "avg_backoff_per_retry_seconds": (
+                round(
+                    total_backoff_seconds / total_retries,
+                    3,
+                )
+                if total_retries > 0
+                else 0.0
+            ),
+            "markets": markets_summary,
+        }
+
+    @classmethod
+    def _attach_history_fetch_summary(
+        cls,
+        run_data: Dict[str, Any],
+        history_telemetry: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        request_payload = dict(run_data.get("request") or {})
+        task_context = cls._task_context_from_request(request_payload)
+        metadata = dict(task_context.get("metadata") or {})
+        metadata["history_fetch_telemetry"] = cls._history_fetch_summary(
+            history_telemetry
+        )
+        task_context["metadata"] = metadata
+        request_payload[cls._TASK_CONTEXT_KEY] = task_context
+        run_data["request"] = request_payload
+        return run_data
+
     @classmethod
     async def _await_with_deadline(
         cls,
@@ -1465,12 +1606,14 @@ class BacktestService:
         end_dt: datetime,
         resolution: str,
         deadline_monotonic: Optional[float] = None,
+        history_telemetry: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, float]:
         step_minutes = self._resolution_to_minutes(resolution)
         max_candles = 100
         chunk = timedelta(minutes=step_minutes * 90)
         cursor = start_dt
         merged: Dict[str, float] = {}
+        last_request_started = 0.0
 
         while cursor < end_dt:
             if (
@@ -1482,15 +1625,44 @@ class BacktestService:
                 )
 
             window_end = min(end_dt, cursor + chunk)
-            request_timeout = self._HISTORY_REQUEST_TIMEOUT_SECONDS
+            request_timeout = self._env_positive_float(
+                "BACKTEST_HISTORY_REQUEST_TIMEOUT_SECONDS",
+                self._HISTORY_REQUEST_TIMEOUT_SECONDS,
+            )
             if deadline_monotonic is not None:
                 request_timeout = min(
                     request_timeout,
                     max(0.001, self._remaining_seconds(deadline_monotonic)),
                 )
-            _max_retries = 3
-            _retry_delay = 2.0
-            for _attempt in range(_max_retries):
+            min_interval_seconds = self._env_positive_float(
+                "BACKTEST_HISTORY_MIN_INTERVAL_SECONDS",
+                self._HISTORY_MIN_INTERVAL_SECONDS,
+            )
+            max_retries = self._env_positive_int(
+                "BACKTEST_HISTORY_MAX_RETRIES",
+                self._HISTORY_MAX_RETRIES,
+            )
+
+            response: Dict[str, Any] | None = None
+            last_error: Optional[BaseException] = None
+            window_retries = 0
+            window_attempts = 0
+            window_backoff_seconds = 0.0
+            for attempt in range(max_retries):
+                window_attempts += 1
+                if min_interval_seconds > 0 and last_request_started > 0:
+                    since_last_request = time.monotonic() - last_request_started
+                    pace_wait = max(0.0, min_interval_seconds - since_last_request)
+                    if pace_wait > 0:
+                        if deadline_monotonic is not None:
+                            pace_wait = min(
+                                pace_wait,
+                                max(0.0, self._remaining_seconds(deadline_monotonic)),
+                            )
+                        if pace_wait > 0:
+                            await asyncio.sleep(pace_wait)
+
+                last_request_started = time.monotonic()
                 try:
                     response = await asyncio.wait_for(
                         client.indexer.markets.get_perpetual_market_candles(
@@ -1502,32 +1674,115 @@ class BacktestService:
                         ),
                         timeout=request_timeout,
                     )
-                    break  # success — exit retry loop
-                except asyncio.TimeoutError as exc:
-                    raise TimeoutError(
-                        f"Backtest timed out loading {market} candles "
-                        f"for {self._to_iso(cursor)} to {self._to_iso(window_end)}"
-                    ) from exc
-                except httpx.TransportError as exc:
-                    if _attempt < _max_retries - 1:
-                        wait = _retry_delay * (2**_attempt)
-                        logger.warning(
-                            "Candle fetch network error for %s (attempt %d/%d), "
-                            "retrying in %.1fs: %s",
-                            market,
-                            _attempt + 1,
-                            _max_retries,
+                    break
+                except (asyncio.TimeoutError, httpx.HTTPError) as exc:
+                    last_error = exc
+                    if attempt >= max_retries - 1:
+                        break
+
+                    wait = self._history_retry_delay_seconds(attempt, exc)
+                    if deadline_monotonic is not None:
+                        wait = min(
                             wait,
-                            exc,
+                            max(0.0, self._remaining_seconds(deadline_monotonic)),
                         )
+
+                    logger.warning(
+                        "Candle fetch transient failure for %s window %s→%s "
+                        "(attempt %d/%d), retrying in %.2fs: %s",
+                        market,
+                        self._to_iso(cursor),
+                        self._to_iso(window_end),
+                        attempt + 1,
+                        max_retries,
+                        wait,
+                        self._describe_exception(exc),
+                    )
+
+                    window_retries += 1
+                    window_backoff_seconds += max(0.0, wait)
+                    if wait > 0:
                         await asyncio.sleep(wait)
-                    else:
-                        raise TimeoutError(
-                            f"Candle fetch failed for {market} after "
-                            f"{_max_retries} attempts: {exc}"
-                        ) from exc
-            else:
-                response = {}
+
+            if history_telemetry is not None:
+                market_telemetry = history_telemetry.setdefault(
+                    market,
+                    {
+                        "windows": 0,
+                        "attempts": 0,
+                        "retries": 0,
+                        "failed_windows": 0,
+                        "timeout_errors": 0,
+                        "http_errors": 0,
+                        "backoff_seconds": 0.0,
+                        "max_attempts_per_window": 0,
+                        "recent_failures": [],
+                    },
+                )
+                market_telemetry["attempts"] = int(
+                    market_telemetry.get("attempts") or 0
+                ) + int(window_attempts)
+                market_telemetry["retries"] = int(
+                    market_telemetry.get("retries") or 0
+                ) + int(window_retries)
+                market_telemetry["backoff_seconds"] = float(
+                    market_telemetry.get("backoff_seconds") or 0.0
+                ) + float(window_backoff_seconds)
+                market_telemetry["max_attempts_per_window"] = max(
+                    int(market_telemetry.get("max_attempts_per_window") or 0),
+                    int(window_attempts),
+                )
+
+            if response is None:
+                if history_telemetry is not None:
+                    market_telemetry = history_telemetry.get(market)
+                    if market_telemetry is not None:
+                        market_telemetry["failed_windows"] = (
+                            int(market_telemetry.get("failed_windows") or 0) + 1
+                        )
+                        if isinstance(last_error, asyncio.TimeoutError):
+                            market_telemetry["timeout_errors"] = (
+                                int(market_telemetry.get("timeout_errors") or 0) + 1
+                            )
+                        elif isinstance(last_error, httpx.HTTPError):
+                            market_telemetry["http_errors"] = (
+                                int(market_telemetry.get("http_errors") or 0) + 1
+                            )
+
+                        failures = list(market_telemetry.get("recent_failures") or [])
+                        failures.append(
+                            {
+                                "window_from": self._to_iso(cursor),
+                                "window_to": self._to_iso(window_end),
+                                "error": (
+                                    self._describe_exception(last_error)
+                                    if last_error is not None
+                                    else "unknown transport failure"
+                                ),
+                            }
+                        )
+                        limit = self._env_positive_int(
+                            "BACKTEST_HISTORY_TELEMETRY_RECENT_FAILURES_LIMIT",
+                            self._HISTORY_TELEMETRY_RECENT_FAILURES_LIMIT,
+                        )
+                        market_telemetry["recent_failures"] = failures[-limit:]
+
+                error_summary = (
+                    self._describe_exception(last_error)
+                    if last_error is not None
+                    else "unknown transport failure"
+                )
+                raise TimeoutError(
+                    f"Candle fetch failed for {market} after {max_retries} attempts "
+                    f"for {self._to_iso(cursor)} to {self._to_iso(window_end)}: {error_summary}"
+                ) from last_error
+
+            if history_telemetry is not None:
+                market_telemetry = history_telemetry.get(market)
+                if market_telemetry is not None:
+                    market_telemetry["windows"] = (
+                        int(market_telemetry.get("windows") or 0) + 1
+                    )
 
             if not isinstance(response, dict):
                 response = {}
@@ -2021,6 +2276,7 @@ class BacktestService:
             return
 
         client = None
+        history_fetch_telemetry: Dict[str, Dict[str, Any]] = {}
         try:
             timeout_seconds = float(
                 run_data.get("timeout_seconds")
@@ -2153,6 +2409,7 @@ class BacktestService:
                                 end_dt=end_dt,
                                 resolution=resolution,
                                 deadline_monotonic=deadline_monotonic,
+                                history_telemetry=history_fetch_telemetry,
                             ),
                             deadline_monotonic,
                             f"loading history for {market}",
@@ -2247,6 +2504,7 @@ class BacktestService:
                             end_dt=end_dt,
                             resolution=resolution,
                             deadline_monotonic=deadline_monotonic,
+                            history_telemetry=history_fetch_telemetry,
                         ),
                         deadline_monotonic,
                         f"loading history for {m1}",
@@ -2267,6 +2525,7 @@ class BacktestService:
                             end_dt=end_dt,
                             resolution=resolution,
                             deadline_monotonic=deadline_monotonic,
+                            history_telemetry=history_fetch_telemetry,
                         ),
                         deadline_monotonic,
                         f"loading history for {m2}",
@@ -2346,6 +2605,10 @@ class BacktestService:
                     )
                     last_heavy_persist_at = now_monotonic
 
+                run_data = self._attach_history_fetch_summary(
+                    run_data,
+                    history_fetch_telemetry,
+                )
                 run_data = self._persist_run_data(run_data)
 
                 # Yield control so other coroutines (status polling) run smoothly.
@@ -2396,6 +2659,10 @@ class BacktestService:
                     "completed_at": finished_at,
                     "updated_at": finished_at,
                 }
+            )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
             )
             run_data["request"] = self._clear_task_failure(
                 dict(run_data.get("request") or {})
@@ -2471,6 +2738,10 @@ class BacktestService:
                     "updated_at": finished_at,
                 }
             )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
+            )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
         except TimeoutError as exc:
@@ -2508,6 +2779,10 @@ class BacktestService:
                     "updated_at": finished_at,
                 }
             )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
+            )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
         except Exception as exc:
@@ -2544,6 +2819,10 @@ class BacktestService:
                     "completed_at": finished_at,
                     "updated_at": finished_at,
                 }
+            )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
             )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)

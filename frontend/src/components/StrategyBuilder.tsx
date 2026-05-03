@@ -153,6 +153,7 @@ export default function StrategyBuilder() {
   const {
     control,
     handleSubmit,
+    setValue,
     watch,
     reset,
     formState: { errors },
@@ -471,47 +472,67 @@ export default function StrategyBuilder() {
     };
   }, [formValues, isEditMode, selectedMarkets, strategyId]);
 
-  const handleApplyAdvisorParams = async (params: Partial<Strategy>) => {
-    const nextValues: Partial<StrategyFormData> = {};
+  const handleApplyAdvisorParams = async (
+    params: Partial<Strategy>
+  ): Promise<Array<keyof Strategy>> => {
+    const appliedKeys: Array<keyof Strategy> = [];
+
+    const setFormField = <K extends keyof StrategyFormData>(
+      fieldName: K,
+      value: StrategyFormData[K]
+    ) => {
+      setValue(fieldName, value, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      });
+    };
 
     Object.entries(params).forEach(([rawKey, rawValue]) => {
       const key = rawKey as keyof Strategy;
 
       if (key === 'resolution' || key === 'candle_resolution') {
-        nextValues.resolution = normalizeDydxCandleResolution(String(rawValue));
+        setFormField('resolution', normalizeDydxCandleResolution(String(rawValue)));
+        appliedKeys.push(key);
         return;
       }
 
-      if (key in formValues) {
-        switch (typeof rawValue) {
-          case 'number':
-            (nextValues as Record<string, unknown>)[key] = Number(rawValue);
-            break;
-          case 'boolean':
-            (nextValues as Record<string, unknown>)[key] = rawValue;
-            break;
-          case 'string':
-            (nextValues as Record<string, unknown>)[key] = rawValue;
-            break;
-          default:
-            break;
-        }
+      if (!(key in formValues)) {
+        return;
+      }
+
+      switch (typeof rawValue) {
+        case 'number':
+          (setFormField as unknown as (name: string, value: unknown) => void)(
+            key,
+            Number(rawValue)
+          );
+          appliedKeys.push(key);
+          break;
+        case 'boolean':
+          (setFormField as unknown as (name: string, value: unknown) => void)(key, rawValue);
+          appliedKeys.push(key);
+          break;
+        case 'string':
+          (setFormField as unknown as (name: string, value: unknown) => void)(key, rawValue);
+          appliedKeys.push(key);
+          break;
+        default:
+          break;
       }
     });
 
-    const appliedCount = Object.keys(nextValues).length;
+    const dedupedAppliedKeys = Array.from(new Set(appliedKeys));
+    const appliedCount = dedupedAppliedKeys.length;
     if (appliedCount === 0) {
-      setError('No editable AI suggestions were detected for this form.');
-      return;
+      const message = 'No editable AI suggestions were detected for this form.';
+      setError(message);
+      throw new Error(message);
     }
-
-    reset({
-      ...formValues,
-      ...nextValues,
-    });
 
     setSuccessMessage(`✅ Applied ${appliedCount} AI suggestion${appliedCount === 1 ? '' : 's'}`);
     setTimeout(() => setSuccessMessage(null), 3000);
+    return dedupedAppliedKeys;
   };
 
   const buildAIMarketCriteria = (preset: 'popular' | 'profitable' | 'ai') => {

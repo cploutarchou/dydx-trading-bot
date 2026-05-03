@@ -391,8 +391,8 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		transportErr := classifyTransportError(method, requestURL, err)
-		log.Printf("⚠️  Bot API transport error: %s %s → HTTP %d (%s) | cause: %v",
-			method, requestURL, transportErr.StatusCode, transportErr.Message, err)
+		log.Printf("⚠️  Bot API transport error trace_id=%s: %s %s → HTTP %d (%s) | cause: %v",
+			strings.TrimSpace(c.traceID), method, requestURL, transportErr.StatusCode, transportErr.Message, err)
 		return nil, 0, nil, transportErr
 	}
 	defer func() { _ = resp.Body.Close() }()

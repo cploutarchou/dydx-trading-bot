@@ -53,6 +53,12 @@ type FailureDiagnostic = {
   hint: string;
 };
 
+type RetryPressureBadge = {
+  score: number;
+  label: 'low' | 'moderate' | 'high';
+  className: string;
+};
+
 function normalizePercent(value: number | undefined | null): number | null {
   if (value === undefined || value === null || Number.isNaN(Number(value))) return null;
   const numeric = Number(value);
@@ -146,6 +152,57 @@ const LIVE_SYNC_STALE_AFTER_MS = 30000;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const clampPct = (value: number): number => Math.max(0, Math.min(100, value));
+
+const deriveRetryPressureBadge = (run: BacktestRun): RetryPressureBadge | null => {
+  const request = toRecord(run.request);
+  const taskContext = toRecord(request._task_context);
+  const metadata = toRecord(taskContext.metadata);
+  const telemetry = toRecord(metadata.history_fetch_telemetry);
+
+  if (Object.keys(telemetry).length === 0) {
+    return null;
+  }
+
+  const totalWindows = toFiniteNumber(telemetry.total_windows, 0);
+  const totalRetries = toFiniteNumber(telemetry.total_retries, 0);
+  const totalFailedWindows = toFiniteNumber(telemetry.total_failed_windows, 0);
+  const avgBackoffPerRetrySeconds = toFiniteNumber(telemetry.avg_backoff_per_retry_seconds, 0);
+
+  const retryRatePct = totalWindows > 0 ? (totalRetries / totalWindows) * 100 : 0;
+  const failedRatePct = totalWindows > 0 ? (totalFailedWindows / totalWindows) * 100 : 0;
+  const score = clampPct(
+    retryRatePct * 0.55 + failedRatePct * 0.9 + Math.min(12, avgBackoffPerRetrySeconds * 3)
+  );
+
+  if (score < 30) {
+    return {
+      score,
+      label: 'low',
+      className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+    };
+  }
+
+  if (score < 60) {
+    return {
+      score,
+      label: 'moderate',
+      className: 'border-amber-500/35 bg-amber-500/10 text-amber-300',
+    };
+  }
+
+  return {
+    score,
+    label: 'high',
+    className: 'border-rose-500/35 bg-rose-500/10 text-rose-300',
+  };
+};
 
 const getEnvelopeValue = (payload: Record<string, unknown>, key: string): unknown => {
   const nested = toRecord(payload.data);
@@ -303,6 +360,7 @@ export const BacktestList: React.FC<{
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
+  const [showHighPressureOnly, setShowHighPressureOnly] = useState(false);
   const [pollFailures, setPollFailures] = useState(0);
   const [liveSyncMeta, setLiveSyncMeta] = useState<{
     syncedRuns: number;
@@ -638,9 +696,16 @@ export const BacktestList: React.FC<{
     statusCounts[normalizeStatus(run.status, run)] += 1;
   }
 
+  const highPressureRunCount = displayRuns.filter(
+    (run) => deriveRetryPressureBadge(run)?.label === 'high'
+  ).length;
+
   const filteredRuns = displayRuns.filter((run) => {
-    if (statusFilter === 'ALL') return true;
-    return normalizeStatus(run.status, run) === statusFilter;
+    const statusMatches =
+      statusFilter === 'ALL' || normalizeStatus(run.status, run) === statusFilter;
+    if (!statusMatches) return false;
+    if (!showHighPressureOnly) return true;
+    return deriveRetryPressureBadge(run)?.label === 'high';
   });
   const liveSyncAge = formatLiveSyncAge(liveSyncMeta.updatedAt ?? undefined);
   const liveSyncHealthy = liveSyncMeta.syncedRuns > 0;
@@ -661,14 +726,46 @@ export const BacktestList: React.FC<{
       ? run.max_drawdown_pct
       : run.max_drawdown;
 
+  const handleArchiveKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+    const tagName = target?.tagName?.toLowerCase();
+    const isEditableTarget =
+      tagName === 'input' ||
+      tagName === 'textarea' ||
+      tagName === 'select' ||
+      tagName === 'button' ||
+      target?.isContentEditable;
+
+    if (isEditableTarget) {
+      return;
+    }
+
+    if (event.key.toLowerCase() === 'h') {
+      event.preventDefault();
+      setShowHighPressureOnly((value) => !value);
+    }
+  };
+
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-700/80 bg-stone-950/45">
+    <div
+      tabIndex={0}
+      onKeyDown={handleArchiveKeyDown}
+      aria-label="Backtest runs table"
+      className="overflow-hidden rounded-lg border border-slate-700/80 bg-stone-950/45 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+    >
       <div className="flex flex-col gap-3 border-b border-slate-700 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-[10px] font-semibold uppercase text-cyan-300">Run archive</p>
           <h3 className="mt-1 text-base font-semibold text-white">Backtest runs</h3>
           <p className="text-xs text-slate-400 mt-0.5">
             {displayRuns.length} total run{displayRuns.length !== 1 ? 's' : ''}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Tip: press H to toggle high pressure filter
           </p>
         </div>
         <div className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-stone-950 px-3 py-2 text-xs text-slate-400">
@@ -701,7 +798,7 @@ export const BacktestList: React.FC<{
       </div>
 
       <div className="border-b border-slate-700/60 px-5 py-3">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {(
             [
               ['ALL', displayRuns.length, 'All runs'],
@@ -726,6 +823,18 @@ export const BacktestList: React.FC<{
               {label} ({count})
             </button>
           ))}
+
+          <button
+            onClick={() => setShowHighPressureOnly((value) => !value)}
+            className={`rounded-lg border px-3 py-1 text-xs font-medium transition ${
+              showHighPressureOnly
+                ? 'border-rose-500/50 bg-rose-500/15 text-rose-200'
+                : 'border-slate-700 bg-stone-950/80 text-slate-300 hover:border-slate-600 hover:bg-stone-900'
+            }`}
+            title="Filter to runs with high retry-pressure telemetry"
+          >
+            High pressure only ({highPressureRunCount})
+          </button>
         </div>
       </div>
 
@@ -777,11 +886,16 @@ export const BacktestList: React.FC<{
                 <SlidersHorizontal className="h-8 w-8 text-slate-500" />
               </div>
               <p className="text-sm font-medium text-slate-300">
-                No {statusFilter.toLowerCase()} runs
+                {showHighPressureOnly
+                  ? `No high-pressure ${statusFilter === 'ALL' ? '' : statusFilter.toLowerCase() + ' '}runs`
+                  : `No ${statusFilter.toLowerCase()} runs`}
               </p>
               <p className="text-xs text-slate-500">Try a different filter to see results.</p>
               <button
-                onClick={() => setStatusFilter('ALL')}
+                onClick={() => {
+                  setStatusFilter('ALL');
+                  setShowHighPressureOnly(false);
+                }}
                 className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-slate-500"
               >
                 Show all runs
@@ -845,6 +959,7 @@ export const BacktestList: React.FC<{
                   ? calcEta(run.started_at || run.created_at, progressPct)
                   : null;
                 const linkedStrategyId = getLinkedStrategyId(run);
+                const retryPressureBadge = deriveRetryPressureBadge(run);
 
                 return (
                   <React.Fragment key={run.run_id}>
@@ -895,17 +1010,27 @@ export const BacktestList: React.FC<{
                       </td>
                       <td className="px-4 py-2 text-right">{formatPct(maxDdValue(run))}</td>
                       <td className="px-4 py-2 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium ${statusBadgeClass(normalizedStatus)}`}
-                        >
-                          {normalizedStatus === 'RUNNING' && (
-                            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cyan-400" />
+                        <div className="flex flex-col items-center gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium ${statusBadgeClass(normalizedStatus)}`}
+                          >
+                            {normalizedStatus === 'RUNNING' && (
+                              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cyan-400" />
+                            )}
+                            {normalizedStatus}
+                            {isActive && progressPct > 0 && (
+                              <span className="ml-1 opacity-80">{progressPct.toFixed(1)}%</span>
+                            )}
+                          </span>
+                          {retryPressureBadge && (
+                            <span
+                              className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${retryPressureBadge.className}`}
+                              title={`Retry pressure score ${retryPressureBadge.score.toFixed(1)} / 100`}
+                            >
+                              pressure: {retryPressureBadge.label}
+                            </span>
                           )}
-                          {normalizedStatus}
-                          {isActive && progressPct > 0 && (
-                            <span className="ml-1 opacity-80">{progressPct.toFixed(1)}%</span>
-                          )}
-                        </span>
+                        </div>
                       </td>
                       <td className="px-4 py-2 text-center">
                         <button

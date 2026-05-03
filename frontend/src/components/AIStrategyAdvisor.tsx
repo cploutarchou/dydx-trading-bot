@@ -32,6 +32,20 @@ interface PendingApplyPreview {
 }
 
 const suggestionCountOptions = [3, 5, 6, 8] as const;
+const SUGGESTION_COUNT_PREFERENCE_KEY = 'ai-advisor-max-suggestions';
+
+const loadPreferredSuggestionCount = (): number => {
+  if (typeof window === 'undefined') {
+    return 8;
+  }
+
+  const stored = Number(window.localStorage.getItem(SUGGESTION_COUNT_PREFERENCE_KEY));
+  if (suggestionCountOptions.includes(stored as (typeof suggestionCountOptions)[number])) {
+    return stored;
+  }
+
+  return 8;
+};
 
 export function AIStrategyAdvisor({
   strategy,
@@ -43,7 +57,7 @@ export function AIStrategyAdvisor({
   const [provider, setProvider] = useState<AIMarketProvider>(defaultProvider);
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState<string | null>(null);
-  const [maxSuggestions, setMaxSuggestions] = useState<number>(6);
+  const [maxSuggestions, setMaxSuggestions] = useState<number>(loadPreferredSuggestionCount);
   const [usedAI, setUsedAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -65,6 +79,14 @@ export function AIStrategyAdvisor({
       setProvider(availableProviders[0]);
     }
   }, [availableProviders, provider]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(SUGGESTION_COUNT_PREFERENCE_KEY, String(maxSuggestions));
+  }, [maxSuggestions]);
 
   useEffect(() => {
     if (!pendingApplyPreview) return;
@@ -406,7 +428,8 @@ export function AIStrategyAdvisor({
         <p className="mt-3 text-xs text-slate-500">
           Get up to {maxSuggestions} specific, numbered parameter adjustments for{' '}
           <span className="text-slate-300">{strategy.name}</span> based on its current config
-          {recentBacktests.length > 0 ? ` and ${recentBacktests.length} recent backtest(s)` : ''}. You can apply all at once or one-by-one.
+          {recentBacktests.length > 0 ? ` and ${recentBacktests.length} recent backtest(s)` : ''}.
+          You can apply all at once or one-by-one.
         </p>
       )}
 

@@ -489,6 +489,48 @@ func (c *BotAPIClient) GetBotInstanceStats(instanceID string) (map[string]interf
 	return c.makeRequest("GET", endpoint, nil)
 }
 
+// ListCeleryTasks returns admin Celery task monitoring data from the bot API.
+func (c *BotAPIClient) ListCeleryTasks(rawQuery string) (map[string]interface{}, error) {
+	endpoint := "/api/v1/celery/tasks"
+	if strings.TrimSpace(rawQuery) != "" {
+		endpoint += "?" + strings.TrimSpace(rawQuery)
+	}
+	return c.makeRequest("GET", endpoint, nil)
+}
+
+// GetCeleryTask returns a single Celery task detail from the bot API.
+func (c *BotAPIClient) GetCeleryTask(taskID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/celery/tasks/%s", url.PathEscape(taskID))
+	return c.makeRequest("GET", endpoint, nil)
+}
+
+// RevokeCeleryTask revokes a Celery task through the bot API.
+func (c *BotAPIClient) RevokeCeleryTask(taskID string, terminate bool) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/celery/tasks/%s/revoke", url.PathEscape(taskID))
+	return c.makeRequest("POST", endpoint, map[string]interface{}{"terminate": terminate})
+}
+
+// RetryCeleryTask retries a supported failed Celery task through the bot API.
+func (c *BotAPIClient) RetryCeleryTask(taskID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/celery/tasks/%s/retry", url.PathEscape(taskID))
+	return c.makeRequest("POST", endpoint, nil)
+}
+
+// ListCeleryWorkers returns Celery worker inspection data from the bot API.
+func (c *BotAPIClient) ListCeleryWorkers() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/celery/workers", nil)
+}
+
+// ListCeleryQueues returns Celery queue overview data from the bot API.
+func (c *BotAPIClient) ListCeleryQueues() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/celery/queues", nil)
+}
+
+// GetCeleryHealth returns Celery broker/backend/worker health from the bot API.
+func (c *BotAPIClient) GetCeleryHealth() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/celery/health", nil)
+}
+
 // CreateBacktest creates a new backtest via the bot API
 func (c *BotAPIClient) CreateBacktest(config map[string]interface{}) (map[string]interface{}, error) {
 	return c.makeRequest("POST", "/api/v1/backtests", config)

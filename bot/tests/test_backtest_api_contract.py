@@ -446,6 +446,92 @@ def test_run_backtest_compat_errors_when_strategy_lookup_fails(monkeypatch):
     assert stub_service.last_request is None
 
 
+def test_run_backtest_compat_uses_strategy_snapshot_when_lookup_fails(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+
+    def _raise_lookup(_strategy_id):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", _raise_lookup)
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=4,
+        name="snapshot fallback",
+        pairs=["BTC-USD", "ETH-USD"],
+        strategy_payload_snapshot={
+            "id": 4,
+            "name": "Backend Strategy",
+            "description": "Snapshot from backend DB",
+            "starting_balance": 2500,
+            "pair_selection_mode": "liquidity",
+            "zscore_threshold": 1.2,
+            "stats_window": 18,
+        },
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+    assert stub_service.last_request.strategy_id == 4
+    assert stub_service.last_request.strategy_payload_snapshot["id"] == 4
+    assert (
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "Backend Strategy"
+    )
+
+
+def test_create_backtest_uses_strategy_snapshot_when_lookup_returns_none(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", lambda _strategy_id: None)
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=9,
+        pairs=["BTC-USD", "ETH-USD"],
+        strategy_payload_snapshot={
+            "name": "Backend-only Strategy",
+            "description": "Persisted in backend DB",
+            "starting_balance": 1500,
+            "pair_selection_mode": "liquidity",
+            "zscore_threshold": 1.4,
+            "stats_window": 20,
+        },
+    )
+
+    response = asyncio.run(_call(server.create_backtest(request)))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+    assert stub_service.last_request.strategy_id == 9
+    assert stub_service.last_request.strategy_payload_snapshot["id"] == 9
+    assert (
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "Backend-only Strategy"
+    )
+
+
 def test_run_backtest_compat_errors_when_selected_pairs_missing(monkeypatch):
     server = _load_server_module()
     stub_service = _RunStubService()
@@ -570,7 +656,12 @@ def test_run_backtest_compat_preserves_explicit_payload_semantics(monkeypatch):
     assert executed_request.max_pairs == 7
     assert executed_request.pair_selection_mode == "cointegration"
     assert executed_request.pairs == ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
-    assert executed_request.selected_pairs == ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
+    assert executed_request.selected_pairs == [
+        "BTC-USD",
+        "ETH-USD",
+        "SOL-USD",
+        "AVAX-USD",
+    ]
 
     # Explicit request values should win over strategy defaults.
     assert executed_request.trading_parameters["zscore_threshold"] == 1.1

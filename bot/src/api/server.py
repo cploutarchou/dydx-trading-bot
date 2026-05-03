@@ -18,8 +18,11 @@ import httpx
 import uvicorn
 from fastapi import (
     BackgroundTasks,
+    Body,
     Depends,
     FastAPI,
+    HTTPException,
+    Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
@@ -114,6 +117,15 @@ from src.infrastructure.persistence.repository_backtest import BacktestRepositor
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.infrastructure.use_cases.service_backtest import BacktestService
+from src.infrastructure.workers.celery_monitor import (
+    celery_health,
+    get_celery_task,
+    list_celery_queues,
+    list_celery_tasks,
+    list_celery_workers,
+    retry_celery_task,
+    revoke_celery_task,
+)
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.shared.time_utils import utc_now_iso
@@ -649,8 +661,7 @@ async def _resolve_backtest_markets(
         raise ValueError("MARKET_RESOLUTION_FAILED: no dYdX perpetual markets returned")
     if invalid:
         raise ValueError(
-            "SELECTED_PAIRS_INVALID: unsupported selected pairs "
-            + ", ".join(invalid)
+            "SELECTED_PAIRS_INVALID: unsupported selected pairs " + ", ".join(invalid)
         )
 
     return normalized
@@ -794,6 +805,85 @@ def _manual_backtest_request(
         selected_pairs=pairs,
         strategy_payload_snapshot=dict(request.strategy_payload_snapshot or {}),
     )
+
+
+def _resolve_strategy_backtest_request(
+    request: BacktestRunRequestCompat,
+    pairs: List[str],
+    endpoint: str,
+) -> Union[BacktestConfigRequest, JSONResponse]:
+    fallback_snapshot = dict(request.strategy_payload_snapshot or {})
+    if request.strategy_id is None:
+        if not fallback_snapshot and not request.trading_parameters:
+            return api_response(
+                success=False,
+                message=(
+                    "STRATEGY_PAYLOAD_MISSING: one-off backtests require "
+                    "a strategy_payload_snapshot or trading_parameters"
+                ),
+                data={"error": "STRATEGY_PAYLOAD_MISSING"},
+                status_code=422,
+            )
+        return _manual_backtest_request(request, pairs)
+
+    strategy: Optional[Dict[str, Any]] = None
+    try:
+        strategy = InMemoryStrategyStore.get(request.strategy_id)
+    except Exception as lookup_error:
+        if fallback_snapshot:
+            fallback_snapshot.setdefault("id", request.strategy_id)
+            logger.warning(
+                "strategy_lookup_failed strategy_id={} endpoint={} error={} using_snapshot_fallback=true",
+                request.strategy_id,
+                endpoint,
+                lookup_error,
+            )
+            strategy = fallback_snapshot
+        else:
+            logger.warning(
+                "strategy_lookup_failed strategy_id={} endpoint={} error={}",
+                request.strategy_id,
+                endpoint,
+                lookup_error,
+            )
+            return api_response(
+                success=False,
+                message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
+                data={
+                    "error": "STRATEGY_NOT_FOUND",
+                    "strategy_id": request.strategy_id,
+                },
+                status_code=404,
+            )
+
+    if not strategy and fallback_snapshot:
+        fallback_snapshot.setdefault("id", request.strategy_id)
+        logger.warning(
+            "strategy_not_found strategy_id={} endpoint={} using_snapshot_fallback=true",
+            request.strategy_id,
+            endpoint,
+        )
+        strategy = fallback_snapshot
+
+    if not strategy:
+        logger.warning(
+            "strategy_not_found strategy_id={} endpoint={}",
+            request.strategy_id,
+            endpoint,
+        )
+        return api_response(
+            success=False,
+            message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
+            data={
+                "error": "STRATEGY_NOT_FOUND",
+                "strategy_id": request.strategy_id,
+            },
+            status_code=404,
+        )
+
+    strategy = dict(strategy)
+    strategy.setdefault("id", request.strategy_id)
+    return _strategy_to_backtest_request(strategy, request, pairs)
 
 
 async def _broadcast_backtest_progress(
@@ -2552,6 +2642,103 @@ async def runtime_db_config(current_user: User = Depends(get_admin_user)):
         )
 
 
+@app.get("/api/v1/celery/tasks")
+async def celery_tasks(
+    status: Optional[str] = Query(default=None),
+    task_name: Optional[str] = Query(default=None),
+    queue: Optional[str] = Query(default=None),
+    strategy_id: Optional[str] = Query(default=None),
+    backtest_run_id: Optional[str] = Query(default=None),
+    bot_id: Optional[str] = Query(default=None),
+    environment: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-only Celery task list with safe metadata redaction."""
+    _ = current_user
+    payload = list_celery_tasks(
+        {
+            "status": status,
+            "task_name": task_name,
+            "queue": queue,
+            "strategy_id": strategy_id,
+            "backtest_run_id": backtest_run_id,
+            "bot_id": bot_id,
+            "environment": environment,
+        },
+        limit=limit,
+    )
+    return api_response(True, payload, "Celery tasks fetched successfully")
+
+
+@app.get("/api/v1/celery/tasks/{task_id}")
+async def celery_task_detail(
+    task_id: str,
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-only Celery task detail including failure traceback when available."""
+    _ = current_user
+    task = get_celery_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Celery task not found")
+    return api_response(True, {"task": task}, "Celery task fetched successfully")
+
+
+@app.post("/api/v1/celery/tasks/{task_id}/revoke")
+async def celery_task_revoke(
+    task_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-only Celery revoke/cancel endpoint."""
+    _ = current_user
+    terminate = bool(payload.get("terminate", False))
+    return api_response(
+        True,
+        revoke_celery_task(task_id, terminate=terminate),
+        "Celery task revoke requested",
+    )
+
+
+@app.post("/api/v1/celery/tasks/{task_id}/retry")
+async def celery_task_retry(
+    task_id: str,
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-only retry for supported failed tasks."""
+    _ = current_user
+    try:
+        result = retry_celery_task(task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return api_response(True, result, "Celery task retry requested")
+
+
+@app.get("/api/v1/celery/workers")
+async def celery_workers(current_user: User = Depends(get_admin_user)):
+    """Admin-only Celery worker inspection."""
+    _ = current_user
+    return api_response(
+        True, list_celery_workers(), "Celery workers fetched successfully"
+    )
+
+
+@app.get("/api/v1/celery/queues")
+async def celery_queues(current_user: User = Depends(get_admin_user)):
+    """Admin-only Celery queue overview."""
+    _ = current_user
+    return api_response(
+        True, list_celery_queues(), "Celery queues fetched successfully"
+    )
+
+
+@app.get("/api/v1/celery/health")
+async def celery_monitor_health(current_user: User = Depends(get_admin_user)):
+    """Admin-only Celery broker/backend/worker health."""
+    _ = current_user
+    return api_response(True, celery_health(), "Celery health fetched successfully")
+
+
 @app.get("/api/v1/users/me")
 async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user),
@@ -3223,56 +3410,13 @@ async def create_backtest(
                 request.pairs or request.selected_pairs,
                 request.max_pairs,
             )
-            if request.strategy_id is not None:
-                try:
-                    strategy = InMemoryStrategyStore.get(request.strategy_id)
-                except Exception as lookup_error:
-                    logger.warning(
-                        "strategy_lookup_failed strategy_id={} endpoint=/api/v1/backtests error={}",
-                        request.strategy_id,
-                        lookup_error,
-                    )
-                    return api_response(
-                        success=False,
-                        message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
-                        data={
-                            "error": "STRATEGY_NOT_FOUND",
-                            "strategy_id": request.strategy_id,
-                        },
-                        status_code=404,
-                    )
-                if strategy:
-                    normalized_request = _strategy_to_backtest_request(
-                        strategy,
-                        request,
-                        resolved_pairs,
-                    )
-                else:
-                    logger.warning(
-                        "strategy_not_found strategy_id={} endpoint=/api/v1/backtests",
-                        request.strategy_id,
-                    )
-                    return api_response(
-                        success=False,
-                        message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
-                        data={
-                            "error": "STRATEGY_NOT_FOUND",
-                            "strategy_id": request.strategy_id,
-                        },
-                        status_code=404,
-                    )
-            else:
-                if not request.strategy_payload_snapshot and not request.trading_parameters:
-                    return api_response(
-                        success=False,
-                        message=(
-                            "STRATEGY_PAYLOAD_MISSING: one-off backtests require "
-                            "a strategy_payload_snapshot or trading_parameters"
-                        ),
-                        data={"error": "STRATEGY_PAYLOAD_MISSING"},
-                        status_code=422,
-                    )
-                normalized_request = _manual_backtest_request(request, resolved_pairs)
+            normalized_request = _resolve_strategy_backtest_request(
+                request,
+                resolved_pairs,
+                "/api/v1/backtests",
+            )
+            if isinstance(normalized_request, JSONResponse):
+                return normalized_request
         else:
             normalized_request = request
 
@@ -3326,62 +3470,20 @@ async def run_backtest_compat(
             request.pairs or request.selected_pairs,
             request.max_pairs,
         )
+        backtest_request = _resolve_strategy_backtest_request(
+            request,
+            resolved_pairs,
+            "/api/v1/backtests/run",
+        )
+        if isinstance(backtest_request, JSONResponse):
+            return backtest_request
 
         if request.strategy_id is not None:
-            try:
-                strategy = InMemoryStrategyStore.get(request.strategy_id)
-            except Exception as lookup_error:
-                logger.warning(
-                    "strategy_lookup_failed strategy_id={} endpoint=/api/v1/backtests/run error={}",
-                    request.strategy_id,
-                    lookup_error,
-                )
-                return api_response(
-                    success=False,
-                    message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
-                    data={
-                        "error": "STRATEGY_NOT_FOUND",
-                        "strategy_id": request.strategy_id,
-                    },
-                    status_code=404,
-                )
-            if strategy:
-                backtest_request = _strategy_to_backtest_request(
-                    strategy,
-                    request,
-                    resolved_pairs,
-                )
-                logger.info(
-                    "strategy_linked_to_backtest strategy_id={} selected_pairs={}",
-                    request.strategy_id,
-                    resolved_pairs,
-                )
-            else:
-                logger.warning(
-                    "strategy_not_found strategy_id={} endpoint=/api/v1/backtests/run",
-                    request.strategy_id,
-                )
-                return api_response(
-                    success=False,
-                    message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
-                    data={
-                        "error": "STRATEGY_NOT_FOUND",
-                        "strategy_id": request.strategy_id,
-                    },
-                    status_code=404,
-                )
-        else:
-            if not request.strategy_payload_snapshot and not request.trading_parameters:
-                return api_response(
-                    success=False,
-                    message=(
-                        "STRATEGY_PAYLOAD_MISSING: one-off backtests require "
-                        "a strategy_payload_snapshot or trading_parameters"
-                    ),
-                    data={"error": "STRATEGY_PAYLOAD_MISSING"},
-                    status_code=422,
-                )
-            backtest_request = _manual_backtest_request(request, resolved_pairs)
+            logger.info(
+                "strategy_linked_to_backtest strategy_id={} selected_pairs={}",
+                request.strategy_id,
+                resolved_pairs,
+            )
 
         with backtest_service_scope() as service:
             blocked = _check_backtest_admission(service)

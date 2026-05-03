@@ -57,6 +57,54 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 	}
 
 	if _, err := dbConn.Exec(`
+	CREATE TABLE backtest_strategies (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		description TEXT,
+		category TEXT,
+		is_public BOOLEAN NOT NULL DEFAULT 0,
+		is_default BOOLEAN NOT NULL DEFAULT 0,
+		runtime_strategy TEXT NOT NULL DEFAULT 'cointegration',
+		pair_selection_mode TEXT NOT NULL DEFAULT 'liquidity',
+		runtime_network TEXT NOT NULL DEFAULT 'testnet',
+		runtime_subaccount INTEGER NOT NULL DEFAULT 0,
+		selected_markets TEXT NOT NULL DEFAULT '[]',
+		zscore_threshold REAL NOT NULL DEFAULT 1.5,
+		stats_window INTEGER NOT NULL DEFAULT 21,
+		max_half_life REAL NOT NULL DEFAULT 24,
+		usd_per_trade REAL NOT NULL DEFAULT 10,
+		usd_min_collateral REAL NOT NULL DEFAULT 100,
+		close_at_zscore_cross BOOLEAN NOT NULL DEFAULT 1,
+		find_cointegrated_pairs BOOLEAN NOT NULL DEFAULT 1,
+		manage_exits BOOLEAN NOT NULL DEFAULT 1,
+		place_trades BOOLEAN NOT NULL DEFAULT 1,
+		abort_all_positions BOOLEAN NOT NULL DEFAULT 0,
+		max_positions INTEGER NOT NULL DEFAULT 5,
+		max_drawdown_pct REAL NOT NULL DEFAULT 15,
+		stop_loss_pct REAL NOT NULL DEFAULT 2,
+		take_profit_pct REAL NOT NULL DEFAULT 5,
+		trailing_stop_pct REAL NOT NULL DEFAULT 1,
+		rebalance_interval_hours INTEGER NOT NULL DEFAULT 24,
+		position_timeout_hours INTEGER NOT NULL DEFAULT 72,
+		transaction_fee REAL NOT NULL DEFAULT 0.0005,
+		slippage REAL NOT NULL DEFAULT 0.001,
+		starting_balance REAL NOT NULL DEFAULT 1000,
+		candle_resolution TEXT NOT NULL DEFAULT '1HOUR',
+		max_history_days INTEGER NOT NULL DEFAULT 90,
+		benchmark_symbol TEXT NOT NULL DEFAULT 'BTC-USD',
+		risk_free_rate REAL NOT NULL DEFAULT 0.02,
+		initial_amount REAL NOT NULL DEFAULT 1000,
+		usage_count INTEGER NOT NULL DEFAULT 0,
+		last_used_at DATETIME,
+		deleted_at DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);`); err != nil {
+		t.Fatalf("create backtest_strategies table: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
 	CREATE TABLE backtest_runs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		run_id TEXT NOT NULL UNIQUE,
@@ -586,6 +634,100 @@ func TestDelegatedBacktestRunRejectsMissingStrategyID(t *testing.T) {
 	}
 	if got["error"] != "STRATEGY_NOT_FOUND" {
 		t.Fatalf("unexpected response body: %v", got)
+	}
+}
+
+func TestDelegatedBacktestRun_OverwritesClientSnapshotWithBackendStrategy(t *testing.T) {
+	requestBodyCh := make(chan map[string]interface{}, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		requestBodyCh <- payload
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"strategy-snapshot-run","status":"queued"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_strategies (
+			id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+			runtime_network, runtime_subaccount, selected_markets, zscore_threshold, stats_window, max_half_life,
+			usd_per_trade, usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs, manage_exits,
+			place_trades, abort_all_positions, max_positions, max_drawdown_pct, stop_loss_pct, take_profit_pct,
+			trailing_stop_pct, rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
+			starting_balance, candle_resolution, max_history_days, benchmark_symbol, risk_free_rate, initial_amount,
+			usage_count, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		101, 1, "Desk Strategy", "authoritative snapshot", "pairs", false, false, "cointegration", "input",
+		"testnet", 0, `["BTC-USD","ETH-USD","SOL-USD"]`, 1.35, 28, 18.0,
+		22.0, 400.0, true, true, true,
+		true, false, 6, 11.0, 1.8, 4.5,
+		0.8, 12, 48, 0.0007, 0.002,
+		2500.0, "4HOURS", 120, "ETH-USD", 0.05, 2500.0,
+		0, now, now,
+	); err != nil {
+		t.Fatalf("insert strategy row: %v", err)
+	}
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy_id": 101,
+		"pairs":       []string{"BTC-USD", "ETH-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{
+			"id":               101,
+			"name":             "stale client snapshot",
+			"selected_markets": []string{"DOGE-USD", "XRP-USD"},
+			"zscore_threshold": 9.9,
+		},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var got map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&got)
+		t.Fatalf("expected 200, got %d: %v", resp.StatusCode, got)
+	}
+
+	select {
+	case payload := <-requestBodyCh:
+		strategySnapshot, ok := payload["strategy_payload_snapshot"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected strategy_payload_snapshot map, got %T (%v)", payload["strategy_payload_snapshot"], payload["strategy_payload_snapshot"])
+		}
+		if strategySnapshot["name"] != "Desk Strategy" {
+			t.Fatalf("expected authoritative name from backend DB, got %v", strategySnapshot["name"])
+		}
+		if strategySnapshot["benchmark_symbol"] != "ETH-USD" {
+			t.Fatalf("expected authoritative benchmark_symbol, got %v", strategySnapshot["benchmark_symbol"])
+		}
+		if strategySnapshot["zscore_threshold"] != float64(1.35) {
+			t.Fatalf("expected authoritative zscore_threshold=1.35, got %v", strategySnapshot["zscore_threshold"])
+		}
+		selectedMarkets, ok := strategySnapshot["selected_markets"].([]interface{})
+		if !ok || len(selectedMarkets) != 3 || selectedMarkets[0] != "BTC-USD" {
+			t.Fatalf("expected authoritative selected_markets from backend DB, got %T (%v)", strategySnapshot["selected_markets"], strategySnapshot["selected_markets"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request payload")
 	}
 }
 

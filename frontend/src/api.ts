@@ -646,6 +646,53 @@ export interface InterruptedBacktestsResponse extends Record<string, unknown> {
   reconciled_count?: number;
 }
 
+export interface CeleryTask extends Record<string, unknown> {
+  task_id: string;
+  task_name?: string | null;
+  queue?: string | null;
+  status: string;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  runtime_seconds?: number | null;
+  progress_percent?: number | null;
+  current_step?: string | null;
+  current_pair?: string | null;
+  strategy_id?: number | string | null;
+  backtest_run_id?: string | null;
+  bot_id?: string | null;
+  environment?: string | null;
+  selected_pairs?: string[];
+  error_message?: string | null;
+  traceback?: string | null;
+  worker_hostname?: string | null;
+  retry_count?: number | null;
+}
+
+export interface CeleryTasksResponse extends Record<string, unknown> {
+  tasks: CeleryTask[];
+  total: number;
+}
+
+export interface CeleryWorkersResponse extends Record<string, unknown> {
+  workers: Array<Record<string, unknown>>;
+  total: number;
+}
+
+export interface CeleryQueuesResponse extends Record<string, unknown> {
+  queues: Array<{ name: string; length?: number | null }>;
+  total: number;
+}
+
+export interface CeleryHealthResponse extends Record<string, unknown> {
+  status: string;
+  broker?: Record<string, unknown>;
+  result_backend?: Record<string, unknown>;
+  workers?: Record<string, unknown>;
+  checked_at?: string;
+  errors?: string[];
+}
+
 interface BacktestRequest extends Record<string, unknown> {
   start_date: string;
   end_date: string;
@@ -1998,6 +2045,76 @@ class ApiClient {
     const response = await this.client.get<ApiResponse<BotRuntimeDBConfigResponse>>(
       '/api/v1/runtime/db-config'
     );
+    return response.data;
+  }
+
+  async listCeleryTasks(params?: {
+    status?: string;
+    task_name?: string;
+    queue?: string;
+    strategy_id?: string;
+    backtest_run_id?: string;
+    bot_id?: string;
+    environment?: string;
+  }): Promise<ApiResponse<CeleryTasksResponse>> {
+    this.ensureTokenLoaded();
+    const search = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value) search.set(key, value);
+    });
+    const query = search.toString();
+    const response = await this.client.get<ApiResponse<CeleryTasksResponse>>(
+      `/api/v1/celery/tasks${query ? `?${query}` : ''}`
+    );
+    return response.data;
+  }
+
+  async getCeleryTask(taskId: string): Promise<ApiResponse<{ task: CeleryTask }>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<{ task: CeleryTask }>>(
+      `/api/v1/celery/tasks/${encodeURIComponent(taskId)}`
+    );
+    return response.data;
+  }
+
+  async revokeCeleryTask(
+    taskId: string,
+    terminate = false
+  ): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/celery/tasks/${encodeURIComponent(taskId)}/revoke`,
+      { terminate }
+    );
+    return response.data;
+  }
+
+  async retryCeleryTask(taskId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/celery/tasks/${encodeURIComponent(taskId)}/retry`
+    );
+    return response.data;
+  }
+
+  async getCeleryWorkers(): Promise<ApiResponse<CeleryWorkersResponse>> {
+    this.ensureTokenLoaded();
+    const response =
+      await this.client.get<ApiResponse<CeleryWorkersResponse>>('/api/v1/celery/workers');
+    return response.data;
+  }
+
+  async getCeleryQueues(): Promise<ApiResponse<CeleryQueuesResponse>> {
+    this.ensureTokenLoaded();
+    const response =
+      await this.client.get<ApiResponse<CeleryQueuesResponse>>('/api/v1/celery/queues');
+    return response.data;
+  }
+
+  async getCeleryHealth(): Promise<ApiResponse<CeleryHealthResponse>> {
+    this.ensureTokenLoaded();
+    const response =
+      await this.client.get<ApiResponse<CeleryHealthResponse>>('/api/v1/celery/health');
     return response.data;
   }
 

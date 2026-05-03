@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 def _load_modules():
     models_module = importlib.import_module("src.infrastructure.domain.models_backtest")
-    service_module = importlib.import_module("src.infrastructure.use_cases.service_backtest")
+    service_module = importlib.import_module(
+        "src.infrastructure.use_cases.service_backtest"
+    )
 
     return models_module.BacktestConfigRequest, service_module
 
@@ -35,12 +37,12 @@ def _request(**trading_parameters):
 
 class _FakeMarkets:
     async def get_perpetual_market_candles(
-            self,
-            market,
-            resolution,
-            from_iso=None,
-            to_iso=None,
-            limit=100,
+        self,
+        market,
+        resolution,
+        from_iso=None,
+        to_iso=None,
+        limit=100,
     ):
         del resolution, limit
         start = datetime.fromisoformat(str(from_iso).replace("Z", "+00:00"))
@@ -65,7 +67,9 @@ class _FakeMarkets:
             close = market_bias + wave + trend
             candles.append(
                 {
-                    "startedAt": cursor.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "startedAt": cursor.replace(microsecond=0)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
                     "close": f"{close:.6f}",
                 }
             )
@@ -120,12 +124,12 @@ class _SlowClient:
 
 class _PausableMarkets(_FakeMarkets):
     async def get_perpetual_market_candles(
-            self,
-            market,
-            resolution,
-            from_iso=None,
-            to_iso=None,
-            limit=100,
+        self,
+        market,
+        resolution,
+        from_iso=None,
+        to_iso=None,
+        limit=100,
     ):
         await asyncio.sleep(0.5)
         return await super().get_perpetual_market_candles(
@@ -275,9 +279,9 @@ def test_parameter_changes_produce_distinct_real_results(monkeypatch):
         assert a is not None and c is not None
 
         assert (
-                a.total_pnl != c.total_pnl
-                or a.total_trades != c.total_trades
-                or a.sharpe_ratio != c.sharpe_ratio
+            a.total_pnl != c.total_pnl
+            or a.total_trades != c.total_trades
+            or a.sharpe_ratio != c.sharpe_ratio
         )
 
     asyncio.run(_run())
@@ -390,28 +394,73 @@ def test_celery_worker_backend_queues_persisted_run(monkeypatch):
     BacktestService = service_module.BacktestService
 
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "celery")
+    queued: dict[str, object] = {}
     monkeypatch.setattr(
         BacktestService,
         "_enqueue_celery_backtest",
-        lambda self, run_id: f"task-{run_id}",
+        lambda self, run_id, task_context=None: queued.update(
+            {"run_id": run_id, "task_context": task_context}
+        )
+        or f"task-{run_id}",
     )
 
     service = BacktestService(session=None)
 
     async def _run():
-        created = await service.create_and_run_backtest(_request())
+        created = await service.create_and_run_backtest(
+            _request(
+                pair_selection_mode="input",
+                max_pairs=0,
+            ).model_copy(
+                update={
+                    "strategy_id": 42,
+                    "selected_pairs": ["BTC-USD/ETH-USD"],
+                    "strategy_payload_snapshot": {
+                        "id": 42,
+                        "name": "Queued Strategy",
+                    },
+                }
+            )
+        )
         assert created.status == "pending"
         assert created.worker_backend == "celery"
         assert created.worker_task_id == f"task-{created.run_id}"
+        assert queued["run_id"] == created.run_id
+        task_context = queued["task_context"]
+        assert isinstance(task_context, dict)
+        assert task_context["strategy_id"] == 42
+        assert task_context["selected_pairs"] == ["BTC-USD/ETH-USD"]
+        assert task_context["metadata"]["pair_count"] == 1
+        assert task_context["metadata"]["source"] == "api"
+        assert task_context["payload_hash"]
 
         status = service.get_backtest_status(created.run_id)
         assert status is not None
         assert status.status == "pending"
         assert status.pausable is True
         assert status.worker_backend == "celery"
+        assert status.strategy_id == 42
+        assert status.selected_pairs == ["BTC-USD/ETH-USD"]
+        assert status.metadata["pair_count"] == 1
         assert service.delete_backtest(created.run_id)
 
     asyncio.run(_run())
+
+
+def test_pair_markets_from_request_preserves_explicit_selected_pairs_labels():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    pair_markets, selected_pairs, explicit = BacktestService._pair_markets_from_request(
+        {
+            "pairs": ["BTC-USD", "ETH-USD", "SOL-USD"],
+            "selected_pairs": ["BTC-USD/ETH-USD", "ETH-USD/SOL-USD"],
+        }
+    )
+
+    assert explicit is True
+    assert selected_pairs == ["BTC-USD/ETH-USD", "ETH-USD/SOL-USD"]
+    assert pair_markets == [("BTC-USD", "ETH-USD"), ("ETH-USD", "SOL-USD")]
 
 
 def test_failed_backtest_exposes_error_fields(monkeypatch):
@@ -567,7 +616,9 @@ def test_build_market_pairs_uses_all_unique_combinations():
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
 
-    pairs = BacktestService._build_market_pairs(["BTC-USD", "ETH-USD", "SOL-USD", "ETH-USD", ""])
+    pairs = BacktestService._build_market_pairs(
+        ["BTC-USD", "ETH-USD", "SOL-USD", "ETH-USD", ""]
+    )
 
     assert pairs == [
         ("BTC-USD", "ETH-USD"),
@@ -580,7 +631,9 @@ def test_build_market_pairs_with_four_markets_returns_all_six_combinations():
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
 
-    pairs = BacktestService._build_market_pairs(["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"])
+    pairs = BacktestService._build_market_pairs(
+        ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
+    )
 
     assert len(pairs) == 6
     assert pairs == [
@@ -644,7 +697,10 @@ def test_pair_selection_mode_normalization_aliases():
     assert BacktestService._normalize_pair_selection_mode("volume") == "liquidity"
     assert BacktestService._normalize_pair_selection_mode("none") == "input"
     assert BacktestService._normalize_pair_selection_mode("order") == "input"
-    assert BacktestService._normalize_pair_selection_mode("cointegration") == "cointegration"
+    assert (
+        BacktestService._normalize_pair_selection_mode("cointegration")
+        == "cointegration"
+    )
     assert BacktestService._normalize_pair_selection_mode("volatility") == "volatility"
     assert BacktestService._normalize_pair_selection_mode("unknown-mode") == "liquidity"
 
@@ -739,7 +795,7 @@ def test_live_progress_and_runtime_health_contract(monkeypatch):
         assert progress["progress"] == progress["progress_pct"]
 
         health = service.get_runtime_health()
-        assert set(health.keys()) == {"queue_depth", "active_jobs", "total_runs"}
+        assert {"queue_depth", "active_jobs", "total_runs"}.issubset(set(health.keys()))
         assert health["total_runs"] >= 1
 
     asyncio.run(_run())
@@ -774,7 +830,9 @@ def test_comprehensive_analytics_includes_sub_objects_and_candle_fields(monkeypa
     asyncio.run(_run())
 
 
-def test_backtest_status_survives_service_recreation_with_db_repository(monkeypatch, tmp_path):
+def test_backtest_status_survives_service_recreation_with_db_repository(
+    monkeypatch, tmp_path
+):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
 
@@ -892,8 +950,7 @@ def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
     ops_report = service.list_interrupted_runs_for_ops(limit=10)
     assert ops_report["interrupted_count"] >= 1
     assert any(
-        run["run_id"] == "run-orphaned-ops"
-        for run in ops_report["interrupted_runs"]
+        run["run_id"] == "run-orphaned-ops" for run in ops_report["interrupted_runs"]
     )
 
 

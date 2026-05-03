@@ -246,6 +246,36 @@ func stringSliceField(payload map[string]interface{}, keys ...string) []string {
 	return []string{}
 }
 
+func pairLabelsToMarkets(pairLabels []string) []string {
+	markets := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, label := range pairLabels {
+		parts := strings.Split(strings.ToUpper(strings.TrimSpace(label)), "/")
+		for _, part := range parts {
+			market := strings.TrimSpace(part)
+			if market == "" {
+				continue
+			}
+			if _, exists := seen[market]; exists {
+				continue
+			}
+			seen[market] = struct{}{}
+			markets = append(markets, market)
+		}
+	}
+	return markets
+}
+
+func buildPairLabelsFromMarkets(markets []string) []string {
+	labels := make([]string, 0)
+	for i := 0; i < len(markets)-1; i++ {
+		for j := i + 1; j < len(markets); j++ {
+			labels = append(labels, fmt.Sprintf("%s/%s", markets[i], markets[j]))
+		}
+	}
+	return labels
+}
+
 func getNumberField(payload map[string]interface{}, keys ...string) (float64, bool) {
 	for _, key := range keys {
 		v, ok := payload[key]
@@ -1113,14 +1143,18 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			return
 		}
 		config = normalizeBacktestRunPayload(config)
-		var selectedPairs []string
+		var selectedMarkets []string
 		snapshotSource := "none"
 		snapshotName := ""
 		strategyID := 0
 
 		if c.FullPath() == "/api/v1/backtests/run" {
-			selectedPairs = stringSliceField(config, "pairs", "selected_pairs")
-			if len(selectedPairs) < 2 {
+			selectedMarkets = stringSliceField(config, "pairs")
+			selectedPairLabels := stringSliceField(config, "selected_pairs")
+			if len(selectedMarkets) == 0 && len(selectedPairLabels) > 0 {
+				selectedMarkets = pairLabelsToMarkets(selectedPairLabels)
+			}
+			if len(selectedMarkets) < 2 {
 				c.JSON(http.StatusUnprocessableEntity, gin.H{
 					"success":   false,
 					"message":   "SELECTED_PAIRS_MISSING: at least two selected pairs are required",
@@ -1131,8 +1165,35 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				})
 				return
 			}
-			config["pairs"] = selectedPairs
-			config["selected_pairs"] = selectedPairs
+			if len(selectedPairLabels) == 0 {
+				selectedPairLabels = buildPairLabelsFromMarkets(selectedMarkets)
+			}
+			if len(selectedPairLabels) == 0 {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{
+					"success":   false,
+					"message":   "SELECTED_PAIRS_MISSING: at least one explicit selected pair is required",
+					"error":     "SELECTED_PAIRS_MISSING",
+					"data":      gin.H{"error": "SELECTED_PAIRS_MISSING"},
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			config["pairs"] = selectedMarkets
+			config["selected_pairs"] = selectedPairLabels
+			if _, exists := config["source"]; !exists {
+				config["source"] = "ui"
+			}
+			if userID, ok := c.Get("user_id"); ok {
+				config["requested_by_user_id"] = userID
+			}
+			if _, exists := config["environment"]; !exists {
+				if env := strings.TrimSpace(os.Getenv("APP_ENV")); env != "" {
+					config["environment"] = env
+				} else if env := strings.TrimSpace(os.Getenv("ENVIRONMENT")); env != "" {
+					config["environment"] = env
+				}
+			}
 
 			if strategyIDValue, ok := getNumberField(config, "strategy_id"); ok {
 				strategyID = int(strategyIDValue)
@@ -1227,7 +1288,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				strategyID,
 				snapshotSource,
 				snapshotName,
-				len(selectedPairs),
+				len(selectedPairLabels),
 				len(snapshotMarkets),
 				asMap(config["trading_parameters"]) != nil,
 			)

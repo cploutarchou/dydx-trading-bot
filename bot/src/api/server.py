@@ -290,6 +290,51 @@ class BacktestRunRequestCompat(BaseModel):
     pairs: Optional[List[str]] = None
     selected_pairs: Optional[List[str]] = None
     strategy_payload_snapshot: Optional[Dict[str, Any]] = None
+    bot_id: Optional[str] = None
+    source: Optional[str] = None
+    environment: Optional[str] = None
+    requested_by_user_id: Optional[int] = None
+    source_strategy_version: Optional[Any] = None
+
+
+def _normalize_string_list(values: Optional[List[str]]) -> List[str]:
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        item = str(value or "").strip().upper()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        normalized.append(item)
+    return normalized
+
+
+def _markets_from_selected_pair_labels(
+    selected_pairs: Optional[List[str]],
+) -> List[str]:
+    markets: List[str] = []
+    seen: set[str] = set()
+    for pair_label in _normalize_string_list(selected_pairs):
+        parts = [
+            segment.strip().upper()
+            for segment in pair_label.split("/")
+            if segment.strip()
+        ]
+        candidates = parts if len(parts) >= 2 else [pair_label]
+        for market in candidates:
+            if market in seen:
+                continue
+            seen.add(market)
+            markets.append(market)
+    return markets
+
+
+def _build_selected_pair_labels(markets: List[str]) -> List[str]:
+    labels: List[str] = []
+    for idx, left in enumerate(markets):
+        for right in markets[idx + 1 :]:
+            labels.append(f"{left}/{right}")
+    return labels
 
 
 class BacktestCreateStrategyRequest(BaseModel):
@@ -608,22 +653,18 @@ def _backtest_capacity_snapshot(runtime_health: Dict[str, Any]) -> Dict[str, Any
 
 
 async def _resolve_backtest_markets(
-    explicit_pairs: Optional[List[str]],
+    explicit_markets: Optional[List[str]],
+    selected_pairs: Optional[List[str]],
     max_pairs: Any,
 ) -> List[str]:
     """Resolve the exact user-selected market universe for an execution request."""
     cap = _normalize_requested_pair_cap(max_pairs)
 
-    normalized: List[str] = []
-    seen: set[str] = set()
-    for market in explicit_pairs or []:
-        m = str(market).strip().upper()
-        if not m or m in seen:
-            continue
-        seen.add(m)
-        normalized.append(m)
+    normalized = _normalize_string_list(explicit_markets)
+    if not normalized:
+        normalized = _markets_from_selected_pair_labels(selected_pairs)
 
-    if cap is not None:
+    if cap is not None and explicit_markets:
         normalized = normalized[:cap]
 
     if len(normalized) < 2:
@@ -671,6 +712,7 @@ def _strategy_to_backtest_request(
     strategy: Dict[str, Any],
     request: BacktestRunRequestCompat,
     pairs: List[str],
+    selected_pair_labels: List[str],
 ) -> BacktestConfigRequest:
     strategy_defaults = {
         "zscore_threshold": strategy.get("zscore_threshold", 1.5),
@@ -750,8 +792,13 @@ def _strategy_to_backtest_request(
         max_pairs=int(request.max_pairs),
         trading_parameters=trading_parameters,
         pairs=pairs,
-        selected_pairs=pairs,
+        selected_pairs=selected_pair_labels,
         strategy_payload_snapshot=dict(strategy),
+        bot_id=request.bot_id,
+        source=request.source,
+        environment=request.environment,
+        requested_by_user_id=request.requested_by_user_id,
+        source_strategy_version=request.source_strategy_version,
         timeout_seconds=request.timeout_seconds,
     )
 
@@ -759,6 +806,7 @@ def _strategy_to_backtest_request(
 def _manual_backtest_request(
     request: BacktestRunRequestCompat,
     pairs: List[str],
+    selected_pair_labels: List[str],
 ) -> BacktestConfigRequest:
     request_trading_parameters = dict(request.trading_parameters or {})
     selected_mode = str(
@@ -802,14 +850,20 @@ def _manual_backtest_request(
         max_pairs=int(request.max_pairs),
         trading_parameters=trading_parameters,
         pairs=pairs,
-        selected_pairs=pairs,
+        selected_pairs=selected_pair_labels,
         strategy_payload_snapshot=dict(request.strategy_payload_snapshot or {}),
+        bot_id=request.bot_id,
+        source=request.source,
+        environment=request.environment,
+        requested_by_user_id=request.requested_by_user_id,
+        source_strategy_version=request.source_strategy_version,
     )
 
 
 def _resolve_strategy_backtest_request(
     request: BacktestRunRequestCompat,
     pairs: List[str],
+    selected_pair_labels: List[str],
     endpoint: str,
 ) -> Union[BacktestConfigRequest, JSONResponse]:
     fallback_snapshot = dict(request.strategy_payload_snapshot or {})
@@ -824,7 +878,7 @@ def _resolve_strategy_backtest_request(
                 data={"error": "STRATEGY_PAYLOAD_MISSING"},
                 status_code=422,
             )
-        return _manual_backtest_request(request, pairs)
+        return _manual_backtest_request(request, pairs, selected_pair_labels)
 
     strategy: Optional[Dict[str, Any]] = None
     try:
@@ -883,7 +937,12 @@ def _resolve_strategy_backtest_request(
 
     strategy = dict(strategy)
     strategy.setdefault("id", request.strategy_id)
-    return _strategy_to_backtest_request(strategy, request, pairs)
+    return _strategy_to_backtest_request(
+        strategy,
+        request,
+        pairs,
+        selected_pair_labels,
+    )
 
 
 async def _broadcast_backtest_progress(
@@ -3407,12 +3466,17 @@ async def create_backtest(
     try:
         if isinstance(request, BacktestRunRequestCompat):
             resolved_pairs = await _resolve_backtest_markets(
-                request.pairs or request.selected_pairs,
+                request.pairs,
+                request.selected_pairs,
                 request.max_pairs,
             )
+            selected_pair_labels = _normalize_string_list(request.selected_pairs)
+            if not selected_pair_labels:
+                selected_pair_labels = _build_selected_pair_labels(resolved_pairs)
             normalized_request = _resolve_strategy_backtest_request(
                 request,
                 resolved_pairs,
+                selected_pair_labels,
                 "/api/v1/backtests",
             )
             if isinstance(normalized_request, JSONResponse):
@@ -3467,12 +3531,17 @@ async def run_backtest_compat(
     """Frontend-compatible backtest execution route."""
     try:
         resolved_pairs = await _resolve_backtest_markets(
-            request.pairs or request.selected_pairs,
+            request.pairs,
+            request.selected_pairs,
             request.max_pairs,
         )
+        selected_pair_labels = _normalize_string_list(request.selected_pairs)
+        if not selected_pair_labels:
+            selected_pair_labels = _build_selected_pair_labels(resolved_pairs)
         backtest_request = _resolve_strategy_backtest_request(
             request,
             resolved_pairs,
+            selected_pair_labels,
             "/api/v1/backtests/run",
         )
         if isinstance(backtest_request, JSONResponse):
@@ -3482,7 +3551,7 @@ async def run_backtest_compat(
             logger.info(
                 "strategy_linked_to_backtest strategy_id={} selected_pairs={}",
                 request.strategy_id,
-                resolved_pairs,
+                selected_pair_labels,
             )
 
         with backtest_service_scope() as service:

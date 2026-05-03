@@ -1,4 +1,5 @@
 from src.infrastructure.workers.celery_monitor import (
+    _task_from_backtest,
     build_progress_meta,
     celery_state_from_backtest,
     redact_payload,
@@ -69,3 +70,47 @@ def test_celery_state_from_backtest_maps_app_statuses():
     assert celery_state_from_backtest("cancelled") == "REVOKED"
     assert celery_state_from_backtest("running") == "STARTED"
     assert celery_state_from_backtest("queued") == "PENDING"
+
+
+def test_task_from_backtest_uses_persisted_request_context_when_summary_fields_are_missing():
+    task = _task_from_backtest(
+        {
+            "run_id": "run-ctx-1",
+            "worker_task_id": "run-ctx-1",
+            "status": "running",
+            "progress_pct": 37.5,
+            "current_task": "processing pair",
+            "current_pair": "BTC-USD/ETH-USD",
+            "request": {
+                "strategy_id": 11,
+                "pairs": ["BTC-USD", "ETH-USD", "SOL-USD"],
+                "selected_pairs": ["BTC-USD/ETH-USD", "ETH-USD/SOL-USD"],
+                "_task_context": {
+                    "strategy_id": 11,
+                    "selected_pairs": ["BTC-USD/ETH-USD", "ETH-USD/SOL-USD"],
+                    "bot_id": "bot-7",
+                    "environment": "development",
+                    "source": "ui",
+                    "strategy_name": "Desk Strategy",
+                    "payload_hash": "abc123",
+                    "metadata": {
+                        "strategy_name": "Desk Strategy",
+                        "pair_count": 2,
+                        "payload_hash": "abc123",
+                        "source": "ui",
+                    },
+                    "worker_hostname": "worker-a",
+                    "retry_count": 1,
+                },
+            },
+        }
+    )
+
+    assert task["strategy_id"] == 11
+    assert task["selected_pairs"] == ["BTC-USD/ETH-USD", "ETH-USD/SOL-USD"]
+    assert task["bot_id"] == "bot-7"
+    assert task["environment"] == "development"
+    assert task["worker_hostname"] == "worker-a"
+    assert task["retry_count"] == 1
+    assert task["metadata"]["strategy_name"] == "Desk Strategy"
+    assert task["metadata"]["payload_hash"] == "abc123"

@@ -64,6 +64,9 @@ For each new task, review:
 - `.github/prompts/defi-incident-hotfix-go-no-go.prompt.md`  
   Incident-mode emergency go/no-go gate.
 
+- `.github/prompts/codex-dydx-strategy-suggestions.prompt.md`
+  Codex command for dYdX strategy-aware AI parameter suggestion tuning.
+
 ## Workflow automation
 
 - `.github/workflows/ci.yml`  

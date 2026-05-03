@@ -31,6 +31,8 @@ interface PendingApplyPreview {
   patch: Partial<Strategy>;
 }
 
+const suggestionCountOptions = [3, 5, 6, 8] as const;
+
 export function AIStrategyAdvisor({
   strategy,
   lastError = '',
@@ -41,6 +43,7 @@ export function AIStrategyAdvisor({
   const [provider, setProvider] = useState<AIMarketProvider>(defaultProvider);
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState<string | null>(null);
+  const [maxSuggestions, setMaxSuggestions] = useState<number>(6);
   const [usedAI, setUsedAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -279,16 +282,30 @@ export function AIStrategyAdvisor({
 
     // Build a compact current-params map from known Strategy fields
     const currentParams: Record<string, unknown> = {
+      category: strategy.category,
+      runtime_strategy: strategy.runtime_strategy,
+      runtime_network: strategy.runtime_network,
+      runtime_subaccount: strategy.runtime_subaccount,
+      pair_selection_mode: strategy.pair_selection_mode,
+      selected_markets: strategy.selected_markets,
       zscore_threshold: strategy.zscore_threshold,
-      usd_per_trade: strategy.usd_per_trade,
+      stats_window: strategy.stats_window,
       max_half_life: strategy.max_half_life,
-      min_half_life: strategy.min_half_life,
+      usd_per_trade: strategy.usd_per_trade,
+      usd_min_collateral: strategy.usd_min_collateral,
+      max_positions: strategy.max_positions,
+      max_drawdown_pct: strategy.max_drawdown_pct,
       stop_loss_pct: strategy.stop_loss_pct,
       take_profit_pct: strategy.take_profit_pct,
-      leverage: strategy.leverage,
+      trailing_stop_pct: strategy.trailing_stop_pct,
+      rebalance_interval_hours: strategy.rebalance_interval_hours,
+      position_timeout_hours: strategy.position_timeout_hours,
+      transaction_fee: strategy.transaction_fee,
+      slippage: strategy.slippage,
+      max_history_days: strategy.max_history_days,
+      risk_free_rate: strategy.risk_free_rate,
+      resolution: strategy.resolution,
       candle_resolution: strategy.candle_resolution,
-      market_1: strategy.market_1,
-      market_2: strategy.market_2,
     };
     // Remove undefined
     Object.keys(currentParams).forEach(
@@ -301,6 +318,7 @@ export function AIStrategyAdvisor({
       current_params: currentParams,
       last_error: lastError,
       recent_backtests: hydratedRecentBacktests,
+      max_suggestions: maxSuggestions,
     };
 
     try {
@@ -330,6 +348,20 @@ export function AIStrategyAdvisor({
         </div>
 
         <div className="flex items-center gap-2.5">
+          <select
+            value={maxSuggestions}
+            onChange={(e) => setMaxSuggestions(Number(e.target.value))}
+            disabled={loading}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
+            title="How many AI suggestions to request"
+          >
+            {suggestionCountOptions.map((count) => (
+              <option key={count} value={count}>
+                {count} suggestions
+              </option>
+            ))}
+          </select>
+
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
@@ -372,9 +404,9 @@ export function AIStrategyAdvisor({
       {/* Idle hint */}
       {!content && !loading && !error && (
         <p className="mt-3 text-xs text-slate-500">
-          Get 3 specific, numbered parameter adjustments for{' '}
+          Get up to {maxSuggestions} specific, numbered parameter adjustments for{' '}
           <span className="text-slate-300">{strategy.name}</span> based on its current config
-          {recentBacktests.length > 0 ? ` and ${recentBacktests.length} recent backtest(s)` : ''}.
+          {recentBacktests.length > 0 ? ` and ${recentBacktests.length} recent backtest(s)` : ''}. You can apply all at once or one-by-one.
         </p>
       )}
 
@@ -409,6 +441,9 @@ export function AIStrategyAdvisor({
                   {pendingSuggestions.length > 0
                     ? `${pendingSuggestions.length} suggestion${pendingSuggestions.length === 1 ? '' : 's'} pending`
                     : `All ${parsedSuggestions.length} suggestion${parsedSuggestions.length === 1 ? '' : 's'} applied ✓`}
+                </p>
+                <p className="text-[11px] text-emerald-300/80">
+                  Apply all or use individual Apply buttons below.
                 </p>
                 {pendingSuggestions.length > 0 && (
                   <button

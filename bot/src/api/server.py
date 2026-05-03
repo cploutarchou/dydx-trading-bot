@@ -276,6 +276,8 @@ class BacktestRunRequestCompat(BaseModel):
     pair_selection_mode: Optional[str] = None
     trading_parameters: Optional[Dict[str, Any]] = None
     pairs: Optional[List[str]] = None
+    selected_pairs: Optional[List[str]] = None
+    strategy_payload_snapshot: Optional[Dict[str, Any]] = None
 
 
 class BacktestCreateStrategyRequest(BaseModel):
@@ -597,32 +599,27 @@ async def _resolve_backtest_markets(
     explicit_pairs: Optional[List[str]],
     max_pairs: Any,
 ) -> List[str]:
-    """Resolve market universe for a backtest request.
-
-    Priority:
-      1) Explicit user-provided market list (normalized and de-duplicated)
-      2) dYdX available perpetual markets
-      3) Local safe fallback list
-    """
+    """Resolve the exact user-selected market universe for an execution request."""
     cap = _normalize_requested_pair_cap(max_pairs)
 
-    if explicit_pairs:
-        normalized: List[str] = []
-        seen: set[str] = set()
-        for market in explicit_pairs:
-            m = str(market).strip()
-            if not m or m in seen:
-                continue
-            seen.add(m)
-            normalized.append(m)
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for market in explicit_pairs or []:
+        m = str(market).strip().upper()
+        if not m or m in seen:
+            continue
+        seen.add(m)
+        normalized.append(m)
 
-        if cap is not None:
-            normalized = normalized[:cap]
+    if cap is not None:
+        normalized = normalized[:cap]
 
-        if len(normalized) >= 2:
-            return normalized
+    if len(normalized) < 2:
+        raise ValueError(
+            "SELECTED_PAIRS_MISSING: at least two selected pairs are required"
+        )
 
-    markets: List[str] = []
+    available: set[str] = set()
     client = None
     try:
         client = await asyncio.wait_for(
@@ -635,10 +632,11 @@ async def _resolve_backtest_markets(
         )
         raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
         if isinstance(raw_map, dict):
-            # Preserve deterministic ordering for repeatable runs.
-            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
+            available = {
+                str(k).strip().upper() for k in raw_map.keys() if str(k).strip()
+            }
     except Exception as err:
-        logger.warning("Falling back to default market list: {}", err)
+        raise ValueError(f"MARKET_RESOLUTION_FAILED: {err}") from err
     finally:
         if client is not None:
             try:
@@ -646,16 +644,16 @@ async def _resolve_backtest_markets(
             except Exception:
                 pass
 
-    if cap is not None:
-        markets = markets[:cap]
+    invalid = [market for market in normalized if market not in available]
+    if not available:
+        raise ValueError("MARKET_RESOLUTION_FAILED: no dYdX perpetual markets returned")
+    if invalid:
+        raise ValueError(
+            "SELECTED_PAIRS_INVALID: unsupported selected pairs "
+            + ", ".join(invalid)
+        )
 
-    if len(markets) < 2:
-        fallback = DEFAULT_PAIRS[:]
-        if cap is not None:
-            fallback = fallback[:cap]
-        return fallback
-
-    return markets
+    return normalized
 
 
 def _strategy_to_backtest_request(
@@ -741,6 +739,8 @@ def _strategy_to_backtest_request(
         max_pairs=int(request.max_pairs),
         trading_parameters=trading_parameters,
         pairs=pairs,
+        selected_pairs=pairs,
+        strategy_payload_snapshot=dict(strategy),
         timeout_seconds=request.timeout_seconds,
     )
 
@@ -791,6 +791,8 @@ def _manual_backtest_request(
         max_pairs=int(request.max_pairs),
         trading_parameters=trading_parameters,
         pairs=pairs,
+        selected_pairs=pairs,
+        strategy_payload_snapshot=dict(request.strategy_payload_snapshot or {}),
     )
 
 
@@ -1135,9 +1137,16 @@ async def list_perpetual_markets(limit: int = 0):
         if isinstance(raw_map, dict):
             markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
     except Exception as err:
-        source = "fallback"
-        markets = DEFAULT_PAIRS[:]
-        logger.warning("Falling back to default market list for API response: {}", err)
+        logger.warning(
+            "market_resolution_failed endpoint=/api/v1/markets/perpetuals error={}",
+            err,
+        )
+        return api_response(
+            success=False,
+            message=f"MARKET_RESOLUTION_FAILED: {err}",
+            data={"error": "MARKET_RESOLUTION_FAILED"},
+            status_code=503,
+        )
     finally:
         if client is not None:
             try:
@@ -3211,20 +3220,27 @@ async def create_backtest(
     try:
         if isinstance(request, BacktestRunRequestCompat):
             resolved_pairs = await _resolve_backtest_markets(
-                request.pairs,
+                request.pairs or request.selected_pairs,
                 request.max_pairs,
             )
             if request.strategy_id is not None:
                 try:
                     strategy = InMemoryStrategyStore.get(request.strategy_id)
                 except Exception as lookup_error:
-                    # Keep backtest execution available even if strategy persistence is temporarily unavailable.
                     logger.warning(
-                        "Strategy lookup failed for id={} during backtest creation; using manual fallback payload: {}",
+                        "strategy_lookup_failed strategy_id={} endpoint=/api/v1/backtests error={}",
                         request.strategy_id,
                         lookup_error,
                     )
-                    strategy = None
+                    return api_response(
+                        success=False,
+                        message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
+                        data={
+                            "error": "STRATEGY_NOT_FOUND",
+                            "strategy_id": request.strategy_id,
+                        },
+                        status_code=404,
+                    )
                 if strategy:
                     normalized_request = _strategy_to_backtest_request(
                         strategy,
@@ -3232,20 +3248,30 @@ async def create_backtest(
                         resolved_pairs,
                     )
                 else:
-                    if request.trading_parameters:
-                        logger.info(
-                            "Strategy '{}' not found in bot store; using provided backtest trading_parameters",
-                            request.strategy_id,
-                        )
-                    else:
-                        logger.warning(
-                            "Strategy '{}' not found; falling back to manual backtest payload",
-                            request.strategy_id,
-                        )
-                    normalized_request = _manual_backtest_request(
-                        request, resolved_pairs
+                    logger.warning(
+                        "strategy_not_found strategy_id={} endpoint=/api/v1/backtests",
+                        request.strategy_id,
+                    )
+                    return api_response(
+                        success=False,
+                        message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
+                        data={
+                            "error": "STRATEGY_NOT_FOUND",
+                            "strategy_id": request.strategy_id,
+                        },
+                        status_code=404,
                     )
             else:
+                if not request.strategy_payload_snapshot and not request.trading_parameters:
+                    return api_response(
+                        success=False,
+                        message=(
+                            "STRATEGY_PAYLOAD_MISSING: one-off backtests require "
+                            "a strategy_payload_snapshot or trading_parameters"
+                        ),
+                        data={"error": "STRATEGY_PAYLOAD_MISSING"},
+                        status_code=422,
+                    )
                 normalized_request = _manual_backtest_request(request, resolved_pairs)
         else:
             normalized_request = request
@@ -3265,8 +3291,23 @@ async def create_backtest(
         )
 
     except ValueError as e:
+        error_code = str(e).split(":", 1)[0].strip()
+        status_code = (
+            422
+            if error_code
+            in {
+                "SELECTED_PAIRS_MISSING",
+                "SELECTED_PAIRS_INVALID",
+                "MARKET_RESOLUTION_FAILED",
+                "STRATEGY_PAYLOAD_MISSING",
+            }
+            else 400
+        )
         return api_response(
-            success=False, message=f"Validation error: {str(e)}", status_code=400
+            success=False,
+            message=f"Validation error: {str(e)}",
+            data={"error": error_code},
+            status_code=status_code,
         )
     except Exception as e:
         logger.error(f"Error creating backtest: {e}")
@@ -3282,7 +3323,7 @@ async def run_backtest_compat(
     """Frontend-compatible backtest execution route."""
     try:
         resolved_pairs = await _resolve_backtest_markets(
-            request.pairs,
+            request.pairs or request.selected_pairs,
             request.max_pairs,
         )
 
@@ -3290,32 +3331,56 @@ async def run_backtest_compat(
             try:
                 strategy = InMemoryStrategyStore.get(request.strategy_id)
             except Exception as lookup_error:
-                # Strategy store outages should not block backtest execution from compatibility clients.
                 logger.warning(
-                    "Strategy lookup failed for id={} in /api/v1/backtests/run; using manual fallback payload: {}",
+                    "strategy_lookup_failed strategy_id={} endpoint=/api/v1/backtests/run error={}",
                     request.strategy_id,
                     lookup_error,
                 )
-                strategy = None
+                return api_response(
+                    success=False,
+                    message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
+                    data={
+                        "error": "STRATEGY_NOT_FOUND",
+                        "strategy_id": request.strategy_id,
+                    },
+                    status_code=404,
+                )
             if strategy:
                 backtest_request = _strategy_to_backtest_request(
                     strategy,
                     request,
                     resolved_pairs,
                 )
+                logger.info(
+                    "strategy_linked_to_backtest strategy_id={} selected_pairs={}",
+                    request.strategy_id,
+                    resolved_pairs,
+                )
             else:
-                if request.trading_parameters:
-                    logger.info(
-                        "Strategy '{}' not found in bot store for /backtests/run; using provided backtest trading_parameters",
-                        request.strategy_id,
-                    )
-                else:
-                    logger.warning(
-                        "Strategy '{}' not found in /backtests/run; falling back to manual payload",
-                        request.strategy_id,
-                    )
-                backtest_request = _manual_backtest_request(request, resolved_pairs)
+                logger.warning(
+                    "strategy_not_found strategy_id={} endpoint=/api/v1/backtests/run",
+                    request.strategy_id,
+                )
+                return api_response(
+                    success=False,
+                    message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
+                    data={
+                        "error": "STRATEGY_NOT_FOUND",
+                        "strategy_id": request.strategy_id,
+                    },
+                    status_code=404,
+                )
         else:
+            if not request.strategy_payload_snapshot and not request.trading_parameters:
+                return api_response(
+                    success=False,
+                    message=(
+                        "STRATEGY_PAYLOAD_MISSING: one-off backtests require "
+                        "a strategy_payload_snapshot or trading_parameters"
+                    ),
+                    data={"error": "STRATEGY_PAYLOAD_MISSING"},
+                    status_code=422,
+                )
             backtest_request = _manual_backtest_request(request, resolved_pairs)
 
         with backtest_service_scope() as service:
@@ -3333,11 +3398,31 @@ async def run_backtest_compat(
             data=payload,
             message=f"Backtest '{result.name}' started",
         )
+    except ValueError as e:
+        error_code = str(e).split(":", 1)[0].strip()
+        status_code = (
+            422
+            if error_code
+            in {
+                "SELECTED_PAIRS_MISSING",
+                "SELECTED_PAIRS_INVALID",
+                "MARKET_RESOLUTION_FAILED",
+                "STRATEGY_PAYLOAD_MISSING",
+            }
+            else 400
+        )
+        return api_response(
+            success=False,
+            message=f"Validation error: {str(e)}",
+            data={"error": error_code},
+            status_code=status_code,
+        )
     except Exception as e:
         logger.error(f"Error running compatibility backtest: {e}")
         return api_response(
             success=False,
-            message="Internal server error",
+            message="BOT_EXECUTION_FAILED: Internal server error",
+            data={"error": "BOT_EXECUTION_FAILED"},
             status_code=500,
         )
 

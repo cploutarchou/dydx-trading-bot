@@ -1739,9 +1739,21 @@ class BacktestService:
             async_job_manager.mark_running(run_id)
 
             params = request_payload.get("trading_parameters") or {}
-            pairs_raw = request_payload.get("pairs") or []
+            if request_payload.get("strategy_id") is not None and not isinstance(
+                request_payload.get("strategy_payload_snapshot"), dict
+            ):
+                raise ValueError(
+                    "STRATEGY_PAYLOAD_MISSING: strategy-linked backtest requires strategy_payload_snapshot"
+                )
+            pairs_raw = (
+                request_payload.get("selected_pairs")
+                or request_payload.get("pairs")
+                or []
+            )
             if len(pairs_raw) < 2:
-                raise ValueError("Backtest requires at least two markets in 'pairs'")
+                raise ValueError(
+                    "SELECTED_PAIRS_MISSING: at least two selected pairs are required"
+                )
 
             start_dt = self._parse_date(str(request_payload.get("start_date")))
             end_dt = self._parse_date(

@@ -38,6 +38,12 @@ class BacktestConfigRequest(BaseModel):
     trading_parameters: Dict[str,
     Any] = Field(..., description="Trading parameters")
     pairs: List[str] = Field(..., description="Trading pairs to test")
+    selected_pairs: Optional[List[str]] = Field(
+        None, description="Exact selected markets requested for this run"
+    )
+    strategy_payload_snapshot: Optional[Dict[str, Any]] = Field(
+        None, description="Immutable strategy payload snapshot used for this run"
+    )
     timeout_seconds: Optional[float] = Field(
         None, description="Maximum wall-clock runtime for the backtest"
     )

@@ -805,12 +805,10 @@ export default function StrategyManager() {
     }
 
     if (!hasExplicitMarketSelection(startDialogReadiness)) {
-      const approved = window.confirm(
-        'No specific pairs are selected for this strategy. Clicking OK will launch using all active dYdX markets. Continue?'
+      setStartDialogError(
+        'Select at least two dYdX markets for this strategy before starting runtime.'
       );
-      if (!approved) {
-        return;
-      }
+      return;
     }
 
     setStartDialogSubmitting(true);
@@ -1041,6 +1039,16 @@ export default function StrategyManager() {
       const selectedMarkets = Array.isArray(strategy.selected_markets)
         ? strategy.selected_markets
         : [];
+      if (selectedMarkets.length < 2) {
+        showTransientMessage(
+          {
+            type: 'error',
+            text: 'Select at least two dYdX markets for this strategy before running a backtest.',
+          },
+          6000
+        );
+        return;
+      }
       const resolution = normalizeDydxCandleResolution(
         strategy.candle_resolution || strategy.resolution || '1HOUR'
       );

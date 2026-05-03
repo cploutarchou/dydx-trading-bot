@@ -1175,6 +1175,7 @@ export interface AISuggestParamsRequest extends Record<string, unknown> {
   current_params: Record<string, unknown>;
   last_error: string;
   recent_backtests: AIBacktestSummary[];
+  max_suggestions?: number;
 }
 
 export interface AIRuntimeDigestRequest extends Record<string, unknown> {

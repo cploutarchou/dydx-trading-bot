@@ -1603,7 +1603,7 @@ export default function StrategyBuilder() {
                         Transaction Fee
                       </label>
                       <span className="text-sm text-cyan-300">
-                        {(formValues.transaction_fee || 0.0005).toFixed(4)}
+                        {Number(formValues.transaction_fee ?? 0.0005).toFixed(4)}
                       </span>
                     </div>
                     <Controller
@@ -1618,6 +1618,7 @@ export default function StrategyBuilder() {
                           step="0.0001"
                           placeholder="0.0005"
                           className="premium-input px-3 py-2 text-sm"
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
                         />
                       )}
                     />
@@ -1631,7 +1632,7 @@ export default function StrategyBuilder() {
                     <div className="flex justify-between items-center mb-2">
                       <label className="text-sm font-semibold text-slate-200">Slippage</label>
                       <span className="text-sm text-cyan-300">
-                        {(formValues.slippage || 0.001).toFixed(4)}
+                        {Number(formValues.slippage ?? 0.001).toFixed(4)}
                       </span>
                     </div>
                     <Controller
@@ -1646,6 +1647,7 @@ export default function StrategyBuilder() {
                           step="0.0001"
                           placeholder="0.001"
                           className="premium-input px-3 py-2 text-sm"
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
                         />
                       )}
                     />

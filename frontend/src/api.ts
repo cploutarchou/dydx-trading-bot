@@ -2073,6 +2073,18 @@ class ApiClient {
     return response.data;
   }
 
+  async listBacktestsByStrategy(
+    strategyId: number,
+    limit: number = 10
+  ): Promise<ApiResponse<BacktestListResponse>> {
+    this.ensureTokenLoaded();
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
+    const response = await this.client.get<ApiResponse<BacktestListResponse>>(
+      `/api/v1/backtests?strategy_id=${strategyId}&limit=${safeLimit}`
+    );
+    return response.data;
+  }
+
   async runBacktest(data: BacktestRequest): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const normalizedPayload = normalizeBacktestPayload(data);

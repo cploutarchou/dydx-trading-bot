@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import math
 import os
 import random
 import time
+import traceback as traceback_module
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional
 from uuid import uuid4
 
+import httpx
 import numpy as np
 from pydantic import BaseModel
 from scipy.stats import linregress
@@ -51,10 +55,20 @@ class _BacktestRunStatus(BaseModel):
     worker_backend: Optional[str] = None
     worker_task_id: Optional[str] = None
     request: Optional[Dict[str, Any]] = None
+    request_available: bool = False
     current_pair: Optional[str] = None
     current_task: Optional[str] = None
     error: Optional[str] = None
     error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    traceback: Optional[str] = None
+    strategy_id: Optional[int] = None
+    bot_id: Optional[str] = None
+    source: Optional[str] = None
+    selected_pairs: List[str] = []
+    metadata: Dict[str, Any] = {}
+    worker_hostname: Optional[str] = None
+    retry_count: Optional[int] = None
 
 
 class _BacktestTrade(BaseModel):
@@ -110,6 +124,15 @@ class _BacktestRunDetails(BaseModel):
     current_task: Optional[str] = None
     error: Optional[str] = None
     error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    traceback: Optional[str] = None
+    strategy_id: Optional[int] = None
+    bot_id: Optional[str] = None
+    source: Optional[str] = None
+    selected_pairs: List[str] = []
+    metadata: Dict[str, Any] = {}
+    worker_hostname: Optional[str] = None
+    retry_count: Optional[int] = None
 
 
 class _BacktestRunList(BaseModel):
@@ -122,11 +145,21 @@ class BacktestService:
 
     _runs: Dict[str, Dict[str, Any]] = {}
     _tasks: Dict[str, asyncio.Task] = {}
+    _TASK_CONTEXT_KEY = "_task_context"
+    _TASK_FAILURE_KEY = "_task_failure"
     _DEFAULT_TIMEOUT_SECONDS = 24 * 60 * 60
     _MIN_TIMEOUT_SECONDS = 1.0
     _MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
     _PROGRESS_CALLBACK_TIMEOUT_SECONDS = 5.0
     _HISTORY_REQUEST_TIMEOUT_SECONDS = 20.0
+    _HISTORY_MIN_INTERVAL_SECONDS = 0.15
+    _HISTORY_MAX_RETRIES = 6
+    _HISTORY_RETRY_BASE_SECONDS = 1.5
+    _HISTORY_RETRY_MAX_SECONDS = 20.0
+    _HISTORY_TELEMETRY_RECENT_FAILURES_LIMIT = 5
+    _SIMULATION_YIELD_EVERY_STEPS = 200
+    _HEAVY_PROGRESS_PERSIST_EVERY_PAIRS = 10
+    _HEAVY_PROGRESS_PERSIST_EVERY_SECONDS = 15.0
     _STALE_BACKTEST_HEARTBEAT_SECONDS = 120.0
     _TERMINAL_STATUSES = {
         "completed",
@@ -150,7 +183,9 @@ class BacktestService:
 
     def __init__(self, session: Any):
         self.repository = (
-            session if isinstance(session, BacktestRepository) else BacktestRepository(session)
+            session
+            if isinstance(session, BacktestRepository)
+            else BacktestRepository(session)
         )
         self.session = getattr(self.repository, "session", session)
         # Reconciliation is explicit via API ops endpoints to avoid false-positive
@@ -197,18 +232,26 @@ class BacktestService:
         progress = cls._safe_float(payload.get("progress_pct"), 0.0)
         current_pair = str(payload.get("current_pair") or "").strip().lower()
         current_task = str(payload.get("current_task") or "").strip().lower()
-        has_error = bool(str(payload.get("error") or payload.get("error_message") or "").strip())
-        has_cancel = bool(payload.get("cancel_requested")) or current_task == "cancelled"
-        has_metrics = any(
-            cls._safe_float(payload.get(key), 0.0) != 0.0
-            for key in ("total_pnl", "win_rate", "sharpe_ratio", "profit_factor")
-        ) or cls._safe_float(payload.get("total_trades"), 0.0) > 0.0
+        has_error = bool(
+            str(payload.get("error") or payload.get("error_message") or "").strip()
+        )
+        has_cancel = (
+            bool(payload.get("cancel_requested")) or current_task == "cancelled"
+        )
+        has_metrics = (
+            any(
+                cls._safe_float(payload.get(key), 0.0) != 0.0
+                for key in ("total_pnl", "win_rate", "sharpe_ratio", "profit_factor")
+            )
+            or cls._safe_float(payload.get("total_trades"), 0.0) > 0.0
+        )
         has_work_marker = (
             bool(payload.get("started_at"))
             or progress > 0.0
             or (
                 current_pair
-                and current_pair not in {"pending", "queued", "complete", "none", "null"}
+                and current_pair
+                not in {"pending", "queued", "complete", "none", "null"}
             )
             or (
                 current_task
@@ -221,7 +264,11 @@ class BacktestService:
                 status = "cancelled"
             elif has_error:
                 status = "failed"
-            elif progress >= 100.0 or current_pair == "complete" or current_task == "complete":
+            elif (
+                progress >= 100.0
+                or current_pair == "complete"
+                or current_task == "complete"
+            ):
                 status = "completed"
             elif has_work_marker or has_metrics:
                 status = "running"
@@ -230,16 +277,23 @@ class BacktestService:
         return payload
 
     def _find_orphaned_in_progress_runs(
-            self, runs: Optional[List[Dict[str, Any]]] = None
+        self, runs: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        source = runs if runs is not None else self.repository.list_runs(limit=None, offset=0)
+        source = (
+            runs
+            if runs is not None
+            else self.repository.list_runs(limit=None, offset=0)
+        )
         candidates: List[Dict[str, Any]] = []
         for run in source:
             run_id = str(run.get("run_id") or "").strip()
             if not run_id:
                 continue
             status = str(run.get("status") or "").strip().lower()
-            if self._canonical_status(status) in {"pending", "running"} and run_id not in self._tasks:
+            if (
+                self._canonical_status(status) in {"pending", "running"}
+                and run_id not in self._tasks
+            ):
                 candidates.append(dict(run))
         return candidates
 
@@ -263,7 +317,7 @@ class BacktestService:
             dict(run)
             for run in runs
             if str(run.get("status") or "").strip().lower() == "failed"
-               and str(run.get("error") or "").strip() == self._INTERRUPTION_ERROR
+            and str(run.get("error") or "").strip() == self._INTERRUPTION_ERROR
         ]
 
         safe_limit = max(1, int(limit or 50))
@@ -290,7 +344,9 @@ class BacktestService:
         reconciled: List[Dict[str, Any]] = []
         if not dry_run:
             for run in candidates:
-                persisted = self.repository.save_run(self._build_interrupted_run_payload(run))
+                persisted = self.repository.save_run(
+                    self._build_interrupted_run_payload(run)
+                )
                 run_id = str(persisted.get("run_id") or "").strip()
                 if run_id:
                     self._runs[run_id] = dict(persisted)
@@ -330,14 +386,14 @@ class BacktestService:
 
         persisted = self.repository.save_run(run_data)
         for key in (
-                "started_at",
-                "finished_at",
-                "deadline_at",
-                "timeout_seconds",
-                "control_status",
-                "control_action",
-                "worker_backend",
-                "worker_task_id",
+            "started_at",
+            "finished_at",
+            "deadline_at",
+            "timeout_seconds",
+            "control_status",
+            "control_action",
+            "worker_backend",
+            "worker_task_id",
         ):
             if key in run_data and key not in persisted:
                 persisted[key] = run_data[key]
@@ -363,9 +419,9 @@ class BacktestService:
 
     @classmethod
     def _set_runtime_control(
-            cls,
-            run_data: Dict[str, Any],
-            **updates: Any,
+        cls,
+        run_data: Dict[str, Any],
+        **updates: Any,
     ) -> Dict[str, Any]:
         request = dict(run_data.get("request") or {})
         control = cls._get_runtime_control({"request": request})
@@ -384,11 +440,250 @@ class BacktestService:
         cleaned.pop(cls._CONTROL_KEY, None)
         return cleaned
 
+    @staticmethod
+    def _normalize_string_list(value: Any) -> List[str]:
+        if not isinstance(value, list):
+            return []
+        items: List[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            cleaned = str(raw).strip().upper()
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            items.append(cleaned)
+        return items
+
+    @classmethod
+    def _build_pair_labels_from_markets(cls, markets: List[str]) -> List[str]:
+        labels: List[str] = []
+        for idx in range(len(markets) - 1):
+            for jdx in range(idx + 1, len(markets)):
+                labels.append(f"{markets[idx]}/{markets[jdx]}")
+        return labels
+
+    @classmethod
+    def _markets_from_pair_labels(cls, pair_labels: List[str]) -> List[str]:
+        markets: List[str] = []
+        seen: set[str] = set()
+        for label in pair_labels:
+            for part in str(label).split("/"):
+                market = str(part).strip().upper()
+                if not market or market in seen:
+                    continue
+                seen.add(market)
+                markets.append(market)
+        return markets
+
+    @classmethod
+    def _markets_from_request(cls, request_payload: Dict[str, Any]) -> List[str]:
+        markets = cls._normalize_string_list(request_payload.get("pairs"))
+        if markets:
+            return markets
+
+        selected_pairs = cls._normalize_string_list(
+            request_payload.get("selected_pairs")
+        )
+        if selected_pairs and all("/" in pair for pair in selected_pairs):
+            return cls._markets_from_pair_labels(selected_pairs)
+        return selected_pairs
+
+    @classmethod
+    def _selected_pair_labels_from_request(
+        cls, request_payload: Dict[str, Any]
+    ) -> List[str]:
+        selected_pairs = cls._normalize_string_list(
+            request_payload.get("selected_pairs")
+        )
+        if selected_pairs and all("/" in pair for pair in selected_pairs):
+            return selected_pairs
+
+        markets = cls._markets_from_request(request_payload)
+        if len(markets) >= 2:
+            return cls._build_pair_labels_from_markets(markets)
+        return []
+
+    @classmethod
+    def _pair_markets_from_request(
+        cls,
+        request_payload: Dict[str, Any],
+    ) -> tuple[List[tuple[str, str]], List[str], bool]:
+        selected_pairs = cls._normalize_string_list(
+            request_payload.get("selected_pairs")
+        )
+        if selected_pairs and any("/" in pair for pair in selected_pairs):
+            if not all("/" in pair for pair in selected_pairs):
+                raise ValueError(
+                    "SELECTED_PAIRS_INVALID: selected_pairs must use MARKET_A/MARKET_B labels"
+                )
+
+            pair_markets: List[tuple[str, str]] = []
+            pair_labels: List[str] = []
+            seen: set[str] = set()
+            invalid: List[str] = []
+            for label in selected_pairs:
+                parts = [
+                    part.strip().upper()
+                    for part in str(label).split("/")
+                    if part.strip()
+                ]
+                if len(parts) != 2 or parts[0] == parts[1]:
+                    invalid.append(str(label))
+                    continue
+                canonical = f"{parts[0]}/{parts[1]}"
+                if canonical in seen:
+                    continue
+                seen.add(canonical)
+                pair_labels.append(canonical)
+                pair_markets.append((parts[0], parts[1]))
+            if invalid:
+                raise ValueError(
+                    "SELECTED_PAIRS_INVALID: unsupported selected pairs "
+                    + ", ".join(invalid)
+                )
+            return pair_markets, pair_labels, True
+
+        markets = cls._markets_from_request(request_payload)
+        if len(markets) < 2:
+            raise ValueError(
+                "SELECTED_PAIRS_MISSING: at least two selected pairs are required"
+            )
+        return (
+            cls._build_market_pairs(markets),
+            cls._build_pair_labels_from_markets(markets),
+            False,
+        )
+
+    @classmethod
+    def _request_payload_hash(cls, request_payload: Dict[str, Any]) -> str:
+        sanitized = dict(cls._strip_runtime_control(request_payload))
+        sanitized.pop(cls._TASK_CONTEXT_KEY, None)
+        sanitized.pop(cls._TASK_FAILURE_KEY, None)
+        encoded = json.dumps(
+            sanitized, sort_keys=True, separators=(",", ":"), default=str
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _task_context_from_request(
+        cls, request_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        context = request_payload.get(cls._TASK_CONTEXT_KEY)
+        return dict(context) if isinstance(context, dict) else {}
+
+    @classmethod
+    def _task_failure_from_request(
+        cls, request_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        failure = request_payload.get(cls._TASK_FAILURE_KEY)
+        return dict(failure) if isinstance(failure, dict) else {}
+
+    @classmethod
+    def _set_task_context(
+        cls,
+        request_payload: Dict[str, Any],
+        task_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        request = dict(request_payload or {})
+        request[cls._TASK_CONTEXT_KEY] = task_context
+        return request
+
+    @classmethod
+    def _clear_task_failure(cls, request_payload: Dict[str, Any]) -> Dict[str, Any]:
+        request = dict(request_payload or {})
+        request.pop(cls._TASK_FAILURE_KEY, None)
+        return request
+
+    @classmethod
+    def _set_task_failure(
+        cls,
+        request_payload: Dict[str, Any],
+        failure_payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        request = dict(request_payload or {})
+        request[cls._TASK_FAILURE_KEY] = failure_payload
+        return request
+
+    @classmethod
+    def _error_code_from_message(cls, message: str, default: str) -> str:
+        prefix = str(message or "").split(":", 1)[0].strip().upper()
+        if prefix and prefix.replace("_", "").isalnum() and " " not in prefix:
+            return prefix
+        return default
+
+    @classmethod
+    def _build_task_context(
+        cls,
+        request_payload: Dict[str, Any],
+        **overrides: Any,
+    ) -> Dict[str, Any]:
+        clean_request = dict(cls._strip_runtime_control(request_payload or {}))
+        existing = cls._task_context_from_request(clean_request)
+        selected_pairs = cls._selected_pair_labels_from_request(clean_request)
+        raw_strategy_snapshot = clean_request.get("strategy_payload_snapshot")
+        strategy_snapshot = (
+            raw_strategy_snapshot if isinstance(raw_strategy_snapshot, dict) else None
+        )
+        source_strategy_version = (
+            clean_request.get("source_strategy_version")
+            or existing.get("source_strategy_version")
+            or (strategy_snapshot or {}).get("version_number")
+            or (strategy_snapshot or {}).get("version")
+        )
+        strategy_name = (strategy_snapshot or {}).get("name") or existing.get(
+            "strategy_name"
+        )
+        source = str(clean_request.get("source") or existing.get("source") or "api")
+        requested_by_user_id = clean_request.get(
+            "requested_by_user_id"
+        ) or existing.get("requested_by_user_id")
+        payload_hash = existing.get("payload_hash") or cls._request_payload_hash(
+            clean_request
+        )
+        metadata: Dict[str, Any] = {
+            "strategy_name": strategy_name,
+            "strategy_version": source_strategy_version,
+            "payload_hash": payload_hash,
+            "pair_count": len(selected_pairs),
+            "source": source,
+        }
+        if requested_by_user_id is not None:
+            metadata["requested_by_user_id"] = requested_by_user_id
+
+        merged_metadata: Dict[str, Any] = {}
+        existing_metadata = existing.get("metadata")
+        if isinstance(existing_metadata, dict):
+            merged_metadata.update(existing_metadata)
+        merged_metadata.update(metadata)
+
+        context: Dict[str, Any] = {
+            **existing,
+            "strategy_id": clean_request.get("strategy_id")
+            or existing.get("strategy_id"),
+            "strategy_payload_snapshot": strategy_snapshot,
+            "pairs": cls._markets_from_request(clean_request),
+            "selected_pairs": selected_pairs,
+            "bot_id": clean_request.get("bot_id") or existing.get("bot_id"),
+            "environment": clean_request.get("environment")
+            or existing.get("environment")
+            or os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or "local",
+            "source": source,
+            "requested_by_user_id": requested_by_user_id,
+            "strategy_name": strategy_name,
+            "source_strategy_version": source_strategy_version,
+            "payload_hash": payload_hash,
+            "metadata": merged_metadata,
+        }
+        context.update(overrides)
+        return context
+
     @classmethod
     def _merge_runtime_control(
-            cls,
-            run_data: Dict[str, Any],
-            existing: Dict[str, Any],
+        cls,
+        run_data: Dict[str, Any],
+        existing: Dict[str, Any],
     ) -> Dict[str, Any]:
         current_control = cls._get_runtime_control(run_data)
         existing_control = cls._get_runtime_control(existing)
@@ -453,12 +748,49 @@ class BacktestService:
             payload["control_status"] = "resume_requested"
         return payload
 
+    @classmethod
+    def _apply_task_observability(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        request_payload = dict(payload.get("request") or {})
+        task_context = cls._task_context_from_request(request_payload)
+        task_failure = cls._task_failure_from_request(request_payload)
+
+        payload["strategy_id"] = task_context.get("strategy_id")
+        payload["bot_id"] = task_context.get("bot_id")
+        payload["source"] = task_context.get("source")
+        payload["selected_pairs"] = list(task_context.get("selected_pairs") or [])
+        payload["metadata"] = dict(task_context.get("metadata") or {})
+        payload["worker_hostname"] = task_context.get("worker_hostname")
+        payload["retry_count"] = task_context.get("retry_count")
+        payload["error_code"] = task_failure.get("error_code")
+        payload["traceback"] = task_failure.get("traceback")
+        return payload
+
     @staticmethod
     def _configured_worker_backend() -> str:
         backend = os.getenv("BACKTEST_WORKER_BACKEND", "asyncio").strip().lower()
         if backend in {"celery", "asyncio"}:
             return backend
         return "asyncio"
+
+    @staticmethod
+    def _env_positive_int(name: str, default: int) -> int:
+        raw = os.getenv(name)
+        if raw in (None, ""):
+            return max(1, int(default))
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return max(1, int(default))
+
+    @staticmethod
+    def _env_positive_float(name: str, default: float) -> float:
+        raw = os.getenv(name)
+        if raw in (None, ""):
+            return max(0.1, float(default))
+        try:
+            return max(0.1, float(raw))
+        except (TypeError, ValueError):
+            return max(0.1, float(default))
 
     @classmethod
     def _stale_backtest_heartbeat_seconds(cls) -> float:
@@ -501,13 +833,15 @@ class BacktestService:
     @classmethod
     def _with_status_observability(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = cls._normalize_lifecycle_state(run_data)
+        payload = cls._apply_task_observability(payload)
         status = cls._canonical_status(payload.get("status"))
         payload["last_heartbeat_at"] = payload.get("updated_at")
         payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
         if (
-                status in {"pending", "running"}
-                and payload["heartbeat_age_seconds"] is not None
-            and payload["heartbeat_age_seconds"] > cls._stale_backtest_heartbeat_seconds()
+            status in {"pending", "running"}
+            and payload["heartbeat_age_seconds"] is not None
+            and payload["heartbeat_age_seconds"]
+            > cls._stale_backtest_heartbeat_seconds()
         ):
             stale_message = (
                 "Backtest heartbeat is stale; the worker task may have been interrupted "
@@ -537,12 +871,17 @@ class BacktestService:
                     "error_message": observed.get("error_message"),
                 }
             )
-            if observed.get("status") in self._TERMINAL_STATUSES and not persisted.get("finished_at"):
+            if observed.get("status") in self._TERMINAL_STATUSES and not persisted.get(
+                "finished_at"
+            ):
                 persisted["finished_at"] = datetime.now(timezone.utc).isoformat()
                 persisted["completed_at"] = persisted["finished_at"]
             return self._with_status_observability(self._persist_run_data(persisted))
 
-        if observed.get("status") != "stale" or original_status not in {"pending", "running"}:
+        if observed.get("status") != "stale" or original_status not in {
+            "pending",
+            "running",
+        }:
             return observed
 
         stalled = dict(run_data)
@@ -574,12 +913,148 @@ class BacktestService:
     def _remaining_seconds(deadline_monotonic: float) -> float:
         return max(0.0, deadline_monotonic - time.monotonic())
 
+    @staticmethod
+    def _describe_exception(exc: BaseException) -> str:
+        text = str(exc).strip()
+        if text:
+            return text
+        return repr(exc)
+
+    @classmethod
+    def _extract_retry_after_seconds(cls, exc: BaseException) -> Optional[float]:
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return None
+        raw = headers.get("Retry-After") or headers.get("retry-after")
+        if raw is None:
+            return None
+        try:
+            parsed = float(str(raw).strip())
+        except (TypeError, ValueError):
+            return None
+        if parsed <= 0:
+            return None
+        return parsed
+
+    @classmethod
+    def _history_retry_delay_seconds(
+        cls,
+        attempt_index: int,
+        exc: BaseException,
+    ) -> float:
+        retry_after = cls._extract_retry_after_seconds(exc)
+        if retry_after is not None:
+            base_delay = retry_after
+        else:
+            configured_base = cls._env_positive_float(
+                "BACKTEST_HISTORY_RETRY_BASE_SECONDS",
+                cls._HISTORY_RETRY_BASE_SECONDS,
+            )
+            max_delay = cls._env_positive_float(
+                "BACKTEST_HISTORY_RETRY_MAX_SECONDS",
+                cls._HISTORY_RETRY_MAX_SECONDS,
+            )
+            base_delay = min(max_delay, configured_base * (2**attempt_index))
+
+        jitter = random.uniform(0.0, max(0.1, base_delay * 0.25))
+        return base_delay + jitter
+
+    @classmethod
+    def _history_fetch_summary(
+        cls,
+        history_telemetry: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        markets_summary: Dict[str, Any] = {}
+        total_windows = 0
+        total_retries = 0
+        total_attempts = 0
+        total_backoff_seconds = 0.0
+        total_failed_windows = 0
+
+        for market, metrics in sorted(history_telemetry.items()):
+            windows = int(metrics.get("windows") or 0)
+            retries = int(metrics.get("retries") or 0)
+            attempts = int(metrics.get("attempts") or 0)
+            failed_windows = int(metrics.get("failed_windows") or 0)
+            backoff_seconds = float(metrics.get("backoff_seconds") or 0.0)
+            timeout_errors = int(metrics.get("timeout_errors") or 0)
+            http_errors = int(metrics.get("http_errors") or 0)
+            max_attempts_per_window = int(metrics.get("max_attempts_per_window") or 0)
+
+            total_windows += windows
+            total_retries += retries
+            total_attempts += attempts
+            total_backoff_seconds += backoff_seconds
+            total_failed_windows += failed_windows
+
+            markets_summary[market] = {
+                "windows": windows,
+                "attempts": attempts,
+                "retries": retries,
+                "failed_windows": failed_windows,
+                "timeout_errors": timeout_errors,
+                "http_errors": http_errors,
+                "backoff_seconds": round(backoff_seconds, 3),
+                "avg_backoff_per_retry_seconds": (
+                    round(
+                        backoff_seconds / retries,
+                        3,
+                    )
+                    if retries > 0
+                    else 0.0
+                ),
+                "avg_attempts_per_window": (
+                    round(attempts / windows, 3) if windows > 0 else 0.0
+                ),
+                "max_attempts_per_window": max_attempts_per_window,
+                "recent_failures": list(metrics.get("recent_failures") or []),
+            }
+
+        return {
+            "version": 1,
+            "markets_count": len(markets_summary),
+            "total_windows": total_windows,
+            "total_attempts": total_attempts,
+            "total_retries": total_retries,
+            "total_failed_windows": total_failed_windows,
+            "total_backoff_seconds": round(total_backoff_seconds, 3),
+            "avg_backoff_per_retry_seconds": (
+                round(
+                    total_backoff_seconds / total_retries,
+                    3,
+                )
+                if total_retries > 0
+                else 0.0
+            ),
+            "markets": markets_summary,
+        }
+
+    @classmethod
+    def _attach_history_fetch_summary(
+        cls,
+        run_data: Dict[str, Any],
+        history_telemetry: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        request_payload = dict(run_data.get("request") or {})
+        task_context = cls._task_context_from_request(request_payload)
+        metadata = dict(task_context.get("metadata") or {})
+        metadata["history_fetch_telemetry"] = cls._history_fetch_summary(
+            history_telemetry
+        )
+        task_context["metadata"] = metadata
+        request_payload[cls._TASK_CONTEXT_KEY] = task_context
+        run_data["request"] = request_payload
+        return run_data
+
     @classmethod
     async def _await_with_deadline(
-            cls,
-            awaitable: Awaitable[Any],
-            deadline_monotonic: float,
-            phase: str,
+        cls,
+        awaitable: Awaitable[Any],
+        deadline_monotonic: float,
+        phase: str,
     ) -> Any:
         remaining = cls._remaining_seconds(deadline_monotonic)
         if remaining <= 0:
@@ -590,10 +1065,10 @@ class BacktestService:
             raise TimeoutError(f"Backtest timed out during {phase}") from exc
 
     async def _honor_runtime_control(
-            self,
-            run_id: str,
-            run_data: Dict[str, Any],
-            deadline_monotonic: float,
+        self,
+        run_id: str,
+        run_data: Dict[str, Any],
+        deadline_monotonic: float,
     ) -> Dict[str, Any]:
         control = self._load_fresh_runtime_control(run_id)
         if run_data.get("cancel_requested") or control.get("cancel_requested"):
@@ -627,7 +1102,9 @@ class BacktestService:
             if self._remaining_seconds(deadline_monotonic) <= 0:
                 raise TimeoutError("Backtest timed out while paused")
 
-            await asyncio.sleep(min(1.0, max(0.001, self._remaining_seconds(deadline_monotonic))))
+            await asyncio.sleep(
+                min(1.0, max(0.001, self._remaining_seconds(deadline_monotonic)))
+            )
             control = self._load_fresh_runtime_control(run_id)
             if run_data.get("cancel_requested") or control.get("cancel_requested"):
                 raise asyncio.CancelledError()
@@ -655,13 +1132,15 @@ class BacktestService:
                 return self._persist_run_data(run_data)
 
             now = datetime.now(timezone.utc).isoformat()
-            run_data.update({"status": "paused", "current_task": "paused", "updated_at": now})
+            run_data.update(
+                {"status": "paused", "current_task": "paused", "updated_at": now}
+            )
             run_data = self._persist_run_data(run_data)
 
     async def execute_existing_backtest(
-            self,
-            run_id: str,
-            progress_callback: Any = None,
+        self,
+        run_id: str,
+        progress_callback: Any = None,
     ) -> None:
         """Execute an already-persisted run. Used by external worker backends."""
         run_data = self._load_run_data(run_id)
@@ -676,14 +1155,22 @@ class BacktestService:
             progress_callback=progress_callback,
         )
 
-    def _enqueue_celery_backtest(self, run_id: str) -> str:
+    def _enqueue_celery_backtest(
+        self,
+        run_id: str,
+        task_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """Dispatch a persisted backtest run to Celery."""
         try:
             from src.infrastructure.workers.backtest_tasks import run_backtest_task
         except Exception as exc:
             raise RuntimeError("Celery backtest worker is not available") from exc
 
-        async_result = run_backtest_task.apply_async(args=[run_id], task_id=run_id)
+        async_result = run_backtest_task.apply_async(
+            args=(run_id,),
+            kwargs={"task_context": task_context or {}},
+            task_id=run_id,
+        )
         return str(async_result.id)
 
     def _revoke_celery_backtest(self, task_id: Optional[str]) -> None:
@@ -716,7 +1203,9 @@ class BacktestService:
     def _auto_recovery_mode(cls) -> str:
         """Resolve startup auto-recovery mode for orphaned persisted backtests."""
         mode = os.getenv("BACKTEST_AUTO_RECOVERY_MODE", "").strip().lower()
-        if not mode and cls._coerce_bool(os.getenv("BACKTEST_AUTO_RECOVER"), default=False):
+        if not mode and cls._coerce_bool(
+            os.getenv("BACKTEST_AUTO_RECOVER"), default=False
+        ):
             mode = "restart"
         if not mode:
             return "mark_failed"
@@ -763,18 +1252,22 @@ class BacktestService:
         return age is None or age >= minimum_age
 
     def _prepare_existing_run_recovery(
-            self,
-            run_data: Dict[str, Any],
-            *,
-            worker_backend: str,
-            worker_task_id: str,
+        self,
+        run_data: Dict[str, Any],
+        *,
+        worker_backend: str,
+        worker_task_id: str,
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         recovered = dict(run_data)
         recovered.update(
             {
                 "status": "pending" if worker_backend == "celery" else "running",
-                "current_task": "auto recovery queued" if worker_backend == "celery" else "auto recovery running",
+                "current_task": (
+                    "auto recovery queued"
+                    if worker_backend == "celery"
+                    else "auto recovery running"
+                ),
                 "error": None,
                 "error_message": None,
                 "cancel_requested": False,
@@ -797,9 +1290,9 @@ class BacktestService:
         return self._persist_run_data(recovered)
 
     async def _restart_interrupted_existing_run(
-            self,
-            run: Dict[str, Any],
-            progress_callback: Any = None,
+        self,
+        run: Dict[str, Any],
+        progress_callback: Any = None,
     ) -> Optional[Dict[str, Any]]:
         run_id = str(run.get("run_id") or "").strip()
         if not run_id:
@@ -815,12 +1308,22 @@ class BacktestService:
 
         worker_backend = self._configured_worker_backend()
         if worker_backend == "celery":
-            task_id = self._enqueue_celery_backtest(run_id)
-            return self._prepare_existing_run_recovery(
-                run_data,
-                worker_backend="celery",
-                worker_task_id=task_id,
-            )
+            try:
+                task_id = self._enqueue_celery_backtest(
+                    run_id,
+                    self._build_task_context(request_payload),
+                )
+                return self._prepare_existing_run_recovery(
+                    run_data,
+                    worker_backend="celery",
+                    worker_task_id=task_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Celery recovery enqueue failed for run %s; falling back to asyncio backend: %s",
+                    run_id,
+                    exc,
+                )
 
         task = async_job_manager.create_supervised_task(
             self.execute_existing_backtest(run_id, progress_callback),
@@ -847,11 +1350,11 @@ class BacktestService:
         )
 
     async def auto_recover_interrupted_runs(
-            self,
-            progress_callback: Any = None,
-            *,
-            mode: Optional[str] = None,
-            limit: int = 50,
+        self,
+        progress_callback: Any = None,
+        *,
+        mode: Optional[str] = None,
+        limit: int = 50,
     ) -> Dict[str, Any]:
         """Reconcile orphaned backtests at API startup.
 
@@ -890,7 +1393,9 @@ class BacktestService:
                 "marked_failed_count": 0,
                 "restarted_count": 0,
                 "skipped_count": len(candidates),
-                "candidates": [self._to_ops_row(run) for run in candidates[:safe_limit]],
+                "candidates": [
+                    self._to_ops_row(run) for run in candidates[:safe_limit]
+                ],
                 "marked_failed": [],
                 "restarted": [],
                 "skipped": [self._to_ops_row(run) for run in candidates[:safe_limit]],
@@ -911,13 +1416,16 @@ class BacktestService:
                 skipped.append(run)
                 continue
 
-            persisted = self.repository.save_run(self._build_interrupted_run_payload(run))
+            persisted = self.repository.save_run(
+                self._build_interrupted_run_payload(run)
+            )
             self._runs[run_id] = dict(persisted)
             if resolved_mode == "restart":
                 skipped.append(
                     {
                         **persisted,
-                        "error": persisted.get("error") or "Backtest run has no restartable request payload",
+                        "error": persisted.get("error")
+                        or "Backtest run has no restartable request payload",
                     }
                 )
             else:
@@ -932,7 +1440,9 @@ class BacktestService:
             "restarted_count": len(restarted),
             "skipped_count": len(skipped),
             "candidates": [self._to_ops_row(run) for run in candidates[:safe_limit]],
-            "marked_failed": [self._to_ops_row(run) for run in marked_failed[:safe_limit]],
+            "marked_failed": [
+                self._to_ops_row(run) for run in marked_failed[:safe_limit]
+            ],
             "restarted": [self._to_ops_row(run) for run in restarted[:safe_limit]],
             "skipped": [self._to_ops_row(run) for run in skipped[:safe_limit]],
         }
@@ -941,7 +1451,7 @@ class BacktestService:
     def _build_metrics(cls, request: Any) -> Dict[str, Any]:
         payload = cls._extract_request_payload(request)
         params = (
-                payload.get("trading_parameters") or payload.get("strategy_params") or {}
+            payload.get("trading_parameters") or payload.get("strategy_params") or {}
         )
 
         zscore_threshold = float(params.get("zscore_threshold", 1.5) or 1.5)
@@ -1089,47 +1599,190 @@ class BacktestService:
         return utc.isoformat().replace("+00:00", "Z")
 
     async def _fetch_market_history(
-            self,
-            client: Any,
-            market: str,
-            start_dt: datetime,
-            end_dt: datetime,
-            resolution: str,
-            deadline_monotonic: Optional[float] = None,
+        self,
+        client: Any,
+        market: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        resolution: str,
+        deadline_monotonic: Optional[float] = None,
+        history_telemetry: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, float]:
         step_minutes = self._resolution_to_minutes(resolution)
         max_candles = 100
         chunk = timedelta(minutes=step_minutes * 90)
         cursor = start_dt
         merged: Dict[str, float] = {}
+        last_request_started = 0.0
 
         while cursor < end_dt:
-            if deadline_monotonic is not None and self._remaining_seconds(deadline_monotonic) <= 0:
-                raise TimeoutError(f"Backtest timed out while loading history for {market}")
+            if (
+                deadline_monotonic is not None
+                and self._remaining_seconds(deadline_monotonic) <= 0
+            ):
+                raise TimeoutError(
+                    f"Backtest timed out while loading history for {market}"
+                )
 
             window_end = min(end_dt, cursor + chunk)
-            request_timeout = self._HISTORY_REQUEST_TIMEOUT_SECONDS
+            request_timeout = self._env_positive_float(
+                "BACKTEST_HISTORY_REQUEST_TIMEOUT_SECONDS",
+                self._HISTORY_REQUEST_TIMEOUT_SECONDS,
+            )
             if deadline_monotonic is not None:
                 request_timeout = min(
                     request_timeout,
                     max(0.001, self._remaining_seconds(deadline_monotonic)),
                 )
-            try:
-                response = await asyncio.wait_for(
-                    client.indexer.markets.get_perpetual_market_candles(
-                        market=market,
-                        resolution=resolution,
-                        from_iso=self._to_iso(cursor),
-                        to_iso=self._to_iso(window_end),
-                        limit=max_candles,
-                    ),
-                    timeout=request_timeout,
+            min_interval_seconds = self._env_positive_float(
+                "BACKTEST_HISTORY_MIN_INTERVAL_SECONDS",
+                self._HISTORY_MIN_INTERVAL_SECONDS,
+            )
+            max_retries = self._env_positive_int(
+                "BACKTEST_HISTORY_MAX_RETRIES",
+                self._HISTORY_MAX_RETRIES,
+            )
+
+            response: Dict[str, Any] | None = None
+            last_error: Optional[BaseException] = None
+            window_retries = 0
+            window_attempts = 0
+            window_backoff_seconds = 0.0
+            for attempt in range(max_retries):
+                window_attempts += 1
+                if min_interval_seconds > 0 and last_request_started > 0:
+                    since_last_request = time.monotonic() - last_request_started
+                    pace_wait = max(0.0, min_interval_seconds - since_last_request)
+                    if pace_wait > 0:
+                        if deadline_monotonic is not None:
+                            pace_wait = min(
+                                pace_wait,
+                                max(0.0, self._remaining_seconds(deadline_monotonic)),
+                            )
+                        if pace_wait > 0:
+                            await asyncio.sleep(pace_wait)
+
+                last_request_started = time.monotonic()
+                try:
+                    response = await asyncio.wait_for(
+                        client.indexer.markets.get_perpetual_market_candles(
+                            market=market,
+                            resolution=resolution,
+                            from_iso=self._to_iso(cursor),
+                            to_iso=self._to_iso(window_end),
+                            limit=max_candles,
+                        ),
+                        timeout=request_timeout,
+                    )
+                    break
+                except (asyncio.TimeoutError, httpx.HTTPError) as exc:
+                    last_error = exc
+                    if attempt >= max_retries - 1:
+                        break
+
+                    wait = self._history_retry_delay_seconds(attempt, exc)
+                    if deadline_monotonic is not None:
+                        wait = min(
+                            wait,
+                            max(0.0, self._remaining_seconds(deadline_monotonic)),
+                        )
+
+                    logger.warning(
+                        "Candle fetch transient failure for %s window %s→%s "
+                        "(attempt %d/%d), retrying in %.2fs: %s",
+                        market,
+                        self._to_iso(cursor),
+                        self._to_iso(window_end),
+                        attempt + 1,
+                        max_retries,
+                        wait,
+                        self._describe_exception(exc),
+                    )
+
+                    window_retries += 1
+                    window_backoff_seconds += max(0.0, wait)
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+
+            if history_telemetry is not None:
+                market_telemetry = history_telemetry.setdefault(
+                    market,
+                    {
+                        "windows": 0,
+                        "attempts": 0,
+                        "retries": 0,
+                        "failed_windows": 0,
+                        "timeout_errors": 0,
+                        "http_errors": 0,
+                        "backoff_seconds": 0.0,
+                        "max_attempts_per_window": 0,
+                        "recent_failures": [],
+                    },
                 )
-            except asyncio.TimeoutError as exc:
+                market_telemetry["attempts"] = int(
+                    market_telemetry.get("attempts") or 0
+                ) + int(window_attempts)
+                market_telemetry["retries"] = int(
+                    market_telemetry.get("retries") or 0
+                ) + int(window_retries)
+                market_telemetry["backoff_seconds"] = float(
+                    market_telemetry.get("backoff_seconds") or 0.0
+                ) + float(window_backoff_seconds)
+                market_telemetry["max_attempts_per_window"] = max(
+                    int(market_telemetry.get("max_attempts_per_window") or 0),
+                    int(window_attempts),
+                )
+
+            if response is None:
+                if history_telemetry is not None:
+                    market_telemetry = history_telemetry.get(market)
+                    if market_telemetry is not None:
+                        market_telemetry["failed_windows"] = (
+                            int(market_telemetry.get("failed_windows") or 0) + 1
+                        )
+                        if isinstance(last_error, asyncio.TimeoutError):
+                            market_telemetry["timeout_errors"] = (
+                                int(market_telemetry.get("timeout_errors") or 0) + 1
+                            )
+                        elif isinstance(last_error, httpx.HTTPError):
+                            market_telemetry["http_errors"] = (
+                                int(market_telemetry.get("http_errors") or 0) + 1
+                            )
+
+                        failures = list(market_telemetry.get("recent_failures") or [])
+                        failures.append(
+                            {
+                                "window_from": self._to_iso(cursor),
+                                "window_to": self._to_iso(window_end),
+                                "error": (
+                                    self._describe_exception(last_error)
+                                    if last_error is not None
+                                    else "unknown transport failure"
+                                ),
+                            }
+                        )
+                        limit = self._env_positive_int(
+                            "BACKTEST_HISTORY_TELEMETRY_RECENT_FAILURES_LIMIT",
+                            self._HISTORY_TELEMETRY_RECENT_FAILURES_LIMIT,
+                        )
+                        market_telemetry["recent_failures"] = failures[-limit:]
+
+                error_summary = (
+                    self._describe_exception(last_error)
+                    if last_error is not None
+                    else "unknown transport failure"
+                )
                 raise TimeoutError(
-                    f"Backtest timed out loading {market} candles "
-                    f"for {self._to_iso(cursor)} to {self._to_iso(window_end)}"
-                ) from exc
+                    f"Candle fetch failed for {market} after {max_retries} attempts "
+                    f"for {self._to_iso(cursor)} to {self._to_iso(window_end)}: {error_summary}"
+                ) from last_error
+
+            if history_telemetry is not None:
+                market_telemetry = history_telemetry.get(market)
+                if market_telemetry is not None:
+                    market_telemetry["windows"] = (
+                        int(market_telemetry.get("windows") or 0) + 1
+                    )
 
             if not isinstance(response, dict):
                 response = {}
@@ -1153,8 +1806,8 @@ class BacktestService:
 
     @staticmethod
     def _align_series(
-            market_1: Dict[str, float],
-            market_2: Dict[str, float],
+        market_1: Dict[str, float],
+        market_2: Dict[str, float],
     ) -> tuple[list[str], np.ndarray, np.ndarray]:
         common = sorted(set(market_1.keys()) & set(market_2.keys()))
         p1 = np.array([market_1[k] for k in common], dtype=np.float64)
@@ -1175,7 +1828,7 @@ class BacktestService:
 
     @staticmethod
     def _compute_max_drawdown_pct(
-            daily_pnl: List[float], initial_balance: float
+        daily_pnl: List[float], initial_balance: float
     ) -> float:
         equity = initial_balance
         peak = equity
@@ -1190,9 +1843,9 @@ class BacktestService:
 
     @staticmethod
     def _build_daily_pnl_rows(
-            daily_pnl_agg: Dict[str, float],
-            all_trades: List[Dict[str, Any]],
-            resolution: str,
+        daily_pnl_agg: Dict[str, float],
+        all_trades: List[Dict[str, Any]],
+        resolution: str,
     ) -> List[Dict[str, Any]]:
         return [
             {
@@ -1278,9 +1931,9 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs_by_liquidity(
-            cls,
-            pair_markets: List[tuple[str, str]],
-            market_map: Dict[str, Any],
+        cls,
+        pair_markets: List[tuple[str, str]],
+        market_map: Dict[str, Any],
     ) -> List[tuple[str, str]]:
         """Sort pairs by combined market liquidity descending, preserving stable order for ties."""
         if not pair_markets or not market_map:
@@ -1311,9 +1964,9 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs_by_volatility(
-            cls,
-            pair_markets: List[tuple[str, str]],
-            history_by_market: Dict[str, Dict[str, float]],
+        cls,
+        pair_markets: List[tuple[str, str]],
+        history_by_market: Dict[str, Dict[str, float]],
     ) -> List[tuple[str, str]]:
         if not pair_markets or not history_by_market:
             return pair_markets
@@ -1331,10 +1984,10 @@ class BacktestService:
 
     @classmethod
     def _pair_cointegration_score(
-            cls,
-            market_a: str,
-            market_b: str,
-            history_by_market: Dict[str, Dict[str, float]],
+        cls,
+        market_a: str,
+        market_b: str,
+        history_by_market: Dict[str, Dict[str, float]],
     ) -> float:
         h1 = history_by_market.get(market_a, {})
         h2 = history_by_market.get(market_b, {})
@@ -1427,9 +2080,9 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs_by_cointegration(
-            cls,
-            pair_markets: List[tuple[str, str]],
-            history_by_market: Dict[str, Dict[str, float]],
+        cls,
+        pair_markets: List[tuple[str, str]],
+        history_by_market: Dict[str, Dict[str, float]],
     ) -> List[tuple[str, str]]:
         if not pair_markets or not history_by_market:
             return pair_markets
@@ -1441,11 +2094,11 @@ class BacktestService:
 
     @classmethod
     def _prioritize_pairs(
-            cls,
-            pair_markets: List[tuple[str, str]],
-            mode: str,
-            market_map: Dict[str, Any],
-            history_by_market: Dict[str, Dict[str, float]],
+        cls,
+        pair_markets: List[tuple[str, str]],
+        mode: str,
+        market_map: Dict[str, Any],
+        history_by_market: Dict[str, Dict[str, float]],
     ) -> List[tuple[str, str]]:
         normalized_mode = cls._normalize_pair_selection_mode(mode)
         if normalized_mode == "input":
@@ -1458,16 +2111,16 @@ class BacktestService:
             )
         return cls._prioritize_pairs_by_liquidity(pair_markets, market_map)
 
-    def _simulate_pair(
-            self,
-            run_id: str,
-            market_a: str,
-            market_b: str,
-            timestamps: List[str],
-            prices_a: np.ndarray,
-            prices_b: np.ndarray,
-            params: Dict[str, Any],
-            trade_index_offset: int,
+    async def _simulate_pair(
+        self,
+        run_id: str,
+        market_a: str,
+        market_b: str,
+        timestamps: List[str],
+        prices_a: np.ndarray,
+        prices_b: np.ndarray,
+        params: Dict[str, Any],
+        trade_index_offset: int,
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, float]]:
         stats_window = max(5, int(params.get("stats_window", 21) or 21))
         entry_z = float(params.get("zscore_threshold", 1.5) or 1.5)
@@ -1493,8 +2146,16 @@ class BacktestService:
 
         open_pos: Optional[Dict[str, Any]] = None
 
+        yield_every_steps = self._env_positive_int(
+            "BACKTEST_SIMULATION_YIELD_EVERY_STEPS",
+            self._SIMULATION_YIELD_EVERY_STEPS,
+        )
+
         for idx in range(stats_window, len(spread)):
-            window = spread[idx - stats_window: idx]
+            if idx % yield_every_steps == 0:
+                await asyncio.sleep(0)
+
+            window = spread[idx - stats_window : idx]
             mean = float(np.mean(window))
             std = float(np.std(window))
             if std <= 1e-12:
@@ -1605,29 +2266,46 @@ class BacktestService:
         return trades, snapshots, daily_pnl
 
     async def _execute_backtest(
-            self,
-            run_id: str,
-            request_payload: Dict[str, Any],
-            progress_callback: Any,
+        self,
+        run_id: str,
+        request_payload: Dict[str, Any],
+        progress_callback: Any,
     ) -> None:
         run_data = self._load_run_data(run_id)
         if not run_data:
             return
 
         client = None
+        history_fetch_telemetry: Dict[str, Dict[str, Any]] = {}
         try:
             timeout_seconds = float(
                 run_data.get("timeout_seconds")
                 or self._parse_timeout_seconds(request_payload)
             )
+            request_payload = self._clear_task_failure(request_payload)
+            pair_markets, selected_pair_labels, explicit_pair_selection = (
+                self._pair_markets_from_request(request_payload)
+            )
+            request_payload = self._set_task_context(
+                request_payload,
+                self._build_task_context(
+                    request_payload,
+                    selected_pairs=selected_pair_labels,
+                ),
+            )
             deadline_monotonic = time.monotonic() + timeout_seconds
             started_at = datetime.now(timezone.utc)
             deadline_at = started_at + timedelta(seconds=timeout_seconds)
             run_data["status"] = "running"
-            run_data["started_at"] = run_data.get("started_at") or started_at.isoformat()
+            run_data["request"] = request_payload
+            run_data["started_at"] = (
+                run_data.get("started_at") or started_at.isoformat()
+            )
             run_data["deadline_at"] = deadline_at.isoformat()
             run_data["timeout_seconds"] = timeout_seconds
-            worker_backend = str(run_data.get("worker_backend") or self._configured_worker_backend())
+            worker_backend = str(
+                run_data.get("worker_backend") or self._configured_worker_backend()
+            )
             run_data["worker_backend"] = worker_backend
             run_data = self._set_runtime_control(
                 run_data,
@@ -1645,9 +2323,16 @@ class BacktestService:
             async_job_manager.mark_running(run_id)
 
             params = request_payload.get("trading_parameters") or {}
-            pairs_raw = request_payload.get("pairs") or []
-            if len(pairs_raw) < 2:
-                raise ValueError("Backtest requires at least two markets in 'pairs'")
+            if request_payload.get("strategy_id") is not None and not isinstance(
+                request_payload.get("strategy_payload_snapshot"), dict
+            ):
+                raise ValueError(
+                    "STRATEGY_PAYLOAD_MISSING: strategy-linked backtest requires strategy_payload_snapshot"
+                )
+            if len(selected_pair_labels) == 0:
+                raise ValueError(
+                    "SELECTED_PAIRS_MISSING: at least two selected pairs are required"
+                )
 
             start_dt = self._parse_date(str(request_payload.get("start_date")))
             end_dt = self._parse_date(
@@ -1656,7 +2341,9 @@ class BacktestService:
             if end_dt <= start_dt:
                 raise ValueError("end_date must be after start_date")
 
-            resolution = self._normalize_resolution(params.get("resolution", "1HOUR") or "1HOUR")
+            resolution = self._normalize_resolution(
+                params.get("resolution", "1HOUR") or "1HOUR"
+            )
             initial_balance = float(
                 request_payload.get("initial_balance", 10000.0) or 10000.0
             )
@@ -1666,10 +2353,6 @@ class BacktestService:
                     params.get("pair_selection_mode", "liquidity"),
                 )
             )
-
-            # Build all unique pair combinations.
-            # Example: [BTC, ETH, SOL] -> (BTC, ETH), (BTC, SOL), (ETH, SOL)
-            pair_markets = self._build_market_pairs([str(m) for m in pairs_raw])
 
             max_pairs: Optional[int] = None
             max_pairs_raw = request_payload.get("max_pairs", None)
@@ -1726,6 +2409,7 @@ class BacktestService:
                                 end_dt=end_dt,
                                 resolution=resolution,
                                 deadline_monotonic=deadline_monotonic,
+                                history_telemetry=history_fetch_telemetry,
                             ),
                             deadline_monotonic,
                             f"loading history for {market}",
@@ -1735,20 +2419,30 @@ class BacktestService:
                     except Exception:
                         market_history_cache[market] = {}
 
-            pair_markets = self._prioritize_pairs(
-                pair_markets=pair_markets,
-                mode=pair_selection_mode,
-                market_map=market_map,
-                history_by_market=market_history_cache,
-            )
+            if not explicit_pair_selection:
+                pair_markets = self._prioritize_pairs(
+                    pair_markets=pair_markets,
+                    mode=pair_selection_mode,
+                    market_map=market_map,
+                    history_by_market=market_history_cache,
+                )
 
-            if max_pairs is not None:
-                pair_markets = pair_markets[:max_pairs]
+                if max_pairs is not None:
+                    pair_markets = pair_markets[:max_pairs]
 
             total_pairs = len(pair_markets)
             all_trades: List[Dict[str, Any]] = []
             all_snapshots: List[Dict[str, Any]] = []
             daily_pnl_agg: Dict[str, float] = {}
+            heavy_every_pairs = self._env_positive_int(
+                "BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS",
+                self._HEAVY_PROGRESS_PERSIST_EVERY_PAIRS,
+            )
+            heavy_every_seconds = self._env_positive_float(
+                "BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_SECONDS",
+                self._HEAVY_PROGRESS_PERSIST_EVERY_SECONDS,
+            )
+            last_heavy_persist_at = time.monotonic()
 
             for idx, (m1, m2) in enumerate(pair_markets):
                 if self._remaining_seconds(deadline_monotonic) <= 0:
@@ -1810,6 +2504,7 @@ class BacktestService:
                             end_dt=end_dt,
                             resolution=resolution,
                             deadline_monotonic=deadline_monotonic,
+                            history_telemetry=history_fetch_telemetry,
                         ),
                         deadline_monotonic,
                         f"loading history for {m1}",
@@ -1830,6 +2525,7 @@ class BacktestService:
                             end_dt=end_dt,
                             resolution=resolution,
                             deadline_monotonic=deadline_monotonic,
+                            history_telemetry=history_fetch_telemetry,
                         ),
                         deadline_monotonic,
                         f"loading history for {m2}",
@@ -1837,7 +2533,7 @@ class BacktestService:
                     market_history_cache[m2] = candles_2
 
                 timestamps, p1, p2 = self._align_series(candles_1, candles_2)
-                trades, snapshots, daily_pnl = self._simulate_pair(
+                trades, snapshots, daily_pnl = await self._simulate_pair(
                     run_id=run_id,
                     market_a=m1,
                     market_b=m2,
@@ -1888,15 +2584,30 @@ class BacktestService:
                         "sharpe_ratio": round(running_sharpe_ratio, 4),
                         "max_drawdown_pct": round(running_max_drawdown_pct, 4),
                         "profit_factor": round(float(running_profit_factor), 4),
-                        "trades": list(all_trades),
-                        "position_snapshots": list(all_snapshots),
-                        "daily_pnl": self._build_daily_pnl_rows(
-                            daily_pnl_agg=daily_pnl_agg,
-                            all_trades=all_trades,
-                            resolution=resolution,
-                        ),
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
+                )
+
+                now_monotonic = time.monotonic()
+                should_persist_heavy = (
+                    idx == 0
+                    or (idx + 1) >= total_pairs
+                    or ((idx + 1) % heavy_every_pairs == 0)
+                    or (now_monotonic - last_heavy_persist_at) >= heavy_every_seconds
+                )
+                if should_persist_heavy:
+                    run_data["trades"] = list(all_trades)
+                    run_data["position_snapshots"] = list(all_snapshots)
+                    run_data["daily_pnl"] = self._build_daily_pnl_rows(
+                        daily_pnl_agg=daily_pnl_agg,
+                        all_trades=all_trades,
+                        resolution=resolution,
+                    )
+                    last_heavy_persist_at = now_monotonic
+
+                run_data = self._attach_history_fetch_summary(
+                    run_data,
+                    history_fetch_telemetry,
                 )
                 run_data = self._persist_run_data(run_data)
 
@@ -1949,6 +2660,13 @@ class BacktestService:
                     "updated_at": finished_at,
                 }
             )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
+            )
+            run_data["request"] = self._clear_task_failure(
+                dict(run_data.get("request") or {})
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="completed",
@@ -1987,6 +2705,15 @@ class BacktestService:
                     )
 
         except asyncio.CancelledError:
+            failure_payload = {
+                "error_code": "BACKTEST_CANCELLED",
+                "error_message": "Backtest cancelled",
+                "traceback": None,
+            }
+            run_data["request"] = self._set_task_failure(
+                dict(run_data.get("request") or {}),
+                failure_payload,
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="cancelled",
@@ -2011,10 +2738,25 @@ class BacktestService:
                     "updated_at": finished_at,
                 }
             )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
+            )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
         except TimeoutError as exc:
             error_message = str(exc) or "Backtest timed out"
+            failure_payload = {
+                "error_code": self._error_code_from_message(
+                    error_message, "BACKTEST_TIMEOUT"
+                ),
+                "error_message": error_message,
+                "traceback": traceback_module.format_exc(),
+            }
+            run_data["request"] = self._set_task_failure(
+                dict(run_data.get("request") or {}),
+                failure_payload,
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="timeout",
@@ -2037,10 +2779,25 @@ class BacktestService:
                     "updated_at": finished_at,
                 }
             )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
+            )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
         except Exception as exc:
             error_message = str(exc)
+            failure_payload = {
+                "error_code": self._error_code_from_message(
+                    error_message, "BACKTEST_EXECUTION_FAILED"
+                ),
+                "error_message": error_message,
+                "traceback": traceback_module.format_exc(),
+            }
+            run_data["request"] = self._set_task_failure(
+                dict(run_data.get("request") or {}),
+                failure_payload,
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="failed",
@@ -2063,6 +2820,10 @@ class BacktestService:
                     "updated_at": finished_at,
                 }
             )
+            run_data = self._attach_history_fetch_summary(
+                run_data,
+                history_fetch_telemetry,
+            )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
         finally:
@@ -2074,14 +2835,19 @@ class BacktestService:
                     pass
 
     async def create_and_run_backtest(
-            self,
-            request: Any,
-            progress_callback: Any = None,
+        self,
+        request: Any,
+        progress_callback: Any = None,
     ) -> _BacktestRunDetails:
         """Create a backtest run and execute asynchronously using historical market data."""
         now = datetime.now(timezone.utc).isoformat()
         run_id = f"run-{uuid4().hex[:12]}"
         request_payload = self._extract_request_payload(request)
+        request_payload = self._clear_task_failure(request_payload)
+        request_payload = self._set_task_context(
+            request_payload,
+            self._build_task_context(request_payload),
+        )
 
         start_date = getattr(request, "start_date", None) or request_payload.get(
             "start_date", ""
@@ -2090,9 +2856,9 @@ class BacktestService:
             "end_date", ""
         )
         name = (
-                getattr(request, "name", None)
-                or request_payload.get("name")
-                or "unnamed-backtest"
+            getattr(request, "name", None)
+            or request_payload.get("name")
+            or "unnamed-backtest"
         )
 
         run_data: Dict[str, Any] = {
@@ -2146,24 +2912,48 @@ class BacktestService:
         run_data = self._persist_run_data(run_data)
 
         if worker_backend == "celery":
-            task_id = self._enqueue_celery_backtest(run_id)
-            run_data = self._set_runtime_control(
-                run_data,
-                status="pending",
-                action="enqueue",
-                pause_requested=False,
-                resume_requested=False,
-                cancel_requested=False,
-                worker_backend="celery",
-                worker_task_id=task_id,
-            )
-            run_data["status"] = "pending"
-            run_data["current_task"] = "queued"
-            run_data["worker_backend"] = "celery"
-            run_data["worker_task_id"] = task_id
-            run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-            run_data = self._persist_run_data(run_data)
-            return _BacktestRunDetails(**self._resolve_stale_run_data(run_data))
+            try:
+                task_id = self._enqueue_celery_backtest(
+                    run_id,
+                    self._build_task_context(request_payload),
+                )
+                run_data = self._set_runtime_control(
+                    run_data,
+                    status="pending",
+                    action="enqueue",
+                    pause_requested=False,
+                    resume_requested=False,
+                    cancel_requested=False,
+                    worker_backend="celery",
+                    worker_task_id=task_id,
+                )
+                run_data["status"] = "pending"
+                run_data["current_task"] = "queued"
+                run_data["worker_backend"] = "celery"
+                run_data["worker_task_id"] = task_id
+                run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                run_data = self._persist_run_data(run_data)
+                return _BacktestRunDetails(**self._resolve_stale_run_data(run_data))
+            except Exception as exc:
+                logger.warning(
+                    "Celery enqueue failed for run %s; falling back to asyncio backend: %s",
+                    run_id,
+                    exc,
+                )
+                run_data["worker_backend"] = "asyncio"
+                run_data["worker_task_id"] = run_id
+                run_data = self._set_runtime_control(
+                    run_data,
+                    status="pending",
+                    action="enqueue_fallback_asyncio",
+                    pause_requested=False,
+                    resume_requested=False,
+                    cancel_requested=False,
+                    worker_backend="asyncio",
+                    worker_task_id=run_id,
+                )
+                run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                run_data = self._persist_run_data(run_data)
 
         task = async_job_manager.create_supervised_task(
             self._execute_backtest(
@@ -2210,11 +3000,11 @@ class BacktestService:
             )
 
     def list_backtest_runs(
-            self,
-            limit: int = 50,
-            offset: int = 0,
-            status_filter: Optional[str] = None,
-            days_filter: Optional[int] = None,
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: Optional[str] = None,
+        days_filter: Optional[int] = None,
     ) -> _BacktestRunList:
         runs = self.repository.list_runs(
             limit=limit,
@@ -2240,6 +3030,14 @@ class BacktestService:
         if not data:
             return None
         data = self._resolve_stale_run_data(data)
+        request_payload = self._strip_runtime_control(data.get("request") or {})
+        has_request_payload = bool(request_payload)
+        timeout_value = data.get("timeout_seconds")
+        heartbeat_age_value = data.get("heartbeat_age_seconds")
+        strategy_id_value = data.get("strategy_id")
+        retry_count_value = data.get("retry_count")
+        metadata_value = data.get("metadata")
+        metadata = metadata_value if isinstance(metadata_value, dict) else {}
         return _BacktestRunStatus(
             run_id=run_id,
             status=str(data.get("status", "unknown")),
@@ -2271,9 +3069,7 @@ class BacktestService:
                 else None
             ),
             timeout_seconds=(
-                float(data.get("timeout_seconds"))
-                if data.get("timeout_seconds") is not None
-                else None
+                float(timeout_value) if timeout_value is not None else None
             ),
             last_heartbeat_at=(
                 str(data.get("last_heartbeat_at"))
@@ -2281,9 +3077,7 @@ class BacktestService:
                 else None
             ),
             heartbeat_age_seconds=(
-                float(data.get("heartbeat_age_seconds"))
-                if data.get("heartbeat_age_seconds") is not None
-                else None
+                float(heartbeat_age_value) if heartbeat_age_value is not None else None
             ),
             cancellable=bool(data.get("cancellable", False)),
             pausable=bool(data.get("pausable", False)),
@@ -2309,6 +3103,8 @@ class BacktestService:
                 if data.get("worker_task_id") is not None
                 else None
             ),
+            request=request_payload if has_request_payload else None,
+            request_available=has_request_payload,
             current_pair=(
                 str(data.get("current_pair"))
                 if data.get("current_pair") is not None
@@ -2325,14 +3121,43 @@ class BacktestService:
                 if data.get("error_message") is not None
                 else None
             ),
+            error_code=(
+                str(data.get("error_code"))
+                if data.get("error_code") is not None
+                else None
+            ),
+            traceback=(
+                str(data.get("traceback"))
+                if data.get("traceback") is not None
+                else None
+            ),
+            strategy_id=(
+                int(strategy_id_value) if strategy_id_value is not None else None
+            ),
+            bot_id=(
+                str(data.get("bot_id")) if data.get("bot_id") is not None else None
+            ),
+            source=(
+                str(data.get("source")) if data.get("source") is not None else None
+            ),
+            selected_pairs=list(data.get("selected_pairs") or []),
+            metadata=metadata,
+            worker_hostname=(
+                str(data.get("worker_hostname"))
+                if data.get("worker_hostname") is not None
+                else None
+            ),
+            retry_count=(
+                int(retry_count_value) if retry_count_value is not None else None
+            ),
         )
 
     def get_backtest_trades(
-            self,
-            run_id: str,
-            limit: int = 100,
-            offset: int = 0,
-            winning_only: bool = False,
+        self,
+        run_id: str,
+        limit: int = 100,
+        offset: int = 0,
+        winning_only: bool = False,
     ) -> List[_BacktestTrade]:
         """Return trades captured during backtest execution."""
         data = self._load_run_data(run_id)
@@ -2348,7 +3173,7 @@ class BacktestService:
                     continue
             if winning_only:
                 converted = [t for t in converted if t.win]
-            return converted[offset: offset + limit]
+            return converted[offset : offset + limit]
 
         # Backward-compatible fallback for legacy in-memory runs
         total_trades = max(1, int(data.get("total_trades", 0)))
@@ -2398,7 +3223,7 @@ class BacktestService:
                     market_2=pair[1],
                     entry_timestamp=entry_day.isoformat() + "T00:00:00Z",
                     exit_timestamp=(entry_day + timedelta(hours=dur)).isoformat()
-                                   + "T06:00:00Z",
+                    + "T06:00:00Z",
                     entry_zscore=round(rng.uniform(1.5, 2.5), 3),
                     exit_zscore=round(rng.uniform(-0.5, 0.5), 3),
                     entry_price_m1=round(ep1, 2),
@@ -2414,7 +3239,7 @@ class BacktestService:
             )
         if winning_only:
             trades = [t for t in trades if t.win]
-        return trades[offset: offset + limit]
+        return trades[offset : offset + limit]
 
     def pause_backtest(self, run_id: str) -> Optional[Dict[str, Any]]:
         data = self._load_run_data(run_id)
@@ -2468,9 +3293,9 @@ class BacktestService:
         return self._resolve_stale_run_data(self._persist_run_data(data))
 
     async def restart_backtest(
-            self,
-            run_id: str,
-            progress_callback: Any = None,
+        self,
+        run_id: str,
+        progress_callback: Any = None,
     ) -> Optional[Dict[str, Any]]:
         data = self._load_run_data(run_id)
         if not data:
@@ -2488,13 +3313,14 @@ class BacktestService:
             "new_run_id": created.run_id,
             "status": "restarted",
             "new_status": created.status,
-            "worker_backend": created.worker_backend or self._configured_worker_backend(),
+            "worker_backend": created.worker_backend
+            or self._configured_worker_backend(),
         }
 
     async def retry_backtest(
-            self,
-            run_id: str,
-            progress_callback: Any = None,
+        self,
+        run_id: str,
+        progress_callback: Any = None,
     ) -> Optional[Dict[str, Any]]:
         return await self.restart_backtest(run_id, progress_callback)
 
@@ -2545,8 +3371,8 @@ class BacktestService:
             "total_runs": len(runs),
             "completed_runs": len(completed),
             "avg_sharpe": (
-                    sum(float(r.get("sharpe_ratio", 0.0)) for r in completed)
-                    / max(1, len(completed))
+                sum(float(r.get("sharpe_ratio", 0.0)) for r in completed)
+                / max(1, len(completed))
             ),
         }
 
@@ -2558,7 +3384,9 @@ class BacktestService:
         ]
         active_statuses = {"pending", "running", "paused"}
         queued_or_running = [
-            r for r in runs if self._canonical_status(r.get("status")) in active_statuses
+            r
+            for r in runs
+            if self._canonical_status(r.get("status")) in active_statuses
         ]
         health: Dict[str, Any] = {
             "queue_depth": len(queued_or_running),
@@ -2587,9 +3415,9 @@ class BacktestService:
         }
 
     def get_advanced_performance_metrics(
-            self,
-            run_id: str,
-            benchmark: str = "BTC-USD",
+        self,
+        run_id: str,
+        benchmark: str = "BTC-USD",
     ) -> Optional[Dict[str, Any]]:
         data = self._load_run_data(run_id)
         if not data:
@@ -2637,9 +3465,9 @@ class BacktestService:
         }
 
     def compare_backtests(
-            self,
-            run_ids: List[str],
-            metrics: Optional[List[str]] = None,
+        self,
+        run_ids: List[str],
+        metrics: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Compare selected backtest runs across requested metrics."""
         metric_keys = metrics or [
@@ -2680,10 +3508,7 @@ class BacktestService:
                     "created_at": run.get("created_at"),
                     "start_date": run.get("start_date"),
                     "end_date": run.get("end_date"),
-                    "metrics": {
-                        key: run.get(key)
-                        for key in metric_keys
-                    },
+                    "metrics": {key: run.get(key) for key in metric_keys},
                 }
             )
 
@@ -2701,8 +3526,16 @@ class BacktestService:
             if not numeric_values:
                 continue
 
-            best = min(numeric_values) if key == "max_drawdown_pct" else max(numeric_values)
-            worst = max(numeric_values) if key == "max_drawdown_pct" else min(numeric_values)
+            best = (
+                min(numeric_values)
+                if key == "max_drawdown_pct"
+                else max(numeric_values)
+            )
+            worst = (
+                max(numeric_values)
+                if key == "max_drawdown_pct"
+                else min(numeric_values)
+            )
             avg = sum(numeric_values) / len(numeric_values)
 
             summary[key] = {
@@ -2797,11 +3630,11 @@ class BacktestService:
         }
 
     def get_position_snapshots(
-            self,
-            run_id: str,
-            limit: int = 100,
-            offset: int = 0,
-            market_pair: Optional[str] = None,
+        self,
+        run_id: str,
+        limit: int = 100,
+        offset: int = 0,
+        market_pair: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return position snapshots captured during the run."""
         data = self._load_run_data(run_id)
@@ -2819,7 +3652,7 @@ class BacktestService:
                         for p in s.get("positions", [])
                     )
                 ]
-            return snapshots[offset: offset + limit]
+            return snapshots[offset : offset + limit]
 
         # Backward-compatible fallback for legacy in-memory runs
         total_trades = max(1, int(data.get("total_trades", 0)))
@@ -2882,4 +3715,4 @@ class BacktestService:
                     ],
                 }
             )
-        return snapshots[offset: offset + limit]
+        return snapshots[offset : offset + limit]

@@ -14,9 +14,15 @@ describe('normalizeBacktestPayload', () => {
     });
 
     expect(payload.pairs).toEqual(['BTC-USD', 'ETH-USD', 'SOL-USD']);
+    expect(payload.selected_pairs).toEqual([
+      'BTC-USD/ETH-USD',
+      'BTC-USD/SOL-USD',
+      'ETH-USD/SOL-USD',
+    ]);
     expect(payload.max_pairs).toBe(7);
     expect(payload.pair_selection_mode).toBe('cointegration');
     expect(payload.trading_parameters?.pair_selection_mode).toBe('cointegration');
+    expect(payload.source).toBe('ui');
   });
 
   it('infers max_pairs from deduped pairs only when explicit value is missing/invalid', () => {
@@ -54,5 +60,32 @@ describe('normalizeBacktestPayload', () => {
     expect(payload.trading_parameters?.pair_selection_mode).toBeUndefined();
     expect(payload.trading_parameters?.resolution).toBe('4HOURS');
     expect(payload.trading_parameters?.candle_resolution).toBe('4HOURS');
+    expect(payload.selected_pairs).toEqual(['BTC-USD/ETH-USD']);
+  });
+
+  it('derives market universe from explicit selected_pairs when pairs are omitted', () => {
+    const payload = normalizeBacktestPayload({
+      start_date: '2026-03-01',
+      end_date: '2026-03-31',
+      strategy_id: 12,
+      selected_pairs: ['BTC-USD/ETH-USD', 'ETH-USD/SOL-USD'],
+      source: 'backtest-rerun',
+      trading_parameters: {},
+    });
+
+    expect(payload.pairs).toEqual(['BTC-USD', 'ETH-USD', 'SOL-USD']);
+    expect(payload.selected_pairs).toEqual(['BTC-USD/ETH-USD', 'ETH-USD/SOL-USD']);
+    expect(payload.source).toBe('backtest-rerun');
+  });
+
+  it('rejects backtest payloads without selected markets or selected_pairs', () => {
+    expect(() =>
+      normalizeBacktestPayload({
+        start_date: '2026-03-01',
+        end_date: '2026-03-31',
+        strategy_id: 12,
+        trading_parameters: {},
+      })
+    ).toThrow('Backtest payload requires at least two selected markets');
   });
 });

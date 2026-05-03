@@ -5,6 +5,7 @@ import api, {
     type AIBacktestSummary,
     type AIMarketProvider,
     type AISuggestParamsRequest,
+    toAIBacktestSummary,
 } from '../api';
 import { useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
@@ -14,7 +15,9 @@ interface Props {
   lastError?: string;
   recentBacktests?: AIBacktestSummary[];
   defaultProvider?: AIMarketProvider;
-  onApplyParams?: (params: Partial<Strategy>) => Promise<void> | void;
+  onApplyParams?: (
+    params: Partial<Strategy>
+  ) => Promise<Array<keyof Strategy> | void> | Array<keyof Strategy> | void;
 }
 
 interface ParsedSuggestion {
@@ -28,6 +31,22 @@ interface PendingApplyPreview {
   patch: Partial<Strategy>;
 }
 
+const suggestionCountOptions = [3, 5, 6, 8] as const;
+const SUGGESTION_COUNT_PREFERENCE_KEY = 'ai-advisor-max-suggestions';
+
+const loadPreferredSuggestionCount = (): number => {
+  if (typeof window === 'undefined') {
+    return 8;
+  }
+
+  const stored = Number(window.localStorage.getItem(SUGGESTION_COUNT_PREFERENCE_KEY));
+  if (suggestionCountOptions.includes(stored as (typeof suggestionCountOptions)[number])) {
+    return stored;
+  }
+
+  return 8;
+};
+
 export function AIStrategyAdvisor({
   strategy,
   lastError = '',
@@ -38,12 +57,14 @@ export function AIStrategyAdvisor({
   const [provider, setProvider] = useState<AIMarketProvider>(defaultProvider);
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState<string | null>(null);
+  const [maxSuggestions, setMaxSuggestions] = useState<number>(loadPreferredSuggestionCount);
   const [usedAI, setUsedAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [applyLoading, setApplyLoading] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [pendingApplyPreview, setPendingApplyPreview] = useState<PendingApplyPreview | null>(null);
+  const [appliedKeys, setAppliedKeys] = useState<Set<keyof Strategy>>(new Set());
   const { availableProviders, isLoading: providerStatusLoading } = useAIProviderAvailability();
 
   const getEngineLabel = (_provider: AIMarketProvider, index: number): string =>
@@ -58,6 +79,14 @@ export function AIStrategyAdvisor({
       setProvider(availableProviders[0]);
     }
   }, [availableProviders, provider]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(SUGGESTION_COUNT_PREFERENCE_KEY, String(maxSuggestions));
+  }, [maxSuggestions]);
 
   useEffect(() => {
     if (!pendingApplyPreview) return;
@@ -197,14 +226,19 @@ export function AIStrategyAdvisor({
     return parsed;
   }, [content]);
 
+  const pendingSuggestions = useMemo(
+    () => parsedSuggestions.filter((s) => !appliedKeys.has(s.key)),
+    [parsedSuggestions, appliedKeys]
+  );
+
   const applyAllSuggestions = async () => {
-    if (!onApplyParams || parsedSuggestions.length === 0) return;
+    if (!onApplyParams || pendingSuggestions.length === 0) return;
     const patch: Partial<Strategy> = {};
-    parsedSuggestions.forEach((suggestion) => {
+    pendingSuggestions.forEach((suggestion) => {
       patch[suggestion.key] = suggestion.value as never;
     });
     setPendingApplyPreview({
-      items: parsedSuggestions,
+      items: pendingSuggestions,
       patch,
     });
   };
@@ -224,7 +258,21 @@ export function AIStrategyAdvisor({
     setApplyError(null);
     setApplyLoading(true);
     try {
-      await onApplyParams(pendingApplyPreview.patch);
+      const applyResult = await onApplyParams(pendingApplyPreview.patch);
+      const requestedKeys = pendingApplyPreview.items.map((i) => i.key);
+      const acknowledgedKeys = Array.isArray(applyResult)
+        ? applyResult.filter((key): key is keyof Strategy => requestedKeys.includes(key))
+        : requestedKeys;
+
+      if (acknowledgedKeys.length === 0) {
+        throw new Error('No suggestions were applied to editable strategy fields.');
+      }
+
+      setAppliedKeys((prev) => {
+        const next = new Set(prev);
+        acknowledgedKeys.forEach((k) => next.add(k));
+        return next;
+      });
       setPendingApplyPreview(null);
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : 'Failed to apply suggestions');
@@ -238,19 +286,48 @@ export function AIStrategyAdvisor({
     setError(null);
     setContent(null);
     setCollapsed(false);
+    setAppliedKeys(new Set());
+
+    let hydratedRecentBacktests = recentBacktests;
+    const strategyId = Number(strategy.id);
+    if (hydratedRecentBacktests.length === 0 && Number.isFinite(strategyId) && strategyId > 0) {
+      try {
+        const response = await api.listBacktestsByStrategy(strategyId, 5);
+        const items = Array.isArray(response.data?.backtests) ? response.data.backtests : [];
+        hydratedRecentBacktests = items
+          .map((b) => toAIBacktestSummary(b))
+          .filter((summary): summary is AIBacktestSummary => summary !== null);
+      } catch {
+        hydratedRecentBacktests = recentBacktests;
+      }
+    }
 
     // Build a compact current-params map from known Strategy fields
     const currentParams: Record<string, unknown> = {
+      category: strategy.category,
+      runtime_strategy: strategy.runtime_strategy,
+      runtime_network: strategy.runtime_network,
+      runtime_subaccount: strategy.runtime_subaccount,
+      pair_selection_mode: strategy.pair_selection_mode,
+      selected_markets: strategy.selected_markets,
       zscore_threshold: strategy.zscore_threshold,
-      usd_per_trade: strategy.usd_per_trade,
+      stats_window: strategy.stats_window,
       max_half_life: strategy.max_half_life,
-      min_half_life: strategy.min_half_life,
+      usd_per_trade: strategy.usd_per_trade,
+      usd_min_collateral: strategy.usd_min_collateral,
+      max_positions: strategy.max_positions,
+      max_drawdown_pct: strategy.max_drawdown_pct,
       stop_loss_pct: strategy.stop_loss_pct,
       take_profit_pct: strategy.take_profit_pct,
-      leverage: strategy.leverage,
+      trailing_stop_pct: strategy.trailing_stop_pct,
+      rebalance_interval_hours: strategy.rebalance_interval_hours,
+      position_timeout_hours: strategy.position_timeout_hours,
+      transaction_fee: strategy.transaction_fee,
+      slippage: strategy.slippage,
+      max_history_days: strategy.max_history_days,
+      risk_free_rate: strategy.risk_free_rate,
+      resolution: strategy.resolution,
       candle_resolution: strategy.candle_resolution,
-      market_1: strategy.market_1,
-      market_2: strategy.market_2,
     };
     // Remove undefined
     Object.keys(currentParams).forEach(
@@ -262,7 +339,8 @@ export function AIStrategyAdvisor({
       strategy_name: strategy.name,
       current_params: currentParams,
       last_error: lastError,
-      recent_backtests: recentBacktests,
+      recent_backtests: hydratedRecentBacktests,
+      max_suggestions: maxSuggestions,
     };
 
     try {
@@ -292,6 +370,20 @@ export function AIStrategyAdvisor({
         </div>
 
         <div className="flex items-center gap-2.5">
+          <select
+            value={maxSuggestions}
+            onChange={(e) => setMaxSuggestions(Number(e.target.value))}
+            disabled={loading}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
+            title="How many AI suggestions to request"
+          >
+            {suggestionCountOptions.map((count) => (
+              <option key={count} value={count}>
+                {count} suggestions
+              </option>
+            ))}
+          </select>
+
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
@@ -334,9 +426,10 @@ export function AIStrategyAdvisor({
       {/* Idle hint */}
       {!content && !loading && !error && (
         <p className="mt-3 text-xs text-slate-500">
-          Get 3 specific, numbered parameter adjustments for{' '}
+          Get up to {maxSuggestions} specific, numbered parameter adjustments for{' '}
           <span className="text-slate-300">{strategy.name}</span> based on its current config
           {recentBacktests.length > 0 ? ` and ${recentBacktests.length} recent backtest(s)` : ''}.
+          You can apply all at once or one-by-one.
         </p>
       )}
 
@@ -368,19 +461,25 @@ export function AIStrategyAdvisor({
             <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 px-3 py-2">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-medium text-emerald-200">
-                  Parsed {parsedSuggestions.length} editable suggestion
-                  {parsedSuggestions.length === 1 ? '' : 's'}
+                  {pendingSuggestions.length > 0
+                    ? `${pendingSuggestions.length} suggestion${pendingSuggestions.length === 1 ? '' : 's'} pending`
+                    : `All ${parsedSuggestions.length} suggestion${parsedSuggestions.length === 1 ? '' : 's'} applied ✓`}
                 </p>
-                <button
-                  onClick={() => void applyAllSuggestions()}
-                  disabled={applyLoading}
-                  className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-600/35 disabled:opacity-50"
-                >
-                  Review & Apply All
-                </button>
+                <p className="text-[11px] text-emerald-300/80">
+                  Apply all or use individual Apply buttons below.
+                </p>
+                {pendingSuggestions.length > 0 && (
+                  <button
+                    onClick={() => void applyAllSuggestions()}
+                    disabled={applyLoading}
+                    className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-600/35 disabled:opacity-50"
+                  >
+                    Review & Apply All
+                  </button>
+                )}
               </div>
               <div className="space-y-2">
-                {parsedSuggestions.map((item) => (
+                {pendingSuggestions.map((item) => (
                   <div
                     key={item.key}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-700/40 bg-slate-900/60 px-3 py-2 text-[11px] text-emerald-100"

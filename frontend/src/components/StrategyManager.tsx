@@ -14,7 +14,12 @@ import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'l
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
+import apiClient, {
+	type AIBacktestSummary,
+	DYDX_CANDLE_RESOLUTION_OPTIONS,
+	normalizeDydxCandleResolution,
+	toAIBacktestSummary,
+} from '../api';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
@@ -281,8 +286,32 @@ export default function StrategyManager() {
     new Map()
   );
   const [heartbeatTrend, setHeartbeatTrend] = useState<Map<number, number[]>>(new Map());
+  const [strategyBacktests, setStrategyBacktests] = useState<Map<number, AIBacktestSummary[]>>(
+    new Map()
+  );
 
   const compactCards = viewPreset === 'operator';
+
+  // Fetch recent completed backtests for a strategy the first time its card is focused
+  const ensureStrategyBacktests = (strategyId: number) => {
+    if (strategyBacktests.has(strategyId)) return;
+    apiClient
+      .listBacktestsByStrategy(strategyId, 5)
+      .then((resp) => {
+        const items = Array.isArray(resp.data?.backtests) ? resp.data.backtests : [];
+        const summaries: AIBacktestSummary[] = items
+          .map((b) => toAIBacktestSummary(b))
+          .filter((summary): summary is AIBacktestSummary => summary !== null);
+        setStrategyBacktests((prev) => {
+          const next = new Map(prev);
+          next.set(strategyId, summaries);
+          return next;
+        });
+      })
+      .catch(() => {
+        // silently ignore — advisor degrades gracefully with empty recent_backtests
+      });
+  };
 
   const recordSuccessfulAction = (
     strategyId: number,
@@ -805,12 +834,10 @@ export default function StrategyManager() {
     }
 
     if (!hasExplicitMarketSelection(startDialogReadiness)) {
-      const approved = window.confirm(
-        'No specific pairs are selected for this strategy. Clicking OK will launch using all active dYdX markets. Continue?'
+      setStartDialogError(
+        'Select at least two dYdX markets for this strategy before starting runtime.'
       );
-      if (!approved) {
-        return;
-      }
+      return;
     }
 
     setStartDialogSubmitting(true);
@@ -993,19 +1020,53 @@ export default function StrategyManager() {
   };
 
   const handleApplySuggestedParams = async (strategy: Strategy, params: Partial<Strategy>) => {
+    const editableKeys = new Set<keyof Strategy>([
+      'zscore_threshold',
+      'stats_window',
+      'max_half_life',
+      'usd_per_trade',
+      'usd_min_collateral',
+      'max_positions',
+      'max_drawdown_pct',
+      'stop_loss_pct',
+      'take_profit_pct',
+      'trailing_stop_pct',
+      'rebalance_interval_hours',
+      'position_timeout_hours',
+      'transaction_fee',
+      'slippage',
+      'max_history_days',
+      'risk_free_rate',
+      'resolution',
+      'candle_resolution',
+    ]);
+    const appliedKeys = (Object.keys(params) as Array<keyof Strategy>).filter((key) =>
+      editableKeys.has(key)
+    );
+    if (appliedKeys.length === 0) {
+      throw new Error('No editable strategy parameters were provided by AI suggestions.');
+    }
+
     const mergedConfig: Partial<Strategy> = {
       ...strategy,
       ...params,
     };
-    await apiClient.updateStrategy(strategy.id, buildStrategyUpdatePayload(mergedConfig));
-    await fetchStrategies();
-    showTransientMessage(
-      {
-        type: 'success',
-        text: `✅ Applied AI suggestions to "${strategy.name}"`,
-      },
-      4000
-    );
+    try {
+      await apiClient.updateStrategy(strategy.id, buildStrategyUpdatePayload(mergedConfig));
+      await fetchStrategies();
+      showTransientMessage(
+        {
+          type: 'success',
+          text: `✅ Applied AI suggestions to "${strategy.name}"`,
+        },
+        4000
+      );
+      return appliedKeys;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to apply AI suggestions';
+      showTransientMessage({ type: 'error', text: `❌ ${msg}` }, 6000);
+      throw err; // re-throw so AIStrategyAdvisor can show applyError
+    }
   };
 
   const handleEditConfig = (strategy: Strategy) => {
@@ -1041,6 +1102,16 @@ export default function StrategyManager() {
       const selectedMarkets = Array.isArray(strategy.selected_markets)
         ? strategy.selected_markets
         : [];
+      if (selectedMarkets.length < 2) {
+        showTransientMessage(
+          {
+            type: 'error',
+            text: 'Select at least two dYdX markets for this strategy before running a backtest.',
+          },
+          6000
+        );
+        return;
+      }
       const resolution = normalizeDydxCandleResolution(
         strategy.candle_resolution || strategy.resolution || '1HOUR'
       );
@@ -1579,7 +1650,10 @@ export default function StrategyManager() {
               <div
                 key={strategy.id}
                 tabIndex={0}
-                onFocus={() => setFocusedCardId(strategy.id)}
+                onFocus={() => {
+                  setFocusedCardId(strategy.id);
+                  ensureStrategyBacktests(strategy.id);
+                }}
                 onBlur={() => setFocusedCardId(null)}
                 onKeyDown={(event) => handleStrategyCardKeyDown(event, strategy, status)}
                 className={`premium-panel premium-panel-hover ${compactCards ? 'p-4' : 'p-6'} transition-all duration-300 focus:outline-none ${
@@ -2006,6 +2080,7 @@ export default function StrategyManager() {
                   <AIStrategyAdvisor
                     strategy={strategy}
                     lastError={status.lastError}
+                    recentBacktests={strategyBacktests.get(strategy.id) ?? []}
                     onApplyParams={(params) => handleApplySuggestedParams(strategy, params)}
                   />
                 </div>

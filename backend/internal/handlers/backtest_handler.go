@@ -51,9 +51,24 @@ func (h *BacktestHandler) ListBacktests(c *gin.Context) {
 		}
 	}
 
-	runs, err := h.repo.GetRunsByUserID(userID.(int), skip, limit)
+	var runs []models.BacktestRun
+	var err error
+	if strategyIDStr := c.Query("strategy_id"); strategyIDStr != "" {
+		strategyID, parseErr := strconv.Atoi(strategyIDStr)
+		if parseErr != nil || strategyID <= 0 {
+			c.JSON(http.StatusBadRequest, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     "Invalid strategy_id",
+			})
+			return
+		}
+		runs, err = h.repo.GetRunsByStrategyID(userID.(int), strategyID, limit)
+	} else {
+		runs, err = h.repo.GetRunsByUserID(userID.(int), skip, limit)
+	}
 	if err != nil {
-		fmt.Printf("ERROR in GetRunsByUserID: %v\n", err)
+		fmt.Printf("ERROR in ListBacktests: %v\n", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),

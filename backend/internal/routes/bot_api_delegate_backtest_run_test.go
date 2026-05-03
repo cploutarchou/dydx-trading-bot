@@ -57,6 +57,54 @@ func setupDelegatedBacktestAuthRouter(t *testing.T, upstream http.Handler) (*gin
 	}
 
 	if _, err := dbConn.Exec(`
+	CREATE TABLE backtest_strategies (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		description TEXT,
+		category TEXT,
+		is_public BOOLEAN NOT NULL DEFAULT 0,
+		is_default BOOLEAN NOT NULL DEFAULT 0,
+		runtime_strategy TEXT NOT NULL DEFAULT 'cointegration',
+		pair_selection_mode TEXT NOT NULL DEFAULT 'liquidity',
+		runtime_network TEXT NOT NULL DEFAULT 'testnet',
+		runtime_subaccount INTEGER NOT NULL DEFAULT 0,
+		selected_markets TEXT NOT NULL DEFAULT '[]',
+		zscore_threshold REAL NOT NULL DEFAULT 1.5,
+		stats_window INTEGER NOT NULL DEFAULT 21,
+		max_half_life REAL NOT NULL DEFAULT 24,
+		usd_per_trade REAL NOT NULL DEFAULT 10,
+		usd_min_collateral REAL NOT NULL DEFAULT 100,
+		close_at_zscore_cross BOOLEAN NOT NULL DEFAULT 1,
+		find_cointegrated_pairs BOOLEAN NOT NULL DEFAULT 1,
+		manage_exits BOOLEAN NOT NULL DEFAULT 1,
+		place_trades BOOLEAN NOT NULL DEFAULT 1,
+		abort_all_positions BOOLEAN NOT NULL DEFAULT 0,
+		max_positions INTEGER NOT NULL DEFAULT 5,
+		max_drawdown_pct REAL NOT NULL DEFAULT 15,
+		stop_loss_pct REAL NOT NULL DEFAULT 2,
+		take_profit_pct REAL NOT NULL DEFAULT 5,
+		trailing_stop_pct REAL NOT NULL DEFAULT 1,
+		rebalance_interval_hours INTEGER NOT NULL DEFAULT 24,
+		position_timeout_hours INTEGER NOT NULL DEFAULT 72,
+		transaction_fee REAL NOT NULL DEFAULT 0.0005,
+		slippage REAL NOT NULL DEFAULT 0.001,
+		starting_balance REAL NOT NULL DEFAULT 1000,
+		candle_resolution TEXT NOT NULL DEFAULT '1HOUR',
+		max_history_days INTEGER NOT NULL DEFAULT 90,
+		benchmark_symbol TEXT NOT NULL DEFAULT 'BTC-USD',
+		risk_free_rate REAL NOT NULL DEFAULT 0.02,
+		initial_amount REAL NOT NULL DEFAULT 1000,
+		usage_count INTEGER NOT NULL DEFAULT 0,
+		last_used_at DATETIME,
+		deleted_at DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);`); err != nil {
+		t.Fatalf("create backtest_strategies table: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
 	CREATE TABLE backtest_runs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		run_id TEXT NOT NULL UNIQUE,
@@ -254,6 +302,19 @@ func loginDelegatedBacktestTestUser(t *testing.T, backendURL string) string {
 	return tokenResp.AccessToken
 }
 
+func validDelegatedBacktestRunBody(t *testing.T) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]interface{}{
+		"strategy":                  "pairs",
+		"pairs":                     []string{"BTC-USD", "ETH-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{"strategy": "pairs"},
+	})
+	if err != nil {
+		t.Fatalf("marshal delegated backtest body: %v", err)
+	}
+	return body
+}
+
 func TestDelegatedBacktestRoutes_EnforceUserScopedBacktestData(t *testing.T) {
 	upstreamStatusCalls := make(chan string, 1)
 	upstreamMux := http.NewServeMux()
@@ -370,13 +431,39 @@ func TestDelegatedBacktestRun_UsesCompatibilityRunEndpoint(t *testing.T) {
 		t.Fatalf("backend should not call /api/v1/backtests for /run compatibility route")
 	})
 
-	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
 	defer func() { _ = dbConn.Close() }()
 	backendServer := httptest.NewServer(router)
 	defer backendServer.Close()
 
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_strategies (
+			id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+			runtime_network, runtime_subaccount, selected_markets, zscore_threshold, stats_window, max_half_life,
+			usd_per_trade, usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs, manage_exits,
+			place_trades, abort_all_positions, max_positions, max_drawdown_pct, stop_loss_pct, take_profit_pct,
+			trailing_stop_pct, rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
+			starting_balance, candle_resolution, max_history_days, benchmark_symbol, risk_free_rate, initial_amount,
+			usage_count, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		77, 1, "Pair Label Strategy", "payload propagation", "pairs", false, false, "cointegration", "input",
+		"testnet", 0, `["BTC-USD","ETH-USD","SOL-USD"]`, 1.4, 21, 18.0,
+		20.0, 200.0, true, true, true,
+		true, false, 5, 10.0, 2.0, 4.0,
+		0.8, 24, 72, 0.0005, 0.001,
+		1500.0, "1HOUR", 90, "BTC-USD", 0.02, 1500.0,
+		0, now, now,
+	); err != nil {
+		t.Fatalf("insert strategy row: %v", err)
+	}
+
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy":                  "pairs",
+		"pairs":                     []string{"BTC-USD", "ETH-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{"strategy": "pairs"},
+	})
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -417,7 +504,7 @@ func TestDelegatedBacktestRun_PassthroughsUpstreamStatus(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -458,7 +545,7 @@ func TestDelegatedBacktestRun_ForwardsCookieAliasTokenUpstream(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -483,6 +570,186 @@ func TestDelegatedBacktestRun_ForwardsCookieAliasTokenUpstream(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for upstream auth header")
+	}
+}
+
+func TestDelegatedBacktestRunRejectsMissingSelectedPairs(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("backend should reject missing selected pairs before delegating")
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy_payload_snapshot": map[string]interface{}{"strategy": "pairs"},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", resp.StatusCode)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got["error"] != "SELECTED_PAIRS_MISSING" {
+		t.Fatalf("unexpected response body: %v", got)
+	}
+}
+
+func TestDelegatedBacktestRunRejectsMissingStrategyID(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/strategies/404", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"Strategy '404' not found"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("backend should reject missing strategy before delegating run")
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy_id": 404,
+		"pairs":       []string{"BTC-USD", "ETH-USD"},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got["error"] != "STRATEGY_NOT_FOUND" {
+		t.Fatalf("unexpected response body: %v", got)
+	}
+}
+
+func TestDelegatedBacktestRun_OverwritesClientSnapshotWithBackendStrategy(t *testing.T) {
+	requestBodyCh := make(chan map[string]interface{}, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		requestBodyCh <- payload
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"strategy-snapshot-run","status":"queued"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_strategies (
+			id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+			runtime_network, runtime_subaccount, selected_markets, zscore_threshold, stats_window, max_half_life,
+			usd_per_trade, usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs, manage_exits,
+			place_trades, abort_all_positions, max_positions, max_drawdown_pct, stop_loss_pct, take_profit_pct,
+			trailing_stop_pct, rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
+			starting_balance, candle_resolution, max_history_days, benchmark_symbol, risk_free_rate, initial_amount,
+			usage_count, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		101, 1, "Desk Strategy", "authoritative snapshot", "pairs", false, false, "cointegration", "input",
+		"testnet", 0, `["BTC-USD","ETH-USD","SOL-USD"]`, 1.35, 28, 18.0,
+		22.0, 400.0, true, true, true,
+		true, false, 6, 11.0, 1.8, 4.5,
+		0.8, 12, 48, 0.0007, 0.002,
+		2500.0, "4HOURS", 120, "ETH-USD", 0.05, 2500.0,
+		0, now, now,
+	); err != nil {
+		t.Fatalf("insert strategy row: %v", err)
+	}
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"strategy_id": 101,
+		"pairs":       []string{"BTC-USD", "ETH-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{
+			"id":               101,
+			"name":             "stale client snapshot",
+			"selected_markets": []string{"DOGE-USD", "XRP-USD"},
+			"zscore_threshold": 9.9,
+		},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var got map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&got)
+		t.Fatalf("expected 200, got %d: %v", resp.StatusCode, got)
+	}
+
+	select {
+	case payload := <-requestBodyCh:
+		strategySnapshot, ok := payload["strategy_payload_snapshot"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected strategy_payload_snapshot map, got %T (%v)", payload["strategy_payload_snapshot"], payload["strategy_payload_snapshot"])
+		}
+		if strategySnapshot["name"] != "Desk Strategy" {
+			t.Fatalf("expected authoritative name from backend DB, got %v", strategySnapshot["name"])
+		}
+		if strategySnapshot["benchmark_symbol"] != "ETH-USD" {
+			t.Fatalf("expected authoritative benchmark_symbol, got %v", strategySnapshot["benchmark_symbol"])
+		}
+		if strategySnapshot["zscore_threshold"] != float64(1.35) {
+			t.Fatalf("expected authoritative zscore_threshold=1.35, got %v", strategySnapshot["zscore_threshold"])
+		}
+		selectedMarkets, ok := strategySnapshot["selected_markets"].([]interface{})
+		if !ok || len(selectedMarkets) != 3 || selectedMarkets[0] != "BTC-USD" {
+			t.Fatalf("expected authoritative selected_markets from backend DB, got %T (%v)", strategySnapshot["selected_markets"], strategySnapshot["selected_markets"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request payload")
 	}
 }
 
@@ -622,6 +889,262 @@ func TestDelegatedBacktestRun_NormalizesLegacyFlatPayload(t *testing.T) {
 	}
 }
 
+func TestDelegatedBacktestRun_DerivesSelectedPairLabelsAndContext(t *testing.T) {
+	requestBodyCh := make(chan map[string]interface{}, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		requestBodyCh <- payload
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"pair-label-run","status":"queued"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"pairs": []string{"BTC-USD", "ETH-USD", "SOL-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{
+			"id":   4,
+			"name": "UI Strategy Reference",
+		},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var got map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&got)
+		t.Fatalf("expected 200, got %d: %v", resp.StatusCode, got)
+	}
+
+	select {
+	case payload := <-requestBodyCh:
+		pairs, ok := payload["pairs"].([]interface{})
+		if !ok || len(pairs) != 3 {
+			t.Fatalf("expected upstream pairs market list, got %T (%v)", payload["pairs"], payload["pairs"])
+		}
+		selectedPairs, ok := payload["selected_pairs"].([]interface{})
+		if !ok {
+			t.Fatalf("expected selected_pairs array, got %T (%v)", payload["selected_pairs"], payload["selected_pairs"])
+		}
+		expected := []string{"BTC-USD/ETH-USD", "BTC-USD/SOL-USD", "ETH-USD/SOL-USD"}
+		if len(selectedPairs) != len(expected) {
+			t.Fatalf("expected %d selected_pairs, got %d (%v)", len(expected), len(selectedPairs), selectedPairs)
+		}
+		for i, want := range expected {
+			if selectedPairs[i] != want {
+				t.Fatalf("expected selected_pairs[%d]=%q, got %v", i, want, selectedPairs[i])
+			}
+		}
+		if payload["source"] != "ui" {
+			t.Fatalf("expected source=ui, got %v", payload["source"])
+		}
+		if payload["requested_by_user_id"] != float64(1) {
+			t.Fatalf("expected requested_by_user_id=1, got %v", payload["requested_by_user_id"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request payload")
+	}
+}
+
+func TestDelegatedBacktestRun_PreservesExactUIPayloadContract(t *testing.T) {
+	requestBodyCh := make(chan map[string]interface{}, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		requestBodyCh <- payload
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"ui-contract-run","status":"queued"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_strategies (
+			id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+			runtime_network, runtime_subaccount, selected_markets, zscore_threshold, stats_window, max_half_life,
+			usd_per_trade, usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs, manage_exits,
+			place_trades, abort_all_positions, max_positions, max_drawdown_pct, stop_loss_pct, take_profit_pct,
+			trailing_stop_pct, rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
+			starting_balance, candle_resolution, max_history_days, benchmark_symbol, risk_free_rate, initial_amount,
+			usage_count, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		4, 1, "Aggressive Strategy", "Aggressive strategy with lower thresholds for frequent trading", "pairs", false, false, "cointegration", "liquidity",
+		"testnet", 0, `["BTC-USD","ETH-USD","LINK-USD","AVAX-USD"]`, 1.0, 14, 8.0,
+		10.0, 300.0, true, true, true,
+		true, false, 5, 15.0, 2.0, 5.0,
+		1.0, 24, 72, 0.0005, 0.001,
+		300.0, "1HOUR", 90, "BTC-USD", 0.02, 300.0,
+		0, now, now,
+	); err != nil {
+		t.Fatalf("insert strategy row: %v", err)
+	}
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"start_date":          "2026-04-03",
+		"end_date":            "2026-05-03",
+		"name":                "terert Backtest",
+		"description":         "Aggressive strategy with lower thresholds for frequent trading",
+		"strategy_id":         4,
+		"environment":         "testnet",
+		"initial_balance":     300,
+		"pair_selection_mode": "liquidity",
+		"max_pairs":           4,
+		"pairs":               []string{"BTC-USD", "ETH-USD", "LINK-USD", "AVAX-USD"},
+		"trading_parameters": map[string]interface{}{
+			"zscore_threshold":         1,
+			"stats_window":             14,
+			"max_half_life":            8,
+			"usd_per_trade":            10,
+			"usd_min_collateral":       300,
+			"close_at_zscore_cross":    true,
+			"find_cointegrated_pairs":  true,
+			"manage_exits":             true,
+			"place_trades":             true,
+			"abort_all_positions":      false,
+			"max_positions":            5,
+			"max_drawdown_pct":         15,
+			"stop_loss_pct":            2,
+			"take_profit_pct":          5,
+			"trailing_stop_pct":        1,
+			"rebalance_interval_hours": 24,
+			"position_timeout_hours":   72,
+			"transaction_fee":          0.0005,
+			"slippage":                 0.001,
+			"risk_free_rate":           0.02,
+			"benchmark_symbol":         "BTC-USD",
+			"max_history_days":         90,
+			"resolution":               "1HOUR",
+			"candle_resolution":        "1HOUR",
+			"pair_selection_mode":      "liquidity",
+		},
+		"source": "ui",
+		"selected_pairs": []string{
+			"BTC-USD/ETH-USD",
+			"BTC-USD/LINK-USD",
+			"BTC-USD/AVAX-USD",
+			"ETH-USD/LINK-USD",
+			"ETH-USD/AVAX-USD",
+			"LINK-USD/AVAX-USD",
+		},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var got map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&got)
+		t.Fatalf("expected 200, got %d: %v", resp.StatusCode, got)
+	}
+
+	select {
+	case payload := <-requestBodyCh:
+		if payload["strategy_id"] != float64(4) {
+			t.Fatalf("expected strategy_id=4, got %v", payload["strategy_id"])
+		}
+		if payload["source"] != "ui" {
+			t.Fatalf("expected source=ui, got %v", payload["source"])
+		}
+		if payload["environment"] != "testnet" {
+			t.Fatalf("expected environment=testnet, got %v", payload["environment"])
+		}
+		if payload["requested_by_user_id"] != float64(1) {
+			t.Fatalf("expected requested_by_user_id=1, got %v", payload["requested_by_user_id"])
+		}
+		if payload["max_pairs"] != float64(4) {
+			t.Fatalf("expected max_pairs=4, got %v", payload["max_pairs"])
+		}
+
+		pairs, ok := payload["pairs"].([]interface{})
+		if !ok || len(pairs) != 4 {
+			t.Fatalf("expected pairs market list of 4, got %T (%v)", payload["pairs"], payload["pairs"])
+		}
+		if pairs[0] != "BTC-USD" || pairs[1] != "ETH-USD" || pairs[2] != "LINK-USD" || pairs[3] != "AVAX-USD" {
+			t.Fatalf("unexpected pairs ordering/content: %v", pairs)
+		}
+
+		selectedPairs, ok := payload["selected_pairs"].([]interface{})
+		if !ok || len(selectedPairs) != 6 {
+			t.Fatalf("expected selected_pairs list of 6, got %T (%v)", payload["selected_pairs"], payload["selected_pairs"])
+		}
+		expectedSelected := []string{
+			"BTC-USD/ETH-USD",
+			"BTC-USD/LINK-USD",
+			"BTC-USD/AVAX-USD",
+			"ETH-USD/LINK-USD",
+			"ETH-USD/AVAX-USD",
+			"LINK-USD/AVAX-USD",
+		}
+		for i, want := range expectedSelected {
+			if selectedPairs[i] != want {
+				t.Fatalf("expected selected_pairs[%d]=%q, got %v", i, want, selectedPairs[i])
+			}
+		}
+
+		tradingParameters, ok := payload["trading_parameters"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected trading_parameters map, got %T (%v)", payload["trading_parameters"], payload["trading_parameters"])
+		}
+		if tradingParameters["pair_selection_mode"] != "liquidity" {
+			t.Fatalf("expected pair_selection_mode=liquidity, got %v", tradingParameters["pair_selection_mode"])
+		}
+		if tradingParameters["resolution"] != "1HOUR" {
+			t.Fatalf("expected resolution=1HOUR, got %v", tradingParameters["resolution"])
+		}
+		if tradingParameters["candle_resolution"] != "1HOUR" {
+			t.Fatalf("expected candle_resolution=1HOUR, got %v", tradingParameters["candle_resolution"])
+		}
+
+		strategySnapshot, ok := payload["strategy_payload_snapshot"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected strategy_payload_snapshot map, got %T (%v)", payload["strategy_payload_snapshot"], payload["strategy_payload_snapshot"])
+		}
+		if strategySnapshot["id"] != float64(4) {
+			t.Fatalf("expected strategy_payload_snapshot.id=4, got %v", strategySnapshot["id"])
+		}
+		if strategySnapshot["name"] != "Aggressive Strategy" {
+			t.Fatalf("expected strategy_payload_snapshot.name from backend strategy, got %v", strategySnapshot["name"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request payload")
+	}
+}
+
 func TestDelegatedBacktestRun_SyncsRunIntoLocalDB(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
@@ -635,7 +1158,7 @@ func TestDelegatedBacktestRun_SyncsRunIntoLocalDB(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -693,7 +1216,7 @@ func TestDelegatedBacktestStatus_UpdatesLocalDBStatus(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new create request: %v", err)
@@ -758,7 +1281,7 @@ func TestDelegatedBacktestTrades_SyncsChildRowsIntoLocalDB(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createReq.Header.Set("Content-Type", "application/json")
@@ -817,7 +1340,7 @@ func TestDelegatedBacktestPositionSnapshots_SyncsChildRowsIntoLocalDB(t *testing
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createReq.Header.Set("Content-Type", "application/json")
@@ -866,7 +1389,7 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 	defer backendServer.Close()
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
-	body, _ := json.Marshal(map[string]interface{}{"strategy": "pairs"})
+	body := validDelegatedBacktestRunBody(t)
 	createReq, _ := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createReq.Header.Set("Content-Type", "application/json")

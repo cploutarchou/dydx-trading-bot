@@ -116,7 +116,9 @@ const useManagedWebSocket = ({
         return;
       }
       const attempts = Math.min(reconnectAttemptRef.current, 4);
-      const delayMs = Math.min(1000 * 2 ** attempts, 15000);
+      const baseDelayMs = Math.min(1000 * 2 ** attempts, 15000);
+      const jitterFactor = 0.75 + Math.random() * 0.5; // 0.75x - 1.25x
+      const delayMs = Math.max(500, Math.round(baseDelayMs * jitterFactor));
       reconnectAttemptRef.current += 1;
       reconnectTimerRef.current = window.setTimeout(() => {
         reconnectTimerRef.current = null;
@@ -248,7 +250,9 @@ export function useTelegramStatus(scope: TelegramSettingsScope = 'user') {
     queryKey: queryKeys.telegramStatus(scope),
     queryFn: async () => {
       const response =
-        scope === 'global' ? await api.getTelegramGlobalStatus() : await api.getTelegramUserStatus();
+        scope === 'global'
+          ? await api.getTelegramGlobalStatus()
+          : await api.getTelegramUserStatus();
       return response.data;
     },
     staleTime: 30_000,

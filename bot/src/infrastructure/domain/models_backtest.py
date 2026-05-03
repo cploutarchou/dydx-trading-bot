@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class BacktestStatus(str, Enum):
     """Backtest status enumeration"""
+
     PENDING = "pending"
     RUNNING = "running"
     PAUSED = "paused"
@@ -23,21 +24,36 @@ class BacktestStatus(str, Enum):
 
 class BacktestConfigRequest(BaseModel):
     """Backtest configuration request"""
+
     name: str = Field(..., description="Backtest name")
-    description: Optional[str] = Field(
-        None, description="Backtest description")
+    description: Optional[str] = Field(None, description="Backtest description")
     strategy_id: Optional[int] = Field(
-        None, description="Optional originating strategy id")
+        None, description="Optional originating strategy id"
+    )
     start_date: str = Field(..., description="Start date (YYYY-MM-DD)")
     end_date: str = Field(..., description="End date (YYYY-MM-DD)")
     initial_balance: float = Field(10000.0, description="Initial balance")
-    pair_selection_mode: str = Field(
-        "liquidity", description="Pair selection mode")
+    pair_selection_mode: str = Field("liquidity", description="Pair selection mode")
     max_pairs: int = Field(
-        0, description="Maximum number of pairs to process (0 means no cap)")
-    trading_parameters: Dict[str,
-    Any] = Field(..., description="Trading parameters")
+        0, description="Maximum number of pairs to process (0 means no cap)"
+    )
+    trading_parameters: Dict[str, Any] = Field(..., description="Trading parameters")
     pairs: List[str] = Field(..., description="Trading pairs to test")
+    selected_pairs: Optional[List[str]] = Field(
+        None, description="Exact selected markets requested for this run"
+    )
+    strategy_payload_snapshot: Optional[Dict[str, Any]] = Field(
+        None, description="Immutable strategy payload snapshot used for this run"
+    )
+    bot_id: Optional[str] = Field(None, description="Optional bot identifier")
+    source: Optional[str] = Field(None, description="Request source label")
+    environment: Optional[str] = Field(None, description="Selected runtime environment")
+    requested_by_user_id: Optional[int] = Field(
+        None, description="Requesting user identifier"
+    )
+    source_strategy_version: Optional[Any] = Field(
+        None, description="Originating strategy version metadata"
+    )
     timeout_seconds: Optional[float] = Field(
         None, description="Maximum wall-clock runtime for the backtest"
     )
@@ -45,6 +61,7 @@ class BacktestConfigRequest(BaseModel):
 
 class BacktestResponse(BaseModel):
     """Backtest response"""
+
     id: int
     name: str
     status: BacktestStatus
@@ -55,12 +72,14 @@ class BacktestResponse(BaseModel):
 
 class BacktestListResponse(BaseModel):
     """Backtest list response"""
+
     backtests: List[BacktestResponse]
     total: int
 
 
 class BacktestResultMetrics(BaseModel):
     """Backtest result metrics"""
+
     total_return: float
     total_return_pct: float
     annualized_return: float
@@ -78,6 +97,7 @@ class BacktestResultMetrics(BaseModel):
 
 class BacktestTrade(BaseModel):
     """Individual backtest trade"""
+
     id: int
     pair1: str
     pair2: str
@@ -96,6 +116,7 @@ class BacktestTrade(BaseModel):
 
 class BacktestDetailResponse(BaseModel):
     """Detailed backtest response"""
+
     id: int
     name: str
     description: Optional[str]

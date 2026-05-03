@@ -268,6 +268,7 @@ export default function StrategyLibrary() {
       strategy_id: selectedStrategy.id,
       initial_balance: selectedStrategy.starting_balance ?? selectedStrategy.initial_amount ?? 1000,
       pair_selection_mode: pairSelectionMode,
+      max_pairs: selectedStrategy.selected_markets?.length ?? 0,
       ...(selectedStrategy.selected_markets?.length
         ? { pairs: selectedStrategy.selected_markets }
         : {}),

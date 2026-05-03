@@ -146,6 +146,32 @@ worker-run: ## Deprecated alias (kept for compatibility)
 	@echo "⚠️  'make worker-run' is deprecated; use 'make api-run' instead."
 	@$(MAKE) api-run
 
+celery-worker: ## Start Celery worker for durable backtests
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app worker --loglevel=$${CELERY_LOG_LEVEL:-INFO} --queues=$${CELERY_QUEUES:-celery} --concurrency=$${CELERY_CONCURRENCY:-1}
+
+celery-flower: ## Start internal/admin-only Flower UI on port 5555
+	scripts/celery-flower.sh
+
+celery-inspect: ## Inspect active, reserved, scheduled, and registered Celery tasks
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app inspect active
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app inspect reserved
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app inspect scheduled
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app inspect registered
+
+celery-health: ## Check Celery worker availability
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app inspect ping
+
+celery-purge: ## Purge Celery queues after explicit confirmation
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app purge
+
+celery-revoke: ## Revoke a Celery task: make celery-revoke TASK_ID=<task-id> TERMINATE=false
+	@if [ -z "$(TASK_ID)" ]; then echo "Usage: make celery-revoke TASK_ID=<task-id> TERMINATE=false"; exit 1; fi
+	@if [ "$(TERMINATE)" = "true" ]; then \
+		cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app control revoke $(TASK_ID) --terminate; \
+	else \
+		cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app control revoke $(TASK_ID); \
+	fi
+
 start: ## Start bot in background
 	@if [ ! -f scripts/manage_bot.sh ]; then \
 		echo "❌ scripts/manage_bot.sh not found"; \

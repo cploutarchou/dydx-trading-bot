@@ -16,6 +16,7 @@ import (
 const (
 	defaultAIMarketHTTPTimeout = 20 * time.Second
 	defaultAIMarketLimit       = 20
+	maxAIMarketLimit           = 50
 )
 
 var SupportedAIProviders = []string{
@@ -218,8 +219,11 @@ func (s *AIMarketService) SelectMarkets(ctx context.Context, userID int, req AIM
 
 	mode := normalizeAIMarketMode(req.Mode)
 	limit := req.Limit
-	if limit <= 0 || limit > defaultAIMarketLimit {
+	if limit <= 0 {
 		limit = defaultAIMarketLimit
+	}
+	if limit > maxAIMarketLimit {
+		limit = maxAIMarketLimit
 	}
 
 	markets := normalizeMarkets(req.Markets)
@@ -770,6 +774,7 @@ type AISuggestParamsRequest struct {
 	CurrentParams   map[string]any      `json:"current_params"`
 	LastError       string              `json:"last_error"`
 	RecentBacktests []AIBacktestSummary `json:"recent_backtests"`
+	MaxSuggestions  int                 `json:"max_suggestions"`
 }
 
 // AIRuntimeDigestRequest carries a live runtime snapshot.
@@ -835,6 +840,72 @@ func (s *AIMarketService) SuggestStrategyParams(ctx context.Context, userID int,
 
 	paramsJSON, _ := json.Marshal(req.CurrentParams)
 
+	strategyCategory := strings.TrimSpace(fmt.Sprint(req.CurrentParams["category"]))
+	strategyMode := strings.TrimSpace(fmt.Sprint(req.CurrentParams["runtime_strategy"]))
+	runtimeNetwork := strings.TrimSpace(fmt.Sprint(req.CurrentParams["runtime_network"]))
+	pairSelectionMode := strings.TrimSpace(fmt.Sprint(req.CurrentParams["pair_selection_mode"]))
+	if strategyCategory == "" {
+		strategyCategory = "pairs_trading"
+	}
+	if strategyMode == "" {
+		strategyMode = "cointegration"
+	}
+	if runtimeNetwork == "" {
+		runtimeNetwork = "testnet"
+	}
+	if pairSelectionMode == "" {
+		pairSelectionMode = "liquidity"
+	}
+
+	allowedParams := []string{
+		"zscore_threshold",
+		"stats_window",
+		"max_half_life",
+		"usd_per_trade",
+		"usd_min_collateral",
+		"max_positions",
+		"max_drawdown_pct",
+		"stop_loss_pct",
+		"take_profit_pct",
+		"trailing_stop_pct",
+		"rebalance_interval_hours",
+		"position_timeout_hours",
+		"transaction_fee",
+		"slippage",
+		"max_history_days",
+		"risk_free_rate",
+		"resolution",
+		"candle_resolution",
+	}
+
+	targetSuggestions := req.MaxSuggestions
+	if targetSuggestions <= 0 {
+		targetSuggestions = 5
+	}
+	if targetSuggestions < 3 {
+		targetSuggestions = 3
+	}
+	if targetSuggestions > 8 {
+		targetSuggestions = 8
+	}
+
+	avgWinRate := 0.0
+	avgSharpe := 0.0
+	avgDrawdown := 0.0
+	totalPnl := 0.0
+	if len(req.RecentBacktests) > 0 {
+		for _, bt := range req.RecentBacktests {
+			avgWinRate += bt.WinRate
+			avgSharpe += bt.SharpeRatio
+			avgDrawdown += bt.MaxDrawdown
+			totalPnl += bt.TotalPnlUSD
+		}
+		count := float64(len(req.RecentBacktests))
+		avgWinRate /= count
+		avgSharpe /= count
+		avgDrawdown /= count
+	}
+
 	backtestsSummary := "No recent backtests available."
 	if len(req.RecentBacktests) > 0 {
 		lines := make([]string, 0, len(req.RecentBacktests))
@@ -852,9 +923,16 @@ func (s *AIMarketService) SuggestStrategyParams(ctx context.Context, userID int,
 		errorSection = "\nLast runtime error: " + lastError
 	}
 
-	systemPrompt := "You are a quantitative DeFi trading system parameter advisor. Provide specific numbered recommendations. Be concise and actionable."
+	systemPrompt := "You are a dYdX perpetuals strategy parameter advisor for stat-arb/cointegration workflows. Optimize for risk-adjusted returns and capital preservation. Respect dYdX execution realities: fee+slippage drag, volatility spikes, and liquidation/margin risk. Only recommend parameter keys from the allowlist. Prioritize the highest-impact recommendations first."
 	userPrompt := fmt.Sprintf(
-		`Strategy "%s" parameter review.
+		`Strategy "%s" parameter review for dYdX.
+
+Strategy context:
+- category: %s
+- runtime_strategy: %s
+- runtime_network: %s
+- pair_selection_mode: %s
+- allowed parameter keys: %s
 
 Current parameters:
 %s%s
@@ -862,8 +940,37 @@ Current parameters:
 Recent backtest results:
 %s
 
-Give exactly 3 numbered, specific parameter adjustments to improve performance or reduce risk. For each state: parameter name, current value (if known), suggested new value, and one sentence of rationale.`,
-		req.StrategyName, string(paramsJSON), errorSection, backtestsSummary,
+Recent aggregate signals:
+- average win rate: %.1f%%
+- average sharpe: %.2f
+- average drawdown: %.1f%%
+- total pnl across samples: $%.2f
+
+Return exactly %d lines and nothing else.
+Use this exact format for each line:
+N. <parameter_key>: Current '<value>' -> Suggested '<value>'. Rationale: <one concise sentence grounded in the backtests and dYdX risk/execution context>.
+
+Rules:
+- parameter_key must be one of the allowed keys.
+- Avoid duplicate parameter_key entries.
+- Prefer adjustments that reduce drawdown/overtrading when Sharpe or win rate is weak.
+- Use concrete values (numbers, percentages, or dYdX candle resolution like 15MIN/1HOUR/4HOURS).
+- Do not include markdown, bullet lists, code fences, or extra commentary.
+- Ensure suggestions cover both risk controls and performance quality when possible.`,
+		req.StrategyName,
+		strategyCategory,
+		strategyMode,
+		runtimeNetwork,
+		pairSelectionMode,
+		strings.Join(allowedParams, ", "),
+		string(paramsJSON),
+		errorSection,
+		backtestsSummary,
+		avgWinRate*100,
+		avgSharpe,
+		avgDrawdown*100,
+		totalPnl,
+		targetSuggestions,
 	)
 	content, err := s.callAIForText(ctx, resolved.key, provider, systemPrompt, userPrompt)
 	if err != nil {

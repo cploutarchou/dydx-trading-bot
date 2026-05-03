@@ -1,11 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckSquare, ListChecks, Sparkles, Star, Trophy, X } from 'lucide-react';
+import { CheckSquare, ListChecks, RefreshCw, Sparkles, Star, Trophy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api, {
     DYDX_CANDLE_RESOLUTION_OPTIONS,
     normalizeDydxCandleResolution,
+    toAIBacktestSummary,
+    type AIBacktestSummary,
     type AIMarketProvider,
 } from '../api';
 import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
@@ -67,10 +69,27 @@ const PRESETS = {
   },
 };
 
-const MAX_SELECTED_MARKETS = 20;
-const DEFAULT_AUTO_SELECTED_MARKETS = 5;
+const MAX_SELECTED_MARKETS = 50;
+const DEFAULT_AUTO_SELECTED_MARKETS = 20;
 const MAX_BACKTEST_RUNS_FOR_FILTERS = 120;
 const TRADE_FETCH_BATCH_SIZE = 6;
+const MARKET_STATS_CACHE_TTL_MS = 90_000;
+const AUTO_MARKET_LIMIT_PREFERENCE_KEY = 'strategy-builder-auto-market-limit';
+
+type MarketSelectionView = 'all' | 'selected' | 'unselected';
+
+type MarketAggregateStats = {
+  tradeCount: number;
+  totalPnl: number;
+  winCount: number;
+};
+
+type HistoricalMarketStatsSnapshot = {
+  capturedAt: number;
+  marketUniverseSize: number;
+  runsAnalyzed: number;
+  marketStats: Record<string, MarketAggregateStats>;
+};
 type AIMarketObjective =
   | 'balanced'
   | 'volume'
@@ -89,6 +108,33 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
     return err.response?.data?.message || err.message || fallback;
   }
   return fallback;
+};
+
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+const asString = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const asNumber = (value: unknown): number => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const loadPreferredAutoMarketLimit = (): number => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_AUTO_SELECTED_MARKETS;
+  }
+
+  const stored = Number(window.localStorage.getItem(AUTO_MARKET_LIMIT_PREFERENCE_KEY));
+  if (!Number.isFinite(stored)) {
+    return DEFAULT_AUTO_SELECTED_MARKETS;
+  }
+
+  return Math.min(MAX_SELECTED_MARKETS, Math.max(2, Math.round(stored)));
 };
 
 export default function StrategyBuilder() {
@@ -112,8 +158,15 @@ export default function StrategyBuilder() {
   const [marketFilterError, setMarketFilterError] = useState<string | null>(null);
   const [aiMarketProvider, setAIMarketProvider] = useState<AIMarketProvider>('deepseek');
   const [aiMarketObjective, setAIMarketObjective] = useState<AIMarketObjective>('balanced');
-  const [autoMarketLimit, setAutoMarketLimit] = useState(DEFAULT_AUTO_SELECTED_MARKETS);
+  const [autoMarketLimit, setAutoMarketLimit] = useState(loadPreferredAutoMarketLimit);
   const [showPairPreview, setShowPairPreview] = useState(false);
+  const [recentBacktests, setRecentBacktests] = useState<AIBacktestSummary[]>([]);
+  const [marketSearchQuery, setMarketSearchQuery] = useState('');
+  const [marketSelectionView, setMarketSelectionView] = useState<MarketSelectionView>('all');
+  const [historicalMarketStats, setHistoricalMarketStats] =
+    useState<HistoricalMarketStatsSnapshot | null>(null);
+  const [marketStatsClockMs, setMarketStatsClockMs] = useState(() => Date.now());
+  const [rankingRefreshing, setRankingRefreshing] = useState(false);
   const { availableProviders: availableAIProviders, isLoading: aiProviderStatusLoading } =
     useAIProviderAvailability();
 
@@ -126,6 +179,29 @@ export default function StrategyBuilder() {
       setAIMarketProvider(availableAIProviders[0]);
     }
   }, [aiMarketProvider, availableAIProviders]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(AUTO_MARKET_LIMIT_PREFERENCE_KEY, String(autoMarketLimit));
+  }, [autoMarketLimit]);
+
+  useEffect(() => {
+    if (!historicalMarketStats || typeof window === 'undefined') {
+      return;
+    }
+
+    setMarketStatsClockMs(Date.now());
+    const intervalId = window.setInterval(() => {
+      setMarketStatsClockMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [historicalMarketStats]);
 
   // Get pre-loaded config from backtest or sessionStorage
   const getPreloadedConfig = () => {
@@ -150,6 +226,7 @@ export default function StrategyBuilder() {
   const {
     control,
     handleSubmit,
+    setValue,
     watch,
     reset,
     formState: { errors },
@@ -204,6 +281,48 @@ export default function StrategyBuilder() {
     if (isEditMode && strategyId) {
       loadStrategy(parseInt(strategyId, 10));
     }
+  }, [isEditMode, strategyId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRecentBacktests = async () => {
+      if (!isEditMode || !strategyId) {
+        if (!cancelled) {
+          setRecentBacktests([]);
+        }
+        return;
+      }
+
+      const parsedId = Number.parseInt(strategyId, 10);
+      if (!Number.isFinite(parsedId) || parsedId <= 0) {
+        if (!cancelled) {
+          setRecentBacktests([]);
+        }
+        return;
+      }
+
+      try {
+        const response = await api.listBacktestsByStrategy(parsedId, 5);
+        const items = Array.isArray(response.data?.backtests) ? response.data.backtests : [];
+        const summaries: AIBacktestSummary[] = items
+          .map((b) => toAIBacktestSummary(b))
+          .filter((summary): summary is AIBacktestSummary => summary !== null);
+
+        if (!cancelled) {
+          setRecentBacktests(summaries);
+        }
+      } catch {
+        if (!cancelled) {
+          setRecentBacktests([]);
+        }
+      }
+    };
+
+    void loadRecentBacktests();
+    return () => {
+      cancelled = true;
+    };
   }, [isEditMode, strategyId]);
 
   useEffect(() => {
@@ -426,47 +545,67 @@ export default function StrategyBuilder() {
     };
   }, [formValues, isEditMode, selectedMarkets, strategyId]);
 
-  const handleApplyAdvisorParams = async (params: Partial<Strategy>) => {
-    const nextValues: Partial<StrategyFormData> = {};
+  const handleApplyAdvisorParams = async (
+    params: Partial<Strategy>
+  ): Promise<Array<keyof Strategy>> => {
+    const appliedKeys: Array<keyof Strategy> = [];
+
+    const setFormField = <K extends keyof StrategyFormData>(
+      fieldName: K,
+      value: StrategyFormData[K]
+    ) => {
+      setValue(fieldName, value, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      });
+    };
 
     Object.entries(params).forEach(([rawKey, rawValue]) => {
       const key = rawKey as keyof Strategy;
 
       if (key === 'resolution' || key === 'candle_resolution') {
-        nextValues.resolution = normalizeDydxCandleResolution(String(rawValue));
+        setFormField('resolution', normalizeDydxCandleResolution(String(rawValue)));
+        appliedKeys.push(key);
         return;
       }
 
-      if (key in formValues) {
-        switch (typeof rawValue) {
-          case 'number':
-            (nextValues as Record<string, unknown>)[key] = Number(rawValue);
-            break;
-          case 'boolean':
-            (nextValues as Record<string, unknown>)[key] = rawValue;
-            break;
-          case 'string':
-            (nextValues as Record<string, unknown>)[key] = rawValue;
-            break;
-          default:
-            break;
-        }
+      if (!(key in formValues)) {
+        return;
+      }
+
+      switch (typeof rawValue) {
+        case 'number':
+          (setFormField as unknown as (name: string, value: unknown) => void)(
+            key,
+            Number(rawValue)
+          );
+          appliedKeys.push(key);
+          break;
+        case 'boolean':
+          (setFormField as unknown as (name: string, value: unknown) => void)(key, rawValue);
+          appliedKeys.push(key);
+          break;
+        case 'string':
+          (setFormField as unknown as (name: string, value: unknown) => void)(key, rawValue);
+          appliedKeys.push(key);
+          break;
+        default:
+          break;
       }
     });
 
-    const appliedCount = Object.keys(nextValues).length;
+    const dedupedAppliedKeys = Array.from(new Set(appliedKeys));
+    const appliedCount = dedupedAppliedKeys.length;
     if (appliedCount === 0) {
-      setError('No editable AI suggestions were detected for this form.');
-      return;
+      const message = 'No editable AI suggestions were detected for this form.';
+      setError(message);
+      throw new Error(message);
     }
-
-    reset({
-      ...formValues,
-      ...nextValues,
-    });
 
     setSuccessMessage(`✅ Applied ${appliedCount} AI suggestion${appliedCount === 1 ? '' : 's'}`);
     setTimeout(() => setSuccessMessage(null), 3000);
+    return dedupedAppliedKeys;
   };
 
   const buildAIMarketCriteria = (preset: 'popular' | 'profitable' | 'ai') => {
@@ -521,6 +660,126 @@ export default function StrategyBuilder() {
   }, [selectedMarkets]);
   const candidatePairCount = (selectedMarkets.length * (selectedMarkets.length - 1)) / 2;
 
+  const marketRankingFreshnessLabel = useMemo(() => {
+    if (!historicalMarketStats) {
+      return null;
+    }
+
+    const ageMs = Math.max(0, marketStatsClockMs - historicalMarketStats.capturedAt);
+    const totalSeconds = Math.floor(ageMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const ageLabel =
+      minutes > 0 ? `${minutes}m${seconds > 0 ? ` ${seconds}s` : ''} ago` : `${totalSeconds}s ago`;
+
+    const isFresh = ageMs <= MARKET_STATS_CACHE_TTL_MS;
+    return {
+      text: isFresh ? `Rankings: ${ageLabel}` : `Rankings stale (${ageLabel}) — click to refresh`,
+      isFresh,
+    };
+  }, [historicalMarketStats, marketStatsClockMs]);
+
+  const forceRefreshRankings = async () => {
+    if (rankingRefreshing || availableMarkets.length === 0) {
+      return;
+    }
+
+    try {
+      setRankingRefreshing(true);
+      setHistoricalMarketStats(null);
+      setMarketFilterError(null);
+
+      const availableSet = new Set(availableMarkets);
+      const runIds: string[] = [];
+      let skip = 0;
+      const pageLimit = 100;
+      let total = Number.POSITIVE_INFINITY;
+
+      while (skip < total && runIds.length < MAX_BACKTEST_RUNS_FOR_FILTERS) {
+        const response = await api.listBacktests(skip, pageLimit);
+        const root = toRecord(response);
+        const data = toRecord(root.data);
+        const rows = Array.isArray(data.backtests) ? data.backtests : [];
+
+        if (typeof data.total === 'number' && Number.isFinite(data.total)) {
+          total = data.total;
+        }
+        if (rows.length === 0) break;
+
+        rows.forEach((row) => {
+          const run = toRecord(row);
+          const runId = asString(run.run_id);
+          if (runId) runIds.push(runId);
+        });
+
+        skip += rows.length;
+        if (rows.length < pageLimit) break;
+      }
+
+      const dedupedRunIds = Array.from(new Set(runIds)).slice(0, MAX_BACKTEST_RUNS_FOR_FILTERS);
+      if (dedupedRunIds.length === 0) {
+        setMarketFilterError('No historical backtests found. Ranking data could not be refreshed.');
+        return;
+      }
+
+      const marketStatsMap = new Map<string, MarketAggregateStats>();
+      for (let index = 0; index < dedupedRunIds.length; index += TRADE_FETCH_BATCH_SIZE) {
+        const batch = dedupedRunIds.slice(index, index + TRADE_FETCH_BATCH_SIZE);
+        const responses = await Promise.all(
+          batch.map(async (runId) => {
+            try {
+              return await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 1000);
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        responses.forEach((response) => {
+          if (!response) return;
+          const root = toRecord(response);
+          const data = toRecord(root.data);
+          const trades = Array.isArray(data.trades) ? data.trades : [];
+
+          trades.forEach((trade) => {
+            const row = toRecord(trade);
+            const market1 = asString(row.market_1);
+            const market2 = asString(row.market_2);
+            const pnlRaw = asNumber(row.pnl_usd ?? row.pnl ?? row.total_pnl ?? 0);
+            const perMarketPnl = pnlRaw / 2;
+            const isWin = pnlRaw > 0;
+
+            [market1, market2].forEach((market) => {
+              if (!market || !availableSet.has(market)) return;
+              const current = marketStatsMap.get(market) ?? {
+                tradeCount: 0,
+                totalPnl: 0,
+                winCount: 0,
+              };
+              current.tradeCount += 1;
+              current.totalPnl += perMarketPnl;
+              if (isWin) current.winCount += 1;
+              marketStatsMap.set(market, current);
+            });
+          });
+        });
+      }
+
+      const nextSnapshot: HistoricalMarketStatsSnapshot = {
+        capturedAt: Date.now(),
+        marketUniverseSize: availableMarkets.length,
+        runsAnalyzed: dedupedRunIds.length,
+        marketStats: Object.fromEntries(marketStatsMap.entries()),
+      };
+      setHistoricalMarketStats(nextSnapshot);
+      setMarketFilterError(`Rankings refreshed from ${dedupedRunIds.length} backtests.`);
+    } catch (err: unknown) {
+      setMarketFilterError(getErrorMessage(err, 'Failed to refresh ranking data'));
+    } finally {
+      setRankingRefreshing(false);
+    }
+  };
+
   const applyMarketPreset = async (
     preset: 'top20' | 'popular' | 'profitable' | 'ai',
     onChange: (_value: string[]) => void,
@@ -531,19 +790,6 @@ export default function StrategyBuilder() {
       MAX_SELECTED_MARKETS,
       Math.max(2, Math.round(Number(autoMarketLimit) || DEFAULT_AUTO_SELECTED_MARKETS))
     );
-    const toRecord = (value: unknown): Record<string, unknown> =>
-      typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
-
-    const asString = (value: unknown): string | null => {
-      if (typeof value !== 'string') return null;
-      const trimmed = value.trim();
-      return trimmed.length > 0 ? trimmed : null;
-    };
-
-    const asNumber = (value: unknown): number => {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : 0;
-    };
 
     const normalizeTopMarkets = (markets: string[]): string[] => {
       const unique = Array.from(
@@ -611,92 +857,140 @@ export default function StrategyBuilder() {
       }
 
       const availableSet = new Set(availableMarkets);
-      const scoreMap = new Map<string, number>();
+      let statsSnapshot = historicalMarketStats;
+      const isCachedSnapshotUsable =
+        !!statsSnapshot &&
+        Date.now() - statsSnapshot.capturedAt <= MARKET_STATS_CACHE_TTL_MS &&
+        statsSnapshot.marketUniverseSize === availableMarkets.length;
 
-      const runIds: string[] = [];
-      let skip = 0;
-      const pageLimit = 100;
-      let total = Number.POSITIVE_INFINITY;
+      if (!isCachedSnapshotUsable) {
+        const runIds: string[] = [];
+        let skip = 0;
+        const pageLimit = 100;
+        let total = Number.POSITIVE_INFINITY;
 
-      while (skip < total && runIds.length < MAX_BACKTEST_RUNS_FOR_FILTERS) {
-        const response = await api.listBacktests(skip, pageLimit);
-        const root = toRecord(response);
-        const data = toRecord(root.data);
-        const rows = Array.isArray(data.backtests) ? data.backtests : [];
-
-        if (typeof data.total === 'number' && Number.isFinite(data.total)) {
-          total = data.total;
-        }
-
-        if (rows.length === 0) {
-          break;
-        }
-
-        rows.forEach((row) => {
-          const run = toRecord(row);
-          const runId = asString(run.run_id);
-          if (runId) {
-            runIds.push(runId);
-          }
-        });
-
-        skip += rows.length;
-        if (rows.length < pageLimit) {
-          break;
-        }
-      }
-
-      const dedupedRunIds = Array.from(new Set(runIds)).slice(0, MAX_BACKTEST_RUNS_FOR_FILTERS);
-
-      if (dedupedRunIds.length === 0) {
-        setMarketFilterError('No historical backtests found yet. Using current top markets.');
-        onChange(normalizeTopMarkets(availableMarkets));
-        return;
-      }
-
-      for (let index = 0; index < dedupedRunIds.length; index += TRADE_FETCH_BATCH_SIZE) {
-        const batch = dedupedRunIds.slice(index, index + TRADE_FETCH_BATCH_SIZE);
-        const responses = await Promise.all(
-          batch.map(async (runId) => {
-            try {
-              return await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 1000);
-            } catch {
-              return null;
-            }
-          })
-        );
-
-        responses.forEach((response) => {
-          if (!response) return;
+        while (skip < total && runIds.length < MAX_BACKTEST_RUNS_FOR_FILTERS) {
+          const response = await api.listBacktests(skip, pageLimit);
           const root = toRecord(response);
           const data = toRecord(root.data);
-          const trades = Array.isArray(data.trades) ? data.trades : [];
+          const rows = Array.isArray(data.backtests) ? data.backtests : [];
 
-          trades.forEach((trade) => {
-            const row = toRecord(trade);
-            const market1 = asString(row.market_1);
-            const market2 = asString(row.market_2);
-            const pnlRaw = asNumber(row.pnl_usd ?? row.pnl ?? row.total_pnl ?? 0);
-            const perMarketPnl = pnlRaw / 2;
+          if (typeof data.total === 'number' && Number.isFinite(data.total)) {
+            total = data.total;
+          }
 
-            if (market1 && availableSet.has(market1)) {
-              const current = scoreMap.get(market1) || 0;
-              scoreMap.set(market1, current + (preset === 'popular' ? 1 : perMarketPnl));
-            }
-            if (market2 && availableSet.has(market2)) {
-              const current = scoreMap.get(market2) || 0;
-              scoreMap.set(market2, current + (preset === 'popular' ? 1 : perMarketPnl));
+          if (rows.length === 0) {
+            break;
+          }
+
+          rows.forEach((row) => {
+            const run = toRecord(row);
+            const runId = asString(run.run_id);
+            if (runId) {
+              runIds.push(runId);
             }
           });
-        });
+
+          skip += rows.length;
+          if (rows.length < pageLimit) {
+            break;
+          }
+        }
+
+        const dedupedRunIds = Array.from(new Set(runIds)).slice(0, MAX_BACKTEST_RUNS_FOR_FILTERS);
+
+        if (dedupedRunIds.length === 0) {
+          setMarketFilterError('No historical backtests found yet. Using current top markets.');
+          onChange(normalizeTopMarkets(availableMarkets));
+          return;
+        }
+
+        const marketStatsMap = new Map<string, MarketAggregateStats>();
+        for (let index = 0; index < dedupedRunIds.length; index += TRADE_FETCH_BATCH_SIZE) {
+          const batch = dedupedRunIds.slice(index, index + TRADE_FETCH_BATCH_SIZE);
+          const responses = await Promise.all(
+            batch.map(async (runId) => {
+              try {
+                return await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 1000);
+              } catch {
+                return null;
+              }
+            })
+          );
+
+          responses.forEach((response) => {
+            if (!response) return;
+            const root = toRecord(response);
+            const data = toRecord(root.data);
+            const trades = Array.isArray(data.trades) ? data.trades : [];
+
+            trades.forEach((trade) => {
+              const row = toRecord(trade);
+              const market1 = asString(row.market_1);
+              const market2 = asString(row.market_2);
+              const pnlRaw = asNumber(row.pnl_usd ?? row.pnl ?? row.total_pnl ?? 0);
+              const perMarketPnl = pnlRaw / 2;
+              const isWin = pnlRaw > 0;
+
+              [market1, market2].forEach((market) => {
+                if (!market || !availableSet.has(market)) {
+                  return;
+                }
+                const current = marketStatsMap.get(market) ?? {
+                  tradeCount: 0,
+                  totalPnl: 0,
+                  winCount: 0,
+                };
+                current.tradeCount += 1;
+                current.totalPnl += perMarketPnl;
+                if (isWin) {
+                  current.winCount += 1;
+                }
+                marketStatsMap.set(market, current);
+              });
+            });
+          });
+        }
+
+        statsSnapshot = {
+          capturedAt: Date.now(),
+          marketUniverseSize: availableMarkets.length,
+          runsAnalyzed: dedupedRunIds.length,
+          marketStats: Object.fromEntries(marketStatsMap.entries()),
+        };
+        setHistoricalMarketStats(statsSnapshot);
       }
 
-      const rankedMarkets = Array.from(scoreMap.entries())
-        .sort((a, b) => {
-          if (b[1] === a[1]) return a[0].localeCompare(b[0]);
-          return b[1] - a[1];
+      const scoredMarkets = Object.entries(statsSnapshot.marketStats)
+        .filter(([market]) => availableSet.has(market))
+        .map(([market, stats]) => {
+          const winRate = stats.tradeCount > 0 ? stats.winCount / stats.tradeCount : 0;
+          const avgPnl = stats.tradeCount > 0 ? stats.totalPnl / stats.tradeCount : 0;
+
+          const score =
+            preset === 'popular'
+              ? stats.tradeCount * 1.35 + winRate * 10 + Math.max(0, stats.totalPnl) * 0.01
+              : avgPnl * 1.4 + winRate * 8 + Math.log10(stats.tradeCount + 1) * 2;
+
+          return {
+            market,
+            score,
+            tradeCount: stats.tradeCount,
+            totalPnl: stats.totalPnl,
+          };
         })
-        .map(([market]) => market);
+        .filter((entry) =>
+          preset === 'profitable' ? entry.tradeCount >= 2 : entry.tradeCount >= 1
+        );
+
+      const rankedMarkets = scoredMarkets
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          if (b.tradeCount !== a.tradeCount) return b.tradeCount - a.tradeCount;
+          if (b.totalPnl !== a.totalPnl) return b.totalPnl - a.totalPnl;
+          return a.market.localeCompare(b.market);
+        })
+        .map((entry) => entry.market);
 
       const topRanked = normalizeTopMarkets(rankedMarkets);
 
@@ -707,11 +1001,14 @@ export default function StrategyBuilder() {
       }
 
       onChange(topRanked);
+      setMarketFilterError(
+        `Ranked from ${statsSnapshot.runsAnalyzed} recent backtests${Date.now() - statsSnapshot.capturedAt <= MARKET_STATS_CACHE_TTL_MS ? ' (cached)' : ''}.`
+      );
       console.log('📊 StrategyBuilder: Applied market preset', {
         preset,
         selectedCount: topRanked.length,
         previousCount: normalizedCurrentSelection.length,
-        runsAnalyzed: dedupedRunIds.length,
+        runsAnalyzed: statsSnapshot.runsAnalyzed,
       });
     } catch (err: unknown) {
       console.error('❌ StrategyBuilder: Failed to apply market preset', { preset, err });
@@ -862,7 +1159,11 @@ export default function StrategyBuilder() {
           />
         </div>
 
-        <AIStrategyAdvisor strategy={strategyForAdvisor} onApplyParams={handleApplyAdvisorParams} />
+        <AIStrategyAdvisor
+          strategy={strategyForAdvisor}
+          recentBacktests={recentBacktests}
+          onApplyParams={handleApplyAdvisorParams}
+        />
 
         {/* Initial Investment Amount */}
         <div>
@@ -949,7 +1250,7 @@ export default function StrategyBuilder() {
             <div>
               <label className={fieldLabelClass}>dYdX Market Universe</label>
               <p className={helperTextClass}>
-                Choose 2-20 markets to constrain live pair discovery and strategy backtests.
+                Choose 2-50 markets to constrain live pair discovery and strategy backtests.
               </p>
             </div>
             <Controller
@@ -983,6 +1284,14 @@ export default function StrategyBuilder() {
                         className="h-7 w-14 rounded-md border border-slate-700 bg-slate-900 px-2 text-right text-xs text-cyan-100 outline-none focus:border-cyan-500"
                         aria-label="Markets to auto select"
                       />
+                      <button
+                        type="button"
+                        onClick={() => setAutoMarketLimit(DEFAULT_AUTO_SELECTED_MARKETS)}
+                        className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 transition hover:border-cyan-500/60 hover:text-cyan-100"
+                        aria-label="Reset auto-select market limit to default"
+                      >
+                        Reset 20
+                      </button>
                     </label>
                     <select
                       value={aiMarketProvider}
@@ -1056,7 +1365,7 @@ export default function StrategyBuilder() {
                       className={marketToolbarButtonClass}
                     >
                       <ListChecks className="h-3.5 w-3.5" />
-                      Top Markets
+                      Top by Count
                     </button>
                     <button
                       type="button"
@@ -1088,6 +1397,24 @@ export default function StrategyBuilder() {
                       <X className="h-3.5 w-3.5" />
                       Clear
                     </button>
+                    {marketRankingFreshnessLabel ? (
+                      <button
+                        type="button"
+                        onClick={() => void forceRefreshRankings()}
+                        disabled={rankingRefreshing || marketFilterLoading !== null}
+                        title="Click to force-refresh historical market ranking data"
+                        className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          marketRankingFreshnessLabel.isFresh
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:border-emerald-400/60 hover:bg-emerald-500/20'
+                            : 'border-amber-500/40 bg-amber-500/10 text-amber-200 hover:border-amber-400/60 hover:bg-amber-500/20'
+                        }`}
+                      >
+                        <RefreshCw
+                          className={`h-3 w-3 shrink-0 ${rankingRefreshing ? 'animate-spin' : ''}`}
+                        />
+                        {rankingRefreshing ? 'Refreshing…' : marketRankingFreshnessLabel.text}
+                      </button>
+                    ) : null}
                   </div>
                 );
               }}
@@ -1118,6 +1445,20 @@ export default function StrategyBuilder() {
                 field.onChange([...value, market]);
               };
 
+              const normalizedQuery = marketSearchQuery.trim().toLowerCase();
+              const filteredMarkets = availableMarkets.filter((market) => {
+                if (normalizedQuery.length > 0 && !market.toLowerCase().includes(normalizedQuery)) {
+                  return false;
+                }
+                if (marketSelectionView === 'selected') {
+                  return value.includes(market);
+                }
+                if (marketSelectionView === 'unselected') {
+                  return !value.includes(market);
+                }
+                return true;
+              });
+
               return (
                 <div className="rounded-xl border border-slate-800/80 bg-slate-950/45 p-3 shadow-inner shadow-black/20">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1128,13 +1469,50 @@ export default function StrategyBuilder() {
                       {value.length} selected
                     </span>
                   </div>
+                  <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <input
+                      type="text"
+                      value={marketSearchQuery}
+                      onChange={(event) => setMarketSearchQuery(event.target.value)}
+                      placeholder="Filter markets (e.g. BTC, ETH)"
+                      className="h-9 rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 outline-none transition focus:border-cyan-500"
+                      aria-label="Filter market list"
+                    />
+                    <select
+                      value={marketSelectionView}
+                      onChange={(event) =>
+                        setMarketSelectionView(event.target.value as MarketSelectionView)
+                      }
+                      className="h-9 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-300 outline-none transition focus:border-cyan-500"
+                      aria-label="Market list selection filter"
+                    >
+                      <option value="all">All</option>
+                      <option value="selected">Selected only</option>
+                      <option value="unselected">Unselected only</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMarketSearchQuery('');
+                        setMarketSelectionView('all');
+                      }}
+                      className="h-9 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs font-semibold text-slate-300 transition hover:border-cyan-500/60 hover:text-cyan-100"
+                    >
+                      Reset filters
+                    </button>
+                  </div>
                   {marketsLoading ? (
                     <p className="text-sm text-slate-400">Loading dYdX markets...</p>
                   ) : marketsError ? (
                     <p className="text-sm text-amber-300">{marketsError}</p>
+                  ) : filteredMarkets.length === 0 ? (
+                    <p className="text-sm text-slate-400">
+                      No markets match the current filter. Try clearing the search or selection
+                      filter.
+                    </p>
                   ) : (
                     <div className="grid max-h-52 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
-                      {availableMarkets.map((market) => {
+                      {filteredMarkets.map((market) => {
                         const checked = value.includes(market);
                         const disabled = !checked && value.length >= MAX_SELECTED_MARKETS;
                         return (
@@ -1172,6 +1550,12 @@ export default function StrategyBuilder() {
             <span>
               Candidate pairs:{' '}
               <span className={inlineValueClass}>{Math.max(0, candidatePairCount)}</span>
+            </span>
+            <span>
+              Live tradable pairs cap:{' '}
+              <span className={inlineValueClass}>
+                {Math.max(1, Number(formValues.max_positions || 1))}
+              </span>
             </span>
             {candidatePairCount > 0 ? (
               <button
@@ -1377,12 +1761,15 @@ export default function StrategyBuilder() {
                           {...field}
                           type="range"
                           min="1"
-                          max="20"
+                          max="50"
                           step="1"
                           className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                         />
                       )}
                     />
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Maximum concurrently tradable pairs for this strategy.
+                    </p>
                   </div>
 
                   {/* Max Drawdown % */}
@@ -1603,7 +1990,7 @@ export default function StrategyBuilder() {
                         Transaction Fee
                       </label>
                       <span className="text-sm text-cyan-300">
-                        {(formValues.transaction_fee || 0.0005).toFixed(4)}
+                        {Number(formValues.transaction_fee ?? 0.0005).toFixed(4)}
                       </span>
                     </div>
                     <Controller
@@ -1618,6 +2005,7 @@ export default function StrategyBuilder() {
                           step="0.0001"
                           placeholder="0.0005"
                           className="premium-input px-3 py-2 text-sm"
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
                         />
                       )}
                     />
@@ -1631,7 +2019,7 @@ export default function StrategyBuilder() {
                     <div className="flex justify-between items-center mb-2">
                       <label className="text-sm font-semibold text-slate-200">Slippage</label>
                       <span className="text-sm text-cyan-300">
-                        {(formValues.slippage || 0.001).toFixed(4)}
+                        {Number(formValues.slippage ?? 0.001).toFixed(4)}
                       </span>
                     </div>
                     <Controller
@@ -1646,6 +2034,7 @@ export default function StrategyBuilder() {
                           step="0.0001"
                           placeholder="0.001"
                           className="premium-input px-3 py-2 text-sm"
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
                         />
                       )}
                     />

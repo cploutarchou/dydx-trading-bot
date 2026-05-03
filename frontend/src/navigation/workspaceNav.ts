@@ -14,6 +14,7 @@ import {
     Percent,
     PlusCircle,
     ScrollText,
+    Server,
     Settings,
     ShieldCheck,
     Sparkles,
@@ -155,6 +156,16 @@ const clientNavItems: WorkspaceNavItem[] = [
     icon: Settings,
     shortcut: 'G ,',
   },
+  {
+    label: 'Celery Ops',
+    path: '/admin/celery',
+    description: 'Admin-only Celery task, queue, worker, and failure inspection.',
+    section: 'Administration',
+    keywords: ['celery', 'tasks', 'workers', 'queues', 'debug'],
+    exact: true,
+    icon: Server,
+    allowedRoles: ['admin', 'super_admin', 'backoffice_admin'],
+  },
 ];
 
 const backofficeNavItems: WorkspaceNavItem[] = [
@@ -239,6 +250,16 @@ const backofficeNavItems: WorkspaceNavItem[] = [
     exact: false,
     icon: KeyRound,
     allowedRoles: BACKOFFICE_ROLES,
+  },
+  {
+    label: 'Celery Ops',
+    path: '/admin/celery',
+    description: 'Admin-only Celery task, queue, worker, and failure inspection.',
+    section: 'Administration',
+    keywords: ['celery', 'tasks', 'workers', 'queues', 'debug'],
+    exact: true,
+    icon: Server,
+    allowedRoles: ['admin', 'super_admin', 'backoffice_admin'],
   },
   {
     label: 'Operator Settings',
@@ -339,7 +360,7 @@ const ibNavItems: WorkspaceNavItem[] = [
 ];
 
 export const workspaceNavItemsByPortal: Record<AppPortalType, WorkspaceNavItem[]> = {
-  client: clientNavItems.map((item) => ({ ...item, allowedRoles: CLIENT_ROLES })),
+  client: clientNavItems.map((item) => ({ ...item, allowedRoles: item.allowedRoles || CLIENT_ROLES })),
   backoffice: backofficeNavItems,
   ib: ibNavItems,
 };

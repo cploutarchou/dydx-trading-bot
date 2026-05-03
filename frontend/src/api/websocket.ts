@@ -189,11 +189,13 @@ export class WebSocketManager {
     this.setState(WebSocketState.RECONNECTING);
     this.reconnectAttempts++;
 
-    // Exponential backoff
-    const delay = Math.min(
+    // Exponential backoff with jitter to avoid synchronized reconnect storms
+    const baseDelay = Math.min(
       this.config.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1),
       30000
     );
+    const jitterFactor = 0.75 + Math.random() * 0.5; // 0.75x - 1.25x
+    const delay = Math.max(500, Math.round(baseDelay * jitterFactor));
 
     this.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 

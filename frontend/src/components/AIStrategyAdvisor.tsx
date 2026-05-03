@@ -44,6 +44,7 @@ export function AIStrategyAdvisor({
   const [applyLoading, setApplyLoading] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [pendingApplyPreview, setPendingApplyPreview] = useState<PendingApplyPreview | null>(null);
+  const [appliedKeys, setAppliedKeys] = useState<Set<keyof Strategy>>(new Set());
   const { availableProviders, isLoading: providerStatusLoading } = useAIProviderAvailability();
 
   const getEngineLabel = (_provider: AIMarketProvider, index: number): string =>
@@ -197,14 +198,19 @@ export function AIStrategyAdvisor({
     return parsed;
   }, [content]);
 
+  const pendingSuggestions = useMemo(
+    () => parsedSuggestions.filter((s) => !appliedKeys.has(s.key)),
+    [parsedSuggestions, appliedKeys]
+  );
+
   const applyAllSuggestions = async () => {
-    if (!onApplyParams || parsedSuggestions.length === 0) return;
+    if (!onApplyParams || pendingSuggestions.length === 0) return;
     const patch: Partial<Strategy> = {};
-    parsedSuggestions.forEach((suggestion) => {
+    pendingSuggestions.forEach((suggestion) => {
       patch[suggestion.key] = suggestion.value as never;
     });
     setPendingApplyPreview({
-      items: parsedSuggestions,
+      items: pendingSuggestions,
       patch,
     });
   };
@@ -225,6 +231,12 @@ export function AIStrategyAdvisor({
     setApplyLoading(true);
     try {
       await onApplyParams(pendingApplyPreview.patch);
+      const justApplied = pendingApplyPreview.items.map((i) => i.key);
+      setAppliedKeys((prev) => {
+        const next = new Set(prev);
+        justApplied.forEach((k) => next.add(k));
+        return next;
+      });
       setPendingApplyPreview(null);
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : 'Failed to apply suggestions');
@@ -238,6 +250,7 @@ export function AIStrategyAdvisor({
     setError(null);
     setContent(null);
     setCollapsed(false);
+    setAppliedKeys(new Set());
 
     // Build a compact current-params map from known Strategy fields
     const currentParams: Record<string, unknown> = {
@@ -368,19 +381,22 @@ export function AIStrategyAdvisor({
             <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 px-3 py-2">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-medium text-emerald-200">
-                  Parsed {parsedSuggestions.length} editable suggestion
-                  {parsedSuggestions.length === 1 ? '' : 's'}
+                  {pendingSuggestions.length > 0
+                    ? `${pendingSuggestions.length} suggestion${pendingSuggestions.length === 1 ? '' : 's'} pending`
+                    : `All ${parsedSuggestions.length} suggestion${parsedSuggestions.length === 1 ? '' : 's'} applied ✓`}
                 </p>
-                <button
-                  onClick={() => void applyAllSuggestions()}
-                  disabled={applyLoading}
-                  className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-600/35 disabled:opacity-50"
-                >
-                  Review & Apply All
-                </button>
+                {pendingSuggestions.length > 0 && (
+                  <button
+                    onClick={() => void applyAllSuggestions()}
+                    disabled={applyLoading}
+                    className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-600/35 disabled:opacity-50"
+                  >
+                    Review & Apply All
+                  </button>
+                )}
               </div>
               <div className="space-y-2">
-                {parsedSuggestions.map((item) => (
+                {pendingSuggestions.map((item) => (
                   <div
                     key={item.key}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-700/40 bg-slate-900/60 px-3 py-2 text-[11px] text-emerald-100"

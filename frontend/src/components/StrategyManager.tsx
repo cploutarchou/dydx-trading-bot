@@ -14,7 +14,11 @@ import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'l
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import apiClient, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
+import apiClient, {
+	type AIBacktestSummary,
+	DYDX_CANDLE_RESOLUTION_OPTIONS,
+	normalizeDydxCandleResolution,
+} from '../api';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
@@ -281,8 +285,38 @@ export default function StrategyManager() {
     new Map()
   );
   const [heartbeatTrend, setHeartbeatTrend] = useState<Map<number, number[]>>(new Map());
+  const [strategyBacktests, setStrategyBacktests] = useState<Map<number, AIBacktestSummary[]>>(
+    new Map()
+  );
 
   const compactCards = viewPreset === 'operator';
+
+  // Fetch recent completed backtests for a strategy the first time its card is focused
+  const ensureStrategyBacktests = (strategyId: number) => {
+    if (strategyBacktests.has(strategyId)) return;
+    apiClient
+      .listBacktestsByStrategy(strategyId, 5)
+      .then((resp) => {
+        const items = Array.isArray(resp.data?.backtests) ? resp.data.backtests : [];
+        const summaries: AIBacktestSummary[] = items
+          .filter((b) => typeof b.win_rate === 'number' || typeof b.total_pnl_usd === 'number')
+          .map((b) => ({
+            win_rate: Number(b.win_rate ?? 0),
+            total_pnl_usd: Number(b.total_pnl_usd ?? 0),
+            sharpe_ratio: Number(b.sharpe_ratio ?? 0),
+            max_drawdown_pct: Number(b.max_drawdown ?? 0),
+            total_trades: Number(b.total_trades ?? 0),
+          }));
+        setStrategyBacktests((prev) => {
+          const next = new Map(prev);
+          next.set(strategyId, summaries);
+          return next;
+        });
+      })
+      .catch(() => {
+        // silently ignore — advisor degrades gracefully with empty recent_backtests
+      });
+  };
 
   const recordSuccessfulAction = (
     strategyId: number,
@@ -995,15 +1029,21 @@ export default function StrategyManager() {
       ...strategy,
       ...params,
     };
-    await apiClient.updateStrategy(strategy.id, buildStrategyUpdatePayload(mergedConfig));
-    await fetchStrategies();
-    showTransientMessage(
-      {
-        type: 'success',
-        text: `✅ Applied AI suggestions to "${strategy.name}"`,
-      },
-      4000
-    );
+    try {
+      await apiClient.updateStrategy(strategy.id, buildStrategyUpdatePayload(mergedConfig));
+      await fetchStrategies();
+      showTransientMessage(
+        {
+          type: 'success',
+          text: `✅ Applied AI suggestions to "${strategy.name}"`,
+        },
+        4000
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to apply AI suggestions';
+      showTransientMessage({ type: 'error', text: `❌ ${msg}` }, 6000);
+      throw err; // re-throw so AIStrategyAdvisor can show applyError
+    }
   };
 
   const handleEditConfig = (strategy: Strategy) => {
@@ -1587,7 +1627,10 @@ export default function StrategyManager() {
               <div
                 key={strategy.id}
                 tabIndex={0}
-                onFocus={() => setFocusedCardId(strategy.id)}
+                onFocus={() => {
+                  setFocusedCardId(strategy.id);
+                  ensureStrategyBacktests(strategy.id);
+                }}
                 onBlur={() => setFocusedCardId(null)}
                 onKeyDown={(event) => handleStrategyCardKeyDown(event, strategy, status)}
                 className={`premium-panel premium-panel-hover ${compactCards ? 'p-4' : 'p-6'} transition-all duration-300 focus:outline-none ${
@@ -2014,6 +2057,7 @@ export default function StrategyManager() {
                   <AIStrategyAdvisor
                     strategy={strategy}
                     lastError={status.lastError}
+                    recentBacktests={strategyBacktests.get(strategy.id) ?? []}
                     onApplyParams={(params) => handleApplySuggestedParams(strategy, params)}
                   />
                 </div>

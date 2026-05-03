@@ -655,6 +655,61 @@ func (r *BacktestRepository) CountRunsByUserID(userID int) (int, error) {
 	return count, nil
 }
 
+// GetRunsByStrategyID returns completed backtest runs for a given strategy,
+// scoped to the owning user, newest first. Limit defaults to 10.
+func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, limit int) ([]models.BacktestRun, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	query := `
+		SELECT id, user_id, strategy_id, strategy_version_id, run_id, COALESCE(status, ''), start_date, end_date,
+		       num_pairs, total_markets, COALESCE(resolution, ''), COALESCE(total_trades, 0), COALESCE(profitable_trades, 0), COALESCE(losing_trades, 0),
+		       win_rate, COALESCE(total_pnl, 0), COALESCE(total_pnl_usd, 0), sharpe_ratio, sortino_ratio, calmar_ratio,
+		       max_drawdown, profit_factor, COALESCE(starting_balance, 0), ending_balance, max_balance, min_balance,
+		       COALESCE(error_message, ''), started_at, completed_at, duration_seconds,
+		       created_at
+		FROM backtest_runs
+		WHERE user_id = $1
+		  AND strategy_id = $2
+		  AND LOWER(COALESCE(status, '')) IN ('completed', 'finished', 'done', 'success', 'succeeded')
+		ORDER BY created_at DESC
+		LIMIT $3
+	`
+	rows, err := r.db.Query(query, userID, strategyID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query strategy backtest runs: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close strategy backtest run rows: %v", closeErr)
+		}
+	}()
+
+	var runs []models.BacktestRun
+	for rows.Next() {
+		run := models.BacktestRun{}
+		if err := rows.Scan(
+			&run.ID, &run.UserID, &run.StrategyID, &run.StrategyVersionID,
+			&run.RunID, &run.Status, &run.StartDate, &run.EndDate,
+			&run.NumPairs, &run.TotalMarkets, &run.Resolution,
+			&run.TotalTrades, &run.ProfitableTrades, &run.LosingTrades,
+			&run.WinRate, &run.TotalPnL, &run.TotalPnLUSD,
+			&run.SharpeRatio, &run.SortinoRatio, &run.CalmarRatio,
+			&run.MaxDrawdown, &run.ProfitFactor,
+			&run.StartingBalance, &run.EndingBalance, &run.MaxBalance, &run.MinBalance,
+			&run.ErrorMessage, &run.StartedAt, &run.CompletedAt, &run.DurationSeconds,
+			&run.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan strategy backtest run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating strategy backtest runs: %w", err)
+	}
+	return runs, nil
+}
+
 func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
 	query := `
 		SELECT COUNT(*)

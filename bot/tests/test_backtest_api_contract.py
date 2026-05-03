@@ -419,7 +419,7 @@ def test_run_backtest_compat_errors_when_strategy_lookup_fails(monkeypatch):
     stub_service = _RunStubService()
     monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
 
-    async def _stub_markets(_pairs, _max):
+    async def _stub_markets(_pairs, _selected_pairs, _max):
         return ["BTC-USD", "ETH-USD"]
 
     monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
@@ -444,6 +444,92 @@ def test_run_backtest_compat_errors_when_strategy_lookup_fails(monkeypatch):
     assert payload["success"] is False
     assert payload["data"]["error"] == "STRATEGY_NOT_FOUND"
     assert stub_service.last_request is None
+
+
+def test_run_backtest_compat_uses_strategy_snapshot_when_lookup_fails(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+
+    def _raise_lookup(_strategy_id):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", _raise_lookup)
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=4,
+        name="snapshot fallback",
+        pairs=["BTC-USD", "ETH-USD"],
+        strategy_payload_snapshot={
+            "id": 4,
+            "name": "Backend Strategy",
+            "description": "Snapshot from backend DB",
+            "starting_balance": 2500,
+            "pair_selection_mode": "liquidity",
+            "zscore_threshold": 1.2,
+            "stats_window": 18,
+        },
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+    assert stub_service.last_request.strategy_id == 4
+    assert stub_service.last_request.strategy_payload_snapshot["id"] == 4
+    assert (
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "Backend Strategy"
+    )
+
+
+def test_create_backtest_uses_strategy_snapshot_when_lookup_returns_none(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", lambda _strategy_id: None)
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=9,
+        pairs=["BTC-USD", "ETH-USD"],
+        strategy_payload_snapshot={
+            "name": "Backend-only Strategy",
+            "description": "Persisted in backend DB",
+            "starting_balance": 1500,
+            "pair_selection_mode": "liquidity",
+            "zscore_threshold": 1.4,
+            "stats_window": 20,
+        },
+    )
+
+    response = asyncio.run(_call(server.create_backtest(request)))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+    assert stub_service.last_request.strategy_id == 9
+    assert stub_service.last_request.strategy_payload_snapshot["id"] == 9
+    assert (
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "Backend-only Strategy"
+    )
 
 
 def test_run_backtest_compat_errors_when_selected_pairs_missing(monkeypatch):
@@ -498,6 +584,7 @@ def test_strategy_to_backtest_request_preserves_request_trading_parameters():
         strategy,
         request,
         ["ETH-USD", "SOL-USD", "ADA-USD"],
+        ["ETH-USD/SOL-USD", "ETH-USD/ADA-USD", "SOL-USD/ADA-USD"],
     )
 
     assert result.trading_parameters["benchmark_symbol"] == "ETH-USD"
@@ -506,7 +593,11 @@ def test_strategy_to_backtest_request_preserves_request_trading_parameters():
     assert result.trading_parameters["pair_selection_mode"] == "liquidity"
     assert result.trading_parameters["max_pairs"] == 6
     assert result.pairs == ["ETH-USD", "SOL-USD", "ADA-USD"]
-    assert result.selected_pairs == ["ETH-USD", "SOL-USD", "ADA-USD"]
+    assert result.selected_pairs == [
+        "ETH-USD/SOL-USD",
+        "ETH-USD/ADA-USD",
+        "SOL-USD/ADA-USD",
+    ]
     assert result.strategy_payload_snapshot["id"] == 4
 
 
@@ -515,7 +606,7 @@ def test_run_backtest_compat_preserves_explicit_payload_semantics(monkeypatch):
     stub_service = _RunStubService()
     monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
 
-    async def _stub_markets(_pairs, _max):
+    async def _stub_markets(_pairs, _selected_pairs, _max):
         return ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
 
     monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
@@ -570,7 +661,14 @@ def test_run_backtest_compat_preserves_explicit_payload_semantics(monkeypatch):
     assert executed_request.max_pairs == 7
     assert executed_request.pair_selection_mode == "cointegration"
     assert executed_request.pairs == ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
-    assert executed_request.selected_pairs == ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"]
+    assert executed_request.selected_pairs == [
+        "BTC-USD/ETH-USD",
+        "BTC-USD/SOL-USD",
+        "BTC-USD/AVAX-USD",
+        "ETH-USD/SOL-USD",
+        "ETH-USD/AVAX-USD",
+        "SOL-USD/AVAX-USD",
+    ]
 
     # Explicit request values should win over strategy defaults.
     assert executed_request.trading_parameters["zscore_threshold"] == 1.1
@@ -583,6 +681,146 @@ def test_run_backtest_compat_preserves_explicit_payload_semantics(monkeypatch):
     # Missing values can still be filled from strategy defaults.
     assert "stop_loss_pct" in executed_request.trading_parameters
     assert "take_profit_pct" in executed_request.trading_parameters
+
+
+def test_run_backtest_compat_preserves_explicit_selected_pair_labels(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD", "SOL-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(
+        server.InMemoryStrategyStore,
+        "get",
+        lambda _strategy_id: {
+            "id": 7,
+            "name": "Stored Strategy",
+            "description": "Stored strategy",
+            "starting_balance": 1000.0,
+            "pair_selection_mode": "liquidity",
+        },
+    )
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=7,
+        pairs=["BTC-USD", "ETH-USD", "SOL-USD"],
+        selected_pairs=["BTC-USD/ETH-USD", "ETH-USD/SOL-USD"],
+        source="ui",
+        environment="development",
+        requested_by_user_id=19,
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+    assert stub_service.last_request.selected_pairs == [
+        "BTC-USD/ETH-USD",
+        "ETH-USD/SOL-USD",
+    ]
+    assert stub_service.last_request.source == "ui"
+    assert stub_service.last_request.environment == "development"
+    assert stub_service.last_request.requested_by_user_id == 19
+
+
+def test_run_backtest_compat_preserves_exact_ui_payload_reference(monkeypatch):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD", "LINK-USD", "AVAX-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(
+        server.InMemoryStrategyStore,
+        "get",
+        lambda _strategy_id: {
+            "id": 4,
+            "name": "Aggressive strategy",
+            "description": "Aggressive strategy with lower thresholds for frequent trading",
+            "starting_balance": 1000.0,
+            "pair_selection_mode": "liquidity",
+            "resolution": "1HOUR",
+        },
+    )
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-04-03",
+        end_date="2026-05-03",
+        name="terert Backtest",
+        description="Aggressive strategy with lower thresholds for frequent trading",
+        strategy_id=4,
+        initial_balance=300,
+        pair_selection_mode="liquidity",
+        max_pairs=4,
+        pairs=["BTC-USD", "ETH-USD", "LINK-USD", "AVAX-USD"],
+        selected_pairs=[
+            "BTC-USD/ETH-USD",
+            "BTC-USD/LINK-USD",
+            "BTC-USD/AVAX-USD",
+            "ETH-USD/LINK-USD",
+            "ETH-USD/AVAX-USD",
+            "LINK-USD/AVAX-USD",
+        ],
+        source="ui",
+        trading_parameters={
+            "zscore_threshold": 1,
+            "stats_window": 14,
+            "max_half_life": 8,
+            "usd_per_trade": 10,
+            "usd_min_collateral": 300,
+            "close_at_zscore_cross": True,
+            "find_cointegrated_pairs": True,
+            "manage_exits": True,
+            "place_trades": True,
+            "abort_all_positions": False,
+            "max_positions": 5,
+            "max_drawdown_pct": 15,
+            "stop_loss_pct": 2,
+            "take_profit_pct": 5,
+            "trailing_stop_pct": 1,
+            "rebalance_interval_hours": 24,
+            "position_timeout_hours": 72,
+            "transaction_fee": 0.0005,
+            "slippage": 0.001,
+            "risk_free_rate": 0.02,
+            "benchmark_symbol": "BTC-USD",
+            "max_history_days": 90,
+            "resolution": "1HOUR",
+            "candle_resolution": "1HOUR",
+            "pair_selection_mode": "liquidity",
+        },
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+
+    executed_request = stub_service.last_request
+    assert executed_request.strategy_id == 4
+    assert executed_request.pairs == ["BTC-USD", "ETH-USD", "LINK-USD", "AVAX-USD"]
+    assert executed_request.selected_pairs == [
+        "BTC-USD/ETH-USD",
+        "BTC-USD/LINK-USD",
+        "BTC-USD/AVAX-USD",
+        "ETH-USD/LINK-USD",
+        "ETH-USD/AVAX-USD",
+        "LINK-USD/AVAX-USD",
+    ]
+    assert executed_request.max_pairs == 4
+    assert executed_request.source == "ui"
+    assert executed_request.initial_balance == 300
+    assert executed_request.trading_parameters["pair_selection_mode"] == "liquidity"
+    assert executed_request.trading_parameters["resolution"] == "1HOUR"
 
 
 def test_api_response_sanitizes_internal_error_details():

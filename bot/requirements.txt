@@ -36,3 +36,4 @@ requests==2.33.1
 pytest==9.0.3
 loguru==0.7.3
 celery[redis]>=5.4,<6.0
+flower>=2.0,<3.0

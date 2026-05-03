@@ -78,6 +78,22 @@ func delegateJSON(c *gin.Context, fallback *services.BotAPIClient, call func(*se
 	c.JSON(http.StatusOK, result)
 }
 
+func requireCeleryAdmin(c *gin.Context) bool {
+	role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
+	if c.GetBool("is_admin") || role == "admin" || role == "super_admin" || role == "backoffice_admin" {
+		return true
+	}
+	c.JSON(http.StatusForbidden, gin.H{
+		"success":   false,
+		"message":   "Admin access required",
+		"error":     "admin access required",
+		"code":      "admin_required",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"trace_id":  middleware.GetTraceID(c),
+	})
+	return false
+}
+
 func normalizeBacktestRunPayload(config map[string]interface{}) map[string]interface{} {
 	if config == nil {
 		return nil
@@ -228,6 +244,36 @@ func stringSliceField(payload map[string]interface{}, keys ...string) []string {
 		}
 	}
 	return []string{}
+}
+
+func pairLabelsToMarkets(pairLabels []string) []string {
+	markets := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, label := range pairLabels {
+		parts := strings.Split(strings.ToUpper(strings.TrimSpace(label)), "/")
+		for _, part := range parts {
+			market := strings.TrimSpace(part)
+			if market == "" {
+				continue
+			}
+			if _, exists := seen[market]; exists {
+				continue
+			}
+			seen[market] = struct{}{}
+			markets = append(markets, market)
+		}
+	}
+	return markets
+}
+
+func buildPairLabelsFromMarkets(markets []string) []string {
+	labels := make([]string, 0)
+	for i := 0; i < len(markets)-1; i++ {
+		for j := i + 1; j < len(markets); j++ {
+			labels = append(labels, fmt.Sprintf("%s/%s", markets[i], markets[j]))
+		}
+	}
+	return labels
 }
 
 func getNumberField(payload map[string]interface{}, keys ...string) (float64, bool) {
@@ -892,9 +938,11 @@ func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPI
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
 	backtestRepo := (*repository.BacktestRepository)(nil)
 	userRepo := (*repository.UserRepository)(nil)
+	strategyRepo := (*repository.StrategyRepository)(nil)
 	if backtestSync != nil && backtestSync.DB() != nil {
 		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
 		userRepo = repository.NewUserRepository(backtestSync.DB())
+		strategyRepo = repository.NewStrategyRepository(backtestSync.DB())
 	}
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
@@ -1095,10 +1143,18 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			return
 		}
 		config = normalizeBacktestRunPayload(config)
+		var selectedMarkets []string
+		snapshotSource := "none"
+		snapshotName := ""
+		strategyID := 0
 
 		if c.FullPath() == "/api/v1/backtests/run" {
-			selectedPairs := stringSliceField(config, "pairs", "selected_pairs")
-			if len(selectedPairs) < 2 {
+			selectedMarkets = stringSliceField(config, "pairs")
+			selectedPairLabels := stringSliceField(config, "selected_pairs")
+			if len(selectedMarkets) == 0 && len(selectedPairLabels) > 0 {
+				selectedMarkets = pairLabelsToMarkets(selectedPairLabels)
+			}
+			if len(selectedMarkets) < 2 {
 				c.JSON(http.StatusUnprocessableEntity, gin.H{
 					"success":   false,
 					"message":   "SELECTED_PAIRS_MISSING: at least two selected pairs are required",
@@ -1109,13 +1165,78 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 				})
 				return
 			}
-			config["pairs"] = selectedPairs
-			config["selected_pairs"] = selectedPairs
+			if len(selectedPairLabels) == 0 {
+				selectedPairLabels = buildPairLabelsFromMarkets(selectedMarkets)
+			}
+			if len(selectedPairLabels) == 0 {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{
+					"success":   false,
+					"message":   "SELECTED_PAIRS_MISSING: at least one explicit selected pair is required",
+					"error":     "SELECTED_PAIRS_MISSING",
+					"data":      gin.H{"error": "SELECTED_PAIRS_MISSING"},
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			config["pairs"] = selectedMarkets
+			config["selected_pairs"] = selectedPairLabels
+			if _, exists := config["source"]; !exists {
+				config["source"] = "ui"
+			}
+			if userID, ok := c.Get("user_id"); ok {
+				config["requested_by_user_id"] = userID
+			}
+			if _, exists := config["environment"]; !exists {
+				if env := strings.TrimSpace(os.Getenv("APP_ENV")); env != "" {
+					config["environment"] = env
+				} else if env := strings.TrimSpace(os.Getenv("ENVIRONMENT")); env != "" {
+					config["environment"] = env
+				}
+			}
 
 			if strategyIDValue, ok := getNumberField(config, "strategy_id"); ok {
-				strategyID := int(strategyIDValue)
+				strategyID = int(strategyIDValue)
 				if strategyID > 0 {
-					if _, strategyErr := requestClient.GetStrategy(strategyID); strategyErr != nil {
+					if strategyRepo != nil {
+						strategy, strategyErr := strategyRepo.GetStrategyByID(strategyID)
+						if strategyErr != nil {
+							c.JSON(http.StatusInternalServerError, gin.H{
+								"success":   false,
+								"message":   "failed to verify strategy",
+								"error":     "STRATEGY_LOOKUP_FAILED",
+								"timestamp": time.Now().UTC().Format(time.RFC3339),
+								"trace_id":  middleware.GetTraceID(c),
+							})
+							return
+						}
+						if strategy == nil || strategy.DeletedAt != nil {
+							c.JSON(http.StatusNotFound, gin.H{
+								"success":   false,
+								"message":   fmt.Sprintf("STRATEGY_NOT_FOUND: strategy_id=%d", strategyID),
+								"error":     "STRATEGY_NOT_FOUND",
+								"data":      gin.H{"error": "STRATEGY_NOT_FOUND", "strategy_id": strategyID},
+								"timestamp": time.Now().UTC().Format(time.RFC3339),
+								"trace_id":  middleware.GetTraceID(c),
+							})
+							return
+						}
+						userID := c.GetInt("user_id")
+						if !c.GetBool("is_admin") && strategy.UserID != userID {
+							c.JSON(http.StatusNotFound, gin.H{
+								"success":   false,
+								"message":   fmt.Sprintf("STRATEGY_NOT_FOUND: strategy_id=%d", strategyID),
+								"error":     "STRATEGY_NOT_FOUND",
+								"data":      gin.H{"error": "STRATEGY_NOT_FOUND", "strategy_id": strategyID},
+								"timestamp": time.Now().UTC().Format(time.RFC3339),
+								"trace_id":  middleware.GetTraceID(c),
+							})
+							return
+						}
+						config["strategy_payload_snapshot"] = strategy.ToDict()
+						snapshotSource = "backend_strategy_repo"
+						snapshotName = strategy.Name
+					} else if _, strategyErr := requestClient.GetStrategy(strategyID); strategyErr != nil {
 						log.Printf(
 							"strategy_not_found strategy_id=%d endpoint=/api/v1/backtests/run trace_id=%s",
 							strategyID,
@@ -1135,6 +1256,11 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 						}
 						respondBotAPIError(c, strategyErr)
 						return
+					} else if snapshot := asMap(config["strategy_payload_snapshot"]); snapshot != nil {
+						snapshotSource = "request_strategy_snapshot"
+						snapshotName = getStringField(snapshot, "name")
+					} else {
+						snapshotSource = "bot_strategy_lookup"
 					}
 				}
 			} else if asMap(config["strategy_payload_snapshot"]) == nil {
@@ -1147,7 +1273,25 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 					"trace_id":  middleware.GetTraceID(c),
 				})
 				return
+			} else {
+				snapshotSource = "manual_request_snapshot"
+				snapshotName = getStringField(asMap(config["strategy_payload_snapshot"]), "name")
 			}
+
+			snapshotMarkets := stringSliceField(asMap(config["strategy_payload_snapshot"]), "selected_markets")
+			if snapshotName == "" {
+				snapshotName = getStringField(asMap(config["strategy_payload_snapshot"]), "name")
+			}
+			log.Printf(
+				"backtest_run_contract trace_id=%s strategy_id=%d snapshot_source=%s snapshot_name=%q selected_pairs=%d snapshot_selected_markets=%d has_trading_parameters=%t",
+				middleware.GetTraceID(c),
+				strategyID,
+				snapshotSource,
+				snapshotName,
+				len(selectedPairLabels),
+				len(snapshotMarkets),
+				asMap(config["trading_parameters"]) != nil,
+			)
 		}
 
 		var (
@@ -1356,6 +1500,71 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			return requestClient.GetPerpetualMarkets(limit)
 		})
 	})
+
+	celeryGroup := router.Group("/api/v1/celery")
+	celeryGroup.Use(middleware.RequireAuth())
+	celeryGroup.Use(withRequestScopedBotClient)
+	celeryGroup.Use(func(c *gin.Context) {
+		if !requireAdminAccess(c) {
+			c.Abort()
+			return
+		}
+		c.Next()
+	})
+	{
+		celeryGroup.GET("/tasks", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			rawQuery := c.Request.URL.RawQuery
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.ListCeleryTasks(rawQuery)
+			})
+		})
+		celeryGroup.GET("/tasks/:task_id", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			taskID := strings.TrimSpace(c.Param("task_id"))
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetCeleryTask(taskID)
+			})
+		})
+		celeryGroup.POST("/tasks/:task_id/revoke", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			taskID := strings.TrimSpace(c.Param("task_id"))
+			var payload map[string]interface{}
+			_ = c.ShouldBindJSON(&payload)
+			terminate := false
+			if payload != nil {
+				terminate, _ = payload["terminate"].(bool)
+			}
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.RevokeCeleryTask(taskID, terminate)
+			})
+		})
+		celeryGroup.POST("/tasks/:task_id/retry", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			taskID := strings.TrimSpace(c.Param("task_id"))
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.RetryCeleryTask(taskID)
+			})
+		})
+		celeryGroup.GET("/workers", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.ListCeleryWorkers()
+			})
+		})
+		celeryGroup.GET("/queues", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.ListCeleryQueues()
+			})
+		})
+		celeryGroup.GET("/health", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetCeleryHealth()
+			})
+		})
+	}
 
 	// Backtest proxy endpoints
 	backtestGroup := router.Group("/api/v1/backtests")

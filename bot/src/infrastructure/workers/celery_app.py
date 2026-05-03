@@ -34,6 +34,9 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1")),
     task_track_started=True,
+    task_send_sent_event=True,
+    worker_send_task_events=True,
+    result_extended=True,
     task_time_limit=int(os.getenv("BACKTEST_CELERY_TASK_TIME_LIMIT", str(7 * 24 * 60 * 60))),
     task_soft_time_limit=int(
         os.getenv("BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT", str(7 * 24 * 60 * 60 - 60))
@@ -43,4 +46,3 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
 )
-

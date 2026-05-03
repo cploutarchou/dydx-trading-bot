@@ -391,8 +391,8 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		transportErr := classifyTransportError(method, requestURL, err)
-		log.Printf("⚠️  Bot API transport error: %s %s → HTTP %d (%s) | cause: %v",
-			method, requestURL, transportErr.StatusCode, transportErr.Message, err)
+		log.Printf("⚠️  Bot API transport error trace_id=%s: %s %s → HTTP %d (%s) | cause: %v",
+			strings.TrimSpace(c.traceID), method, requestURL, transportErr.StatusCode, transportErr.Message, err)
 		return nil, 0, nil, transportErr
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -487,6 +487,48 @@ func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string) (
 func (c *BotAPIClient) GetBotInstanceStats(instanceID string) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/bots/%s/stats", instanceID)
 	return c.makeRequest("GET", endpoint, nil)
+}
+
+// ListCeleryTasks returns admin Celery task monitoring data from the bot API.
+func (c *BotAPIClient) ListCeleryTasks(rawQuery string) (map[string]interface{}, error) {
+	endpoint := "/api/v1/celery/tasks"
+	if strings.TrimSpace(rawQuery) != "" {
+		endpoint += "?" + strings.TrimSpace(rawQuery)
+	}
+	return c.makeRequest("GET", endpoint, nil)
+}
+
+// GetCeleryTask returns a single Celery task detail from the bot API.
+func (c *BotAPIClient) GetCeleryTask(taskID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/celery/tasks/%s", url.PathEscape(taskID))
+	return c.makeRequest("GET", endpoint, nil)
+}
+
+// RevokeCeleryTask revokes a Celery task through the bot API.
+func (c *BotAPIClient) RevokeCeleryTask(taskID string, terminate bool) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/celery/tasks/%s/revoke", url.PathEscape(taskID))
+	return c.makeRequest("POST", endpoint, map[string]interface{}{"terminate": terminate})
+}
+
+// RetryCeleryTask retries a supported failed Celery task through the bot API.
+func (c *BotAPIClient) RetryCeleryTask(taskID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/celery/tasks/%s/retry", url.PathEscape(taskID))
+	return c.makeRequest("POST", endpoint, nil)
+}
+
+// ListCeleryWorkers returns Celery worker inspection data from the bot API.
+func (c *BotAPIClient) ListCeleryWorkers() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/celery/workers", nil)
+}
+
+// ListCeleryQueues returns Celery queue overview data from the bot API.
+func (c *BotAPIClient) ListCeleryQueues() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/celery/queues", nil)
+}
+
+// GetCeleryHealth returns Celery broker/backend/worker health from the bot API.
+func (c *BotAPIClient) GetCeleryHealth() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/celery/health", nil)
 }
 
 // CreateBacktest creates a new backtest via the bot API

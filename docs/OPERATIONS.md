@@ -14,6 +14,16 @@
 - `GET /api/v1/capabilities`
 - `GET /api/v1/runtime/db-config`
 
+## Celery Monitoring
+
+Celery task monitoring and management is documented in [Celery Operations](./CELERY_OPERATIONS.md).
+
+- Admin UI: `/admin/celery` in the backoffice portal only
+- Admin APIs: `GET /api/v1/celery/tasks`, `GET /api/v1/celery/workers`, `GET /api/v1/celery/queues`, `GET /api/v1/celery/health`
+- Task actions: `POST /api/v1/celery/tasks/{task_id}/revoke`, `POST /api/v1/celery/tasks/{task_id}/retry`
+
+These endpoints and UI surfaces are admin-only. Do not expose Celery task management, tracebacks, revoke, retry, queue, worker, or Flower access to normal users.
+
 ## Runtime Datastores
 
 The local development baseline is intentionally split:

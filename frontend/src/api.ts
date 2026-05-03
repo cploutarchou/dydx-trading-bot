@@ -1126,6 +1126,49 @@ export interface AIBacktestSummary extends Record<string, unknown> {
   total_trades: number;
 }
 
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
+export const toAIBacktestSummary = (value: Record<string, unknown>): AIBacktestSummary | null => {
+  const winRate = toFiniteNumber(value.win_rate);
+  const totalPnlUsd =
+    toFiniteNumber(value.total_pnl_usd) ??
+    toFiniteNumber(value.total_pnl) ??
+    toFiniteNumber(value.pnl_usd);
+  const sharpeRatio = toFiniteNumber(value.sharpe_ratio);
+  const maxDrawdownPct =
+    toFiniteNumber(value.max_drawdown_pct) ?? toFiniteNumber(value.max_drawdown);
+  const totalTrades = toFiniteNumber(value.total_trades) ?? toFiniteNumber(value.trades_count);
+
+  if (
+    winRate === null &&
+    totalPnlUsd === null &&
+    sharpeRatio === null &&
+    maxDrawdownPct === null &&
+    totalTrades === null
+  ) {
+    return null;
+  }
+
+  return {
+    win_rate: winRate ?? 0,
+    total_pnl_usd: totalPnlUsd ?? 0,
+    sharpe_ratio: sharpeRatio ?? 0,
+    max_drawdown_pct: maxDrawdownPct ?? 0,
+    total_trades: totalTrades ?? 0,
+  };
+};
+
 export interface AISuggestParamsRequest extends Record<string, unknown> {
   provider: AIMarketProvider;
   strategy_name: string;

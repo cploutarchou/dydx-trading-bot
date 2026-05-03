@@ -6,27 +6,27 @@
  */
 
 import {
-    Activity,
-    Bot,
-    CalendarRange,
-    CandlestickChart,
-    CircleDot,
-    Clock3,
-    Gauge,
-    Layers,
-    Loader,
-    Pause,
-    Percent,
-    Play,
-    Radar,
-    Rocket,
-    RotateCcw,
-    Scale,
-    ShieldCheck,
-    Square,
-    TrendingDown,
-    TrendingUp,
-    Waves,
+	Activity,
+	Bot,
+	CalendarRange,
+	CandlestickChart,
+	CircleDot,
+	Clock3,
+	Gauge,
+	Layers,
+	Loader,
+	Pause,
+	Percent,
+	Play,
+	Radar,
+	Rocket,
+	RotateCcw,
+	Scale,
+	ShieldCheck,
+	Square,
+	TrendingDown,
+	TrendingUp,
+	Waves,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -34,8 +34,8 @@ import api from '../api';
 import { useBacktestProgress } from '../api/hooks';
 import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
 import BacktestLightweightChart, {
-    type BacktestChartMarker,
-    type BacktestChartPoint,
+	type BacktestChartMarker,
+	type BacktestChartPoint,
 } from '../components/BacktestLightweightChart';
 import BacktestPositionsPanel from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';

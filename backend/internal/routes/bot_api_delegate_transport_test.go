@@ -356,6 +356,56 @@ func TestDelegatedRoute_PropagatesTraceHeader(t *testing.T) {
 	}
 }
 
+func TestDelegatedRoute_SystemStatusForwardsGeneratedTraceHeader(t *testing.T) {
+	upstreamTraceCh := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamTraceCh <- r.Header.Get("X-Trace-Id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"healthy":true}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	router, dbConn := setupTransportRouter(t, upstream.URL, nil)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginTransportTestUser(t, backendServer.URL)
+
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/system/status", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("execute request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	responseTraceID := resp.Header.Get("X-Trace-Id")
+	if responseTraceID == "" {
+		t.Fatal("expected generated X-Trace-Id response header")
+	}
+	if responseTraceID[:4] != "req-" {
+		t.Fatalf("expected generated trace header to start with req-, got %q", responseTraceID)
+	}
+
+	select {
+	case got := <-upstreamTraceCh:
+		if got != responseTraceID {
+			t.Fatalf("expected upstream generated trace header %q, got %q", responseTraceID, got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream generated trace header")
+	}
+}
+
 func TestDelegatedRoute_UpstreamMessageField_StillPassedThrough(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

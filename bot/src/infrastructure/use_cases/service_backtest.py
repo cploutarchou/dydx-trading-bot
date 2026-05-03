@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import math
 import os
 import random
 import time
+import traceback as traceback_module
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional
 from uuid import uuid4
@@ -56,6 +59,15 @@ class _BacktestRunStatus(BaseModel):
     current_task: Optional[str] = None
     error: Optional[str] = None
     error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    traceback: Optional[str] = None
+    strategy_id: Optional[int] = None
+    bot_id: Optional[str] = None
+    source: Optional[str] = None
+    selected_pairs: List[str] = []
+    metadata: Dict[str, Any] = {}
+    worker_hostname: Optional[str] = None
+    retry_count: Optional[int] = None
 
 
 class _BacktestTrade(BaseModel):
@@ -111,6 +123,15 @@ class _BacktestRunDetails(BaseModel):
     current_task: Optional[str] = None
     error: Optional[str] = None
     error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    traceback: Optional[str] = None
+    strategy_id: Optional[int] = None
+    bot_id: Optional[str] = None
+    source: Optional[str] = None
+    selected_pairs: List[str] = []
+    metadata: Dict[str, Any] = {}
+    worker_hostname: Optional[str] = None
+    retry_count: Optional[int] = None
 
 
 class _BacktestRunList(BaseModel):
@@ -123,6 +144,8 @@ class BacktestService:
 
     _runs: Dict[str, Dict[str, Any]] = {}
     _tasks: Dict[str, asyncio.Task] = {}
+    _TASK_CONTEXT_KEY = "_task_context"
+    _TASK_FAILURE_KEY = "_task_failure"
     _DEFAULT_TIMEOUT_SECONDS = 24 * 60 * 60
     _MIN_TIMEOUT_SECONDS = 1.0
     _MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
@@ -411,6 +434,245 @@ class BacktestService:
         cleaned.pop(cls._CONTROL_KEY, None)
         return cleaned
 
+    @staticmethod
+    def _normalize_string_list(value: Any) -> List[str]:
+        if not isinstance(value, list):
+            return []
+        items: List[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            cleaned = str(raw).strip().upper()
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            items.append(cleaned)
+        return items
+
+    @classmethod
+    def _build_pair_labels_from_markets(cls, markets: List[str]) -> List[str]:
+        labels: List[str] = []
+        for idx in range(len(markets) - 1):
+            for jdx in range(idx + 1, len(markets)):
+                labels.append(f"{markets[idx]}/{markets[jdx]}")
+        return labels
+
+    @classmethod
+    def _markets_from_pair_labels(cls, pair_labels: List[str]) -> List[str]:
+        markets: List[str] = []
+        seen: set[str] = set()
+        for label in pair_labels:
+            for part in str(label).split("/"):
+                market = str(part).strip().upper()
+                if not market or market in seen:
+                    continue
+                seen.add(market)
+                markets.append(market)
+        return markets
+
+    @classmethod
+    def _markets_from_request(cls, request_payload: Dict[str, Any]) -> List[str]:
+        markets = cls._normalize_string_list(request_payload.get("pairs"))
+        if markets:
+            return markets
+
+        selected_pairs = cls._normalize_string_list(
+            request_payload.get("selected_pairs")
+        )
+        if selected_pairs and all("/" in pair for pair in selected_pairs):
+            return cls._markets_from_pair_labels(selected_pairs)
+        return selected_pairs
+
+    @classmethod
+    def _selected_pair_labels_from_request(
+        cls, request_payload: Dict[str, Any]
+    ) -> List[str]:
+        selected_pairs = cls._normalize_string_list(
+            request_payload.get("selected_pairs")
+        )
+        if selected_pairs and all("/" in pair for pair in selected_pairs):
+            return selected_pairs
+
+        markets = cls._markets_from_request(request_payload)
+        if len(markets) >= 2:
+            return cls._build_pair_labels_from_markets(markets)
+        return []
+
+    @classmethod
+    def _pair_markets_from_request(
+        cls,
+        request_payload: Dict[str, Any],
+    ) -> tuple[List[tuple[str, str]], List[str], bool]:
+        selected_pairs = cls._normalize_string_list(
+            request_payload.get("selected_pairs")
+        )
+        if selected_pairs and any("/" in pair for pair in selected_pairs):
+            if not all("/" in pair for pair in selected_pairs):
+                raise ValueError(
+                    "SELECTED_PAIRS_INVALID: selected_pairs must use MARKET_A/MARKET_B labels"
+                )
+
+            pair_markets: List[tuple[str, str]] = []
+            pair_labels: List[str] = []
+            seen: set[str] = set()
+            invalid: List[str] = []
+            for label in selected_pairs:
+                parts = [
+                    part.strip().upper()
+                    for part in str(label).split("/")
+                    if part.strip()
+                ]
+                if len(parts) != 2 or parts[0] == parts[1]:
+                    invalid.append(str(label))
+                    continue
+                canonical = f"{parts[0]}/{parts[1]}"
+                if canonical in seen:
+                    continue
+                seen.add(canonical)
+                pair_labels.append(canonical)
+                pair_markets.append((parts[0], parts[1]))
+            if invalid:
+                raise ValueError(
+                    "SELECTED_PAIRS_INVALID: unsupported selected pairs "
+                    + ", ".join(invalid)
+                )
+            return pair_markets, pair_labels, True
+
+        markets = cls._markets_from_request(request_payload)
+        if len(markets) < 2:
+            raise ValueError(
+                "SELECTED_PAIRS_MISSING: at least two selected pairs are required"
+            )
+        return (
+            cls._build_market_pairs(markets),
+            cls._build_pair_labels_from_markets(markets),
+            False,
+        )
+
+    @classmethod
+    def _request_payload_hash(cls, request_payload: Dict[str, Any]) -> str:
+        sanitized = dict(cls._strip_runtime_control(request_payload))
+        sanitized.pop(cls._TASK_CONTEXT_KEY, None)
+        sanitized.pop(cls._TASK_FAILURE_KEY, None)
+        encoded = json.dumps(
+            sanitized, sort_keys=True, separators=(",", ":"), default=str
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _task_context_from_request(
+        cls, request_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        context = request_payload.get(cls._TASK_CONTEXT_KEY)
+        return dict(context) if isinstance(context, dict) else {}
+
+    @classmethod
+    def _task_failure_from_request(
+        cls, request_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        failure = request_payload.get(cls._TASK_FAILURE_KEY)
+        return dict(failure) if isinstance(failure, dict) else {}
+
+    @classmethod
+    def _set_task_context(
+        cls,
+        request_payload: Dict[str, Any],
+        task_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        request = dict(request_payload or {})
+        request[cls._TASK_CONTEXT_KEY] = task_context
+        return request
+
+    @classmethod
+    def _clear_task_failure(cls, request_payload: Dict[str, Any]) -> Dict[str, Any]:
+        request = dict(request_payload or {})
+        request.pop(cls._TASK_FAILURE_KEY, None)
+        return request
+
+    @classmethod
+    def _set_task_failure(
+        cls,
+        request_payload: Dict[str, Any],
+        failure_payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        request = dict(request_payload or {})
+        request[cls._TASK_FAILURE_KEY] = failure_payload
+        return request
+
+    @classmethod
+    def _error_code_from_message(cls, message: str, default: str) -> str:
+        prefix = str(message or "").split(":", 1)[0].strip().upper()
+        if prefix and prefix.replace("_", "").isalnum() and " " not in prefix:
+            return prefix
+        return default
+
+    @classmethod
+    def _build_task_context(
+        cls,
+        request_payload: Dict[str, Any],
+        **overrides: Any,
+    ) -> Dict[str, Any]:
+        clean_request = dict(cls._strip_runtime_control(request_payload or {}))
+        existing = cls._task_context_from_request(clean_request)
+        selected_pairs = cls._selected_pair_labels_from_request(clean_request)
+        raw_strategy_snapshot = clean_request.get("strategy_payload_snapshot")
+        strategy_snapshot = (
+            raw_strategy_snapshot if isinstance(raw_strategy_snapshot, dict) else None
+        )
+        source_strategy_version = (
+            clean_request.get("source_strategy_version")
+            or existing.get("source_strategy_version")
+            or (strategy_snapshot or {}).get("version_number")
+            or (strategy_snapshot or {}).get("version")
+        )
+        strategy_name = (strategy_snapshot or {}).get("name") or existing.get(
+            "strategy_name"
+        )
+        source = str(clean_request.get("source") or existing.get("source") or "api")
+        requested_by_user_id = clean_request.get(
+            "requested_by_user_id"
+        ) or existing.get("requested_by_user_id")
+        payload_hash = existing.get("payload_hash") or cls._request_payload_hash(
+            clean_request
+        )
+        metadata: Dict[str, Any] = {
+            "strategy_name": strategy_name,
+            "strategy_version": source_strategy_version,
+            "payload_hash": payload_hash,
+            "pair_count": len(selected_pairs),
+            "source": source,
+        }
+        if requested_by_user_id is not None:
+            metadata["requested_by_user_id"] = requested_by_user_id
+
+        merged_metadata: Dict[str, Any] = {}
+        existing_metadata = existing.get("metadata")
+        if isinstance(existing_metadata, dict):
+            merged_metadata.update(existing_metadata)
+        merged_metadata.update(metadata)
+
+        context: Dict[str, Any] = {
+            **existing,
+            "strategy_id": clean_request.get("strategy_id")
+            or existing.get("strategy_id"),
+            "strategy_payload_snapshot": strategy_snapshot,
+            "pairs": cls._markets_from_request(clean_request),
+            "selected_pairs": selected_pairs,
+            "bot_id": clean_request.get("bot_id") or existing.get("bot_id"),
+            "environment": clean_request.get("environment")
+            or existing.get("environment")
+            or os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or "local",
+            "source": source,
+            "requested_by_user_id": requested_by_user_id,
+            "strategy_name": strategy_name,
+            "source_strategy_version": source_strategy_version,
+            "payload_hash": payload_hash,
+            "metadata": merged_metadata,
+        }
+        context.update(overrides)
+        return context
+
     @classmethod
     def _merge_runtime_control(
         cls,
@@ -478,6 +740,23 @@ class BacktestService:
         payload["restartable"] = True
         if resume_requested:
             payload["control_status"] = "resume_requested"
+        return payload
+
+    @classmethod
+    def _apply_task_observability(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        request_payload = dict(payload.get("request") or {})
+        task_context = cls._task_context_from_request(request_payload)
+        task_failure = cls._task_failure_from_request(request_payload)
+
+        payload["strategy_id"] = task_context.get("strategy_id")
+        payload["bot_id"] = task_context.get("bot_id")
+        payload["source"] = task_context.get("source")
+        payload["selected_pairs"] = list(task_context.get("selected_pairs") or [])
+        payload["metadata"] = dict(task_context.get("metadata") or {})
+        payload["worker_hostname"] = task_context.get("worker_hostname")
+        payload["retry_count"] = task_context.get("retry_count")
+        payload["error_code"] = task_failure.get("error_code")
+        payload["traceback"] = task_failure.get("traceback")
         return payload
 
     @staticmethod
@@ -548,6 +827,7 @@ class BacktestService:
     @classmethod
     def _with_status_observability(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = cls._normalize_lifecycle_state(run_data)
+        payload = cls._apply_task_observability(payload)
         status = cls._canonical_status(payload.get("status"))
         payload["last_heartbeat_at"] = payload.get("updated_at")
         payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
@@ -733,14 +1013,22 @@ class BacktestService:
             progress_callback=progress_callback,
         )
 
-    def _enqueue_celery_backtest(self, run_id: str) -> str:
+    def _enqueue_celery_backtest(
+        self,
+        run_id: str,
+        task_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """Dispatch a persisted backtest run to Celery."""
         try:
             from src.infrastructure.workers.backtest_tasks import run_backtest_task
         except Exception as exc:
             raise RuntimeError("Celery backtest worker is not available") from exc
 
-        async_result = run_backtest_task.apply_async(args=[run_id], task_id=run_id)
+        async_result = run_backtest_task.apply_async(
+            args=(run_id,),
+            kwargs={"task_context": task_context or {}},
+            task_id=run_id,
+        )
         return str(async_result.id)
 
     def _revoke_celery_backtest(self, task_id: Optional[str]) -> None:
@@ -879,7 +1167,10 @@ class BacktestService:
         worker_backend = self._configured_worker_backend()
         if worker_backend == "celery":
             try:
-                task_id = self._enqueue_celery_backtest(run_id)
+                task_id = self._enqueue_celery_backtest(
+                    run_id,
+                    self._build_task_context(request_payload),
+                )
                 return self._prepare_existing_run_recovery(
                     run_data,
                     worker_backend="celery",
@@ -1710,10 +2001,22 @@ class BacktestService:
                 run_data.get("timeout_seconds")
                 or self._parse_timeout_seconds(request_payload)
             )
+            request_payload = self._clear_task_failure(request_payload)
+            pair_markets, selected_pair_labels, explicit_pair_selection = (
+                self._pair_markets_from_request(request_payload)
+            )
+            request_payload = self._set_task_context(
+                request_payload,
+                self._build_task_context(
+                    request_payload,
+                    selected_pairs=selected_pair_labels,
+                ),
+            )
             deadline_monotonic = time.monotonic() + timeout_seconds
             started_at = datetime.now(timezone.utc)
             deadline_at = started_at + timedelta(seconds=timeout_seconds)
             run_data["status"] = "running"
+            run_data["request"] = request_payload
             run_data["started_at"] = (
                 run_data.get("started_at") or started_at.isoformat()
             )
@@ -1745,12 +2048,7 @@ class BacktestService:
                 raise ValueError(
                     "STRATEGY_PAYLOAD_MISSING: strategy-linked backtest requires strategy_payload_snapshot"
                 )
-            pairs_raw = (
-                request_payload.get("selected_pairs")
-                or request_payload.get("pairs")
-                or []
-            )
-            if len(pairs_raw) < 2:
+            if len(selected_pair_labels) == 0:
                 raise ValueError(
                     "SELECTED_PAIRS_MISSING: at least two selected pairs are required"
                 )
@@ -1774,10 +2072,6 @@ class BacktestService:
                     params.get("pair_selection_mode", "liquidity"),
                 )
             )
-
-            # Build all unique pair combinations.
-            # Example: [BTC, ETH, SOL] -> (BTC, ETH), (BTC, SOL), (ETH, SOL)
-            pair_markets = self._build_market_pairs([str(m) for m in pairs_raw])
 
             max_pairs: Optional[int] = None
             max_pairs_raw = request_payload.get("max_pairs", None)
@@ -1843,15 +2137,16 @@ class BacktestService:
                     except Exception:
                         market_history_cache[market] = {}
 
-            pair_markets = self._prioritize_pairs(
-                pair_markets=pair_markets,
-                mode=pair_selection_mode,
-                market_map=market_map,
-                history_by_market=market_history_cache,
-            )
+            if not explicit_pair_selection:
+                pair_markets = self._prioritize_pairs(
+                    pair_markets=pair_markets,
+                    mode=pair_selection_mode,
+                    market_map=market_map,
+                    history_by_market=market_history_cache,
+                )
 
-            if max_pairs is not None:
-                pair_markets = pair_markets[:max_pairs]
+                if max_pairs is not None:
+                    pair_markets = pair_markets[:max_pairs]
 
             total_pairs = len(pair_markets)
             all_trades: List[Dict[str, Any]] = []
@@ -2077,6 +2372,9 @@ class BacktestService:
                     "updated_at": finished_at,
                 }
             )
+            run_data["request"] = self._clear_task_failure(
+                dict(run_data.get("request") or {})
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="completed",
@@ -2115,6 +2413,15 @@ class BacktestService:
                     )
 
         except asyncio.CancelledError:
+            failure_payload = {
+                "error_code": "BACKTEST_CANCELLED",
+                "error_message": "Backtest cancelled",
+                "traceback": None,
+            }
+            run_data["request"] = self._set_task_failure(
+                dict(run_data.get("request") or {}),
+                failure_payload,
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="cancelled",
@@ -2143,6 +2450,17 @@ class BacktestService:
             async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
         except TimeoutError as exc:
             error_message = str(exc) or "Backtest timed out"
+            failure_payload = {
+                "error_code": self._error_code_from_message(
+                    error_message, "BACKTEST_TIMEOUT"
+                ),
+                "error_message": error_message,
+                "traceback": traceback_module.format_exc(),
+            }
+            run_data["request"] = self._set_task_failure(
+                dict(run_data.get("request") or {}),
+                failure_payload,
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="timeout",
@@ -2169,6 +2487,17 @@ class BacktestService:
             async_job_manager.mark_failed(run_id, error_message)
         except Exception as exc:
             error_message = str(exc)
+            failure_payload = {
+                "error_code": self._error_code_from_message(
+                    error_message, "BACKTEST_EXECUTION_FAILED"
+                ),
+                "error_message": error_message,
+                "traceback": traceback_module.format_exc(),
+            }
+            run_data["request"] = self._set_task_failure(
+                dict(run_data.get("request") or {}),
+                failure_payload,
+            )
             run_data = self._set_runtime_control(
                 run_data,
                 status="failed",
@@ -2210,6 +2539,11 @@ class BacktestService:
         now = datetime.now(timezone.utc).isoformat()
         run_id = f"run-{uuid4().hex[:12]}"
         request_payload = self._extract_request_payload(request)
+        request_payload = self._clear_task_failure(request_payload)
+        request_payload = self._set_task_context(
+            request_payload,
+            self._build_task_context(request_payload),
+        )
 
         start_date = getattr(request, "start_date", None) or request_payload.get(
             "start_date", ""
@@ -2275,7 +2609,10 @@ class BacktestService:
 
         if worker_backend == "celery":
             try:
-                task_id = self._enqueue_celery_backtest(run_id)
+                task_id = self._enqueue_celery_backtest(
+                    run_id,
+                    self._build_task_context(request_payload),
+                )
                 run_data = self._set_runtime_control(
                     run_data,
                     status="pending",
@@ -2391,6 +2728,12 @@ class BacktestService:
         data = self._resolve_stale_run_data(data)
         request_payload = self._strip_runtime_control(data.get("request") or {})
         has_request_payload = bool(request_payload)
+        timeout_value = data.get("timeout_seconds")
+        heartbeat_age_value = data.get("heartbeat_age_seconds")
+        strategy_id_value = data.get("strategy_id")
+        retry_count_value = data.get("retry_count")
+        metadata_value = data.get("metadata")
+        metadata = metadata_value if isinstance(metadata_value, dict) else {}
         return _BacktestRunStatus(
             run_id=run_id,
             status=str(data.get("status", "unknown")),
@@ -2422,9 +2765,7 @@ class BacktestService:
                 else None
             ),
             timeout_seconds=(
-                float(data.get("timeout_seconds"))
-                if data.get("timeout_seconds") is not None
-                else None
+                float(timeout_value) if timeout_value is not None else None
             ),
             last_heartbeat_at=(
                 str(data.get("last_heartbeat_at"))
@@ -2432,9 +2773,7 @@ class BacktestService:
                 else None
             ),
             heartbeat_age_seconds=(
-                float(data.get("heartbeat_age_seconds"))
-                if data.get("heartbeat_age_seconds") is not None
-                else None
+                float(heartbeat_age_value) if heartbeat_age_value is not None else None
             ),
             cancellable=bool(data.get("cancellable", False)),
             pausable=bool(data.get("pausable", False)),
@@ -2477,6 +2816,35 @@ class BacktestService:
                 str(data.get("error_message"))
                 if data.get("error_message") is not None
                 else None
+            ),
+            error_code=(
+                str(data.get("error_code"))
+                if data.get("error_code") is not None
+                else None
+            ),
+            traceback=(
+                str(data.get("traceback"))
+                if data.get("traceback") is not None
+                else None
+            ),
+            strategy_id=(
+                int(strategy_id_value) if strategy_id_value is not None else None
+            ),
+            bot_id=(
+                str(data.get("bot_id")) if data.get("bot_id") is not None else None
+            ),
+            source=(
+                str(data.get("source")) if data.get("source") is not None else None
+            ),
+            selected_pairs=list(data.get("selected_pairs") or []),
+            metadata=metadata,
+            worker_hostname=(
+                str(data.get("worker_hostname"))
+                if data.get("worker_hostname") is not None
+                else None
+            ),
+            retry_count=(
+                int(retry_count_value) if retry_count_value is not None else None
             ),
         )
 

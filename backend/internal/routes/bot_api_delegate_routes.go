@@ -191,6 +191,45 @@ func asSlice(value interface{}) []interface{} {
 	return nil
 }
 
+func stringSliceField(payload map[string]interface{}, keys ...string) []string {
+	for _, key := range keys {
+		value, exists := payload[key]
+		if !exists || value == nil {
+			continue
+		}
+		items := make([]string, 0)
+		switch typed := value.(type) {
+		case []interface{}:
+			for _, item := range typed {
+				cleaned := strings.ToUpper(strings.TrimSpace(fmt.Sprintf("%v", item)))
+				if cleaned != "" {
+					items = append(items, cleaned)
+				}
+			}
+		case []string:
+			for _, item := range typed {
+				cleaned := strings.ToUpper(strings.TrimSpace(item))
+				if cleaned != "" {
+					items = append(items, cleaned)
+				}
+			}
+		}
+		if len(items) > 0 {
+			seen := make(map[string]struct{}, len(items))
+			deduped := make([]string, 0, len(items))
+			for _, item := range items {
+				if _, exists := seen[item]; exists {
+					continue
+				}
+				seen[item] = struct{}{}
+				deduped = append(deduped, item)
+			}
+			return deduped
+		}
+	}
+	return []string{}
+}
+
 func getNumberField(payload map[string]interface{}, keys ...string) (float64, bool) {
 	for _, key := range keys {
 		v, ok := payload[key]
@@ -1057,6 +1096,60 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 		config = normalizeBacktestRunPayload(config)
 
+		if c.FullPath() == "/api/v1/backtests/run" {
+			selectedPairs := stringSliceField(config, "pairs", "selected_pairs")
+			if len(selectedPairs) < 2 {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{
+					"success":   false,
+					"message":   "SELECTED_PAIRS_MISSING: at least two selected pairs are required",
+					"error":     "SELECTED_PAIRS_MISSING",
+					"data":      gin.H{"error": "SELECTED_PAIRS_MISSING"},
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			config["pairs"] = selectedPairs
+			config["selected_pairs"] = selectedPairs
+
+			if strategyIDValue, ok := getNumberField(config, "strategy_id"); ok {
+				strategyID := int(strategyIDValue)
+				if strategyID > 0 {
+					if _, strategyErr := requestClient.GetStrategy(strategyID); strategyErr != nil {
+						log.Printf(
+							"strategy_not_found strategy_id=%d endpoint=/api/v1/backtests/run trace_id=%s",
+							strategyID,
+							middleware.GetTraceID(c),
+						)
+						var apiErr *services.BotAPIError
+						if errors.As(strategyErr, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+							c.JSON(http.StatusNotFound, gin.H{
+								"success":   false,
+								"message":   fmt.Sprintf("STRATEGY_NOT_FOUND: strategy_id=%d", strategyID),
+								"error":     "STRATEGY_NOT_FOUND",
+								"data":      gin.H{"error": "STRATEGY_NOT_FOUND", "strategy_id": strategyID},
+								"timestamp": time.Now().UTC().Format(time.RFC3339),
+								"trace_id":  middleware.GetTraceID(c),
+							})
+							return
+						}
+						respondBotAPIError(c, strategyErr)
+						return
+					}
+				}
+			} else if asMap(config["strategy_payload_snapshot"]) == nil {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{
+					"success":   false,
+					"message":   "STRATEGY_PAYLOAD_MISSING: one-off backtests require a strategy_payload_snapshot",
+					"error":     "STRATEGY_PAYLOAD_MISSING",
+					"data":      gin.H{"error": "STRATEGY_PAYLOAD_MISSING"},
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+		}
+
 		var (
 			result map[string]interface{}
 			err    error
@@ -1090,6 +1183,14 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 					if existing, ok := dataMap[field]; !ok || existing == nil || existing == "" {
 						dataMap[field] = requestVal
 					}
+				}
+			}
+			if _, exists := result["config"]; !exists {
+				result["config"] = config
+			}
+			if dataMap, ok := result["data"].(map[string]interface{}); ok {
+				if _, exists := dataMap["config"]; !exists {
+					dataMap["config"] = config
 				}
 			}
 

@@ -72,6 +72,12 @@ func (s *BacktestSyncService) SyncBacktestRun(userID int, upstream map[string]in
 			}
 		}
 	}
+	strategyID := nullableIntField(payload, "strategy_id")
+	if !strategyID.Valid {
+		if cfg := asMap(payload["config"]); cfg != nil {
+			strategyID = nullableIntField(cfg, "strategy_id")
+		}
+	}
 
 	syncPayload := repository.BacktestRunSyncPayload{
 		RunID:           runID,
@@ -83,6 +89,7 @@ func (s *BacktestSyncService) SyncBacktestRun(userID int, upstream map[string]in
 		TotalMarkets:    totalMarkets,
 		Resolution:      nullableString(resolution),
 		Config:          config,
+		StrategyID:      strategyID,
 		StartedAt:       parseTimePtr(payload, "started_at"),
 		CompletedAt:     parseTimePtr(payload, "completed_at"),
 		DurationSeconds: parseFloatPtr(payload, "duration_seconds"),
@@ -268,6 +275,13 @@ func extractRunPayload(root map[string]interface{}) map[string]interface{} {
 		return data
 	}
 	return root
+}
+
+func asMap(value interface{}) map[string]interface{} {
+	if mapped, ok := value.(map[string]interface{}); ok {
+		return mapped
+	}
+	return nil
 }
 
 func getString(source map[string]interface{}, keys ...string) string {

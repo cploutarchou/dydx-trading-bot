@@ -21,6 +21,7 @@ type BacktestRunSyncPayload struct {
 	TotalMarkets    int
 	Resolution      sql.NullString
 	Config          sql.NullString
+	StrategyID      sql.NullInt64
 	StartedAt       *time.Time
 	CompletedAt     *time.Time
 	DurationSeconds *float64
@@ -184,8 +185,9 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			losing_trades = COALESCE($15, losing_trades),
 			win_rate = COALESCE($16, win_rate),
 			total_pnl = COALESCE($17, total_pnl),
-			total_pnl_usd = COALESCE($18, total_pnl_usd)
-		WHERE run_id = $19
+			total_pnl_usd = COALESCE($18, total_pnl_usd),
+			strategy_id = COALESCE($19, strategy_id)
+		WHERE run_id = $20
 	`
 
 		result, err := r.db.Exec(
@@ -208,6 +210,7 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			nullableFloat64Value(payload.WinRate),
 			nullableFloat64Value(payload.TotalPnL),
 			nullableFloat64Value(payload.TotalPnLUSD),
+			nullableInt64Value(payload.StrategyID),
 			payload.RunID,
 		)
 		if err != nil {
@@ -227,12 +230,12 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			run_id, status, created_at, started_at, completed_at, duration_seconds,
 			start_date, end_date, num_pairs, total_markets, resolution, config,
 			total_trades, profitable_trades, losing_trades, win_rate,
-			total_pnl, total_pnl_usd, error_message, user_id
+			total_pnl, total_pnl_usd, error_message, user_id, strategy_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11, $12,
 			$13, $14, $15, $16,
-			$17, $18, $19, $20
+			$17, $18, $19, $20, $21
 		)
 	`
 
@@ -258,6 +261,7 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			nullableFloat64Value(payload.TotalPnLUSD),
 			nullableStringValue(payload.ErrorMessage),
 			payload.UserID,
+			nullableInt64Value(payload.StrategyID),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert backtest run: %w", err)

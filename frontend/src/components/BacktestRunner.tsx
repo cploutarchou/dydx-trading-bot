@@ -405,6 +405,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           )
         ) + 1;
       const effectiveMaxHistoryDays = Math.max(Number(tp.max_history_days ?? 90), periodDays + 30);
+      if (selectedMarkets.length < 2) {
+        throw new Error('Select at least two dYdX markets before starting a backtest.');
+      }
 
       const cleanedData = {
         start_date: formData.start_date,

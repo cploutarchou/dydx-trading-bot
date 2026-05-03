@@ -682,6 +682,10 @@ export const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest
 
   const dedupedPairs = incomingPairs ? Array.from(new Set(incomingPairs)) : undefined;
 
+  if (!dedupedPairs || dedupedPairs.length === 0) {
+    throw new Error('Backtest payload requires selected pairs');
+  }
+
   if (dedupedPairs && dedupedPairs.length === 1) {
     throw new Error('When pairs are provided, at least two markets are required');
   }

@@ -1409,6 +1409,7 @@ export const BacktestDetailsV2: React.FC = () => {
       }
       const cleanRequest = { ...requestPayload };
       delete cleanRequest._runtime_control;
+      cleanRequest.source = 'backtest-rerun';
       const response = await api.runBacktest(
         cleanRequest as { start_date: string; end_date: string } & Record<string, unknown>
       );

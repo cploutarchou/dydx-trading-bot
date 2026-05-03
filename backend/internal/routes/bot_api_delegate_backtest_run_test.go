@@ -431,10 +431,32 @@ func TestDelegatedBacktestRun_UsesCompatibilityRunEndpoint(t *testing.T) {
 		t.Fatalf("backend should not call /api/v1/backtests for /run compatibility route")
 	})
 
-	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
 	defer func() { _ = dbConn.Close() }()
 	backendServer := httptest.NewServer(router)
 	defer backendServer.Close()
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_strategies (
+			id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+			runtime_network, runtime_subaccount, selected_markets, zscore_threshold, stats_window, max_half_life,
+			usd_per_trade, usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs, manage_exits,
+			place_trades, abort_all_positions, max_positions, max_drawdown_pct, stop_loss_pct, take_profit_pct,
+			trailing_stop_pct, rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
+			starting_balance, candle_resolution, max_history_days, benchmark_symbol, risk_free_rate, initial_amount,
+			usage_count, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		77, 1, "Pair Label Strategy", "payload propagation", "pairs", false, false, "cointegration", "input",
+		"testnet", 0, `["BTC-USD","ETH-USD","SOL-USD"]`, 1.4, 21, 18.0,
+		20.0, 200.0, true, true, true,
+		true, false, 5, 10.0, 2.0, 4.0,
+		0.8, 24, 72, 0.0005, 0.001,
+		1500.0, "1HOUR", 90, "BTC-USD", 0.02, 1500.0,
+		0, now, now,
+	); err != nil {
+		t.Fatalf("insert strategy row: %v", err)
+	}
 
 	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
 	body, _ := json.Marshal(map[string]interface{}{
@@ -861,6 +883,262 @@ func TestDelegatedBacktestRun_NormalizesLegacyFlatPayload(t *testing.T) {
 		}
 		if tp["max_history_days"] != float64(120) {
 			t.Fatalf("expected max_history_days=120, got %v", tp["max_history_days"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request payload")
+	}
+}
+
+func TestDelegatedBacktestRun_DerivesSelectedPairLabelsAndContext(t *testing.T) {
+	requestBodyCh := make(chan map[string]interface{}, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		requestBodyCh <- payload
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"pair-label-run","status":"queued"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"pairs": []string{"BTC-USD", "ETH-USD", "SOL-USD"},
+		"strategy_payload_snapshot": map[string]interface{}{
+			"id":   4,
+			"name": "UI Strategy Reference",
+		},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var got map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&got)
+		t.Fatalf("expected 200, got %d: %v", resp.StatusCode, got)
+	}
+
+	select {
+	case payload := <-requestBodyCh:
+		pairs, ok := payload["pairs"].([]interface{})
+		if !ok || len(pairs) != 3 {
+			t.Fatalf("expected upstream pairs market list, got %T (%v)", payload["pairs"], payload["pairs"])
+		}
+		selectedPairs, ok := payload["selected_pairs"].([]interface{})
+		if !ok {
+			t.Fatalf("expected selected_pairs array, got %T (%v)", payload["selected_pairs"], payload["selected_pairs"])
+		}
+		expected := []string{"BTC-USD/ETH-USD", "BTC-USD/SOL-USD", "ETH-USD/SOL-USD"}
+		if len(selectedPairs) != len(expected) {
+			t.Fatalf("expected %d selected_pairs, got %d (%v)", len(expected), len(selectedPairs), selectedPairs)
+		}
+		for i, want := range expected {
+			if selectedPairs[i] != want {
+				t.Fatalf("expected selected_pairs[%d]=%q, got %v", i, want, selectedPairs[i])
+			}
+		}
+		if payload["source"] != "ui" {
+			t.Fatalf("expected source=ui, got %v", payload["source"])
+		}
+		if payload["requested_by_user_id"] != float64(1) {
+			t.Fatalf("expected requested_by_user_id=1, got %v", payload["requested_by_user_id"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream request payload")
+	}
+}
+
+func TestDelegatedBacktestRun_PreservesExactUIPayloadContract(t *testing.T) {
+	requestBodyCh := make(chan map[string]interface{}, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		requestBodyCh <- payload
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"ui-contract-run","status":"queued"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_strategies (
+			id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
+			runtime_network, runtime_subaccount, selected_markets, zscore_threshold, stats_window, max_half_life,
+			usd_per_trade, usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs, manage_exits,
+			place_trades, abort_all_positions, max_positions, max_drawdown_pct, stop_loss_pct, take_profit_pct,
+			trailing_stop_pct, rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
+			starting_balance, candle_resolution, max_history_days, benchmark_symbol, risk_free_rate, initial_amount,
+			usage_count, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		4, 1, "Aggressive Strategy", "Aggressive strategy with lower thresholds for frequent trading", "pairs", false, false, "cointegration", "liquidity",
+		"testnet", 0, `["BTC-USD","ETH-USD","LINK-USD","AVAX-USD"]`, 1.0, 14, 8.0,
+		10.0, 300.0, true, true, true,
+		true, false, 5, 15.0, 2.0, 5.0,
+		1.0, 24, 72, 0.0005, 0.001,
+		300.0, "1HOUR", 90, "BTC-USD", 0.02, 300.0,
+		0, now, now,
+	); err != nil {
+		t.Fatalf("insert strategy row: %v", err)
+	}
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(map[string]interface{}{
+		"start_date":          "2026-04-03",
+		"end_date":            "2026-05-03",
+		"name":                "terert Backtest",
+		"description":         "Aggressive strategy with lower thresholds for frequent trading",
+		"strategy_id":         4,
+		"environment":         "testnet",
+		"initial_balance":     300,
+		"pair_selection_mode": "liquidity",
+		"max_pairs":           4,
+		"pairs":               []string{"BTC-USD", "ETH-USD", "LINK-USD", "AVAX-USD"},
+		"trading_parameters": map[string]interface{}{
+			"zscore_threshold":         1,
+			"stats_window":             14,
+			"max_half_life":            8,
+			"usd_per_trade":            10,
+			"usd_min_collateral":       300,
+			"close_at_zscore_cross":    true,
+			"find_cointegrated_pairs":  true,
+			"manage_exits":             true,
+			"place_trades":             true,
+			"abort_all_positions":      false,
+			"max_positions":            5,
+			"max_drawdown_pct":         15,
+			"stop_loss_pct":            2,
+			"take_profit_pct":          5,
+			"trailing_stop_pct":        1,
+			"rebalance_interval_hours": 24,
+			"position_timeout_hours":   72,
+			"transaction_fee":          0.0005,
+			"slippage":                 0.001,
+			"risk_free_rate":           0.02,
+			"benchmark_symbol":         "BTC-USD",
+			"max_history_days":         90,
+			"resolution":               "1HOUR",
+			"candle_resolution":        "1HOUR",
+			"pair_selection_mode":      "liquidity",
+		},
+		"source": "ui",
+		"selected_pairs": []string{
+			"BTC-USD/ETH-USD",
+			"BTC-USD/LINK-USD",
+			"BTC-USD/AVAX-USD",
+			"ETH-USD/LINK-USD",
+			"ETH-USD/AVAX-USD",
+			"LINK-USD/AVAX-USD",
+		},
+	})
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var got map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&got)
+		t.Fatalf("expected 200, got %d: %v", resp.StatusCode, got)
+	}
+
+	select {
+	case payload := <-requestBodyCh:
+		if payload["strategy_id"] != float64(4) {
+			t.Fatalf("expected strategy_id=4, got %v", payload["strategy_id"])
+		}
+		if payload["source"] != "ui" {
+			t.Fatalf("expected source=ui, got %v", payload["source"])
+		}
+		if payload["environment"] != "testnet" {
+			t.Fatalf("expected environment=testnet, got %v", payload["environment"])
+		}
+		if payload["requested_by_user_id"] != float64(1) {
+			t.Fatalf("expected requested_by_user_id=1, got %v", payload["requested_by_user_id"])
+		}
+		if payload["max_pairs"] != float64(4) {
+			t.Fatalf("expected max_pairs=4, got %v", payload["max_pairs"])
+		}
+
+		pairs, ok := payload["pairs"].([]interface{})
+		if !ok || len(pairs) != 4 {
+			t.Fatalf("expected pairs market list of 4, got %T (%v)", payload["pairs"], payload["pairs"])
+		}
+		if pairs[0] != "BTC-USD" || pairs[1] != "ETH-USD" || pairs[2] != "LINK-USD" || pairs[3] != "AVAX-USD" {
+			t.Fatalf("unexpected pairs ordering/content: %v", pairs)
+		}
+
+		selectedPairs, ok := payload["selected_pairs"].([]interface{})
+		if !ok || len(selectedPairs) != 6 {
+			t.Fatalf("expected selected_pairs list of 6, got %T (%v)", payload["selected_pairs"], payload["selected_pairs"])
+		}
+		expectedSelected := []string{
+			"BTC-USD/ETH-USD",
+			"BTC-USD/LINK-USD",
+			"BTC-USD/AVAX-USD",
+			"ETH-USD/LINK-USD",
+			"ETH-USD/AVAX-USD",
+			"LINK-USD/AVAX-USD",
+		}
+		for i, want := range expectedSelected {
+			if selectedPairs[i] != want {
+				t.Fatalf("expected selected_pairs[%d]=%q, got %v", i, want, selectedPairs[i])
+			}
+		}
+
+		tradingParameters, ok := payload["trading_parameters"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected trading_parameters map, got %T (%v)", payload["trading_parameters"], payload["trading_parameters"])
+		}
+		if tradingParameters["pair_selection_mode"] != "liquidity" {
+			t.Fatalf("expected pair_selection_mode=liquidity, got %v", tradingParameters["pair_selection_mode"])
+		}
+		if tradingParameters["resolution"] != "1HOUR" {
+			t.Fatalf("expected resolution=1HOUR, got %v", tradingParameters["resolution"])
+		}
+		if tradingParameters["candle_resolution"] != "1HOUR" {
+			t.Fatalf("expected candle_resolution=1HOUR, got %v", tradingParameters["candle_resolution"])
+		}
+
+		strategySnapshot, ok := payload["strategy_payload_snapshot"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected strategy_payload_snapshot map, got %T (%v)", payload["strategy_payload_snapshot"], payload["strategy_payload_snapshot"])
+		}
+		if strategySnapshot["id"] != float64(4) {
+			t.Fatalf("expected strategy_payload_snapshot.id=4, got %v", strategySnapshot["id"])
+		}
+		if strategySnapshot["name"] != "Aggressive Strategy" {
+			t.Fatalf("expected strategy_payload_snapshot.name from backend strategy, got %v", strategySnapshot["name"])
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for upstream request payload")

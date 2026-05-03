@@ -16,6 +16,7 @@ import (
 const (
 	defaultAIMarketHTTPTimeout = 20 * time.Second
 	defaultAIMarketLimit       = 20
+	maxAIMarketLimit           = 50
 )
 
 var SupportedAIProviders = []string{
@@ -218,8 +219,11 @@ func (s *AIMarketService) SelectMarkets(ctx context.Context, userID int, req AIM
 
 	mode := normalizeAIMarketMode(req.Mode)
 	limit := req.Limit
-	if limit <= 0 || limit > defaultAIMarketLimit {
+	if limit <= 0 {
 		limit = defaultAIMarketLimit
+	}
+	if limit > maxAIMarketLimit {
+		limit = maxAIMarketLimit
 	}
 
 	markets := normalizeMarkets(req.Markets)

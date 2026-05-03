@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional
 from uuid import uuid4
 
+import httpx
 import numpy as np
 from pydantic import BaseModel
 from scipy.stats import linregress
@@ -1487,22 +1488,46 @@ class BacktestService:
                     request_timeout,
                     max(0.001, self._remaining_seconds(deadline_monotonic)),
                 )
-            try:
-                response = await asyncio.wait_for(
-                    client.indexer.markets.get_perpetual_market_candles(
-                        market=market,
-                        resolution=resolution,
-                        from_iso=self._to_iso(cursor),
-                        to_iso=self._to_iso(window_end),
-                        limit=max_candles,
-                    ),
-                    timeout=request_timeout,
-                )
-            except asyncio.TimeoutError as exc:
-                raise TimeoutError(
-                    f"Backtest timed out loading {market} candles "
-                    f"for {self._to_iso(cursor)} to {self._to_iso(window_end)}"
-                ) from exc
+            _max_retries = 3
+            _retry_delay = 2.0
+            for _attempt in range(_max_retries):
+                try:
+                    response = await asyncio.wait_for(
+                        client.indexer.markets.get_perpetual_market_candles(
+                            market=market,
+                            resolution=resolution,
+                            from_iso=self._to_iso(cursor),
+                            to_iso=self._to_iso(window_end),
+                            limit=max_candles,
+                        ),
+                        timeout=request_timeout,
+                    )
+                    break  # success — exit retry loop
+                except asyncio.TimeoutError as exc:
+                    raise TimeoutError(
+                        f"Backtest timed out loading {market} candles "
+                        f"for {self._to_iso(cursor)} to {self._to_iso(window_end)}"
+                    ) from exc
+                except httpx.TransportError as exc:
+                    if _attempt < _max_retries - 1:
+                        wait = _retry_delay * (2**_attempt)
+                        logger.warning(
+                            "Candle fetch network error for %s (attempt %d/%d), "
+                            "retrying in %.1fs: %s",
+                            market,
+                            _attempt + 1,
+                            _max_retries,
+                            wait,
+                            exc,
+                        )
+                        await asyncio.sleep(wait)
+                    else:
+                        raise TimeoutError(
+                            f"Candle fetch failed for {market} after "
+                            f"{_max_retries} attempts: {exc}"
+                        ) from exc
+            else:
+                response = {}
 
             if not isinstance(response, dict):
                 response = {}

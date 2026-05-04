@@ -10,8 +10,14 @@
  * - Thread-safe execution
  */
 
-import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2 } from 'lucide-react';
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2, X } from 'lucide-react';
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, {
@@ -289,6 +295,9 @@ export default function StrategyManager() {
   const [strategyBacktests, setStrategyBacktests] = useState<Map<number, AIBacktestSummary[]>>(
     new Map()
   );
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
+  const startDialogNetworkRef = useRef<HTMLSelectElement | null>(null);
+  const configNameInputRef = useRef<HTMLInputElement | null>(null);
 
   const compactCards = viewPreset === 'operator';
 
@@ -537,6 +546,24 @@ export default function StrategyManager() {
     };
   }, [startDialogNetwork, startDialogStrategy]);
 
+  useEffect(() => {
+    if (!startDialogStrategy) {
+      return;
+    }
+
+    const focusTimer = window.setTimeout(() => startDialogNetworkRef.current?.focus(), 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [startDialogStrategy]);
+
+  useEffect(() => {
+    if (!showConfigModal || !editingConfig) {
+      return;
+    }
+
+    const focusTimer = window.setTimeout(() => configNameInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [editingConfig, showConfigModal]);
+
   // Setup WebSocket for real-time strategy status
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -680,13 +707,23 @@ export default function StrategyManager() {
     setStartDialogReadiness(null);
     setStartDialogError(null);
     setStartDialogLoading(false);
+    window.setTimeout(() => lastFocusedElementRef.current?.focus(), 0);
   };
 
   const openStartDialog = (strategy: Strategy) => {
+    lastFocusedElementRef.current =
+      typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
     setStartDialogStrategy(strategy);
     setStartDialogNetwork(strategy.runtime_network ?? 'testnet');
     setStartDialogReadiness(null);
     setStartDialogError(null);
+  };
+
+  const closeConfigDialog = () => {
+    setShowConfigModal(false);
+    setEditingConfig(null);
+    setConfigErrors({});
+    window.setTimeout(() => lastFocusedElementRef.current?.focus(), 0);
   };
 
   const executeStrategyStart = async (
@@ -1005,8 +1042,7 @@ export default function StrategyManager() {
 
       showTransientMessage({ type: 'success', text: '✅ Strategy configuration updated' }, 4000);
 
-      setShowConfigModal(false);
-      setEditingConfig(null);
+      closeConfigDialog();
       await fetchStrategies();
     } catch (error: unknown) {
       showTransientMessage(
@@ -1070,6 +1106,8 @@ export default function StrategyManager() {
   };
 
   const handleEditConfig = (strategy: Strategy) => {
+    lastFocusedElementRef.current =
+      typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
     setEditingConfig({ ...strategy });
     setConfigErrors({});
     setShowConfigModal(true);
@@ -1432,6 +1470,7 @@ export default function StrategyManager() {
                 <button
                   type="button"
                   onClick={() => setViewPreset('operator')}
+                  aria-pressed={viewPreset === 'operator'}
                   className={`rounded-xl px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] transition ${
                     viewPreset === 'operator'
                       ? 'border border-cyan-500/40 bg-cyan-500/20 text-cyan-100'
@@ -1443,6 +1482,7 @@ export default function StrategyManager() {
                 <button
                   type="button"
                   onClick={() => setViewPreset('analyst')}
+                  aria-pressed={viewPreset === 'analyst'}
                   className={`rounded-xl px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] transition ${
                     viewPreset === 'analyst'
                       ? 'border border-cyan-500/40 bg-cyan-500/20 text-cyan-100'
@@ -1997,8 +2037,10 @@ export default function StrategyManager() {
 
                       return (
                         <button
+                          type="button"
                           onClick={() => void handleRuntimeToggle(strategy)}
                           disabled={pendingAction !== undefined}
+                          aria-label={`${buttonLabel} for ${strategy.name}`}
                           className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-80 ${buttonClass}`}
                           title={
                             status.network
@@ -2013,7 +2055,9 @@ export default function StrategyManager() {
 
                     {/* Configure Button */}
                     <button
+                      type="button"
                       onClick={() => handleEditConfig(strategy)}
+                      aria-label={`Configure ${strategy.name}`}
                       className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/15 px-4 py-2 text-sm font-semibold text-cyan-100 transition-colors hover:bg-cyan-500/25"
                     >
                       <Settings className="w-4 h-4" />
@@ -2022,7 +2066,9 @@ export default function StrategyManager() {
 
                     {/* Backtest Button */}
                     <button
+                      type="button"
                       onClick={() => handleRunBacktest(strategy)}
+                      aria-label={`Run backtest for ${strategy.name}`}
                       className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-4 py-2 text-sm font-semibold text-indigo-100 transition-colors hover:bg-indigo-500/25"
                     >
                       <BarChart3 className="w-4 h-4" />
@@ -2031,7 +2077,9 @@ export default function StrategyManager() {
 
                     {/* Copy Button */}
                     <button
+                      type="button"
                       onClick={() => void handleDuplicateStrategy(strategy)}
+                      aria-label={`Duplicate ${strategy.name}`}
                       className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-cyan-500/35 hover:bg-slate-900"
                     >
                       <Copy className="w-4 h-4" />
@@ -2042,14 +2090,18 @@ export default function StrategyManager() {
                     {deleteConfirmId === strategy.id ? (
                       <>
                         <button
+                          type="button"
                           onClick={() => void handleDeleteStrategy(strategy)}
+                          aria-label={`Confirm delete ${strategy.name}`}
                           className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-500"
                         >
                           <Trash2 className="w-4 h-4" />
                           Confirm Delete
                         </button>
                         <button
+                          type="button"
                           onClick={() => setDeleteConfirmId(null)}
+                          aria-label={`Cancel delete ${strategy.name}`}
                           className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-cyan-500/35 hover:bg-slate-900"
                         >
                           Cancel
@@ -2057,7 +2109,9 @@ export default function StrategyManager() {
                       </>
                     ) : (
                       <button
+                        type="button"
                         onClick={() => setDeleteConfirmId(strategy.id)}
+                        aria-label={`Delete ${strategy.name}`}
                         className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-red-500/40 hover:bg-red-900/20"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -2094,19 +2148,31 @@ export default function StrategyManager() {
         typeof document !== 'undefined' &&
         createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
+            <div
+              className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="start-runtime-dialog-title"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  closeStartDialog();
+                }
+              }}
+            >
               <div className="flex items-center justify-between border-b border-slate-800 px-6 py-5">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Live Launch</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-white">
+                  <h2 id="start-runtime-dialog-title" className="mt-2 text-2xl font-semibold text-white">
                     Start {startDialogStrategy.name}
                   </h2>
                 </div>
                 <button
+                  type="button"
                   onClick={() => closeStartDialog()}
-                  className="rounded-full border border-slate-700 px-3 py-1 text-slate-300 transition hover:border-slate-500 hover:text-white"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 text-slate-300 transition hover:border-slate-500 hover:text-white"
+                  aria-label="Close launch dialog"
                 >
-                  Close
+                  <X className="h-4 w-4" />
                 </button>
               </div>
 
@@ -2117,6 +2183,7 @@ export default function StrategyManager() {
                       Environment
                     </label>
                     <select
+                      ref={startDialogNetworkRef}
                       value={startDialogNetwork}
                       onChange={(event) =>
                         setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet')
@@ -2351,12 +2418,14 @@ export default function StrategyManager() {
                 </p>
                 <div className="flex gap-3">
                   <button
+                    type="button"
                     onClick={() => closeStartDialog()}
                     className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
                   >
                     Cancel
                   </button>
                   <button
+                    type="button"
                     onClick={() => void handleConfirmStrategyStart()}
                     disabled={
                       startDialogSubmitting ||
@@ -2381,19 +2450,29 @@ export default function StrategyManager() {
         typeof document !== 'undefined' &&
         createPortal(
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div
+              className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="strategy-config-dialog-title"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  closeConfigDialog();
+                }
+              }}
+            >
               {/* Modal Header */}
               <div className="sticky top-0 bg-slate-800 border-b border-slate-700 p-6 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white">⚙️ Configure Strategy</h2>
+                <h2 id="strategy-config-dialog-title" className="text-2xl font-bold text-white">
+                  Configure Strategy
+                </h2>
                 <button
-                  onClick={() => {
-                    setShowConfigModal(false);
-                    setEditingConfig(null);
-                    setConfigErrors({});
-                  }}
-                  className="text-gray-400 hover:text-white text-2xl"
+                  type="button"
+                  onClick={closeConfigDialog}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 text-gray-400 transition hover:border-slate-500 hover:text-white"
+                  aria-label="Close strategy configuration"
                 >
-                  ✕
+                  <X className="h-4 w-4" />
                 </button>
               </div>
 
@@ -2408,6 +2487,7 @@ export default function StrategyManager() {
                     <div>
                       <label className="mb-2 block text-white font-medium">Name</label>
                       <input
+                        ref={configNameInputRef}
                         type="text"
                         value={editingConfig.name || ''}
                         onChange={(e) => updateEditingConfig({ name: e.target.value })}
@@ -2848,17 +2928,15 @@ export default function StrategyManager() {
                 {/* Buttons */}
                 <div className="flex gap-3 pt-4 border-t border-slate-700">
                   <button
+                    type="button"
                     onClick={handleSaveConfig}
                     className="flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
                   >
                     ✅ Save Configuration
                   </button>
                   <button
-                    onClick={() => {
-                      setShowConfigModal(false);
-                      setEditingConfig(null);
-                      setConfigErrors({});
-                    }}
+                    type="button"
+                    onClick={closeConfigDialog}
                     className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
                   >
                     Cancel

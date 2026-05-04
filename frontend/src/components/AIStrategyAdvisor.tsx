@@ -7,7 +7,7 @@ import api, {
     type AISuggestParamsRequest,
     toAIBacktestSummary,
 } from '../api';
-import { useAIProviderAvailability } from '../features/ai/providerAvailability';
+import { getAIProviderDisplayName, useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
 
 interface Props {
@@ -65,10 +65,11 @@ export function AIStrategyAdvisor({
   const [applyError, setApplyError] = useState<string | null>(null);
   const [pendingApplyPreview, setPendingApplyPreview] = useState<PendingApplyPreview | null>(null);
   const [appliedKeys, setAppliedKeys] = useState<Set<keyof Strategy>>(new Set());
-  const { availableProviders, isLoading: providerStatusLoading } = useAIProviderAvailability();
-
-  const getEngineLabel = (_provider: AIMarketProvider, index: number): string =>
-    index === 0 ? 'Primary engine' : `Engine ${index + 1}`;
+  const {
+    availableProviders,
+    statusMap,
+    isLoading: providerStatusLoading,
+  } = useAIProviderAvailability();
 
   useEffect(() => {
     if (availableProviders.length === 0) {
@@ -364,7 +365,7 @@ export function AIStrategyAdvisor({
           <span className="text-sm font-semibold text-emerald-200">AI Parameter Advisor</span>
           {content && usedAI && (
             <span className="rounded-full bg-emerald-900/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-              assistant active
+              {getAIProviderDisplayName(statusMap[provider])}
             </span>
           )}
         </div>
@@ -392,7 +393,7 @@ export function AIStrategyAdvisor({
           >
             {availableProviders.map((p, index) => (
               <option key={p} value={p}>
-                {getEngineLabel(p, index)}
+                {getAIProviderDisplayName(statusMap[p]) || `Provider ${index + 1}`}
               </option>
             ))}
           </select>
@@ -415,6 +416,7 @@ export function AIStrategyAdvisor({
           {content && (
             <button
               onClick={() => setCollapsed((v) => !v)}
+              aria-label={collapsed ? 'Expand AI parameter suggestions' : 'Collapse AI parameter suggestions'}
               className="rounded-md p-2 text-slate-400 hover:text-slate-200"
             >
               {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}

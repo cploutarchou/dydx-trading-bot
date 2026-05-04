@@ -19,7 +19,7 @@ const providers: Array<{ id: AIMarketProvider; label: string; description: strin
   {
     id: 'deepseek',
     label: 'DeepSeek',
-    description: 'Cost-efficient OpenAI-compatible reasoning for market filters.',
+    description: 'DeepSeek V4 market ranking with cost-efficient flash routing by default.',
   },
   {
     id: 'claude',

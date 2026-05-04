@@ -1651,6 +1651,56 @@ func TestDelegatedBacktestContract_EmptyStatesReturn200WithArrays(t *testing.T) 
 	}
 }
 
+func TestDelegatedBacktestAnalyticsSummary_DelegatesUpstreamPayload(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/summary-run/analytics/summary", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"run_id":"summary-run","total_pnl_usd":123.45,"total_trades":7,"win_rate":57.1},"message":"ok"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/summary-run/analytics/summary", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("summary request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode summary payload: %v", err)
+	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object in summary payload, got %T (%v)", payload["data"], payload["data"])
+	}
+	if data["run_id"] != "summary-run" {
+		t.Fatalf("expected run_id=summary-run, got %v", data["run_id"])
+	}
+	if data["total_pnl_usd"] != float64(123.45) {
+		t.Fatalf("expected total_pnl_usd=123.45, got %v", data["total_pnl_usd"])
+	}
+	if data["total_pnl"] != float64(123.45) {
+		t.Fatalf("expected total_pnl alias=123.45, got %v", data["total_pnl"])
+	}
+	if data["total_trades"] != float64(7) {
+		t.Fatalf("expected total_trades=7, got %v", data["total_trades"])
+	}
+	if data["win_rate"] != float64(57.1) {
+		t.Fatalf("expected win_rate=57.1, got %v", data["win_rate"])
+	}
+}
+
 func TestDelegatedBacktestStatus_DefaultProgressFields(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/backtests/pending-run/status", func(w http.ResponseWriter, _ *http.Request) {

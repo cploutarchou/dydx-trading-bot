@@ -12,7 +12,10 @@ export const preferBackendDevProxy =
 export const getBackendHttpBase = (): string =>
   preferBackendDevProxy ? '' : configuredApiBase || 'http://localhost:8888';
 
-export const resolveBackendUrl = (input: string, baseUrl: string = getBackendHttpBase()): string => {
+export const resolveBackendUrl = (
+  input: string,
+  baseUrl: string = getBackendHttpBase()
+): string => {
   if (/^https?:\/\//i.test(input)) {
     return input;
   }
@@ -29,6 +32,15 @@ type LocationLike = {
   host: string;
 };
 
+const isLocalHostLike = (host: string): boolean => {
+  const normalizedHost = host.split(':')[0]?.trim().toLowerCase() || '';
+  return (
+    normalizedHost === 'localhost' ||
+    normalizedHost === '127.0.0.1' ||
+    normalizedHost.endsWith('.localhost')
+  );
+};
+
 const defaultLocationLike = (): LocationLike => {
   if (typeof window !== 'undefined') {
     return window.location;
@@ -37,6 +49,33 @@ const defaultLocationLike = (): LocationLike => {
     protocol: 'http:',
     host: 'localhost:8888',
   };
+};
+
+export const shouldAttemptCookieSessionBootstrap = (
+  baseUrl: string = getBackendHttpBase(),
+  locationLike: LocationLike = defaultLocationLike()
+): boolean => {
+  const browserProtocol = String(locationLike.protocol || '')
+    .trim()
+    .toLowerCase();
+  const browserHost = String(locationLike.host || '')
+    .trim()
+    .toLowerCase();
+
+  if (browserProtocol !== 'https:' || isLocalHostLike(browserHost)) {
+    return false;
+  }
+
+  if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
+    return true;
+  }
+
+  try {
+    const parsedBaseUrl = new URL(baseUrl);
+    return parsedBaseUrl.protocol === 'https:' && !isLocalHostLike(parsedBaseUrl.host);
+  } catch {
+    return false;
+  }
 };
 
 export const resolveBackendWebSocketUrl = (

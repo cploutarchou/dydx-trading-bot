@@ -198,7 +198,7 @@ export const useAuthStore = create<AuthStore>()(
           try {
             const restored = await withTimeout(
               api.restoreSession({
-                allowCookieRefresh: api.hasSessionHint(),
+                allowCookieRefresh: api.shouldAttemptCookieRefresh(),
               }),
               10000,
               'restoreSession'

@@ -33,7 +33,7 @@ def test_send_initial_state_backtest_channel_emits_snapshot(monkeypatch):
         def __init__(self, db_session):
             assert db_session is session
 
-        def get_run(self, run_id: str):
+        def get_run_overview(self, run_id: str):
             assert run_id == "run-123"
             return {
                 "status": "running",
@@ -160,7 +160,7 @@ def test_send_backtest_status_tracks_per_run_send_failures(monkeypatch):
         def __init__(self, db_session):
             assert db_session is session
 
-        def get_run(self, run_id: str):
+        def get_run_overview(self, run_id: str):
             assert run_id == "run-metrics"
             return {
                 "status": "running",

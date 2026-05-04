@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import os
 import socket
+import threading
+import time
 import traceback as traceback_module
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -38,10 +41,47 @@ SENSITIVE_KEY_PARTS = (
 TERMINAL_STATES = {states.SUCCESS, states.FAILURE, states.REVOKED}
 TASK_CONTEXT_KEY = "_task_context"
 TASK_FAILURE_KEY = "_task_failure"
+_MONITOR_CACHE: Dict[str, Dict[str, Any]] = {}
+_MONITOR_CACHE_LOCK = threading.Lock()
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _monitor_cache_ttl_seconds() -> float:
+    raw = os.getenv("CELERY_MONITOR_CACHE_TTL_SECONDS")
+    if raw in (None, ""):
+        return 2.0
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return 2.0
+
+
+def _clear_monitor_cache() -> None:
+    with _MONITOR_CACHE_LOCK:
+        _MONITOR_CACHE.clear()
+
+
+def _cached_monitor_result(cache_key: str, factory):
+    ttl = _monitor_cache_ttl_seconds()
+    if ttl <= 0:
+        return factory()
+
+    now = time.monotonic()
+    with _MONITOR_CACHE_LOCK:
+        entry = _MONITOR_CACHE.get(cache_key)
+        if entry and float(entry.get("expires_at", 0.0)) > now:
+            return copy.deepcopy(entry.get("value"))
+
+    value = factory()
+    with _MONITOR_CACHE_LOCK:
+        _MONITOR_CACHE[cache_key] = {
+            "expires_at": now + ttl,
+            "value": copy.deepcopy(value),
+        }
+    return value
 
 
 def celery_state_from_backtest(status: Any) -> str:
@@ -359,38 +399,53 @@ def list_celery_tasks(
     filters: Optional[Dict[str, Any]] = None, limit: int = 100
 ) -> Dict[str, Any]:
     filters = filters or {}
-    tasks_by_id: Dict[str, Dict[str, Any]] = {}
+    cache_key = f"tasks:{tuple(sorted(filters.items()))}:{max(1, min(limit, 500))}"
 
-    for run in _load_backtest_runs():
-        task_id = str(run.get("worker_task_id") or run.get("run_id") or "")
-        if not task_id:
-            continue
-        result = AsyncResult(task_id, app=celery_app)
-        tasks_by_id[task_id] = _task_from_backtest(run, result)
+    def _build_tasks() -> Dict[str, Any]:
+        tasks_by_id: Dict[str, Dict[str, Any]] = {}
 
-    inspector = _inspect()
-    try:
-        worker_tasks = []
-        worker_tasks.extend(_flatten_worker_tasks(inspector.active(), states.STARTED))
-        worker_tasks.extend(_flatten_worker_tasks(inspector.reserved(), states.PENDING))
-        worker_tasks.extend(_flatten_worker_tasks(inspector.scheduled(), "SCHEDULED"))
-        for task in worker_tasks:
-            task_id = task["task_id"]
-            if task_id in tasks_by_id:
-                tasks_by_id[task_id].update(
-                    {k: v for k, v in task.items() if v not in (None, "", [])}
-                )
-            else:
-                tasks_by_id[task_id] = task
-    except Exception:
-        pass
+        for run in _load_backtest_runs():
+            task_id = str(run.get("worker_task_id") or run.get("run_id") or "")
+            if not task_id:
+                continue
+            result = AsyncResult(task_id, app=celery_app)
+            tasks_by_id[task_id] = _task_from_backtest(run, result)
 
-    tasks = [task for task in tasks_by_id.values() if _matches_filters(task, filters)]
-    tasks.sort(
-        key=lambda item: str(item.get("created_at") or item.get("started_at") or ""),
-        reverse=True,
-    )
-    return {"tasks": tasks[: max(1, min(limit, 500))], "total": len(tasks)}
+        inspector = _inspect()
+        try:
+            worker_tasks = []
+            worker_tasks.extend(
+                _flatten_worker_tasks(inspector.active(), states.STARTED)
+            )
+            worker_tasks.extend(
+                _flatten_worker_tasks(inspector.reserved(), states.PENDING)
+            )
+            worker_tasks.extend(
+                _flatten_worker_tasks(inspector.scheduled(), "SCHEDULED")
+            )
+            for task in worker_tasks:
+                task_id = task["task_id"]
+                if task_id in tasks_by_id:
+                    tasks_by_id[task_id].update(
+                        {k: v for k, v in task.items() if v not in (None, "", [])}
+                    )
+                else:
+                    tasks_by_id[task_id] = task
+        except Exception:
+            pass
+
+        tasks = [
+            task for task in tasks_by_id.values() if _matches_filters(task, filters)
+        ]
+        tasks.sort(
+            key=lambda item: str(
+                item.get("created_at") or item.get("started_at") or ""
+            ),
+            reverse=True,
+        )
+        return {"tasks": tasks[: max(1, min(limit, 500))], "total": len(tasks)}
+
+    return _cached_monitor_result(cache_key, _build_tasks)
 
 
 def get_celery_task(task_id: str) -> Optional[Dict[str, Any]]:
@@ -442,6 +497,7 @@ def revoke_celery_task(task_id: str, terminate: bool = False) -> Dict[str, Any]:
         celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
     else:
         celery_app.control.revoke(task_id)
+    _clear_monitor_cache()
     return {"task_id": task_id, "revoked": True, "terminate": bool(terminate)}
 
 
@@ -465,6 +521,7 @@ def retry_celery_task(task_id: str) -> Dict[str, Any]:
         restarted = asyncio.run(service.restart_backtest(str(task["backtest_run_id"])))
         if not restarted:
             raise ValueError("backtest run is not retryable")
+        _clear_monitor_cache()
         return {
             "task_id": task_id,
             "retried": True,
@@ -475,77 +532,88 @@ def retry_celery_task(task_id: str) -> Dict[str, Any]:
 
 
 def list_celery_workers() -> Dict[str, Any]:
-    inspector = _inspect()
-    stats_payload = inspector.stats() or {}
-    active_payload = inspector.active() or {}
-    registered_payload = inspector.registered() or {}
-    workers = []
-    for worker, stats_value in stats_payload.items():
-        active_tasks = active_payload.get(worker) or []
-        workers.append(
-            {
-                "hostname": worker,
-                "status": "online",
-                "queues": (
-                    list((stats_value.get("pool") or {}).get("writes", {}).keys())
-                    if isinstance(stats_value, dict)
-                    else []
-                ),
-                "load": {"active_tasks": len(active_tasks)},
-                "registered_tasks": registered_payload.get(worker) or [],
-                "stats": redact_payload(stats_value),
-            }
-        )
-    return {"workers": workers, "total": len(workers)}
+    def _build_workers() -> Dict[str, Any]:
+        inspector = _inspect()
+        stats_payload = inspector.stats() or {}
+        active_payload = inspector.active() or {}
+        registered_payload = inspector.registered() or {}
+        workers = []
+        for worker, stats_value in stats_payload.items():
+            active_tasks = active_payload.get(worker) or []
+            workers.append(
+                {
+                    "hostname": worker,
+                    "status": "online",
+                    "queues": (
+                        list((stats_value.get("pool") or {}).get("writes", {}).keys())
+                        if isinstance(stats_value, dict)
+                        else []
+                    ),
+                    "load": {"active_tasks": len(active_tasks)},
+                    "registered_tasks": registered_payload.get(worker) or [],
+                    "stats": redact_payload(stats_value),
+                }
+            )
+        return {"workers": workers, "total": len(workers)}
+
+    return _cached_monitor_result("workers", _build_workers)
 
 
 def list_celery_queues() -> Dict[str, Any]:
-    queues = [
-        queue.strip()
-        for queue in os.getenv("CELERY_QUEUES", "celery").split(",")
-        if queue.strip()
-    ]
-    payload = [{"name": queue, "length": None} for queue in queues]
-    try:
-        with celery_app.connection_or_acquire() as conn:
-            channel = conn.default_channel
-            client = getattr(channel, "client", None)
-            if client is not None:
-                for item in payload:
-                    item["length"] = int(client.llen(item["name"]))
-    except Exception:
-        pass
-    return {"queues": payload, "total": len(payload)}
+    def _build_queues() -> Dict[str, Any]:
+        queues = [
+            queue.strip()
+            for queue in os.getenv("CELERY_QUEUES", "celery").split(",")
+            if queue.strip()
+        ]
+        payload = [{"name": queue, "length": None} for queue in queues]
+        try:
+            with celery_app.connection_or_acquire() as conn:
+                channel = conn.default_channel
+                client = getattr(channel, "client", None)
+                if client is not None:
+                    for item in payload:
+                        item["length"] = int(client.llen(item["name"]))
+        except Exception:
+            pass
+        return {"queues": payload, "total": len(payload)}
+
+    return _cached_monitor_result("queues", _build_queues)
 
 
 def celery_health() -> Dict[str, Any]:
-    broker_ok = False
-    backend_ok = False
-    workers_ok = False
-    errors: List[str] = []
-    try:
-        with celery_app.connection_for_read() as conn:
-            conn.ensure_connection(max_retries=1)
-            broker_ok = True
-    except Exception as exc:
-        errors.append(f"broker unavailable: {exc}")
-    try:
-        backend_ok = bool(celery_app.backend)
-    except Exception as exc:
-        errors.append(f"result backend unavailable: {exc}")
-    try:
-        workers_ok = bool((_inspect().ping() or {}))
-    except Exception as exc:
-        errors.append(f"workers unavailable: {exc}")
-    return {
-        "status": "healthy" if broker_ok and backend_ok and workers_ok else "degraded",
-        "broker": {"ok": broker_ok},
-        "result_backend": {"ok": backend_ok},
-        "workers": {"ok": workers_ok},
-        "hostname": socket.gethostname(),
-        "checked_at": utc_now_iso(),
-        "errors": errors,
-    }
+    def _build_health() -> Dict[str, Any]:
+        broker_ok = False
+        backend_ok = False
+        workers_ok = False
+        errors: List[str] = []
+        try:
+            with celery_app.connection_for_read() as conn:
+                conn.ensure_connection(max_retries=1)
+                broker_ok = True
+        except Exception as exc:
+            errors.append(f"broker unavailable: {exc}")
+        try:
+            backend_ok = bool(celery_app.backend)
+        except Exception as exc:
+            errors.append(f"result backend unavailable: {exc}")
+        try:
+            workers_ok = bool((_inspect().ping() or {}))
+        except Exception as exc:
+            errors.append(f"workers unavailable: {exc}")
+        return {
+            "status": (
+                "healthy" if broker_ok and backend_ok and workers_ok else "degraded"
+            ),
+            "broker": {"ok": broker_ok},
+            "result_backend": {"ok": backend_ok},
+            "workers": {"ok": workers_ok},
+            "hostname": socket.gethostname(),
+            "checked_at": utc_now_iso(),
+            "errors": errors,
+        }
+
+    return _cached_monitor_result("health", _build_health)
 
 
 def failure_meta(

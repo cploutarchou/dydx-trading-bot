@@ -169,6 +169,12 @@ func (c *BotAPIClient) GetBacktestAnalytics(runID string) (map[string]interface{
 	return c.makeRequest("GET", endpoint, nil)
 }
 
+// GetBacktestAnalyticsSummary retrieves a compact analytics summary for a backtest.
+func (c *BotAPIClient) GetBacktestAnalyticsSummary(runID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/analytics/summary", runID)
+	return c.makeRequest("GET", endpoint, nil)
+}
+
 // GetPositionSnapshots retrieves position snapshots for backtest tracking
 func (c *BotAPIClient) GetPositionSnapshots(runID string, limit, offset int, marketPair *string) (map[string]interface{}, error) {
 	query := url.Values{}

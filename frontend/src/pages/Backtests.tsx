@@ -631,9 +631,39 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   if (backtestsQuery.isLoading) {
     return (
       <PageContainer size="wide" className="space-y-6">
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-10 text-center text-slate-300">
-          Building your backtest intelligence workspace...
-        </div>
+        <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8" aria-busy="true">
+          <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
+            <div>
+              <div className="skeleton h-5 w-40 rounded-full" />
+              <div className="skeleton mt-5 h-9 max-w-2xl rounded" />
+              <div className="skeleton mt-3 h-4 max-w-xl rounded" />
+              <div className="skeleton mt-2 h-4 max-w-lg rounded" />
+              <div className="mt-5 flex flex-wrap gap-3">
+                <div className="skeleton h-8 w-32 rounded-full" />
+                <div className="skeleton h-8 w-48 rounded-full" />
+                <div className="skeleton h-8 w-56 rounded-full" />
+              </div>
+            </div>
+            <div className="operator-mini-grid">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="operator-hero-panel px-4 py-4">
+                  <div className="skeleton h-3 w-20 rounded" />
+                  <div className="skeleton mt-3 h-7 w-16 rounded" />
+                  <div className="skeleton mt-2 h-3 w-24 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="operator-stat-card p-5">
+              <div className="skeleton h-8 w-8 rounded-xl" />
+              <div className="skeleton mt-4 h-8 w-28 rounded" />
+              <div className="skeleton mt-2 h-3 w-36 rounded" />
+            </div>
+          ))}
+        </section>
       </PageContainer>
     );
   }
@@ -649,13 +679,28 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
           <h1 className="text-xl font-semibold text-white">Backtest Intelligence Unavailable</h1>
           <p className="mt-2 text-sm text-red-200">{message}</p>
-          <Link
-            to="/dashboard"
-            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-600/50 bg-red-900/30 px-4 py-2 text-sm font-medium text-red-100 transition hover:bg-red-900/50"
-          >
-            Return to dashboard
-            <ArrowRight className="h-4 w-4" />
-          </Link>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void backtestsQuery.refetch()}
+              className="inline-flex items-center gap-2 rounded-lg border border-red-600/50 bg-red-900/30 px-4 py-2 text-sm font-medium text-red-100 transition hover:bg-red-900/50"
+            >
+              Retry backtest load
+            </button>
+            <Link
+              to="/backtests/new"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-500"
+            >
+              New backtest
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-500"
+            >
+              Return to dashboard
+            </Link>
+          </div>
         </div>
       </PageContainer>
     );
@@ -1096,7 +1141,16 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                         </div>
 
                         <div className="mt-3 flex items-center gap-2">
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/80">
+                          <div
+                            className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/80"
+                            role="progressbar"
+                            aria-label={`Backtest ${run.name || run.run_id} progress`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={
+                              resolvedProgress !== null ? Math.round(resolvedProgress) : undefined
+                            }
+                          >
                             <div
                               className="h-1.5 rounded-full bg-emerald-400 transition-all duration-500"
                               style={{ width: `${progressBarWidth}%` }}

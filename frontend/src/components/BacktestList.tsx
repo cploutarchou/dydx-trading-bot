@@ -726,6 +726,15 @@ export const BacktestList: React.FC<{
       ? run.max_drawdown_pct
       : run.max_drawdown;
 
+  const handleManualRefresh = () => {
+    pollFailureRef.current = 0;
+    setPollFailures(0);
+    if (isControlled) {
+      return;
+    }
+    void loadBacktests(false);
+  };
+
   const handleArchiveKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) {
       return;
@@ -754,7 +763,7 @@ export const BacktestList: React.FC<{
     <div
       tabIndex={0}
       onKeyDown={handleArchiveKeyDown}
-      aria-label="Backtest runs table"
+      aria-label="Backtest run archive"
       className="overflow-hidden rounded-lg border border-slate-700/80 bg-stone-950/45 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
     >
       <div className="flex flex-col gap-3 border-b border-slate-700 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -798,7 +807,11 @@ export const BacktestList: React.FC<{
       </div>
 
       <div className="border-b border-slate-700/60 px-5 py-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div
+          className="flex flex-wrap items-center gap-2"
+          role="toolbar"
+          aria-label="Backtest status filters"
+        >
           {(
             [
               ['ALL', displayRuns.length, 'All runs'],
@@ -813,7 +826,9 @@ export const BacktestList: React.FC<{
           ).map(([status, count, label]) => (
             <button
               key={status}
+              type="button"
               onClick={() => setStatusFilter(status)}
+              aria-pressed={statusFilter === status}
               className={`rounded-lg border px-3 py-1 text-xs font-medium transition ${
                 statusFilter === status
                   ? 'border-cyan-500/50 bg-cyan-500/15 text-white'
@@ -825,7 +840,9 @@ export const BacktestList: React.FC<{
           ))}
 
           <button
+            type="button"
             onClick={() => setShowHighPressureOnly((value) => !value)}
+            aria-pressed={showHighPressureOnly}
             className={`rounded-lg border px-3 py-1 text-xs font-medium transition ${
               showHighPressureOnly
                 ? 'border-rose-500/50 bg-rose-500/15 text-rose-200'
@@ -852,10 +869,11 @@ export const BacktestList: React.FC<{
             <span className="font-semibold">Live updates paused.</span> Data shown may be slightly
             behind.{' '}
             <button
-              onClick={() => window.location.reload()}
+              type="button"
+              onClick={handleManualRefresh}
               className="underline underline-offset-2 hover:text-amber-100 transition-colors"
             >
-              Refresh
+              Retry sync
             </button>{' '}
             to restore live polling.
           </span>
@@ -904,7 +922,148 @@ export const BacktestList: React.FC<{
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+          <div className="space-y-3 p-4 md:hidden">
+            {filteredRuns.map((run) => {
+              const normalizedStatus = normalizeStatus(run.status, run);
+              const isActive = normalizedStatus === 'RUNNING' || normalizedStatus === 'PENDING';
+              const isFailed =
+                normalizedStatus === 'FAILED' ||
+                normalizedStatus === 'CANCELLED' ||
+                normalizedStatus === 'STALE' ||
+                normalizedStatus === 'TIMEOUT';
+              const failureDiagnostic = isFailed ? classifyFailureDiagnostic(run) : null;
+              const progressPct =
+                normalizePercent(run.progress_pct ?? run.progress_percent ?? run.progress) ?? 0;
+              const eta = isActive ? calcEta(run.started_at || run.created_at, progressPct) : null;
+              const linkedStrategyId = getLinkedStrategyId(run);
+              const retryPressureBadge = deriveRetryPressureBadge(run);
+
+              return (
+                <article
+                  key={run.run_id}
+                  className="rounded-xl border border-slate-700/70 bg-slate-950/55 p-4"
+                  aria-label={`Backtest ${run.name || run.run_id}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-xs text-cyan-300" title={run.run_id}>
+                        {run.run_id}
+                      </p>
+                      {run.name && (
+                        <p className="mt-1 truncate text-sm font-semibold text-white">{run.name}</p>
+                      )}
+                      <p className="mt-1 text-xs text-slate-500">
+                        Started {formatUtcDateTime(run.created_at)}
+                      </p>
+                    </div>
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium ${statusBadgeClass(normalizedStatus)}`}
+                    >
+                      {normalizedStatus === 'RUNNING' && (
+                        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cyan-400" />
+                      )}
+                      {normalizedStatus}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-500">Strategy</p>
+                      {linkedStrategyId ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/strategies/${linkedStrategyId}/edit`)}
+                          className="mt-1 max-w-full truncate rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-xs font-semibold text-cyan-200 transition hover:border-cyan-400/60"
+                        >
+                          {run.strategy_name || `Strategy #${linkedStrategyId}`}
+                        </button>
+                      ) : (
+                        <p className="mt-1 text-xs text-slate-300">Manual</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Period</p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        {run.start_date && run.end_date
+                          ? `${formatUtcDate(run.start_date)} - ${formatUtcDate(run.end_date)}`
+                          : 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">P&L</p>
+                      <p
+                        className={`mt-1 font-semibold ${run.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                      >
+                        ${run.total_pnl.toFixed(2)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Risk</p>
+                      <p className="mt-1 text-slate-200">
+                        DD {formatPct(maxDdValue(run))} · WR {formatPct(run.win_rate)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {retryPressureBadge && (
+                    <span
+                      className={`mt-3 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${retryPressureBadge.className}`}
+                      title={`Retry pressure score ${retryPressureBadge.score.toFixed(1)} / 100`}
+                    >
+                      pressure: {retryPressureBadge.label}
+                    </span>
+                  )}
+
+                  {isActive && (
+                    <div className="mt-4">
+                      <div className="mb-1.5 flex items-center justify-between text-xs text-slate-400">
+                        <span>{run.current_pair ? `Scanning ${run.current_pair}` : 'Initialising'}</span>
+                        <span>{progressPct > 0 ? `${progressPct.toFixed(1)}%` : '...'}</span>
+                      </div>
+                      <div
+                        className="h-1.5 overflow-hidden rounded-full bg-slate-700"
+                        role="progressbar"
+                        aria-label={`Backtest ${run.run_id} progress`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(progressPct)}
+                      >
+                        <div
+                          className="h-1.5 rounded-full bg-cyan-500 transition-all duration-700"
+                          style={{ width: `${Math.min(progressPct, 100)}%` }}
+                        />
+                      </div>
+                      {eta && <p className="mt-2 text-xs text-slate-500">ETA: {eta}</p>}
+                    </div>
+                  )}
+
+                  {failureDiagnostic && (
+                    <div className="mt-4 rounded-lg border border-rose-700/60 bg-rose-900/25 p-3 text-xs">
+                      <p className="font-semibold uppercase text-rose-200">
+                        {failureDiagnostic.category}
+                      </p>
+                      <p className="mt-1 text-rose-100">{failureDiagnostic.summary}</p>
+                      <p className="mt-2 text-slate-300">
+                        <span className="font-semibold text-slate-200">Next step:</span>{' '}
+                        {failureDiagnostic.hint}
+                      </p>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/backtest/${run.run_id}`)}
+                    className="mt-4 w-full rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-500/20"
+                  >
+                    View Details
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm text-gray-300">
             <thead className="sticky top-0 z-10 border-b border-slate-700 bg-stone-950/95">
               <tr>
@@ -1048,7 +1207,14 @@ export const BacktestList: React.FC<{
                         <td colSpan={11} className="px-4 pb-3 pt-1">
                           {/* Progress bar */}
                           <div className="flex items-center gap-2 mb-1.5">
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700">
+                            <div
+                              className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700"
+                              role="progressbar"
+                              aria-label={`Backtest ${run.run_id} progress`}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={Math.round(progressPct)}
+                            >
                               <div
                                 className="h-1.5 rounded-full bg-cyan-500 transition-all duration-700"
                                 style={{ width: `${Math.min(progressPct, 100)}%` }}
@@ -1102,7 +1268,8 @@ export const BacktestList: React.FC<{
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -33,6 +33,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 from src.shared.env_loader import load_repo_env
 
 # Load structured config BEFORE importing project modules that initialize config/database.
@@ -2715,7 +2716,8 @@ async def celery_tasks(
 ):
     """Admin-only Celery task list with safe metadata redaction."""
     _ = current_user
-    payload = list_celery_tasks(
+    payload = await run_in_threadpool(
+        list_celery_tasks,
         {
             "status": status,
             "task_name": task_name,
@@ -2725,7 +2727,7 @@ async def celery_tasks(
             "bot_id": bot_id,
             "environment": environment,
         },
-        limit=limit,
+        limit,
     )
     return api_response(True, payload, "Celery tasks fetched successfully")
 
@@ -2778,7 +2780,9 @@ async def celery_workers(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery worker inspection."""
     _ = current_user
     return api_response(
-        True, list_celery_workers(), "Celery workers fetched successfully"
+        True,
+        await run_in_threadpool(list_celery_workers),
+        "Celery workers fetched successfully",
     )
 
 
@@ -2787,7 +2791,9 @@ async def celery_queues(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery queue overview."""
     _ = current_user
     return api_response(
-        True, list_celery_queues(), "Celery queues fetched successfully"
+        True,
+        await run_in_threadpool(list_celery_queues),
+        "Celery queues fetched successfully",
     )
 
 
@@ -2795,7 +2801,11 @@ async def celery_queues(current_user: User = Depends(get_admin_user)):
 async def celery_monitor_health(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery broker/backend/worker health."""
     _ = current_user
-    return api_response(True, celery_health(), "Celery health fetched successfully")
+    return api_response(
+        True,
+        await run_in_threadpool(celery_health),
+        "Celery health fetched successfully",
+    )
 
 
 @app.get("/api/v1/users/me")
@@ -3458,6 +3468,105 @@ def backtest_service_scope():
         close_backtest_service(service)
 
 
+def _run_with_backtest_service(operation):
+    """Execute sync backtest-service work with request-scoped session cleanup."""
+    service = get_backtest_service()
+    try:
+        return operation(service)
+    finally:
+        close_backtest_service(service)
+
+
+def _list_backtests_sync(
+    limit: int,
+    offset: int,
+    status: Optional[str],
+    days: Optional[int],
+):
+    return _run_with_backtest_service(
+        lambda service: service.list_backtest_runs(
+            limit=limit,
+            offset=offset,
+            status_filter=status,
+            days_filter=days,
+        )
+    )
+
+
+def _get_backtest_details_sync(run_id: str):
+    return _run_with_backtest_service(
+        lambda service: service.get_backtest_details(run_id)
+    )
+
+
+def _get_backtest_status_sync(run_id: str):
+    return _run_with_backtest_service(
+        lambda service: service.get_backtest_status(run_id)
+    )
+
+
+def _get_backtest_trades_sync(
+    run_id: str,
+    limit: int,
+    offset: int,
+    winning_only: bool,
+):
+    return _run_with_backtest_service(
+        lambda service: service.get_backtest_trades(
+            run_id=run_id,
+            limit=limit,
+            offset=offset,
+            winning_only=winning_only,
+        )
+    )
+
+
+def _get_backtest_analytics_sync(run_id: str):
+    return _run_with_backtest_service(
+        lambda service: service.get_comprehensive_analytics(run_id)
+    )
+
+
+def _get_position_snapshots_sync(
+    run_id: str,
+    limit: int,
+    offset: int,
+    market_pair: Optional[str],
+):
+    return _run_with_backtest_service(
+        lambda service: service.get_position_snapshots(
+            run_id=run_id,
+            limit=limit,
+            offset=offset,
+            market_pair=market_pair,
+        )
+    )
+
+
+def _get_backtest_summary_stats_sync(days: int):
+    return _run_with_backtest_service(lambda service: service.get_summary_stats(days))
+
+
+def _get_backtest_runtime_health_sync():
+    return _run_with_backtest_service(lambda service: service.get_runtime_health())
+
+
+def _compare_backtests_sync(run_ids: List[str], metrics: List[str]):
+    return _run_with_backtest_service(
+        lambda service: service.compare_backtests(run_ids, metrics)
+    )
+
+
+def _get_advanced_performance_metrics_sync(run_id: str, benchmark: str):
+    return _run_with_backtest_service(
+        lambda service: service.get_advanced_performance_metrics(run_id, benchmark)
+    )
+
+
+def _get_live_progress_sync(run_id: str):
+    return _run_with_backtest_service(lambda service: service.get_live_progress(run_id))
+
+
 @app.post("/api/v1/backtests", response_model=BacktestResponse)
 async def create_backtest(
     request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
@@ -3607,10 +3716,13 @@ async def list_backtests(
 ):
     """List backtest runs with filtering"""
     try:
-        with backtest_service_scope() as service:
-            result = service.list_backtest_runs(
-                limit=limit, offset=offset, status_filter=status, days_filter=days
-            )
+        result = await run_in_threadpool(
+            _list_backtests_sync,
+            limit,
+            offset,
+            status,
+            days,
+        )
         payload = result.model_dump()
         payload["backtests"] = payload.get("runs", [])
         payload["count"] = len(payload["backtests"])
@@ -3713,8 +3825,7 @@ async def get_backtest_details(
 ):
     """Get detailed backtest results"""
     try:
-        with backtest_service_scope() as service:
-            result = service.get_backtest_details(run_id)
+        result = await run_in_threadpool(_get_backtest_details_sync, run_id)
         if not result:
             return api_response(
                 success=False,
@@ -3741,8 +3852,7 @@ async def get_backtest_status(
 ):
     """Get current backtest status and progress"""
     try:
-        with backtest_service_scope() as service:
-            result = service.get_backtest_status(run_id)
+        result = await run_in_threadpool(_get_backtest_status_sync, run_id)
         if not result:
             return api_response(
                 success=False,
@@ -3776,8 +3886,7 @@ async def get_backtest_websocket_metrics(
 ):
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
     try:
-        with backtest_service_scope() as service:
-            status = service.get_backtest_status(run_id)
+        status = await run_in_threadpool(_get_backtest_status_sync, run_id)
         if status is None:
             return api_response(
                 success=False,
@@ -3845,10 +3954,13 @@ async def get_backtest_trades(
 ):
     """Get trades for specific backtest run"""
     try:
-        with backtest_service_scope() as service:
-            trades = service.get_backtest_trades(
-                run_id=run_id, limit=limit, offset=offset, winning_only=winning_only
-            )
+        trades = await run_in_threadpool(
+            _get_backtest_trades_sync,
+            run_id,
+            limit,
+            offset,
+            winning_only,
+        )
 
         return api_response(
             success=True,
@@ -4088,8 +4200,7 @@ async def get_backtest_summary_stats(
 ):
     """Get backtest system summary statistics"""
     try:
-        with backtest_service_scope() as service:
-            stats = service.get_summary_stats(days)
+        stats = await run_in_threadpool(_get_backtest_summary_stats_sync, days)
 
         return api_response(
             success=True,
@@ -4110,8 +4221,7 @@ async def get_backtest_analytics(
 ):
     """Get comprehensive analytics for a backtest run"""
     try:
-        with backtest_service_scope() as service:
-            analytics = service.get_comprehensive_analytics(run_id)
+        analytics = await run_in_threadpool(_get_backtest_analytics_sync, run_id)
         if not analytics:
             return api_response(
                 success=False,
@@ -4141,10 +4251,13 @@ async def get_position_snapshots(
 ):
     """Get position snapshots for real-time backtest tracking"""
     try:
-        with backtest_service_scope() as service:
-            snapshots = service.get_position_snapshots(
-                run_id=run_id, limit=limit, offset=offset, market_pair=market_pair
-            )
+        snapshots = await run_in_threadpool(
+            _get_position_snapshots_sync,
+            run_id,
+            limit,
+            offset,
+            market_pair,
+        )
 
         return api_response(
             success=True,
@@ -4183,8 +4296,7 @@ async def compare_backtests(
                 status_code=400,
             )
 
-        with backtest_service_scope() as service:
-            comparison = service.compare_backtests(run_ids, metrics)
+        comparison = await run_in_threadpool(_compare_backtests_sync, run_ids, metrics)
 
         return api_response(
             success=True,
@@ -4203,8 +4315,7 @@ async def compare_backtests(
 async def backtest_sync_health():
     """Backend sync visibility endpoint for run orchestration health."""
     try:
-        with backtest_service_scope() as service:
-            runtime_health = service.get_runtime_health()
+        runtime_health = await run_in_threadpool(_get_backtest_runtime_health_sync)
         return api_response(
             success=True,
             data={
@@ -4255,8 +4366,11 @@ async def get_advanced_performance_metrics(
 ):
     """Get advanced performance metrics with market benchmarking"""
     try:
-        with backtest_service_scope() as service:
-            metrics = service.get_advanced_performance_metrics(run_id, benchmark)
+        metrics = await run_in_threadpool(
+            _get_advanced_performance_metrics_sync,
+            run_id,
+            benchmark,
+        )
         if not metrics:
             return api_response(
                 success=False,
@@ -4283,8 +4397,7 @@ async def get_live_progress(
 ):
     """Get real-time backtest progress with current positions"""
     try:
-        with backtest_service_scope() as service:
-            progress = service.get_live_progress(run_id)
+        progress = await run_in_threadpool(_get_live_progress_sync, run_id)
         if not progress:
             return api_response(
                 success=False,

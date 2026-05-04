@@ -95,3 +95,34 @@ def test_save_run_persists_snapshot_and_strips_runtime_control():
     )
     assert snapshot_after is not None
     assert snapshot_after.request_json.get("start_date") == "2026-04-01"
+
+
+def test_get_run_overview_omits_large_payloads_but_keeps_request():
+    session = _session()
+    now = datetime.now(timezone.utc)
+    run_id = "run-overview-1"
+
+    session.add(
+        BacktestRun(
+            run_id=run_id,
+            name="overview-test",
+            status="running",
+            progress_pct=12.5,
+            request_json={"start_date": "2026-04-01", "pairs": ["BTC-USD", "ETH-USD"]},
+            trades_json=[{"trade_id": "t-1"}],
+            position_snapshots_json=[{"timestamp": "2026-04-01T00:00:00Z"}],
+            daily_pnl_json=[{"date": "2026-04-01", "pnl": 10.0}],
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.commit()
+
+    repo = BacktestRepository(session)
+    row = repo.get_run_overview(run_id)
+
+    assert row is not None
+    assert row["request"]["start_date"] == "2026-04-01"
+    assert "trades" not in row
+    assert "position_snapshots" not in row
+    assert "daily_pnl" not in row

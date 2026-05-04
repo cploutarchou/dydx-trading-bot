@@ -1,7 +1,7 @@
 import { BrainCircuit, Loader, RefreshCw, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import api, { type AIMarketProvider, type AIRuntimeDigestRequest } from '../api';
-import { useAIProviderAvailability } from '../features/ai/providerAvailability';
+import { getAIProviderDisplayName, useAIProviderAvailability } from '../features/ai/providerAvailability';
 
 interface Props {
   runningBots: number;
@@ -29,10 +29,11 @@ export function AIRuntimeDigest({
   const [content, setContent] = useState<string | null>(null);
   const [usedAI, setUsedAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { availableProviders, isLoading: providerStatusLoading } = useAIProviderAvailability();
-
-  const getEngineLabel = (_provider: AIMarketProvider, index: number): string =>
-    index === 0 ? 'Primary engine' : `Engine ${index + 1}`;
+  const {
+    availableProviders,
+    statusMap,
+    isLoading: providerStatusLoading,
+  } = useAIProviderAvailability();
 
   useEffect(() => {
     if (availableProviders.length > 0 && !availableProviders.includes(provider)) {
@@ -98,7 +99,7 @@ export function AIRuntimeDigest({
           <span className="text-sm font-semibold text-cyan-200">AI Runtime Digest</span>
           {content && usedAI && (
             <span className="rounded-full bg-cyan-900/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-300">
-              assistant active
+              {getAIProviderDisplayName(statusMap[provider])}
             </span>
           )}
         </div>
@@ -108,11 +109,12 @@ export function AIRuntimeDigest({
             value={provider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
             disabled={loading || providerStatusLoading || availableProviders.length === 0}
+            aria-label="AI provider for runtime digest"
             className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
           >
-            {availableProviders.map((p, index) => (
+            {availableProviders.map((p) => (
               <option key={p} value={p}>
-                {getEngineLabel(p, index)}
+                {getAIProviderDisplayName(statusMap[p])}
               </option>
             ))}
           </select>

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/auth"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -144,7 +145,21 @@ func shouldReturnLegacyAuthTokens() bool {
 }
 
 func authCookieSecure() bool {
-	return strings.EqualFold(os.Getenv("APP_ENV"), "production")
+	if strings.EqualFold(os.Getenv("APP_ENV"), "production") {
+		return true
+	}
+	// Also set Secure when the server is explicitly configured for HTTPS
+	// (e.g., staging environments that use TLS but not APP_ENV=production).
+	tlsCert := strings.TrimSpace(os.Getenv("TLS_CERT_FILE"))
+	forceHTTPS := strings.TrimSpace(strings.ToLower(os.Getenv("FORCE_HTTPS")))
+	return tlsCert != "" || forceHTTPS == "true" || forceHTTPS == "1"
+}
+
+func refreshTokenMaxAge() int {
+	if config.ConfigInstance != nil && config.ConfigInstance.Auth.RefreshTokenExpireDays > 0 {
+		return config.ConfigInstance.Auth.RefreshTokenExpireDays * 86400
+	}
+	return 7 * 86400 // default: 7 days
 }
 
 func setSessionCookie(c *gin.Context, token string, maxAge int) {
@@ -153,6 +168,18 @@ func setSessionCookie(c *gin.Context, token string, maxAge int) {
 		Value:    token,
 		Path:     "/",
 		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   authCookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func setRefreshTokenCookie(c *gin.Context, token string) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    token,
+		Path:     "/api/v1/auth",
+		MaxAge:   refreshTokenMaxAge(),
 		HttpOnly: true,
 		Secure:   authCookieSecure(),
 		SameSite: http.SameSiteLaxMode,
@@ -776,9 +803,20 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		resetFailedLogin(database, user.ID)
 		logSecurityLoginEvent(database, &user.ID, user.Username, "login", "success", "authenticated", requestIP, userAgent)
 
+		// Always issue a refresh_token HttpOnly cookie so the JWT refresh path
+		// remains available even if the session store is cleared (e.g., restart
+		// without Redis). The cookie is never exposed to JS.
+		jwtRefreshToken, rtErr := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		if rtErr != nil {
+			log.Printf("loginHandler: failed to generate refresh token cookie: %v", rtErr)
+		}
+
 		clearAuthCookies(c)
 		if sessionToken != "" {
 			setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
+		}
+		if rtErr == nil && jwtRefreshToken != "" {
+			setRefreshTokenCookie(c, jwtRefreshToken)
 		}
 
 		response := TokenResponse{
@@ -797,18 +835,8 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 				})
 				return
 			}
-
-			refreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
-			if err != nil {
-				log.Printf("Failed to generate refresh token: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"error":   "Failed to generate refresh token",
-				})
-				return
-			}
 			response.AccessToken = accessToken
-			response.RefreshToken = refreshToken
+			response.RefreshToken = jwtRefreshToken
 			response.TokenType = "bearer"
 			response.ExpiresIn = 1800
 		}
@@ -1028,9 +1056,18 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Rotate the refresh_token cookie so session can survive future store clears.
+		newJWTRefreshToken, rtErr := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		if rtErr != nil {
+			log.Printf("refreshHandler: failed to rotate refresh token cookie: %v", rtErr)
+		}
+
 		clearAuthCookies(c)
 		if sessionToken != "" {
 			setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
+		}
+		if rtErr == nil && newJWTRefreshToken != "" {
+			setRefreshTokenCookie(c, newJWTRefreshToken)
 		}
 
 		response := TokenResponse{
@@ -1048,17 +1085,8 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 				})
 				return
 			}
-
-			newRefreshToken, err := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"error":   "failed to generate refresh token",
-				})
-				return
-			}
 			response.AccessToken = newAccessToken
-			response.RefreshToken = newRefreshToken
+			response.RefreshToken = newJWTRefreshToken
 			response.TokenType = "bearer"
 			response.ExpiresIn = 1800
 		}

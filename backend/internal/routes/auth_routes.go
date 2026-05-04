@@ -145,13 +145,14 @@ func shouldReturnLegacyAuthTokens() bool {
 }
 
 func authCookieSecure() bool {
-	if strings.EqualFold(os.Getenv("APP_ENV"), "production") {
+	// Accept both 'production' and 'prod' (platform.yml uses 'prod').
+	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if appEnv == "production" || appEnv == "prod" {
 		return true
 	}
-	// Also set Secure when the server is explicitly configured for HTTPS
-	// (e.g., staging environments that use TLS but not APP_ENV=production).
+	// Also accept an explicit opt-in for staging/custom HTTPS environments.
 	tlsCert := strings.TrimSpace(os.Getenv("TLS_CERT_FILE"))
-	forceHTTPS := strings.TrimSpace(strings.ToLower(os.Getenv("FORCE_HTTPS")))
+	forceHTTPS := strings.ToLower(strings.TrimSpace(os.Getenv("FORCE_HTTPS")))
 	return tlsCert != "" || forceHTTPS == "true" || forceHTTPS == "1"
 }
 

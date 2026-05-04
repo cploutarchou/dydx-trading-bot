@@ -9,7 +9,11 @@ import {
     guardRunBacktestContract,
     guardSyncHealthContract,
 } from './api/contractGuards';
-import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
+import {
+    getBackendHttpBase,
+    resolveBackendWebSocketUrl,
+    shouldAttemptCookieSessionBootstrap,
+} from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';
 
@@ -1566,7 +1570,7 @@ class ApiClient {
           !url.includes('/auth/refresh') &&
           !url.includes('/auth/registration-status')
         ) {
-          if (!this.hasSessionHint()) {
+          if (!this.shouldAttemptCookieRefresh()) {
             return Promise.reject(error);
           }
 
@@ -1723,6 +1727,10 @@ class ApiClient {
     }
   }
 
+  shouldAttemptCookieRefresh(): boolean {
+    return this.hasSessionHint() || shouldAttemptCookieSessionBootstrap(API_BASE_URL);
+  }
+
   getAccessToken(): string | null {
     return this.accessToken;
   }
@@ -1832,7 +1840,7 @@ class ApiClient {
         return true;
       }
 
-      if (!(options.allowCookieRefresh ?? this.hasSessionHint())) {
+      if (!(options.allowCookieRefresh ?? this.shouldAttemptCookieRefresh())) {
         return false;
       }
 

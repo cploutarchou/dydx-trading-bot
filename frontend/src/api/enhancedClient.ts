@@ -126,7 +126,7 @@ class EnhancedAPIClient {
     response.json = async () => parseJsonResponse(response);
 
     if (response.status === 401 && retryOnUnauthorized) {
-      if (!this.baseClient.hasSessionHint()) {
+      if (!this.baseClient.shouldAttemptCookieRefresh()) {
         return response;
       }
 

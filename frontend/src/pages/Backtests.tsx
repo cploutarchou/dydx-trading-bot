@@ -321,8 +321,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     staleTime: 10_000,
     refetchInterval: (query) =>
       (query.state.data ?? []).some((run) => isActiveBacktestRun(run as BacktestRun))
-        ? 4_000
+        ? 8_000
         : false,
+    refetchIntervalInBackground: false,
   });
   const activeRunCountForPolling = useMemo(
     () => (backtestsQuery.data ?? []).filter((run) => isActiveBacktestRun(run)).length,
@@ -334,9 +335,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       const status = await enhancedApiClient.getSystemStatus();
       return toObject(status);
     },
-    staleTime: 5_000,
-    refetchInterval: activeRunCountForPolling > 0 ? 5_000 : 15_000,
-    refetchIntervalInBackground: true,
+    staleTime: 10_000,
+    refetchInterval: activeRunCountForPolling > 0 ? 10_000 : 30_000,
+    refetchIntervalInBackground: false,
   });
   const backtestCapacity = useMemo(() => {
     const payload = toObject(systemStatusQuery.data);
@@ -427,8 +428,31 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
           updatedAtMs,
         };
       },
-      staleTime: 2_000,
-      refetchInterval: 3_000,
+      staleTime: 6_000,
+      refetchInterval: 7_000,
+      refetchIntervalInBackground: false,
+      retry: 1,
+      enabled: Boolean(run.run_id),
+    })),
+  });
+  const activeRunSummaryQueries = useQueries({
+    queries: activeRunsQuickAccess.map((run) => ({
+      queryKey: ['backtests', 'analytics-summary', run.run_id, 'quick-access'],
+      queryFn: async () => {
+        const response = await api.getBacktestAnalyticsSummary(run.run_id);
+        const payload = response as unknown as Record<string, unknown>;
+        const totalPnlCandidate = getEnvelopeField(payload, 'total_pnl_usd');
+        const totalTradesCandidate = getEnvelopeField(payload, 'total_trades');
+        const winRateCandidate = getEnvelopeField(payload, 'win_rate');
+        return {
+          totalPnlUsd: safeNumber(totalPnlCandidate, Number.NaN),
+          totalTrades: safeNumber(totalTradesCandidate, Number.NaN),
+          winRate: safeNumber(winRateCandidate, Number.NaN),
+        };
+      },
+      staleTime: 12_000,
+      refetchInterval: 12_000,
+      refetchIntervalInBackground: false,
       retry: 1,
       enabled: Boolean(run.run_id),
     })),
@@ -436,11 +460,20 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   const activeRunLiveById = useMemo(() => {
     const lookup = new Map<
       string,
-      { status?: string; progressPct?: number; updatedAtMs?: number; isFetching: boolean }
+      {
+        status?: string;
+        progressPct?: number;
+        updatedAtMs?: number;
+        isFetching: boolean;
+        totalPnlUsd?: number;
+        totalTrades?: number;
+        winRate?: number;
+      }
     >();
 
     activeRunsQuickAccess.forEach((run, index) => {
       const query = activeRunLiveStatusQueries[index];
+      const summaryQuery = activeRunSummaryQueries[index];
       const progressValue = query?.data?.progressPct;
       const normalizedProgress =
         typeof progressValue === 'number' && Number.isFinite(progressValue)
@@ -452,11 +485,26 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         progressPct: normalizedProgress,
         updatedAtMs: query?.data?.updatedAtMs,
         isFetching: Boolean(query?.isFetching),
+        totalPnlUsd:
+          typeof summaryQuery?.data?.totalPnlUsd === 'number' &&
+          Number.isFinite(summaryQuery.data.totalPnlUsd)
+            ? summaryQuery.data.totalPnlUsd
+            : undefined,
+        totalTrades:
+          typeof summaryQuery?.data?.totalTrades === 'number' &&
+          Number.isFinite(summaryQuery.data.totalTrades)
+            ? summaryQuery.data.totalTrades
+            : undefined,
+        winRate:
+          typeof summaryQuery?.data?.winRate === 'number' &&
+          Number.isFinite(summaryQuery.data.winRate)
+            ? summaryQuery.data.winRate
+            : undefined,
       });
     });
 
     return lookup;
-  }, [activeRunsQuickAccess, activeRunLiveStatusQueries]);
+  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, activeRunSummaryQueries]);
   const capacityPanelRef = useRef<HTMLDivElement>(null);
   const scrollToCapacityPanel = () =>
     capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -655,7 +703,10 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
             </div>
           </div>
         </section>
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
+        <section
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
+          aria-hidden="true"
+        >
           {Array.from({ length: 4 }).map((_, index) => (
             <div key={index} className="operator-stat-card p-5">
               <div className="skeleton h-8 w-8 rounded-xl" />
@@ -1109,6 +1160,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                     const freshnessLabel = formatFreshnessAge(live?.updatedAtMs);
                     const freshnessTone = getFreshnessToneClasses(live?.updatedAtMs);
                     const freshnessCardBorder = getFreshnessCardBorderClasses(live?.updatedAtMs);
+                    const pnlClass =
+                      typeof live?.totalPnlUsd === 'number'
+                        ? live.totalPnlUsd >= 0
+                          ? 'text-emerald-300'
+                          : 'text-rose-300'
+                        : 'text-slate-400';
 
                     return (
                       <Link
@@ -1158,6 +1215,27 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                           </div>
                           <span className="w-12 text-right text-xs text-slate-300">
                             {progressLabel}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                          <span className={pnlClass}>
+                            P&amp;L:{' '}
+                            {typeof live?.totalPnlUsd === 'number'
+                              ? formatCurrency(live.totalPnlUsd)
+                              : '—'}
+                          </span>
+                          <span>
+                            Trades:{' '}
+                            {typeof live?.totalTrades === 'number'
+                              ? Math.max(0, Math.round(live.totalTrades))
+                              : '—'}
+                          </span>
+                          <span>
+                            Win Rate:{' '}
+                            {typeof live?.winRate === 'number'
+                              ? formatPercent(normalizePercent(live.winRate))
+                              : '—'}
                           </span>
                         </div>
                       </Link>

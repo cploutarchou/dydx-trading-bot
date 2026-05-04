@@ -127,7 +127,7 @@ func (h *AIMarketHandler) SelectMarkets(c *gin.Context, markets []string) {
 		req.Markets = markets
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 
 	result, err := h.service.SelectMarkets(ctx, getUserID(c), req)
@@ -149,7 +149,7 @@ func (h *AIMarketHandler) ExplainBacktest(c *gin.Context) {
 		h.respondError(c, http.StatusBadRequest, err, "Invalid backtest explain request")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 	result, err := h.service.ExplainBacktest(ctx, getUserID(c), req)
 	if err != nil {
@@ -169,7 +169,7 @@ func (h *AIMarketHandler) SuggestStrategyParams(c *gin.Context) {
 		h.respondError(c, http.StatusBadRequest, err, "Invalid parameter suggestion request")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 75*time.Second)
 	defer cancel()
 	result, err := h.service.SuggestStrategyParams(ctx, getUserID(c), req)
 	if err != nil {
@@ -189,7 +189,7 @@ func (h *AIMarketHandler) RuntimeDigest(c *gin.Context) {
 		h.respondError(c, http.StatusBadRequest, err, "Invalid runtime digest request")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
 	defer cancel()
 	result, err := h.service.RuntimeDigest(ctx, getUserID(c), req)
 	if err != nil {

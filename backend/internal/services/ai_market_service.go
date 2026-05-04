@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"sort"
@@ -14,9 +17,10 @@ import (
 )
 
 const (
-	defaultAIMarketHTTPTimeout = 20 * time.Second
+	defaultAIMarketHTTPTimeout = 75 * time.Second
 	defaultAIMarketLimit       = 20
 	maxAIMarketLimit           = 50
+	defaultAIMarketMaxRetries  = 3
 )
 
 var SupportedAIProviders = []string{
@@ -105,6 +109,39 @@ type aiProviderConfig struct {
 	provider string
 	model    string
 	baseURL  string
+}
+
+type aiRequestKind string
+
+const (
+	aiRequestKindMarketSelection aiRequestKind = "market_selection"
+	aiRequestKindBacktestExplain aiRequestKind = "backtest_explain"
+	aiRequestKindStrategyParams  aiRequestKind = "strategy_params"
+	aiRequestKindRuntimeDigest   aiRequestKind = "runtime_digest"
+)
+
+type aiUsage struct {
+	PromptTokens          int `json:"prompt_tokens"`
+	CompletionTokens      int `json:"completion_tokens"`
+	TotalTokens           int `json:"total_tokens"`
+	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
+	CompletionDetails     struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+type aiProviderCallError struct {
+	StatusCode int
+	Message    string
+	Retryable  bool
+}
+
+func (e *aiProviderCallError) Error() string {
+	if e == nil {
+		return "AI provider call error"
+	}
+	return e.Message
 }
 
 type AIMarketService struct {
@@ -367,11 +404,16 @@ func (s *AIMarketService) callOpenAICompatible(ctx context.Context, apiKey strin
 	body := map[string]any{
 		"model": config.model,
 		"messages": []map[string]string{
-			{"role": "system", "content": "You rank dYdX perpetual markets for a crypto pairs-trading strategy. Return only valid JSON."},
+			{"role": "system", "content": "You rank dYdX perpetual markets for a crypto pairs-trading strategy. Return only valid JSON. The response must be a JSON object matching the provided schema example."},
 			{"role": "user", "content": prompt},
 		},
 		"temperature": 0.2,
+		"max_tokens":  900,
+		"response_format": map[string]string{
+			"type": "json_object",
+		},
 	}
+	applyDeepSeekOptions(body, config, aiRequestKindMarketSelection)
 
 	var response struct {
 		Choices []struct {
@@ -379,9 +421,10 @@ func (s *AIMarketService) callOpenAICompatible(ctx context.Context, apiKey strin
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage aiUsage `json:"usage"`
 	}
 
-	if err := s.executeJSON(ctx, config.baseURL, apiKey, body, &response, nil); err != nil {
+	if err := s.executeJSON(ctx, config, aiRequestKindMarketSelection, apiKey, body, &response, nil); err != nil {
 		return nil, err
 	}
 	if len(response.Choices) == 0 {
@@ -406,13 +449,14 @@ func (s *AIMarketService) callClaude(ctx context.Context, apiKey string, config 
 			Text string `json:"text"`
 			Type string `json:"type"`
 		} `json:"content"`
+		Usage aiUsage `json:"usage"`
 	}
 
 	headers := map[string]string{
 		"x-api-key":         apiKey,
 		"anthropic-version": "2023-06-01",
 	}
-	if err := s.executeJSON(ctx, config.baseURL, "", body, &response, headers); err != nil {
+	if err := s.executeJSON(ctx, config, aiRequestKindMarketSelection, "", body, &response, headers); err != nil {
 		return nil, err
 	}
 	for _, part := range response.Content {
@@ -423,15 +467,41 @@ func (s *AIMarketService) callClaude(ctx context.Context, apiKey string, config 
 	return nil, fmt.Errorf("Claude returned no market ranking content")
 }
 
-func (s *AIMarketService) executeJSON(ctx context.Context, url string, bearer string, payload any, target any, headers map[string]string) error {
+func (s *AIMarketService) executeJSON(ctx context.Context, config aiProviderConfig, kind aiRequestKind, bearer string, payload any, target any, headers map[string]string) error {
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to encode AI request: %w", err)
 	}
 
+	var lastErr error
+	for attempt := 1; attempt <= defaultAIMarketMaxRetries; attempt++ {
+		started := time.Now()
+		responseBody, statusCode, err := s.executeJSONAttempt(ctx, config.baseURL, bearer, bodyBytes, headers)
+		latency := time.Since(started)
+		if err == nil {
+			if err := json.Unmarshal(responseBody, target); err != nil {
+				return fmt.Errorf("failed to decode AI response: %w", err)
+			}
+			logAIProviderUsage(config, kind, attempt, statusCode, latency, responseBody, nil)
+			return nil
+		}
+
+		logAIProviderUsage(config, kind, attempt, statusCode, latency, responseBody, err)
+		lastErr = err
+		if !shouldRetryAIProviderError(err) || attempt == defaultAIMarketMaxRetries {
+			break
+		}
+		if sleepErr := sleepAIBackoff(ctx, attempt); sleepErr != nil {
+			return sleepErr
+		}
+	}
+	return lastErr
+}
+
+func (s *AIMarketService) executeJSONAttempt(ctx context.Context, url string, bearer string, bodyBytes []byte, headers map[string]string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return fmt.Errorf("failed to create AI request: %w", err)
+		return nil, 0, fmt.Errorf("failed to create AI request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if strings.TrimSpace(bearer) != "" {
@@ -443,27 +513,57 @@ func (s *AIMarketService) executeJSON(ctx context.Context, url string, bearer st
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to reach AI provider: %w", err)
+		return nil, 0, &aiProviderCallError{
+			Message:   fmt.Sprintf("failed to reach AI provider: %v", err),
+			Retryable: true,
+		}
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return fmt.Errorf("failed to read AI response: %w", err)
+		return responseBody, resp.StatusCode, &aiProviderCallError{
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("failed to read AI response: %v", err),
+			Retryable:  true,
+		}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("AI provider rejected the configured API key")
+		return responseBody, resp.StatusCode, &aiProviderCallError{
+			StatusCode: resp.StatusCode,
+			Message:    "AI provider rejected the configured API key",
+			Retryable:  false,
+		}
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("AI provider rate limit reached")
+		return responseBody, resp.StatusCode, &aiProviderCallError{
+			StatusCode: resp.StatusCode,
+			Message:    "AI provider rate limit reached",
+			Retryable:  true,
+		}
+	}
+	if resp.StatusCode == http.StatusPaymentRequired {
+		return responseBody, resp.StatusCode, &aiProviderCallError{
+			StatusCode: resp.StatusCode,
+			Message:    "AI provider account has insufficient balance",
+			Retryable:  false,
+		}
+	}
+	if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusInternalServerError || resp.StatusCode == http.StatusServiceUnavailable {
+		return responseBody, resp.StatusCode, &aiProviderCallError{
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("AI provider returned status %d", resp.StatusCode),
+			Retryable:  true,
+		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("AI provider returned status %d", resp.StatusCode)
+		return responseBody, resp.StatusCode, &aiProviderCallError{
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("AI provider returned status %d", resp.StatusCode),
+			Retryable:  false,
+		}
 	}
-	if err := json.Unmarshal(responseBody, target); err != nil {
-		return fmt.Errorf("failed to decode AI response: %w", err)
-	}
-	return nil
+	return responseBody, resp.StatusCode, nil
 }
 
 func (s *AIMarketService) providerConfig(provider string) aiProviderConfig {
@@ -471,7 +571,7 @@ func (s *AIMarketService) providerConfig(provider string) aiProviderConfig {
 	case ExternalAPIProviderDeepSeek:
 		return aiProviderConfig{
 			provider: provider,
-			model:    envWithDefault("DEEPSEEK_MODEL", "deepseek-chat"),
+			model:    envWithDefault("DEEPSEEK_MODEL", "deepseek-v4-flash"),
 			baseURL:  envWithDefault("DEEPSEEK_BASE_URL", "https://api.deepseek.com/chat/completions"),
 		}
 	case ExternalAPIProviderClaude:
@@ -503,6 +603,15 @@ func parseAIMarketSelection(content string) (*AIMarketSelectionResponse, error) 
 	}
 	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
 		return nil, fmt.Errorf("AI provider returned non-JSON market ranking")
+	}
+	if len(parsed.SelectedMarkets) < 2 {
+		return nil, fmt.Errorf("AI provider returned fewer than two selected markets")
+	}
+	if parsed.Confidence < 0 {
+		parsed.Confidence = 0
+	}
+	if parsed.Confidence > 1 {
+		parsed.Confidence = 1
 	}
 	return &AIMarketSelectionResponse{
 		SelectedMarkets: parsed.SelectedMarkets,
@@ -820,7 +929,7 @@ Write 3–5 sentences explaining what these results mean for a trader. Then on a
 		req.WinRate*100, req.TotalPnlUSD, req.SharpeRatio,
 		req.MaxDrawdown*100, req.TotalTrades, req.ProfitFactor,
 	)
-	content, err := s.callAIForText(ctx, resolved.key, provider, systemPrompt, userPrompt)
+	content, err := s.callAIForTextTask(ctx, resolved.key, provider, aiRequestKindBacktestExplain, systemPrompt, userPrompt)
 	if err != nil {
 		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
 	}
@@ -972,7 +1081,7 @@ Rules:
 		totalPnl,
 		targetSuggestions,
 	)
-	content, err := s.callAIForText(ctx, resolved.key, provider, systemPrompt, userPrompt)
+	content, err := s.callAIForTextTask(ctx, resolved.key, provider, aiRequestKindStrategyParams, systemPrompt, userPrompt)
 	if err != nil {
 		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
 	}
@@ -1009,25 +1118,27 @@ Give a 2-sentence operational health verdict and recommended action.`,
 		req.OpenPositions, req.ActivePairs,
 		req.TotalPnlUSD, req.ErrorCount,
 	)
-	content, err := s.callAIForText(ctx, resolved.key, provider, systemPrompt, userPrompt)
+	content, err := s.callAIForTextTask(ctx, resolved.key, provider, aiRequestKindRuntimeDigest, systemPrompt, userPrompt)
 	if err != nil {
 		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
 	}
 	return &AITextResponse{Provider: provider, Content: content, UsedAI: true}, nil
 }
 
-// callAIForText calls the selected provider and returns a plain-text response.
-func (s *AIMarketService) callAIForText(ctx context.Context, apiKey string, provider string, systemPrompt string, userPrompt string) (string, error) {
+func (s *AIMarketService) callAIForTextTask(ctx context.Context, apiKey string, provider string, kind aiRequestKind, systemPrompt string, userPrompt string) (string, error) {
 	config := s.providerConfig(provider)
+	if provider == ExternalAPIProviderDeepSeek && kind == aiRequestKindStrategyParams {
+		config.model = envWithDefault("DEEPSEEK_REASONING_MODEL", "deepseek-v4-pro")
+	}
 	switch provider {
 	case ExternalAPIProviderClaude:
-		return s.callClaudeForText(ctx, apiKey, config, systemPrompt, userPrompt)
+		return s.callClaudeForText(ctx, apiKey, config, kind, systemPrompt, userPrompt)
 	default:
-		return s.callOpenAICompatibleForText(ctx, apiKey, config, systemPrompt, userPrompt)
+		return s.callOpenAICompatibleForText(ctx, apiKey, config, kind, systemPrompt, userPrompt)
 	}
 }
 
-func (s *AIMarketService) callOpenAICompatibleForText(ctx context.Context, apiKey string, config aiProviderConfig, systemPrompt string, userPrompt string) (string, error) {
+func (s *AIMarketService) callOpenAICompatibleForText(ctx context.Context, apiKey string, config aiProviderConfig, kind aiRequestKind, systemPrompt string, userPrompt string) (string, error) {
 	body := map[string]any{
 		"model": config.model,
 		"messages": []map[string]string{
@@ -1035,27 +1146,54 @@ func (s *AIMarketService) callOpenAICompatibleForText(ctx context.Context, apiKe
 			{"role": "user", "content": userPrompt},
 		},
 		"temperature": 0.3,
+		"max_tokens":  maxTokensForAIRequest(kind),
 	}
+	applyDeepSeekOptions(body, config, kind)
+
+	content, err := s.executeOpenAICompatibleText(ctx, apiKey, config, kind, body)
+	if err == nil {
+		return content, nil
+	}
+
+	if config.provider == ExternalAPIProviderDeepSeek && kind == aiRequestKindStrategyParams && isEmptyAIContentError(err) {
+		fallbackBody := cloneAIRequestBody(body)
+		fallbackBody["thinking"] = map[string]string{"type": "disabled"}
+		delete(fallbackBody, "reasoning_effort")
+		return s.executeOpenAICompatibleText(ctx, apiKey, config, kind, fallbackBody)
+	}
+
+	return "", err
+}
+
+func (s *AIMarketService) executeOpenAICompatibleText(ctx context.Context, apiKey string, config aiProviderConfig, kind aiRequestKind, body map[string]any) (string, error) {
 	var response struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage aiUsage `json:"usage"`
 	}
-	if err := s.executeJSON(ctx, config.baseURL, apiKey, body, &response, nil); err != nil {
+	if err := s.executeJSON(ctx, config, kind, apiKey, body, &response, nil); err != nil {
 		return "", err
 	}
 	if len(response.Choices) == 0 {
 		return "", fmt.Errorf("%s returned no response", providerDisplayName(config.provider))
 	}
-	return strings.TrimSpace(response.Choices[0].Message.Content), nil
+	content := strings.TrimSpace(response.Choices[0].Message.Content)
+	if content == "" {
+		return "", &aiProviderCallError{
+			Message:   fmt.Sprintf("%s returned empty content", providerDisplayName(config.provider)),
+			Retryable: true,
+		}
+	}
+	return content, nil
 }
 
-func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, config aiProviderConfig, systemPrompt string, userPrompt string) (string, error) {
+func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, config aiProviderConfig, kind aiRequestKind, systemPrompt string, userPrompt string) (string, error) {
 	body := map[string]any{
 		"model":       config.model,
-		"max_tokens":  700,
+		"max_tokens":  maxTokensForAIRequest(kind),
 		"temperature": 0.3,
 		"system":      systemPrompt,
 		"messages": []map[string]string{
@@ -1066,12 +1204,13 @@ func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, 
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage aiUsage `json:"usage"`
 	}
 	headers := map[string]string{
 		"x-api-key":         apiKey,
 		"anthropic-version": "2023-06-01",
 	}
-	if err := s.executeJSON(ctx, config.baseURL, "", body, &response, headers); err != nil {
+	if err := s.executeJSON(ctx, config, kind, "", body, &response, headers); err != nil {
 		return "", err
 	}
 	for _, part := range response.Content {
@@ -1080,4 +1219,129 @@ func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, 
 		}
 	}
 	return "", fmt.Errorf("Claude returned no content")
+}
+
+func applyDeepSeekOptions(body map[string]any, config aiProviderConfig, kind aiRequestKind) {
+	if config.provider != ExternalAPIProviderDeepSeek {
+		return
+	}
+
+	switch kind {
+	case aiRequestKindStrategyParams:
+		body["thinking"] = map[string]string{"type": "enabled"}
+		body["reasoning_effort"] = envWithDefault("DEEPSEEK_REASONING_EFFORT", "high")
+		delete(body, "temperature")
+	default:
+		body["thinking"] = map[string]string{"type": "disabled"}
+	}
+}
+
+func maxTokensForAIRequest(kind aiRequestKind) int {
+	switch kind {
+	case aiRequestKindStrategyParams:
+		return 4096
+	case aiRequestKindMarketSelection:
+		return 900
+	case aiRequestKindRuntimeDigest:
+		return 320
+	default:
+		return 700
+	}
+}
+
+func shouldRetryAIProviderError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var callErr *aiProviderCallError
+	return errors.As(err, &callErr) && callErr.Retryable
+}
+
+func isEmptyAIContentError(err error) bool {
+	var callErr *aiProviderCallError
+	return errors.As(err, &callErr) && strings.Contains(strings.ToLower(callErr.Message), "empty content")
+}
+
+func cloneAIRequestBody(body map[string]any) map[string]any {
+	clone := make(map[string]any, len(body))
+	for key, value := range body {
+		clone[key] = value
+	}
+	return clone
+}
+
+func sleepAIBackoff(ctx context.Context, attempt int) error {
+	base := 200 * time.Millisecond
+	delay := base << max(attempt-1, 0)
+	if delay > 2*time.Second {
+		delay = 2 * time.Second
+	}
+	jitter := time.Duration(rand.Int64N(int64(delay / 2)))
+	timer := time.NewTimer(delay + jitter)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func logAIProviderUsage(config aiProviderConfig, kind aiRequestKind, attempt int, statusCode int, latency time.Duration, responseBody []byte, err error) {
+	var envelope struct {
+		Usage aiUsage `json:"usage"`
+	}
+	if len(responseBody) > 0 {
+		_ = json.Unmarshal(responseBody, &envelope)
+	}
+
+	errorClass := ""
+	if err != nil {
+		errorClass = classifyAIProviderError(err)
+	}
+	log.Printf(
+		"ai_provider_call provider=%s model=%s kind=%s attempt=%d status=%d latency_ms=%d prompt_tokens=%d completion_tokens=%d total_tokens=%d prompt_cache_hit_tokens=%d prompt_cache_miss_tokens=%d reasoning_tokens=%d error_class=%s",
+		config.provider,
+		config.model,
+		kind,
+		attempt,
+		statusCode,
+		latency.Milliseconds(),
+		envelope.Usage.PromptTokens,
+		envelope.Usage.CompletionTokens,
+		envelope.Usage.TotalTokens,
+		envelope.Usage.PromptCacheHitTokens,
+		envelope.Usage.PromptCacheMissTokens,
+		envelope.Usage.CompletionDetails.ReasoningTokens,
+		errorClass,
+	)
+}
+
+func classifyAIProviderError(err error) string {
+	var callErr *aiProviderCallError
+	if errors.As(err, &callErr) {
+		switch callErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return "auth"
+		case http.StatusPaymentRequired:
+			return "quota"
+		case http.StatusTooManyRequests:
+			return "rate_limit"
+		case http.StatusInternalServerError, http.StatusServiceUnavailable:
+			return "provider_unavailable"
+		default:
+			if callErr.StatusCode > 0 {
+				return "provider_status"
+			}
+			return "network"
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "unknown"
 }

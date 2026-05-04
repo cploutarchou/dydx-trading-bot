@@ -2217,6 +2217,56 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest analytics fetched successfully", data)
 		})
 
+		backtestGroup.GET("/:run_id/analytics/summary", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := c.Param("run_id")
+			result, err := requestClient.GetBacktestAnalyticsSummary(runID)
+			if err != nil {
+				if isUpstreamNotFound(err) {
+					respondBacktestEnvelope(c, http.StatusOK, "Backtest analytics summary fetched successfully", map[string]interface{}{
+						"run_id":        runID,
+						"total_pnl":     0.0,
+						"total_pnl_usd": 0.0,
+						"total_trades":  0,
+						"win_rate":      0.0,
+					})
+					return
+				}
+				respondBotAPIError(c, err)
+				return
+			}
+
+			data := unwrapEnvelopePayload(result)
+			if data == nil {
+				data = map[string]interface{}{}
+			}
+			if getStringField(data, "run_id") == "" {
+				data["run_id"] = runID
+			}
+			if _, ok := data["total_pnl"]; !ok {
+				if value, exists := data["total_pnl_usd"]; exists {
+					data["total_pnl"] = value
+				} else {
+					data["total_pnl"] = 0.0
+				}
+			}
+			if _, ok := data["total_pnl_usd"]; !ok {
+				if value, exists := data["total_pnl"]; exists {
+					data["total_pnl_usd"] = value
+				} else {
+					data["total_pnl_usd"] = 0.0
+				}
+			}
+			if _, ok := data["total_trades"]; !ok {
+				data["total_trades"] = 0
+			}
+			if _, ok := data["win_rate"]; !ok {
+				data["win_rate"] = 0.0
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest analytics summary fetched successfully", data)
+		})
+
 		// Get position snapshots
 		backtestGroup.GET("/:run_id/position-snapshots", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)

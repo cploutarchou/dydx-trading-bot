@@ -373,6 +373,18 @@ class BacktestService:
         self._runs[run_id] = dict(persisted)
         return dict(persisted)
 
+    def _load_run_overview(self, run_id: str) -> Optional[Dict[str, Any]]:
+        cached = self._runs.get(run_id)
+        if cached is not None and "request" in cached:
+            return dict(cached)
+
+        persisted = self.repository.get_run_overview(run_id)
+        if persisted is None:
+            return None
+
+        self._runs[run_id] = dict(persisted)
+        return dict(persisted)
+
     def _persist_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         existing = None
         run_id = str(run_data.get("run_id") or "").strip()
@@ -3026,7 +3038,7 @@ class BacktestService:
         return _BacktestRunDetails(**self._resolve_stale_run_data(data))
 
     def get_backtest_status(self, run_id: str) -> Optional[_BacktestRunStatus]:
-        data = self._load_run_data(run_id)
+        data = self._load_run_overview(run_id)
         if not data:
             return None
         data = self._resolve_stale_run_data(data)
@@ -3432,7 +3444,7 @@ class BacktestService:
         }
 
     def get_live_progress(self, run_id: str) -> Optional[Dict[str, Any]]:
-        data = self._load_run_data(run_id)
+        data = self._load_run_overview(run_id)
         if not data:
             return None
         data = self._resolve_stale_run_data(data)

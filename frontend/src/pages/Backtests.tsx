@@ -321,8 +321,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     staleTime: 10_000,
     refetchInterval: (query) =>
       (query.state.data ?? []).some((run) => isActiveBacktestRun(run as BacktestRun))
-        ? 4_000
+        ? 8_000
         : false,
+    refetchIntervalInBackground: false,
   });
   const activeRunCountForPolling = useMemo(
     () => (backtestsQuery.data ?? []).filter((run) => isActiveBacktestRun(run)).length,
@@ -334,9 +335,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       const status = await enhancedApiClient.getSystemStatus();
       return toObject(status);
     },
-    staleTime: 5_000,
-    refetchInterval: activeRunCountForPolling > 0 ? 5_000 : 15_000,
-    refetchIntervalInBackground: true,
+    staleTime: 10_000,
+    refetchInterval: activeRunCountForPolling > 0 ? 10_000 : 30_000,
+    refetchIntervalInBackground: false,
   });
   const backtestCapacity = useMemo(() => {
     const payload = toObject(systemStatusQuery.data);
@@ -427,8 +428,31 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
           updatedAtMs,
         };
       },
-      staleTime: 2_000,
-      refetchInterval: 3_000,
+      staleTime: 6_000,
+      refetchInterval: 7_000,
+      refetchIntervalInBackground: false,
+      retry: 1,
+      enabled: Boolean(run.run_id),
+    })),
+  });
+  const activeRunSummaryQueries = useQueries({
+    queries: activeRunsQuickAccess.map((run) => ({
+      queryKey: ['backtests', 'analytics-summary', run.run_id, 'quick-access'],
+      queryFn: async () => {
+        const response = await api.getBacktestAnalyticsSummary(run.run_id);
+        const payload = response as unknown as Record<string, unknown>;
+        const totalPnlCandidate = getEnvelopeField(payload, 'total_pnl_usd');
+        const totalTradesCandidate = getEnvelopeField(payload, 'total_trades');
+        const winRateCandidate = getEnvelopeField(payload, 'win_rate');
+        return {
+          totalPnlUsd: safeNumber(totalPnlCandidate, Number.NaN),
+          totalTrades: safeNumber(totalTradesCandidate, Number.NaN),
+          winRate: safeNumber(winRateCandidate, Number.NaN),
+        };
+      },
+      staleTime: 12_000,
+      refetchInterval: 12_000,
+      refetchIntervalInBackground: false,
       retry: 1,
       enabled: Boolean(run.run_id),
     })),
@@ -436,11 +460,20 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   const activeRunLiveById = useMemo(() => {
     const lookup = new Map<
       string,
-      { status?: string; progressPct?: number; updatedAtMs?: number; isFetching: boolean }
+      {
+        status?: string;
+        progressPct?: number;
+        updatedAtMs?: number;
+        isFetching: boolean;
+        totalPnlUsd?: number;
+        totalTrades?: number;
+        winRate?: number;
+      }
     >();
 
     activeRunsQuickAccess.forEach((run, index) => {
       const query = activeRunLiveStatusQueries[index];
+      const summaryQuery = activeRunSummaryQueries[index];
       const progressValue = query?.data?.progressPct;
       const normalizedProgress =
         typeof progressValue === 'number' && Number.isFinite(progressValue)
@@ -452,11 +485,26 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         progressPct: normalizedProgress,
         updatedAtMs: query?.data?.updatedAtMs,
         isFetching: Boolean(query?.isFetching),
+        totalPnlUsd:
+          typeof summaryQuery?.data?.totalPnlUsd === 'number' &&
+          Number.isFinite(summaryQuery.data.totalPnlUsd)
+            ? summaryQuery.data.totalPnlUsd
+            : undefined,
+        totalTrades:
+          typeof summaryQuery?.data?.totalTrades === 'number' &&
+          Number.isFinite(summaryQuery.data.totalTrades)
+            ? summaryQuery.data.totalTrades
+            : undefined,
+        winRate:
+          typeof summaryQuery?.data?.winRate === 'number' &&
+          Number.isFinite(summaryQuery.data.winRate)
+            ? summaryQuery.data.winRate
+            : undefined,
       });
     });
 
     return lookup;
-  }, [activeRunsQuickAccess, activeRunLiveStatusQueries]);
+  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, activeRunSummaryQueries]);
   const capacityPanelRef = useRef<HTMLDivElement>(null);
   const scrollToCapacityPanel = () =>
     capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -631,9 +679,42 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   if (backtestsQuery.isLoading) {
     return (
       <PageContainer size="wide" className="space-y-6">
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-10 text-center text-slate-300">
-          Building your backtest intelligence workspace...
-        </div>
+        <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8" aria-busy="true">
+          <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
+            <div>
+              <div className="skeleton h-5 w-40 rounded-full" />
+              <div className="skeleton mt-5 h-9 max-w-2xl rounded" />
+              <div className="skeleton mt-3 h-4 max-w-xl rounded" />
+              <div className="skeleton mt-2 h-4 max-w-lg rounded" />
+              <div className="mt-5 flex flex-wrap gap-3">
+                <div className="skeleton h-8 w-32 rounded-full" />
+                <div className="skeleton h-8 w-48 rounded-full" />
+                <div className="skeleton h-8 w-56 rounded-full" />
+              </div>
+            </div>
+            <div className="operator-mini-grid">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="operator-hero-panel px-4 py-4">
+                  <div className="skeleton h-3 w-20 rounded" />
+                  <div className="skeleton mt-3 h-7 w-16 rounded" />
+                  <div className="skeleton mt-2 h-3 w-24 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+        <section
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
+          aria-hidden="true"
+        >
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="operator-stat-card p-5">
+              <div className="skeleton h-8 w-8 rounded-xl" />
+              <div className="skeleton mt-4 h-8 w-28 rounded" />
+              <div className="skeleton mt-2 h-3 w-36 rounded" />
+            </div>
+          ))}
+        </section>
       </PageContainer>
     );
   }
@@ -649,13 +730,28 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
           <h1 className="text-xl font-semibold text-white">Backtest Intelligence Unavailable</h1>
           <p className="mt-2 text-sm text-red-200">{message}</p>
-          <Link
-            to="/dashboard"
-            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-600/50 bg-red-900/30 px-4 py-2 text-sm font-medium text-red-100 transition hover:bg-red-900/50"
-          >
-            Return to dashboard
-            <ArrowRight className="h-4 w-4" />
-          </Link>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void backtestsQuery.refetch()}
+              className="inline-flex items-center gap-2 rounded-lg border border-red-600/50 bg-red-900/30 px-4 py-2 text-sm font-medium text-red-100 transition hover:bg-red-900/50"
+            >
+              Retry backtest load
+            </button>
+            <Link
+              to="/backtests/new"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-500"
+            >
+              New backtest
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-500"
+            >
+              Return to dashboard
+            </Link>
+          </div>
         </div>
       </PageContainer>
     );
@@ -1064,6 +1160,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                     const freshnessLabel = formatFreshnessAge(live?.updatedAtMs);
                     const freshnessTone = getFreshnessToneClasses(live?.updatedAtMs);
                     const freshnessCardBorder = getFreshnessCardBorderClasses(live?.updatedAtMs);
+                    const pnlClass =
+                      typeof live?.totalPnlUsd === 'number'
+                        ? live.totalPnlUsd >= 0
+                          ? 'text-emerald-300'
+                          : 'text-rose-300'
+                        : 'text-slate-400';
 
                     return (
                       <Link
@@ -1096,7 +1198,16 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                         </div>
 
                         <div className="mt-3 flex items-center gap-2">
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/80">
+                          <div
+                            className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/80"
+                            role="progressbar"
+                            aria-label={`Backtest ${run.name || run.run_id} progress`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={
+                              resolvedProgress !== null ? Math.round(resolvedProgress) : undefined
+                            }
+                          >
                             <div
                               className="h-1.5 rounded-full bg-emerald-400 transition-all duration-500"
                               style={{ width: `${progressBarWidth}%` }}
@@ -1104,6 +1215,27 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                           </div>
                           <span className="w-12 text-right text-xs text-slate-300">
                             {progressLabel}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                          <span className={pnlClass}>
+                            P&amp;L:{' '}
+                            {typeof live?.totalPnlUsd === 'number'
+                              ? formatCurrency(live.totalPnlUsd)
+                              : '—'}
+                          </span>
+                          <span>
+                            Trades:{' '}
+                            {typeof live?.totalTrades === 'number'
+                              ? Math.max(0, Math.round(live.totalTrades))
+                              : '—'}
+                          </span>
+                          <span>
+                            Win Rate:{' '}
+                            {typeof live?.winRate === 'number'
+                              ? formatPercent(normalizePercent(live.winRate))
+                              : '—'}
                           </span>
                         </div>
                       </Link>

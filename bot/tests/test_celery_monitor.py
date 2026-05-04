@@ -3,6 +3,7 @@ from src.infrastructure.workers.celery_monitor import (
     build_progress_meta,
     celery_state_from_backtest,
     redact_payload,
+    list_celery_workers,
 )
 
 
@@ -114,3 +115,33 @@ def test_task_from_backtest_uses_persisted_request_context_when_summary_fields_a
     assert task["retry_count"] == 1
     assert task["metadata"]["strategy_name"] == "Desk Strategy"
     assert task["metadata"]["payload_hash"] == "abc123"
+
+
+def test_list_celery_workers_uses_short_lived_cache(monkeypatch):
+    from src.infrastructure.workers import celery_monitor
+
+    celery_monitor._clear_monitor_cache()
+    monkeypatch.setenv("CELERY_MONITOR_CACHE_TTL_SECONDS", "60")
+
+    class _Inspector:
+        def stats(self):
+            calls.append("stats")
+            return {"worker-a": {"pool": {"writes": {"celery": 1}}}}
+
+        def active(self):
+            calls.append("active")
+            return {"worker-a": []}
+
+        def registered(self):
+            calls.append("registered")
+            return {"worker-a": ["backtests.run"]}
+
+    calls = []
+    monkeypatch.setattr(celery_monitor, "_inspect", lambda: _Inspector())
+
+    first = list_celery_workers()
+    second = list_celery_workers()
+
+    assert first["total"] == 1
+    assert second["total"] == 1
+    assert calls == ["stats", "active", "registered"]

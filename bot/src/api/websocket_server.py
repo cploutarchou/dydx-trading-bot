@@ -3,6 +3,7 @@ WebSocket server for real-time bot data streaming
 Provides live position updates, market data, and P&L tracking
 """
 
+import asyncio
 import json
 import os
 import time
@@ -11,6 +12,7 @@ from typing import Any, Dict, Optional, Set
 from fastapi import WebSocket, WebSocketDisconnect
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 from src.api.realtime_serializers import (
     serialize_market_core,
     serialize_realtime_position,
@@ -290,29 +292,46 @@ class ConnectionManager:
                 self.active_connections.pop(channel, None)
         self.user_subscriptions.pop(websocket, None)
 
+    async def _broadcast_connection_send(
+        self,
+        channel_id: str,
+        connection: WebSocket,
+        message: Dict,
+    ) -> tuple[WebSocket, bool]:
+        try:
+            await connection.send_json(message)
+            self._record_send_success(channel_id)
+            return connection, True
+        except Exception as e:
+            self._record_send_failure(
+                channel_id,
+                e,
+                operation="broadcast_to_bot",
+            )
+            logger.warning(
+                "Failed to send broadcast message on channel {}: type={} error={!r}",
+                channel_id,
+                type(e).__name__,
+                e,
+            )
+            return connection, False
+
     async def broadcast_to_bot(self, bot_instance_id: str, message: Dict):
         """Broadcast message to all clients connected to a bot"""
         if bot_instance_id not in self.active_connections:
             return
 
-        disconnected = set()
-        for connection in self.active_connections[bot_instance_id]:
-            try:
-                await connection.send_json(message)
-                self._record_send_success(bot_instance_id)
-            except Exception as e:
-                self._record_send_failure(
-                    bot_instance_id,
-                    e,
-                    operation="broadcast_to_bot",
-                )
-                logger.warning(
-                    "Failed to send broadcast message on channel {}: type={} error={!r}",
-                    bot_instance_id,
-                    type(e).__name__,
-                    e,
-                )
-                disconnected.add(connection)
+        connections = list(self.active_connections.get(bot_instance_id) or set())
+        if not connections:
+            return
+
+        results = await asyncio.gather(
+            *[
+                self._broadcast_connection_send(bot_instance_id, connection, message)
+                for connection in connections
+            ]
+        )
+        disconnected = {connection for connection, sent in results if not sent}
 
         # Clean up disconnected clients
         for connection in disconnected:
@@ -813,11 +832,17 @@ class WebSocketServer:
     @staticmethod
     async def send_backtest_status(websocket: WebSocket, run_id: str) -> bool:
         """Send backtest status to client on initial connect or explicit request."""
-        session = None
         try:
-            session = db.get_session()
-            repository = BacktestRepository(session)
-            run_data = repository.get_run(run_id)
+
+            def _load_backtest_run_overview() -> Optional[Dict]:
+                session = db.get_session()
+                try:
+                    repository = BacktestRepository(session)
+                    return repository.get_run_overview(run_id)
+                finally:
+                    session.close()
+
+            run_data = await run_in_threadpool(_load_backtest_run_overview)
 
             if run_data is None:
                 message = {
@@ -862,9 +887,6 @@ class WebSocketServer:
                 e,
             )
             return False
-        finally:
-            if session is not None:
-                session.close()
 
 
 # Broadcast helper functions for use in bot operations

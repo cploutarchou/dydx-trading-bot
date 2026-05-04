@@ -50,6 +50,29 @@ class _StubService:
     def get_position_snapshots(self, **_kwargs):
         return [{"timestamp": "2026-01-01T00:00:00Z", "positions": []}]
 
+    def get_comprehensive_analytics(self, run_id):
+        return {
+            "run_id": run_id,
+            "status": "running",
+            "total_trades": 3,
+            "winning_trades": 2,
+            "losing_trades": 1,
+            "win_rate": 66.7,
+            "total_pnl": 12.5,
+            "total_pnl_usd": 12.5,
+            "sharpe_ratio": 1.1,
+            "max_drawdown": 3.2,
+            "profit_factor": 1.4,
+            "updated_at": "2026-01-01T00:05:00+00:00",
+            "trades": [
+                {"trade_id": "t-1"},
+                {"trade_id": "t-2"},
+                {"trade_id": "t-3"},
+            ],
+            "daily_pnl": [{"date": "2026-01-01", "pnl": 12.5}],
+            "position_snapshots": [{"timestamp": "2026-01-01T00:05:00+00:00"}],
+        }
+
     def get_advanced_performance_metrics(self, run_id, benchmark="BTC-USD"):
         return {
             "run_id": run_id,
@@ -253,6 +276,76 @@ def test_run_scoped_trade_and_snapshot_routes_include_run_id(monkeypatch):
     assert "position_snapshots" in snapshots_payload["data"]
     assert "snapshots" in snapshots_payload["data"]
     assert snapshots_payload["data"]["count"] == 1
+
+
+def test_analytics_summary_endpoint_returns_compact_payload(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+    server._backtest_endpoint_cache.clear()
+
+    response = asyncio.run(_call(server.get_backtest_analytics_summary("run-xyz")))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["run_id"] == "run-xyz"
+    assert payload["data"]["total_trades"] == 3
+    assert payload["data"]["daily_pnl_points"] == 1
+    assert payload["data"]["position_snapshots_points"] == 1
+    assert "trades" not in payload["data"]
+    assert "daily_pnl" not in payload["data"]
+    assert "X-Endpoint-Duration-Ms" in response.headers
+    assert response.headers.get("X-Cache-Hit") == "0"
+
+
+def test_backtest_trades_uses_ttl_cache_between_calls(monkeypatch):
+    server = _load_server_module()
+    server._backtest_endpoint_cache.clear()
+
+    class _CountingStubService(_StubService):
+        def __init__(self):
+            self.trade_calls = 0
+
+        def get_backtest_trades(self, **kwargs):
+            self.trade_calls += 1
+            return super().get_backtest_trades(**kwargs)
+
+    service = _CountingStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: service)
+
+    first = asyncio.run(
+        _call(server.get_backtest_trades("run-cache", limit=50, offset=0))
+    )
+    second = asyncio.run(
+        _call(server.get_backtest_trades("run-cache", limit=50, offset=0))
+    )
+
+    first_payload = json.loads(first.body)
+    second_payload = json.loads(second.body)
+
+    assert first_payload["success"] is True
+    assert second_payload["success"] is True
+    assert service.trade_calls == 1
+    assert "X-Endpoint-Duration-Ms" in first.headers
+    assert "X-Endpoint-Duration-Ms" in second.headers
+    assert first.headers.get("X-Cache-Hit") == "0"
+    assert second.headers.get("X-Cache-Hit") == "1"
+
+
+def test_celery_tasks_endpoint_includes_duration_header(monkeypatch):
+    server = _load_server_module()
+
+    monkeypatch.setattr(
+        server,
+        "list_celery_tasks",
+        lambda _filters, _limit: {"tasks": [{"id": "task-1"}]},
+    )
+
+    response = asyncio.run(_call(server.celery_tasks(current_user=object())))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert "X-Endpoint-Duration-Ms" in response.headers
+    assert response.headers.get("X-Cache-Hit") is None
 
 
 def test_performance_metrics_endpoint_accepts_sync_service(monkeypatch):

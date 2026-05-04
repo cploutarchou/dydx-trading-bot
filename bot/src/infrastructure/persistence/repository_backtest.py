@@ -151,6 +151,15 @@ class BacktestRepository:
             "daily_pnl": list(record.daily_pnl_json or []),
         }
 
+    def _record_to_overview_dict(self, record: BacktestRun) -> Dict[str, Any]:
+        request_payload = dict(record.request_json or {})
+        if not request_payload:
+            request_payload = self._get_request_snapshot(record.run_id)
+        return {
+            **self._record_to_summary_dict(record),
+            "request": request_payload,
+        }
+
     def _upsert_request_snapshot(self, run_id: str, request_payload: Any) -> None:
         cleaned = self._sanitize_request_payload(request_payload)
         if not cleaned:
@@ -262,6 +271,30 @@ class BacktestRepository:
             .first()
         )
         return self._record_to_dict(record) if record else None
+
+    def get_run_overview(self, run_id: str) -> Optional[Dict[str, Any]]:
+        normalized_run_id = str(run_id)
+        if self.session is None:
+            record = BacktestRepository._memory_runs.get(normalized_run_id)
+            if not record:
+                return None
+            payload = self._normalize_run_data(record)
+            return {
+                **payload,
+                "request": self._sanitize_request_payload(payload.get("request") or {}),
+            }
+
+        record = (
+            self.session.query(BacktestRun)
+            .options(
+                defer(BacktestRun.trades_json),
+                defer(BacktestRun.position_snapshots_json),
+                defer(BacktestRun.daily_pnl_json),
+            )
+            .filter(BacktestRun.run_id == normalized_run_id)
+            .first()
+        )
+        return self._record_to_overview_dict(record) if record else None
 
     def list_runs(
         self,

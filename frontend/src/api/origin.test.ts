@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { resolveBackendUrl, resolveBackendWebSocketUrl } from './origin';
+import {
+    resolveBackendUrl,
+    resolveBackendWebSocketUrl,
+    shouldAttemptCookieSessionBootstrap,
+} from './origin';
 
 describe('backend origin helpers', () => {
   it('resolves relative API requests against the backend origin', () => {
@@ -14,7 +18,11 @@ describe('backend origin helpers', () => {
 
   it('builds websocket URLs against the backend origin with access_token auth', () => {
     expect(
-      resolveBackendWebSocketUrl('/api/v1/backtests/run-123/live', 'jwt-token', 'http://localhost:8888')
+      resolveBackendWebSocketUrl(
+        '/api/v1/backtests/run-123/live',
+        'jwt-token',
+        'http://localhost:8888'
+      )
     ).toBe('ws://localhost:8888/api/v1/backtests/run-123/live?access_token=jwt-token');
   });
 
@@ -34,8 +42,35 @@ describe('backend origin helpers', () => {
   });
 
   it('preserves explicit websocket URLs while normalizing auth query params', () => {
+    expect(resolveBackendWebSocketUrl('wss://backend.example.com/ws/bots/bot-1', 'jwt-token')).toBe(
+      'wss://backend.example.com/ws/bots/bot-1?access_token=jwt-token'
+    );
+  });
+
+  it('attempts cookie session bootstrap for hosted https deployments even without local hints', () => {
     expect(
-      resolveBackendWebSocketUrl('wss://backend.example.com/ws/bots/bot-1', 'jwt-token')
-    ).toBe('wss://backend.example.com/ws/bots/bot-1?access_token=jwt-token');
+      shouldAttemptCookieSessionBootstrap('https://api.cydevcloud.com', {
+        protocol: 'https:',
+        host: 'app.cydevcloud.com',
+      })
+    ).toBe(true);
+  });
+
+  it('avoids cookie session bootstrap for localhost development flows', () => {
+    expect(
+      shouldAttemptCookieSessionBootstrap('http://localhost:8888', {
+        protocol: 'http:',
+        host: 'localhost:5173',
+      })
+    ).toBe(false);
+  });
+
+  it('attempts cookie session bootstrap for secure same-origin proxy deployments', () => {
+    expect(
+      shouldAttemptCookieSessionBootstrap('', {
+        protocol: 'https:',
+        host: 'app.cydevcloud.com',
+      })
+    ).toBe(true);
   });
 });

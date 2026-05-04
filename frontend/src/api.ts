@@ -4,12 +4,16 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-	guardBacktestStatusContract,
-	guardListBacktestsContract,
-	guardRunBacktestContract,
-	guardSyncHealthContract,
+    guardBacktestStatusContract,
+    guardListBacktestsContract,
+    guardRunBacktestContract,
+    guardSyncHealthContract,
 } from './api/contractGuards';
-import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
+import {
+    getBackendHttpBase,
+    resolveBackendWebSocketUrl,
+    shouldAttemptCookieSessionBootstrap,
+} from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';
 
@@ -1566,7 +1570,7 @@ class ApiClient {
           !url.includes('/auth/refresh') &&
           !url.includes('/auth/registration-status')
         ) {
-          if (!this.hasSessionHint()) {
+          if (!this.shouldAttemptCookieRefresh()) {
             return Promise.reject(error);
           }
 
@@ -1723,6 +1727,10 @@ class ApiClient {
     }
   }
 
+  shouldAttemptCookieRefresh(): boolean {
+    return this.hasSessionHint() || shouldAttemptCookieSessionBootstrap(API_BASE_URL);
+  }
+
   getAccessToken(): string | null {
     return this.accessToken;
   }
@@ -1832,7 +1840,7 @@ class ApiClient {
         return true;
       }
 
-      if (!(options.allowCookieRefresh ?? this.hasSessionHint())) {
+      if (!(options.allowCookieRefresh ?? this.shouldAttemptCookieRefresh())) {
         return false;
       }
 
@@ -3312,6 +3320,94 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse>(`/api/v1/backtests/${runId}/analytics`);
     return response.data;
+  }
+
+  private buildBacktestAnalyticsSummaryFromAnalytics(
+    runId: string,
+    analyticsResponse: ApiResponse
+  ): ApiResponse {
+    const data =
+      analyticsResponse &&
+      typeof analyticsResponse === 'object' &&
+      analyticsResponse.data &&
+      typeof analyticsResponse.data === 'object'
+        ? analyticsResponse.data
+        : {};
+
+    const numericValue = (...candidates: unknown[]): number | undefined => {
+      for (const candidate of candidates) {
+        if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+          return candidate;
+        }
+      }
+      return undefined;
+    };
+
+    const winRateCandidate = numericValue(
+      (data as Record<string, unknown>).win_rate,
+      (data as Record<string, unknown>).winRate
+    );
+    const normalizedWinRate =
+      typeof winRateCandidate === 'number'
+        ? winRateCandidate >= 0 && winRateCandidate <= 1
+          ? winRateCandidate * 100
+          : winRateCandidate
+        : 0;
+
+    const tradesFromArray = Array.isArray((data as Record<string, unknown>).trades)
+      ? ((data as Record<string, unknown>).trades as unknown[]).length
+      : 0;
+    const totalTrades =
+      numericValue(
+        (data as Record<string, unknown>).total_trades,
+        (data as Record<string, unknown>).totalTrades
+      ) ?? tradesFromArray;
+    const totalPnlUsd =
+      numericValue(
+        (data as Record<string, unknown>).total_pnl_usd,
+        (data as Record<string, unknown>).total_pnl
+      ) ?? 0;
+
+    return {
+      success: true,
+      message: analyticsResponse.message || 'Backtest analytics summary fetched successfully',
+      data: {
+        run_id: String((data as Record<string, unknown>).run_id || runId),
+        total_pnl_usd: totalPnlUsd,
+        total_pnl: totalPnlUsd,
+        total_trades: totalTrades,
+        win_rate: normalizedWinRate,
+        updated_at:
+          typeof (data as Record<string, unknown>).updated_at === 'string'
+            ? (data as Record<string, unknown>).updated_at
+            : analyticsResponse.timestamp,
+      },
+      timestamp: analyticsResponse.timestamp || new Date().toISOString(),
+      trace_id: analyticsResponse.trace_id,
+    };
+  }
+
+  async getBacktestAnalyticsSummary(runId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/backtests/${runId}/analytics/summary`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+
+      this.logLegacyRouteFallback(
+        `/api/v1/backtests/${runId}/analytics/summary`,
+        `/api/v1/backtests/${runId}/analytics`,
+        error
+      );
+
+      const analyticsResponse = await this.getBacktestAnalytics(runId);
+      return this.buildBacktestAnalyticsSummaryFromAnalytics(runId, analyticsResponse);
+    }
   }
 
   async getBacktestPositionSnapshots(

@@ -1,7 +1,11 @@
 import { BrainCircuit, ChevronDown, ChevronUp, Loader, RefreshCw, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import api, { type AIBacktestExplainRequest, type AIMarketProvider } from '../api';
-import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
+import {
+  getAIProviderDisplayName,
+  getAIProviderLabel,
+  useAIProviderAvailability,
+} from '../features/ai/providerAvailability';
 
 interface Props {
   winRate: number;
@@ -94,7 +98,7 @@ export function AIBacktestExplainer({
           <span className="text-sm font-semibold text-violet-200">AI Backtest Explainer</span>
           {content && usedAI && (
             <span className="rounded-full bg-violet-900/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-300">
-              {provider}
+              {getAIProviderDisplayName(statusMap[provider])}
             </span>
           )}
         </div>
@@ -105,11 +109,12 @@ export function AIBacktestExplainer({
             value={provider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
             disabled={loading || providerStatusLoading || availableProviders.length === 0}
+            aria-label="AI provider for backtest explanation"
             className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:outline-none disabled:opacity-50"
           >
             {availableProviders.map((p) => (
               <option key={p} value={p}>
-                {getAIProviderLabel(p)}
+                {getAIProviderDisplayName(statusMap[p])}
               </option>
             ))}
           </select>
@@ -134,6 +139,7 @@ export function AIBacktestExplainer({
           {content && (
             <button
               onClick={() => setCollapsed((v) => !v)}
+              aria-label={collapsed ? 'Expand AI backtest explanation' : 'Collapse AI backtest explanation'}
               className="rounded p-1 text-slate-400 hover:text-slate-200"
             >
               {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api, { type AIBacktestExplainRequest } from '../api';
+import { getAIProviderDisplayName, useAIProviderAvailability } from '../features/ai/providerAvailability';
 import { PageContainer } from './PageContainer';
 
 interface BacktestResult {
@@ -171,6 +172,11 @@ export const BacktestComparator: React.FC = () => {
   const [showShortcutToast, setShowShortcutToast] = useState(false);
   const [showUxHints, setShowUxHints] = useState(true);
   const [hintDotPop, setHintDotPop] = useState(false);
+  const {
+    availableProviders,
+    statusMap,
+    isLoading: providerStatusLoading,
+  } = useAIProviderAvailability();
   const previousWinnerByTitleRef = useRef<Record<string, string>>({});
   const legendHelpChipRef = useRef<HTMLButtonElement | null>(null);
   const shortcutDiscoverySeenRef = useRef(false);
@@ -213,6 +219,10 @@ export const BacktestComparator: React.FC = () => {
   }, []);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
+  const aiProvider = availableProviders[0] ?? null;
+  const aiProviderDisplayName = aiProvider
+    ? getAIProviderDisplayName(statusMap[aiProvider])
+    : 'AI unavailable';
 
   const filteredAndSortedBacktests = useMemo(() => {
     const filtered = backtests.filter((bt) => {
@@ -632,12 +642,18 @@ export const BacktestComparator: React.FC = () => {
 
   const requestAIInsight = useCallback(async () => {
     if (!comparisonAggregate || selectedBacktests.length < 2) return;
+    if (!aiProvider) {
+      setAiInsight(null);
+      setAiUsed(false);
+      setAiError('No AI provider is available for this account. Add a provider key in Settings.');
+      return;
+    }
 
     setAiLoading(true);
     setAiError(null);
 
     const payload: AIBacktestExplainRequest = {
-      provider: 'deepseek',
+      provider: aiProvider,
       win_rate: comparisonAggregate.avgWinRate,
       total_pnl_usd: comparisonAggregate.avgPnl,
       sharpe_ratio: comparisonAggregate.avgSharpe,
@@ -655,16 +671,19 @@ export const BacktestComparator: React.FC = () => {
         response?.data ??
         (response as unknown as { data?: { content?: string; used_ai?: boolean } })?.data;
       const content = typeof responseData?.content === 'string' ? responseData.content : '';
-      setAiInsight(content || 'DeepSeek returned no narrative. Try refreshing insights.');
+      setAiInsight(content || `${aiProviderDisplayName} returned no narrative. Try refreshing insights.`);
       setAiUsed(Boolean(responseData?.used_ai));
     } catch (err) {
       setAiError(getErrorMessage(err, 'Failed to generate AI insight'));
     } finally {
       setAiLoading(false);
     }
-  }, [comparisonAggregate, selectedBacktests]);
+  }, [aiProvider, aiProviderDisplayName, comparisonAggregate, selectedBacktests]);
 
   useEffect(() => {
+    if (providerStatusLoading) {
+      return;
+    }
     if (selectedBacktests.length >= 2) {
       void requestAIInsight();
     } else {
@@ -672,7 +691,7 @@ export const BacktestComparator: React.FC = () => {
       setAiError(null);
       setAiUsed(false);
     }
-  }, [requestAIInsight, selectedBacktests.length]);
+  }, [providerStatusLoading, requestAIInsight, selectedBacktests.length]);
 
   return (
     <PageContainer size="wide" className="space-y-6 page-reveal">
@@ -686,7 +705,7 @@ export const BacktestComparator: React.FC = () => {
             <h1 className="text-2xl font-bold text-white sm:text-3xl">Compare Backtests</h1>
             <p className="max-w-2xl text-sm text-slate-300">
               Scan, select, and compare up to 5 runs with instant metric deltas and automatic
-              DeepSeek commentary to help you decide faster.
+              AI commentary to help you decide faster.
             </p>
           </div>
 
@@ -709,7 +728,7 @@ export const BacktestComparator: React.FC = () => {
             </div>
             <div className="platform-stat-card min-w-30">
               <p className="text-[11px] uppercase tracking-wide text-slate-400">AI Provider</p>
-              <p className="mt-1 text-lg font-semibold text-violet-300">DeepSeek</p>
+              <p className="mt-1 text-lg font-semibold text-violet-300">{aiProviderDisplayName}</p>
             </div>
           </div>
         </div>
@@ -950,7 +969,7 @@ export const BacktestComparator: React.FC = () => {
             <div className="space-y-1">
               <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-violet-300">
                 <BrainCircuit className="h-4 w-4" />
-                DeepSeek Market Narrative
+                AI Market Narrative
               </p>
               <p className="text-sm text-slate-300">
                 Auto-generated comparative insight based on selected runs.
@@ -958,7 +977,7 @@ export const BacktestComparator: React.FC = () => {
             </div>
             <button
               onClick={() => void requestAIInsight()}
-              disabled={aiLoading}
+              disabled={aiLoading || providerStatusLoading || !aiProvider}
               className="platform-button bg-violet-600 text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {aiLoading ? (
@@ -997,7 +1016,7 @@ export const BacktestComparator: React.FC = () => {
 
           <div className="mt-4 rounded-xl border border-violet-500/30 bg-slate-950/50 p-4 text-sm leading-relaxed text-slate-200">
             {aiLoading && (
-              <p className="text-slate-400">DeepSeek is analyzing the selected set...</p>
+              <p className="text-slate-400">{aiProviderDisplayName} is analyzing the selected set...</p>
             )}
             {!aiLoading && aiError && <p className="text-red-300">{aiError}</p>}
             {!aiLoading && !aiError && aiInsight && (
@@ -1010,7 +1029,7 @@ export const BacktestComparator: React.FC = () => {
             )}
             {!aiLoading && !aiError && aiInsight && !aiUsed && (
               <p className="mt-3 text-xs text-slate-500">
-                DeepSeek key not configured, fallback narrative was used.
+                AI provider returned a fallback narrative; review provider configuration before relying on it.
               </p>
             )}
           </div>

@@ -2,15 +2,24 @@ import { useQuery } from '@tanstack/react-query';
 import api, { type AIMarketProvider, type AIProviderStatus } from '../../api';
 
 export const AI_PROVIDER_LABELS: Record<AIMarketProvider, string> = {
-  openai: 'General reasoning',
-  deepseek: 'Fast reasoning',
-  claude: 'Long-context reasoning',
+  openai: 'OpenAI',
+  deepseek: 'DeepSeek',
+  claude: 'Claude',
 };
 
 export const AI_PROVIDER_ORDER: AIMarketProvider[] = ['deepseek', 'openai', 'claude'];
 
 export const getAIProviderLabel = (provider: AIMarketProvider): string =>
   AI_PROVIDER_LABELS[provider];
+
+export const getAIProviderDisplayName = (status?: AIProviderStatus): string => {
+  if (!status) {
+    return 'AI provider';
+  }
+
+  const label = getAIProviderLabel(status.provider);
+  return status.model ? `${label} (${status.model})` : label;
+};
 
 export const getAvailabilityBadge = (
   status?: AIProviderStatus

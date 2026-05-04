@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import time
+import threading
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
@@ -144,6 +145,159 @@ bot_manager_monitor_task: Optional[asyncio.Task] = None
 
 DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
+
+
+def _read_non_negative_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return max(0, int(default))
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return max(0, int(default))
+
+
+_BACKTEST_ENDPOINT_CACHE_TTL_SECONDS = _read_non_negative_int_env(
+    "BACKTEST_ENDPOINT_CACHE_TTL_SECONDS", 2
+)
+_BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES = max(
+    50,
+    _read_non_negative_int_env("BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES", 512),
+)
+_backtest_endpoint_cache: Dict[str, Dict[str, Any]] = {}
+_backtest_endpoint_cache_lock = threading.Lock()
+
+
+def _cache_get(key: str) -> Optional[Any]:
+    if _BACKTEST_ENDPOINT_CACHE_TTL_SECONDS <= 0:
+        return None
+    now = time.monotonic()
+    with _backtest_endpoint_cache_lock:
+        entry = _backtest_endpoint_cache.get(key)
+        if not entry:
+            return None
+        if float(entry.get("expires_at", 0.0)) <= now:
+            _backtest_endpoint_cache.pop(key, None)
+            return None
+        return entry.get("value")
+
+
+def _cache_set(key: str, value: Any) -> None:
+    if _BACKTEST_ENDPOINT_CACHE_TTL_SECONDS <= 0:
+        return
+    now = time.monotonic()
+    expires_at = now + float(_BACKTEST_ENDPOINT_CACHE_TTL_SECONDS)
+    with _backtest_endpoint_cache_lock:
+        _backtest_endpoint_cache[key] = {
+            "value": value,
+            "expires_at": expires_at,
+            "updated_at": now,
+        }
+
+        if len(_backtest_endpoint_cache) <= _BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES:
+            return
+
+        expired_keys = [
+            cached_key
+            for cached_key, cached_entry in _backtest_endpoint_cache.items()
+            if float(cached_entry.get("expires_at", 0.0)) <= now
+        ]
+        for expired_key in expired_keys:
+            _backtest_endpoint_cache.pop(expired_key, None)
+
+        overflow = len(_backtest_endpoint_cache) - _BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES
+        if overflow <= 0:
+            return
+
+        oldest_keys = sorted(
+            _backtest_endpoint_cache.items(),
+            key=lambda item: float(item[1].get("updated_at", 0.0)),
+        )
+        for cached_key, _ in oldest_keys[:overflow]:
+            _backtest_endpoint_cache.pop(cached_key, None)
+
+
+def _payload_size_bytes(payload: Any) -> int:
+    try:
+        return len(json.dumps(payload, default=str, separators=(",", ":")))
+    except Exception:
+        return -1
+
+
+def _log_endpoint_timing(
+    endpoint: str,
+    started_at: float,
+    payload: Any,
+    *,
+    cache_hit: bool = False,
+    payload_items: Optional[int] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+    size_bytes = _payload_size_bytes(payload)
+    details: Dict[str, Any] = {
+        "endpoint": endpoint,
+        "duration_ms": round(elapsed_ms, 2),
+        "cache_hit": cache_hit,
+        "payload_bytes": size_bytes,
+    }
+    if payload_items is not None:
+        details["payload_items"] = int(payload_items)
+    if extra:
+        details.update(extra)
+
+    logger.info(
+        "endpoint_perf endpoint={} duration_ms={} cache_hit={} payload_bytes={} payload_items={} details={}",
+        details["endpoint"],
+        details["duration_ms"],
+        details["cache_hit"],
+        details["payload_bytes"],
+        details.get("payload_items", -1),
+        details,
+    )
+
+
+def _endpoint_perf_headers(
+    started_at: float, *, cache_hit: Optional[bool] = None
+) -> Dict[str, str]:
+    elapsed_ms = max(0.0, (time.perf_counter() - started_at) * 1000.0)
+    headers: Dict[str, str] = {"X-Endpoint-Duration-Ms": f"{elapsed_ms:.2f}"}
+    if cache_hit is not None:
+        headers["X-Cache-Hit"] = "1" if cache_hit else "0"
+    return headers
+
+
+def _build_backtest_analytics_summary(
+    run_id: str, analytics: Dict[str, Any]
+) -> Dict[str, Any]:
+    trades = analytics.get("trades") if isinstance(analytics, dict) else None
+    daily_pnl = analytics.get("daily_pnl") if isinstance(analytics, dict) else None
+    position_snapshots = (
+        analytics.get("position_snapshots") if isinstance(analytics, dict) else None
+    )
+
+    total_trades = int(analytics.get("total_trades", 0) or 0)
+    if isinstance(trades, list) and total_trades <= 0:
+        total_trades = len(trades)
+
+    return {
+        "run_id": run_id,
+        "status": analytics.get("status"),
+        "total_trades": total_trades,
+        "winning_trades": int(analytics.get("winning_trades", 0) or 0),
+        "losing_trades": int(analytics.get("losing_trades", 0) or 0),
+        "win_rate": float(analytics.get("win_rate", 0.0) or 0.0),
+        "total_pnl": float(analytics.get("total_pnl", 0.0) or 0.0),
+        "total_pnl_usd": float(analytics.get("total_pnl_usd", 0.0) or 0.0),
+        "sharpe_ratio": float(analytics.get("sharpe_ratio", 0.0) or 0.0),
+        "max_drawdown": float(analytics.get("max_drawdown", 0.0) or 0.0),
+        "profit_factor": float(analytics.get("profit_factor", 0.0) or 0.0),
+        "daily_pnl_points": len(daily_pnl) if isinstance(daily_pnl, list) else 0,
+        "position_snapshots_points": (
+            len(position_snapshots) if isinstance(position_snapshots, list) else 0
+        ),
+        "updated_at": analytics.get("updated_at") or utc_now_iso(),
+    }
 
 
 def _optional_env_int(name: str) -> Optional[int]:
@@ -1246,7 +1400,13 @@ app.include_router(
 # ============================================================================
 
 
-def api_response(success: bool, data=None, message: str = "", status_code: int = 200):
+def api_response(
+    success: bool,
+    data=None,
+    message: str = "",
+    status_code: int = 200,
+    headers: Optional[Dict[str, str]] = None,
+):
     """Standardized API response format"""
     if status_code >= 500:
         # Never expose raw exceptions/DB internals in client-facing 5xx responses.
@@ -1263,6 +1423,8 @@ def api_response(success: bool, data=None, message: str = "", status_code: int =
         content=jsonable_encoder(response_data),
         status_code=status_code,
     )
+    for header_name, header_value in (headers or {}).items():
+        response.headers[header_name] = str(header_value)
     return response
 
 
@@ -2716,6 +2878,7 @@ async def celery_tasks(
 ):
     """Admin-only Celery task list with safe metadata redaction."""
     _ = current_user
+    started_at = time.perf_counter()
     payload = await run_in_threadpool(
         list_celery_tasks,
         {
@@ -2729,7 +2892,24 @@ async def celery_tasks(
         },
         limit,
     )
-    return api_response(True, payload, "Celery tasks fetched successfully")
+    task_count = (
+        len(payload.get("tasks", []))
+        if isinstance(payload, dict) and isinstance(payload.get("tasks"), list)
+        else None
+    )
+    _log_endpoint_timing(
+        "/api/v1/celery/tasks",
+        started_at,
+        payload,
+        payload_items=task_count,
+        extra={"limit": limit},
+    )
+    return api_response(
+        True,
+        payload,
+        "Celery tasks fetched successfully",
+        headers=_endpoint_perf_headers(started_at),
+    )
 
 
 @app.get("/api/v1/celery/tasks/{task_id}")
@@ -2739,10 +2919,22 @@ async def celery_task_detail(
 ):
     """Admin-only Celery task detail including failure traceback when available."""
     _ = current_user
+    started_at = time.perf_counter()
     task = get_celery_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Celery task not found")
-    return api_response(True, {"task": task}, "Celery task fetched successfully")
+    _log_endpoint_timing(
+        "/api/v1/celery/tasks/{task_id}",
+        started_at,
+        {"task": task},
+        payload_items=1,
+    )
+    return api_response(
+        True,
+        {"task": task},
+        "Celery task fetched successfully",
+        headers=_endpoint_perf_headers(started_at),
+    )
 
 
 @app.post("/api/v1/celery/tasks/{task_id}/revoke")
@@ -2779,10 +2971,20 @@ async def celery_task_retry(
 async def celery_workers(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery worker inspection."""
     _ = current_user
+    started_at = time.perf_counter()
+    payload = await run_in_threadpool(list_celery_workers)
+    worker_count = len(payload) if isinstance(payload, dict) else None
+    _log_endpoint_timing(
+        "/api/v1/celery/workers",
+        started_at,
+        payload,
+        payload_items=worker_count,
+    )
     return api_response(
         True,
-        await run_in_threadpool(list_celery_workers),
+        payload,
         "Celery workers fetched successfully",
+        headers=_endpoint_perf_headers(started_at),
     )
 
 
@@ -2790,10 +2992,20 @@ async def celery_workers(current_user: User = Depends(get_admin_user)):
 async def celery_queues(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery queue overview."""
     _ = current_user
+    started_at = time.perf_counter()
+    payload = await run_in_threadpool(list_celery_queues)
+    queue_count = len(payload) if isinstance(payload, dict) else None
+    _log_endpoint_timing(
+        "/api/v1/celery/queues",
+        started_at,
+        payload,
+        payload_items=queue_count,
+    )
     return api_response(
         True,
-        await run_in_threadpool(list_celery_queues),
+        payload,
         "Celery queues fetched successfully",
+        headers=_endpoint_perf_headers(started_at),
     )
 
 
@@ -2801,10 +3013,19 @@ async def celery_queues(current_user: User = Depends(get_admin_user)):
 async def celery_monitor_health(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery broker/backend/worker health."""
     _ = current_user
+    started_at = time.perf_counter()
+    payload = await run_in_threadpool(celery_health)
+    _log_endpoint_timing(
+        "/api/v1/celery/health",
+        started_at,
+        payload,
+        payload_items=1,
+    )
     return api_response(
         True,
-        await run_in_threadpool(celery_health),
+        payload,
         "Celery health fetched successfully",
+        headers=_endpoint_perf_headers(started_at),
     )
 
 
@@ -3954,23 +4175,47 @@ async def get_backtest_trades(
 ):
     """Get trades for specific backtest run"""
     try:
-        trades = await run_in_threadpool(
-            _get_backtest_trades_sync,
-            run_id,
-            limit,
-            offset,
-            winning_only,
+        started_at = time.perf_counter()
+        cache_key = f"backtest:trades:{run_id}:limit={limit}:offset={offset}:winning_only={winning_only}"
+        trades_payload = _cache_get(cache_key)
+        cache_hit = trades_payload is not None
+        if not cache_hit:
+            trades = await run_in_threadpool(
+                _get_backtest_trades_sync,
+                run_id,
+                limit,
+                offset,
+                winning_only,
+            )
+            trades_payload = [trade.model_dump() for trade in trades]
+            _cache_set(cache_key, trades_payload)
+
+        _log_endpoint_timing(
+            "/api/v1/backtests/{run_id}/trades",
+            started_at,
+            trades_payload,
+            cache_hit=cache_hit,
+            payload_items=(
+                len(trades_payload) if isinstance(trades_payload, list) else None
+            ),
+            extra={
+                "run_id": run_id,
+                "limit": limit,
+                "offset": offset,
+                "winning_only": winning_only,
+            },
         )
 
         return api_response(
             success=True,
             data={
                 "run_id": run_id,
-                "trades": [trade.model_dump() for trade in trades],
-                "total": len(trades),
-                "count": len(trades),
+                "trades": trades_payload,
+                "total": len(trades_payload),
+                "count": len(trades_payload),
             },
-            message=f"Retrieved {len(trades)} trades for backtest '{run_id}'",
+            message=f"Retrieved {len(trades_payload)} trades for backtest '{run_id}'",
+            headers=_endpoint_perf_headers(started_at, cache_hit=cache_hit),
         )
 
     except Exception as e:
@@ -4221,22 +4466,107 @@ async def get_backtest_analytics(
 ):
     """Get comprehensive analytics for a backtest run"""
     try:
-        analytics = await run_in_threadpool(_get_backtest_analytics_sync, run_id)
+        started_at = time.perf_counter()
+        cache_key = f"backtest:analytics:full:{run_id}"
+        analytics = _cache_get(cache_key)
+        cache_hit = analytics is not None
+        if not cache_hit:
+            analytics = await run_in_threadpool(_get_backtest_analytics_sync, run_id)
+            if analytics:
+                _cache_set(cache_key, analytics)
         if not analytics:
             return api_response(
                 success=False,
                 message=f"Backtest run '{run_id}' not found",
                 status_code=404,
+                headers=_endpoint_perf_headers(started_at, cache_hit=cache_hit),
             )
+
+        trades = analytics.get("trades") if isinstance(analytics, dict) else None
+        daily_pnl = analytics.get("daily_pnl") if isinstance(analytics, dict) else None
+        snapshots = (
+            analytics.get("position_snapshots") if isinstance(analytics, dict) else None
+        )
+        _log_endpoint_timing(
+            "/api/v1/backtests/{run_id}/analytics",
+            started_at,
+            analytics,
+            cache_hit=cache_hit,
+            payload_items=(len(trades) if isinstance(trades, list) else None),
+            extra={
+                "run_id": run_id,
+                "daily_pnl_points": (
+                    len(daily_pnl) if isinstance(daily_pnl, list) else 0
+                ),
+                "position_snapshots_points": (
+                    len(snapshots) if isinstance(snapshots, list) else 0
+                ),
+            },
+        )
 
         return api_response(
             success=True,
             data=analytics,  # Already a dict
             message=f"Retrieved analytics for backtest '{run_id}'",
+            headers=_endpoint_perf_headers(started_at, cache_hit=cache_hit),
         )
 
     except Exception as e:
         logger.error(f"Error getting backtest analytics: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.get("/api/v1/backtests/{run_id}/analytics/summary")
+async def get_backtest_analytics_summary(
+    run_id: str,
+):
+    """Get compact analytics summary for high-frequency dashboard surfaces."""
+    try:
+        started_at = time.perf_counter()
+        summary_cache_key = f"backtest:analytics:summary:{run_id}"
+        summary = _cache_get(summary_cache_key)
+        cache_hit = summary is not None
+
+        if not cache_hit:
+            full_cache_key = f"backtest:analytics:full:{run_id}"
+            analytics = _cache_get(full_cache_key)
+            if analytics is None:
+                analytics = await run_in_threadpool(
+                    _get_backtest_analytics_sync, run_id
+                )
+                if analytics:
+                    _cache_set(full_cache_key, analytics)
+
+            if not analytics:
+                return api_response(
+                    success=False,
+                    message=f"Backtest run '{run_id}' not found",
+                    status_code=404,
+                    headers=_endpoint_perf_headers(started_at, cache_hit=False),
+                )
+
+            summary = _build_backtest_analytics_summary(run_id, analytics)
+            _cache_set(summary_cache_key, summary)
+
+        _log_endpoint_timing(
+            "/api/v1/backtests/{run_id}/analytics/summary",
+            started_at,
+            summary,
+            cache_hit=cache_hit,
+            payload_items=1,
+            extra={"run_id": run_id},
+        )
+
+        return api_response(
+            success=True,
+            data=summary,
+            message=f"Retrieved analytics summary for backtest '{run_id}'",
+            headers=_endpoint_perf_headers(started_at, cache_hit=cache_hit),
+        )
+    except Exception as e:
+        logger.error(f"Error getting backtest analytics summary: {e}")
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )

@@ -4,10 +4,10 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-	guardBacktestStatusContract,
-	guardListBacktestsContract,
-	guardRunBacktestContract,
-	guardSyncHealthContract,
+    guardBacktestStatusContract,
+    guardListBacktestsContract,
+    guardRunBacktestContract,
+    guardSyncHealthContract,
 } from './api/contractGuards';
 import { getBackendHttpBase, resolveBackendWebSocketUrl } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
@@ -3311,6 +3311,14 @@ class ApiClient {
   async getBacktestAnalytics(runId: string): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse>(`/api/v1/backtests/${runId}/analytics`);
+    return response.data;
+  }
+
+  async getBacktestAnalyticsSummary(runId: string): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse>(
+      `/api/v1/backtests/${runId}/analytics/summary`
+    );
     return response.data;
   }
 

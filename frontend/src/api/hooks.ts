@@ -944,6 +944,9 @@ export function useBacktestAnalysis(runId: string) {
  * Automatically stops polling when backtest is complete
  */
 export function useBacktestProgress(runId: string) {
+  const WEBSOCKET_STATUS_REQUEST_INTERVAL_MS = 10_000;
+  const HTTP_RECOVERY_POLL_INTERVAL_MS = 8_000;
+
   const normalizeStatus = (status: unknown): string =>
     String(status || '')
       .trim()
@@ -1158,25 +1161,32 @@ export function useBacktestProgress(runId: string) {
       },
       [mergeProgressData, parseSocketPayload]
     ),
-    onOpen: useCallback((socket: WebSocket) => {
-      const requestStatus = () => {
-        if (socket.readyState !== WebSocket.OPEN) {
-          return;
-        }
+    onOpen: useCallback(
+      (socket: WebSocket) => {
+        const requestStatus = () => {
+          if (socket.readyState !== WebSocket.OPEN) {
+            return;
+          }
 
-        try {
-          socket.send(JSON.stringify({ type: 'request_status' }));
-        } catch (error) {
-          console.warn('Failed to request backtest status over websocket', error);
-        }
-      };
+          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+            return;
+          }
 
-      requestStatus();
-      const timerId = window.setInterval(requestStatus, 5000);
-      return () => {
-        window.clearInterval(timerId);
-      };
-    }, []),
+          try {
+            socket.send(JSON.stringify({ type: 'request_status' }));
+          } catch (error) {
+            console.warn('Failed to request backtest status over websocket', error);
+          }
+        };
+
+        requestStatus();
+        const timerId = window.setInterval(requestStatus, WEBSOCKET_STATUS_REQUEST_INTERVAL_MS);
+        return () => {
+          window.clearInterval(timerId);
+        };
+      },
+      [WEBSOCKET_STATUS_REQUEST_INTERVAL_MS]
+    ),
     onStale: useCallback(async () => {
       if (!runId) {
         return;
@@ -1208,6 +1218,10 @@ export function useBacktestProgress(runId: string) {
     let cancelled = false;
 
     const pollStatus = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+
       try {
         const result = await apiClient.getBacktestStatus(runId);
         if (cancelled || !result || typeof result !== 'object') {
@@ -1239,12 +1253,19 @@ export function useBacktestProgress(runId: string) {
     };
 
     void pollStatus();
-    const timerId = window.setInterval(pollStatus, 5000);
+    const timerId = window.setInterval(pollStatus, HTTP_RECOVERY_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
     };
-  }, [data?.status, isConnected, isTerminalStatus, mergeProgressData, runId]);
+  }, [
+    HTTP_RECOVERY_POLL_INTERVAL_MS,
+    data?.status,
+    isConnected,
+    isTerminalStatus,
+    mergeProgressData,
+    runId,
+  ]);
 
   const resolvedData = data;
   const combinedError = socketError ?? bootstrapError;

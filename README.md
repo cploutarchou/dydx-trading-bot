@@ -20,7 +20,7 @@ Supporting local infrastructure:
 
 ## Quick Start
 
-### 1. Generate runtime config
+### 1. Prepare runtime config
 
 ```bash
 make config-keygen
@@ -28,7 +28,9 @@ make dev-config
 make dev
 ```
 
-### 2. Start local infrastructure
+### 2. Choose your local workflow
+
+#### Service-first development (recommended for daily work)
 
 ```bash
 make infra-up
@@ -36,20 +38,27 @@ make infra-ps
 make infra-logs
 ```
 
-### 3. Start the service you are working on
+Then start the service you are actively developing:
 
 - frontend: `cd frontend && npm install && npm run dev`
 - backend: `cd backend && make run`
 - bot API: `cd bot && make local-api`
 
-## Full Integration Stack
+When finished:
+
+- stop infra: `make infra-down`
+
+#### Full integration stack (frontend + backend + bot + infra)
 
 ```bash
 make stack-up-dev
 make stack-ps
 make stack-logs
-make stack-down
 ```
+
+When finished:
+
+- stop stack: `make stack-down`
 
 ## Documentation Map
 

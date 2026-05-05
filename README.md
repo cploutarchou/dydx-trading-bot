@@ -31,7 +31,9 @@ make dev
 ### 2. Start local infrastructure
 
 ```bash
-make dev-infra
+make infra-up
+make infra-ps
+make infra-logs
 ```
 
 ### 3. Start the service you are working on
@@ -51,15 +53,15 @@ make stack-down
 
 ## Documentation Map
 
-- [Platform Wiki Home](/home/chris/workspace/dydx-trading-bot/docs/README.md)
-- [Platform Overview](/home/chris/workspace/dydx-trading-bot/docs/PLATFORM.md)
-- [Development Workflow](/home/chris/workspace/dydx-trading-bot/docs/DEVELOPMENT.md)
-- [Operations Guide](/home/chris/workspace/dydx-trading-bot/docs/OPERATIONS.md)
-- [Documentation Governance](/home/chris/workspace/dydx-trading-bot/docs/DOCUMENTATION_GOVERNANCE.md)
-- [Frontend Service Doc](/home/chris/workspace/dydx-trading-bot/frontend/README.md)
-- [Backend Service Doc](/home/chris/workspace/dydx-trading-bot/backend/README.md)
-- [Bot Service Doc](/home/chris/workspace/dydx-trading-bot/bot/README.md)
-- [Shared Config Doc](/home/chris/workspace/dydx-trading-bot/config/README.md)
+- [Platform Wiki Home](docs/README.md)
+- [Platform Overview](docs/PLATFORM.md)
+- [Development Workflow](docs/DEVELOPMENT.md)
+- [Operations Guide](docs/OPERATIONS.md)
+- [Documentation Governance](docs/DOCUMENTATION_GOVERNANCE.md)
+- [Frontend Service Doc](frontend/README.md)
+- [Backend Service Doc](backend/README.md)
+- [Bot Service Doc](bot/README.md)
+- [Shared Config Doc](config/README.md)
 
 ## Core Rules
 

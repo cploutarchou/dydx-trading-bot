@@ -20,7 +20,7 @@ Supporting local infrastructure:
 
 ## Quick Start
 
-### 1. Generate runtime config
+### 1. Prepare runtime config
 
 ```bash
 make config-keygen
@@ -28,38 +28,49 @@ make dev-config
 make dev
 ```
 
-### 2. Start local infrastructure
+### 2. Choose your local workflow
+
+#### Service-first development (recommended for daily work)
 
 ```bash
-make dev-infra
+make infra-up
+make infra-ps
+make infra-logs
 ```
 
-### 3. Start the service you are working on
+Then start the service you are actively developing:
 
 - frontend: `cd frontend && npm install && npm run dev`
 - backend: `cd backend && make run`
 - bot API: `cd bot && make local-api`
 
-## Full Integration Stack
+When finished:
+
+- stop infra: `make infra-down`
+
+#### Full integration stack (frontend + backend + bot + infra)
 
 ```bash
 make stack-up-dev
 make stack-ps
 make stack-logs
-make stack-down
 ```
+
+When finished:
+
+- stop stack: `make stack-down`
 
 ## Documentation Map
 
-- [Platform Wiki Home](/home/chris/workspace/dydx-trading-bot/docs/README.md)
-- [Platform Overview](/home/chris/workspace/dydx-trading-bot/docs/PLATFORM.md)
-- [Development Workflow](/home/chris/workspace/dydx-trading-bot/docs/DEVELOPMENT.md)
-- [Operations Guide](/home/chris/workspace/dydx-trading-bot/docs/OPERATIONS.md)
-- [Documentation Governance](/home/chris/workspace/dydx-trading-bot/docs/DOCUMENTATION_GOVERNANCE.md)
-- [Frontend Service Doc](/home/chris/workspace/dydx-trading-bot/frontend/README.md)
-- [Backend Service Doc](/home/chris/workspace/dydx-trading-bot/backend/README.md)
-- [Bot Service Doc](/home/chris/workspace/dydx-trading-bot/bot/README.md)
-- [Shared Config Doc](/home/chris/workspace/dydx-trading-bot/config/README.md)
+- [Platform Wiki Home](docs/README.md)
+- [Platform Overview](docs/PLATFORM.md)
+- [Development Workflow](docs/DEVELOPMENT.md)
+- [Operations Guide](docs/OPERATIONS.md)
+- [Documentation Governance](docs/DOCUMENTATION_GOVERNANCE.md)
+- [Frontend Service Doc](frontend/README.md)
+- [Backend Service Doc](backend/README.md)
+- [Bot Service Doc](bot/README.md)
+- [Shared Config Doc](config/README.md)
 
 ## Core Rules
 

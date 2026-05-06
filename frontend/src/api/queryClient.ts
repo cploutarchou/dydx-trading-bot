@@ -25,6 +25,7 @@ export const queryKeys = {
   botTrades: (instanceId: string, params?: QueryParams) =>
     ['bots', instanceId, 'trades', params] as const,
   botPositions: (instanceId: string) => ['bots', instanceId, 'positions'] as const,
+  botSummary: (instanceId: string) => ['bots', instanceId, 'summary'] as const,
   botPosition: (instanceId: string, positionId: string) =>
     ['bots', instanceId, 'positions', positionId] as const,
   botAlerts: (instanceId: string, params?: QueryParams) =>
@@ -52,6 +53,12 @@ export const queryKeys = {
   readiness: ['system', 'readiness'] as const,
   botCapabilities: ['system', 'bot-capabilities'] as const,
   runtimeDbConfig: ['system', 'runtime-db-config'] as const,
+
+  // Strategies
+  strategyRuntime: (strategyId: number) => ['strategies', strategyId, 'runtime'] as const,
+  strategyStartReadiness: (strategyId: number, network?: string) =>
+    ['strategies', strategyId, 'start-readiness', network ?? 'testnet'] as const,
+  strategyBacktests: (strategyId: number) => ['strategies', strategyId, 'backtests'] as const,
 } as const;
 
 // Create QueryClient with optimized defaults
@@ -132,6 +139,14 @@ export const cacheUtils = {
       return queryClient.invalidateQueries({ queryKey: ['backtests', runId] });
     }
     return queryClient.invalidateQueries({ queryKey: ['backtests'] });
+  },
+
+  // Invalidate strategy runtime/readiness queries
+  invalidateStrategyQueries: (strategyId?: number) => {
+    if (strategyId !== undefined) {
+      return queryClient.invalidateQueries({ queryKey: ['strategies', strategyId] });
+    }
+    return queryClient.invalidateQueries({ queryKey: ['strategies'] });
   },
 
   // Clear all cache

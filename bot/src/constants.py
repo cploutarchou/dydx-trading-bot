@@ -94,3 +94,23 @@ else:
     LOKI_PASSWORD = ""
     LOKI_TENANT_ID = None
     LOKI_LABELS = {}
+
+# ── Performance tuning ────────────────────────────────────────────────────────
+import os as _os
+
+# Per-call sleep between dYdX API requests (milliseconds → seconds).
+# Set DYDX_API_THROTTLE_MS=0 to disable; default 200 ms.
+DYDX_API_THROTTLE_SECONDS: float = (
+    float(_os.getenv("DYDX_API_THROTTLE_MS", "200")) / 1000.0
+)
+
+# How long to cache the perpetual markets list (seconds). 0 = disabled.
+MARKETS_CACHE_TTL_SECONDS: float = float(_os.getenv("MARKETS_CACHE_TTL_SECONDS", "60"))
+
+# How long to cache recent-candle responses per market (seconds). 0 = disabled.
+CANDLES_RECENT_CACHE_TTL_SECONDS: float = float(
+    _os.getenv("CANDLES_RECENT_CACHE_TTL_SECONDS", "30")
+)
+
+# Max concurrent dYdX candle fetches when building the price matrix.
+CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

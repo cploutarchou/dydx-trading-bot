@@ -930,12 +930,18 @@ func isUpstreamNotFound(err error) bool {
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
-	RegisterBotAPIDelegateRoutesWithSync(router, apiClient, nil)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, nil, nil)
 }
 
 // RegisterBotAPIDelegateRoutesWithSync registers delegated bot API endpoints and
 // optionally persists backtest run status snapshots into local DB tables.
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, nil)
+}
+
+// RegisterBotAPIDelegateRoutesWithSyncAndCache registers delegated bot API endpoints with
+// optional backtest sync and optional Redis-backed response cache for hot polling paths.
+func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService, cache *services.CacheService) {
 	backtestRepo := (*repository.BacktestRepository)(nil)
 	userRepo := (*repository.UserRepository)(nil)
 	strategyRepo := (*repository.StrategyRepository)(nil)
@@ -945,6 +951,12 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		strategyRepo = repository.NewStrategyRepository(backtestSync.DB())
 	}
 	backtestDelegation := NewBacktestDelegationService(backtestSync)
+
+	// CandleCacheService for post-completion prefetch (nil-safe if Redis is off)
+	var candleCache *services.CandleCacheService
+	if cache != nil && backtestRepo != nil {
+		candleCache = services.NewCandleCacheServiceWithRepo(cache, backtestRepo)
+	}
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
 		if backtestSync == nil {
@@ -975,6 +987,18 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		}
 		if err := backtestSync.SyncBacktestCandles(runID, payload); err != nil {
 			log.Printf("Backtest sync warning: failed syncing candles for run %s: %v", runID, err)
+		}
+		// After candles are synced, prefetch into Redis in the background so the
+		// first chart render is served from cache rather than the DB.
+		if candleCache != nil {
+			run, err := backtestRepo.GetRunByID(runID)
+			if err == nil && run != nil && strings.EqualFold(run.Status, "completed") {
+				go func(runPK int) {
+					if prefetchErr := candleCache.PrefetchCandlesForRun(runPK, 0); prefetchErr != nil {
+						log.Printf("CandleCache: prefetch error for run %s (pk=%d): %v", runID, runPK, prefetchErr)
+					}
+				}(run.ID)
+			}
 		}
 	}
 
@@ -2455,16 +2479,41 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			})
 		})
 
-		// Get realtime stats
+		// Get realtime stats (cached with 30-second TTL when Redis is available)
 		botGroup.GET("/:instance_id/realtime-stats", func(c *gin.Context) {
 			botID, err := normalizeRealtimeBotInstanceID(c.Param("instance_id"))
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
-			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
-				return requestClient.GetRealtimeStats(botID)
-			})
+
+			cacheKey := fmt.Sprintf("bot:realtime-stats:%s", botID)
+			statsTTL := readPositiveIntEnv(30, "BOT_STATS_CACHE_TTL_SECONDS")
+
+			// Try Redis cache first
+			if cache != nil && statsTTL > 0 {
+				if cached, cacheErr := cache.GetCache(cacheKey); cacheErr == nil && cached != nil {
+					if mapped, ok := cached.(map[string]interface{}); ok {
+						c.JSON(http.StatusOK, mapped)
+						return
+					}
+				}
+			}
+
+			// Cache miss — delegate to Python bot API
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			result, delegateErr := requestClient.GetRealtimeStats(botID)
+			if delegateErr != nil {
+				respondBotAPIError(c, delegateErr)
+				return
+			}
+
+			// Store in cache (best-effort; don't fail if Redis is down)
+			if cache != nil && statsTTL > 0 {
+				_ = cache.SetCache(cacheKey, result, statsTTL)
+			}
+
+			c.JSON(http.StatusOK, result)
 		})
 
 		// Get alerts

@@ -256,6 +256,32 @@ class EnhancedAPIClient {
     }
   }
 
+  async getBotSummary(
+    instanceId: string,
+    params: { include?: string; limit?: number } = {}
+  ): Promise<Entity> {
+    try {
+      const queryString = new URLSearchParams();
+      if (params.include) queryString.append('include', params.include);
+      if (params.limit !== undefined) queryString.append('limit', String(params.limit));
+
+      const url = `/api/v1/bots/${instanceId}/summary${queryString.toString() ? `?${queryString}` : ''}`;
+      const response = await this.fetchWithAuth(url, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      return withDataFallback<Entity>(result, {});
+    } catch (error) {
+      console.error('getBotSummary error:', error);
+      throw error;
+    }
+  }
+
   async getBotTrades(instanceId: string, params: QueryParams = {}): Promise<ListResponse> {
     try {
       const queryString = new URLSearchParams();
@@ -577,9 +603,7 @@ class EnhancedAPIClient {
       .listBacktests(0, 50)
       .then((listResult) => {
         const listData = (listResult.data ?? {}) as { backtests?: unknown[] };
-        const runs = Array.isArray(listData.backtests)
-          ? listData.backtests.filter(isRecord)
-          : [];
+        const runs = Array.isArray(listData.backtests) ? listData.backtests.filter(isRecord) : [];
         return runs;
       })
       .finally(() => {
@@ -678,7 +702,10 @@ class EnhancedAPIClient {
         updatedAt = fallbackStatusProgress.updatedAt ?? updatedAt;
       }
     } catch (error) {
-      console.warn('📊 enhancedClient.ts: failed to fetch list fallback for backtest status', error);
+      console.warn(
+        '📊 enhancedClient.ts: failed to fetch list fallback for backtest status',
+        error
+      );
     }
 
     const computedProgress = progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;

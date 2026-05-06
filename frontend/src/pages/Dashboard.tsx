@@ -20,7 +20,7 @@ import {
     TrendingDown,
     TrendingUp,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
 import { useBotInstances } from '../api/hooks';
@@ -62,8 +62,6 @@ interface RuntimeBotSummary {
   error_message?: string;
   started_at?: string;
 }
-
-const DASHBOARD_STATS_TIMEOUT_MS = 30000;
 
 // ── useCountUp ────────────────────────────────────────────────────────────────
 
@@ -330,56 +328,15 @@ const buildDashboardStats = (runs: BacktestRunSummary[]): DashboardStats => {
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
-  const [runs, setRuns] = useState<BacktestRunSummary[]>([]);
-  const [stats, setStats] = useState<DashboardStats>({
-    total: 0,
-    completed: 0,
-    running: 0,
-    failed: 0,
-    totalPnl: 0,
-    bestWinRate: 0,
-    bestSharpe: 0,
-    totalTrades: 0,
-    avgPnlPerRun: 0,
-    activeRuns: [],
-    pnlTimeSeries: [],
-  });
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [statsError, setStatsError] = useState<string | null>(null);
-  const [statsWarning, setStatsWarning] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isComputingRef = useRef(false);
-  const activeComputeIdRef = useRef(0);
 
-  const computeStats = useCallback(async () => {
-    if (isComputingRef.current) {
-      return;
-    }
-
-    isComputingRef.current = true;
-    const computeId = activeComputeIdRef.current + 1;
-    activeComputeIdRef.current = computeId;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    try {
-      const statsPromise = api.listBacktests(0, 25);
-      const timeoutPromise = new Promise<Awaited<ReturnType<typeof api.listBacktests>>>(
-        (_, reject) => {
-          timeoutId = setTimeout(
-            () => reject(new Error('Timed out while loading dashboard stats')),
-            DASHBOARD_STATS_TIMEOUT_MS
-          );
-        }
-      );
-
-      const response = await Promise.race([statsPromise, timeoutPromise]);
-      if (activeComputeIdRef.current !== computeId) {
-        return;
-      }
+  // ── Backtest runs via React Query (replaces manual setInterval polling) ──────
+  const backtestRunsQuery = useQuery({
+    queryKey: ['dashboard', 'backtest-runs'],
+    queryFn: async (): Promise<BacktestRunSummary[]> => {
+      const response = await api.listBacktests(0, 25);
       const raw = toRecord(response);
       const rawData = toRecord(raw.data);
-
-      const rawRuns: BacktestRunSummary[] = Array.isArray(rawData.backtests)
+      return Array.isArray(rawData.backtests)
         ? (rawData.backtests as BacktestRunSummary[])
         : Array.isArray(raw.backtests)
           ? (raw.backtests as BacktestRunSummary[])
@@ -388,58 +345,48 @@ export const DashboardPage: React.FC = () => {
             : Array.isArray(raw.runs)
               ? (raw.runs as BacktestRunSummary[])
               : [];
-
-      setRuns(rawRuns);
-      setStats(buildDashboardStats(rawRuns));
-      setStatsError(null);
-      setStatsWarning(null);
-    } catch (error) {
-      if (activeComputeIdRef.current !== computeId) {
-        return;
-      }
-      console.error('❌ Dashboard: failed to load stats', error);
+    },
+    staleTime: 10_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 10_000;
+      const hasActive = data.some((r) =>
+        ['RUNNING', 'PENDING'].includes(String(r.status ?? '').toUpperCase())
+      );
+      return hasActive ? 10_000 : 60_000;
+    },
+    refetchIntervalInBackground: false,
+    retry: (failureCount, error) => {
       const classification = classifyApiError(error);
-      if (classification.kind === 'transport') {
-        setStatsError(
-          'Backend service is unreachable from the browser. Verify API connectivity or Vite proxy setup.'
-        );
-      } else if (classification.statusCode === 401) {
-        setStatsError('Your session appears to be unauthorized. Please sign in again.');
-      } else if (error instanceof Error && error.message.toLowerCase().includes('timed out')) {
-        // Non-fatal: backend is slow — keep last-good data visible, show warning badge only
-        setStatsWarning('Backend is responding slowly — showing last available data.');
-      } else {
-        setStatsError(error instanceof Error ? error.message : 'Failed to load dashboard stats.');
-      }
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (activeComputeIdRef.current === computeId) {
-        isComputingRef.current = false;
-      }
-      setStatsLoading(false);
-    }
-  }, []);
+      if (classification.kind === 'transport') return false;
+      if (classification.statusCode === 401) return false;
+      return failureCount < 2;
+    },
+  });
 
-  useEffect(() => {
-    void computeStats();
-  }, [computeStats]);
-
-  useEffect(() => {
-    if (stats.running > 0 && !pollRef.current) {
-      pollRef.current = setInterval(() => void computeStats(), 10000);
-    } else if (stats.running === 0 && pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
+  const runs = backtestRunsQuery.data ?? [];
+  const stats = useMemo(() => buildDashboardStats(runs), [runs]);
+  const statsLoading = backtestRunsQuery.isLoading;
+  const statsError = useMemo(() => {
+    if (!backtestRunsQuery.error) return null;
+    const error = backtestRunsQuery.error;
+    const classification = classifyApiError(error);
+    if (classification.kind === 'transport') {
+      return 'Backend service is unreachable from the browser. Verify API connectivity or Vite proxy setup.';
     }
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [stats.running, computeStats]);
+    if (classification.statusCode === 401) {
+      return 'Your session appears to be unauthorized. Please sign in again.';
+    }
+    return error instanceof Error ? error.message : 'Failed to load dashboard stats.';
+  }, [backtestRunsQuery.error]);
+  const statsWarning = useMemo(() => {
+    if (!backtestRunsQuery.error) return null;
+    const error = backtestRunsQuery.error;
+    if (error instanceof Error && error.message.toLowerCase().includes('timed out')) {
+      return 'Backend is responding slowly — showing last available data.';
+    }
+    return null;
+  }, [backtestRunsQuery.error]);
 
   // Animated counters
   const countTotal = useCountUp(stats.total);
@@ -738,7 +685,9 @@ export const DashboardPage: React.FC = () => {
                 className="operator-status-pill"
                 data-tone={runningRuntimeBots.length > 0 ? 'positive' : 'warning'}
               >
-                {runningRuntimeBots.length > 0 ? `${runningRuntimeBots.length} running` : 'No bots live'}
+                {runningRuntimeBots.length > 0
+                  ? `${runningRuntimeBots.length} running`
+                  : 'No bots live'}
               </span>
             </div>
 
@@ -785,7 +734,10 @@ export const DashboardPage: React.FC = () => {
                   title="No live bots are running"
                   description="Deploy from a validated strategy/backtest or start an existing runtime from the Bots desk."
                   action={
-                    <Link to="/bots" className="premium-button premium-button-primary px-4 py-2 text-sm">
+                    <Link
+                      to="/bots"
+                      className="premium-button premium-button-primary px-4 py-2 text-sm"
+                    >
                       Open Bots
                       <ArrowRight className="h-4 w-4" />
                     </Link>
@@ -806,7 +758,10 @@ export const DashboardPage: React.FC = () => {
                           {bot.instance_name || bot.instance_id}
                         </p>
                         <p className="mt-1 truncate text-xs text-slate-500">
-                          {bot.strategy || 'runtime'} · {bot.started_at ? `started ${new Date(bot.started_at).toLocaleTimeString()}` : 'start time unavailable'}
+                          {bot.strategy || 'runtime'} ·{' '}
+                          {bot.started_at
+                            ? `started ${new Date(bot.started_at).toLocaleTimeString()}`
+                            : 'start time unavailable'}
                         </p>
                       </div>
                       <span className="operator-status-pill" data-tone="positive">
@@ -898,7 +853,10 @@ export const DashboardPage: React.FC = () => {
               Latest validation and runtime signals, with deep reports kept under Backtests.
             </p>
           </div>
-          <Link to="/backtests/runs" className="premium-button premium-button-secondary px-4 py-2 text-sm">
+          <Link
+            to="/backtests/runs"
+            className="premium-button premium-button-secondary px-4 py-2 text-sm"
+          >
             Open runs
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -913,7 +871,10 @@ export const DashboardPage: React.FC = () => {
             title="No activity yet"
             description="Validated backtests, running jobs, and bot events will appear here once the desk has data."
             action={
-              <Link to="/backtests/new" className="premium-button premium-button-primary px-4 py-2 text-sm">
+              <Link
+                to="/backtests/new"
+                className="premium-button premium-button-primary px-4 py-2 text-sm"
+              >
                 Run first backtest
                 <ArrowRight className="h-4 w-4" />
               </Link>

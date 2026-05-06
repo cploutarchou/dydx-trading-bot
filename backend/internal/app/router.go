@@ -15,12 +15,14 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
+	gzip "github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
 type Dependencies struct {
 	Database     *db.Database
 	BotAPIClient *services.BotAPIClient
+	CacheService *services.CacheService
 	BotAPIURL    string
 	StartTime    time.Time
 }
@@ -61,15 +63,26 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 	router.Use(middleware.RateLimitMiddleware(100, 200))
+	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/health", "/ready", "/api/v1/health", "/api/v1/ready"})))
+
+	// Build CacheService if Redis is enabled and not explicitly provided
+	if deps.CacheService == nil && cfg.Redis.Enabled {
+		deps.CacheService = services.NewCacheService(
+			cfg.Redis.Host,
+			cfg.Redis.Port,
+			cfg.Redis.Password,
+			cfg.Redis.Db,
+		)
+	}
 
 	registerHealthRoutes(router, cfg, deps.Database, deps.BotAPIURL, deps.StartTime)
-	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient)
+	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService)
 	registerDebugRoutes(router, deps.Database)
 
 	return router, nil
 }
 
-func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient) {
+func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService) {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterBackofficeRoutes(router, database.DB)
@@ -81,8 +94,8 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	backtestSyncRepo := repository.NewBacktestSyncRepository(database.DB)
 	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
 
-	routes.RegisterBotInstanceRoutes(router, database)
-	routes.RegisterBotAPIDelegateRoutesWithSync(router, apiClient, backtestSyncService)
+	routes.RegisterBotInstanceRoutes(router, database, cacheService)
+	routes.RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSyncService, cacheService)
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)

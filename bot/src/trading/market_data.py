@@ -1,14 +1,27 @@
 """Market data retrieval and price construction for dYdX."""
 
 import asyncio
+import time
 
 import pandas as pd
 from loguru import logger
-from src.constants import RESOLUTION
+from src.constants import (
+    CANDLE_FETCH_CONCURRENCY,
+    CANDLES_RECENT_CACHE_TTL_SECONDS,
+    DYDX_API_THROTTLE_SECONDS,
+    MARKETS_CACHE_TTL_SECONDS,
+    RESOLUTION,
+)
 from src.shared.utils import get_ISO_times
 
 # Get relevant time periods for ISO from and to
 ISO_TIMES = get_ISO_times()
+
+# ── Module-level caches ───────────────────────────────────────────────────────
+
+_markets_cache: dict = {"data": None, "expires": 0.0}
+# key: (market, resolution) → {"data": pd.Series, "expires": float}
+_candles_recent_cache: dict = {}
 
 
 def normalize_resolution(resolution):
@@ -60,16 +73,23 @@ DYDX_RESOLUTION = normalize_resolution(RESOLUTION)
 
 
 async def get_candles_recent(client, market, resolution=None):
-    """Get recent candles for a market."""
-    # Define output
-    close_prices = []
-
+    """Get recent candles for a market, with a 30-second in-process cache."""
     effective_resolution = (
         normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
     )
 
-    # Protect API
-    await asyncio.sleep(0.2)
+    cache_key = (market, effective_resolution)
+    now = time.monotonic()
+
+    # Return cached data if still fresh
+    if CANDLES_RECENT_CACHE_TTL_SECONDS > 0:
+        cached = _candles_recent_cache.get(cache_key)
+        if cached is not None and now < cached["expires"]:
+            return cached["data"]
+
+    # Protect API rate limits
+    if DYDX_API_THROTTLE_SECONDS > 0:
+        await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
     # Get Prices from DYDX V4
     response = await asyncio.wait_for(
@@ -79,16 +99,26 @@ async def get_candles_recent(client, market, resolution=None):
         timeout=15.0,
     )
 
-    # Candles
-    candles = response
-
-    # Structure data
-    for candle in candles["candles"]:
+    close_prices = []
+    for candle in response["candles"]:
         close_prices.append(candle["close"])
-
-    # Construct and return close price series
     close_prices.reverse()
-    return pd.Series(close_prices, dtype=float)
+    result = pd.Series(close_prices, dtype=float)
+
+    # Store in cache, bounding size to 200 entries
+    if CANDLES_RECENT_CACHE_TTL_SECONDS > 0:
+        _candles_recent_cache[cache_key] = {
+            "data": result,
+            "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
+        }
+        if len(_candles_recent_cache) > 200:
+            oldest = min(
+                _candles_recent_cache.keys(),
+                key=lambda k: _candles_recent_cache[k]["expires"],
+            )
+            _candles_recent_cache.pop(oldest, None)
+
+    return result
 
 
 async def get_candles_historical(client, market, resolution=None):
@@ -111,7 +141,8 @@ async def get_candles_historical(client, market, resolution=None):
         to_iso = tf_obj["to_iso"]
 
         # Protect rate limits
-        await asyncio.sleep(0.2)
+        if DYDX_API_THROTTLE_SECONDS > 0:
+            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
         response = await asyncio.wait_for(
             client.indexer.markets.get_perpetual_market_candles(
@@ -138,16 +169,31 @@ async def get_candles_historical(client, market, resolution=None):
 
 
 async def get_markets(client):
-    """Get list of all perpetual markets."""
-    return await asyncio.wait_for(
+    """Get list of all perpetual markets, with a 60-second in-process cache."""
+    global _markets_cache
+    now = time.monotonic()
+    if (
+        MARKETS_CACHE_TTL_SECONDS > 0
+        and _markets_cache["data"] is not None
+        and now < _markets_cache["expires"]
+    ):
+        return _markets_cache["data"]
+
+    result = await asyncio.wait_for(
         client.indexer.markets.get_perpetual_markets(),
         timeout=15.0,
     )
+    if MARKETS_CACHE_TTL_SECONDS > 0:
+        _markets_cache = {"data": result, "expires": now + MARKETS_CACHE_TTL_SECONDS}
+    return result
 
 
 async def construct_market_prices(client, selected_markets=None, resolution=None):
     """
     Construct a DataFrame of market prices for all tradeable markets.
+
+    Candle fetches run concurrently (bounded by CANDLE_FETCH_CONCURRENCY) so
+    50-market runs finish in ~10 s instead of 30+ s of sequential sleep.
 
     Args:
         client: dYdX client
@@ -157,10 +203,6 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
     Returns:
         DataFrame with datetime index and market prices as columns
     """
-    # Ensure only Testnet Assets are used
-
-    # Declare variables
-    tradeable_markets = []
     markets = await get_markets(client)
     selected = {
         str(market).strip()
@@ -169,6 +211,7 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
     }
 
     # Find tradeable pairs
+    tradeable_markets = []
     for market in markets["markets"].keys():
         market_info = markets["markets"][market]
         if selected and market not in selected:
@@ -181,39 +224,54 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
             "Selected market universe must include at least two active dYdX perpetual markets"
         )
 
-    # Set initial DataFrame
-    close_prices = await get_candles_historical(
-        client, tradeable_markets[0], resolution=resolution
-    )
-    df = pd.DataFrame(close_prices)
-    df.set_index("datetime", inplace=True)
+    # Parallel fetch with bounded concurrency
+    sem = asyncio.Semaphore(CANDLE_FETCH_CONCURRENCY)
 
-    # Append other prices to DataFrame
-    # You can limit the amount to loop though here to save time in development
-    for i, market in enumerate(tradeable_markets[0:]):
-        logger.info(
-            "Extracting prices for {} of {} tokens: {}",
-            i + 1,
-            len(tradeable_markets),
-            market,
-        )
-        close_prices_add = await get_candles_historical(
-            client, market, resolution=resolution
-        )
-        df_add = pd.DataFrame(close_prices_add)
+    async def fetch_one(market):
+        async with sem:
+            logger.info(
+                "Fetching candles for {} (concurrency cap={})",
+                market,
+                CANDLE_FETCH_CONCURRENCY,
+            )
+            return market, await get_candles_historical(
+                client, market, resolution=resolution
+            )
+
+    results = await asyncio.gather(
+        *[fetch_one(m) for m in tradeable_markets], return_exceptions=True
+    )
+
+    # Build DataFrame from gathered results
+    df: pd.DataFrame | None = None
+    for i, item in enumerate(results):
+        if isinstance(item, Exception):
+            logger.warning(
+                "Skipping market {} – candle fetch failed: {}",
+                tradeable_markets[i],
+                item,
+            )
+            continue
+        market, close_prices = item
+        if not close_prices:
+            continue
+        df_add = pd.DataFrame(close_prices)
         try:
             df_add.set_index("datetime", inplace=True)
-            df = pd.merge(df, df_add, how="outer", on="datetime")
+            if df is None:
+                df = df_add
+            else:
+                df = pd.merge(df, df_add, how="outer", on="datetime")
         except Exception as e:
-            logger.exception("Failed to add market {} to price matrix! {}", market, e)
+            logger.exception("Failed to add market {} to price matrix: {}", market, e)
 
-        del df_add
+    if df is None:
+        df = pd.DataFrame()
 
-    # Check any columns with NaNs
+    # Drop columns with NaNs
     nans = df.columns[df.isna().any()].tolist()
-    if len(nans) > 0:
+    if nans:
         logger.warning("Dropping columns with NaNs: {}", nans)
         df.drop(columns=nans, inplace=True)
 
-    # Return result
     return df

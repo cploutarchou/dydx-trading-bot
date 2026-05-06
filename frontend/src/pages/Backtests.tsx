@@ -429,34 +429,20 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         };
       },
       staleTime: 6_000,
-      refetchInterval: 7_000,
-      refetchIntervalInBackground: false,
-      retry: 1,
-      enabled: Boolean(run.run_id),
-    })),
-  });
-  const activeRunSummaryQueries = useQueries({
-    queries: activeRunsQuickAccess.map((run) => ({
-      queryKey: ['backtests', 'analytics-summary', run.run_id, 'quick-access'],
-      queryFn: async () => {
-        const response = await api.getBacktestAnalyticsSummary(run.run_id);
-        const payload = response as unknown as Record<string, unknown>;
-        const totalPnlCandidate = getEnvelopeField(payload, 'total_pnl_usd');
-        const totalTradesCandidate = getEnvelopeField(payload, 'total_trades');
-        const winRateCandidate = getEnvelopeField(payload, 'win_rate');
-        return {
-          totalPnlUsd: safeNumber(totalPnlCandidate, Number.NaN),
-          totalTrades: safeNumber(totalTradesCandidate, Number.NaN),
-          winRate: safeNumber(winRateCandidate, Number.NaN),
-        };
+      // Stop polling per-run status once the main list shows it as completed/failed
+      refetchInterval: (query: { state: { data?: { status?: string } } }) => {
+        const statusFromQuery = query.state.data?.status?.toUpperCase();
+        if (statusFromQuery && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(statusFromQuery)) {
+          return false;
+        }
+        return 7_000;
       },
-      staleTime: 12_000,
-      refetchInterval: 12_000,
       refetchIntervalInBackground: false,
       retry: 1,
       enabled: Boolean(run.run_id),
     })),
   });
+  // activeRunSummaryQueries removed — PnL/trades/winRate are sourced from backtestsQuery list data
   const activeRunLiveById = useMemo(() => {
     const lookup = new Map<
       string,
@@ -470,41 +456,37 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         winRate?: number;
       }
     >();
+    // Build a quick lookup from the main list for list-level fields
+    const runListById = new Map<string, BacktestRun>(
+      (backtestsQuery.data ?? []).map((r) => [r.run_id, r])
+    );
 
     activeRunsQuickAccess.forEach((run, index) => {
       const query = activeRunLiveStatusQueries[index];
-      const summaryQuery = activeRunSummaryQueries[index];
+      const listRun = runListById.get(run.run_id);
       const progressValue = query?.data?.progressPct;
       const normalizedProgress =
         typeof progressValue === 'number' && Number.isFinite(progressValue)
           ? Math.max(0, Math.min(100, progressValue))
           : undefined;
 
+      const listPnl = safeNumber(listRun?.total_pnl, Number.NaN);
+      const listTrades = safeNumber(listRun?.total_trades, Number.NaN);
+      const listWinRate = safeNumber(listRun?.win_rate, Number.NaN);
+
       lookup.set(run.run_id, {
         status: query?.data?.status,
         progressPct: normalizedProgress,
         updatedAtMs: query?.data?.updatedAtMs,
         isFetching: Boolean(query?.isFetching),
-        totalPnlUsd:
-          typeof summaryQuery?.data?.totalPnlUsd === 'number' &&
-          Number.isFinite(summaryQuery.data.totalPnlUsd)
-            ? summaryQuery.data.totalPnlUsd
-            : undefined,
-        totalTrades:
-          typeof summaryQuery?.data?.totalTrades === 'number' &&
-          Number.isFinite(summaryQuery.data.totalTrades)
-            ? summaryQuery.data.totalTrades
-            : undefined,
-        winRate:
-          typeof summaryQuery?.data?.winRate === 'number' &&
-          Number.isFinite(summaryQuery.data.winRate)
-            ? summaryQuery.data.winRate
-            : undefined,
+        totalPnlUsd: Number.isFinite(listPnl) ? listPnl : undefined,
+        totalTrades: Number.isFinite(listTrades) ? listTrades : undefined,
+        winRate: Number.isFinite(listWinRate) ? listWinRate : undefined,
       });
     });
 
     return lookup;
-  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, activeRunSummaryQueries]);
+  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, backtestsQuery.data]);
   const capacityPanelRef = useRef<HTMLDivElement>(null);
   const scrollToCapacityPanel = () =>
     capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });

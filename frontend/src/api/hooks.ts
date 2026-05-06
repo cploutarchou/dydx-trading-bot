@@ -1,7 +1,13 @@
 // Custom React Query Hooks for API Endpoints
 // Provides optimized data fetching with loading states, error handling, and caching
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+    useInfiniteQuery,
+    useMutation,
+    useQueries,
+    useQuery,
+    useQueryClient,
+} from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
@@ -255,7 +261,8 @@ export function useTelegramStatus(scope: TelegramSettingsScope = 'user') {
           : await api.getTelegramUserStatus();
       return response.data;
     },
-    staleTime: 30_000,
+    // Telegram config changes only when the user explicitly saves — use static TTL
+    ...queryConfigs.static,
   });
 }
 
@@ -392,6 +399,24 @@ export function useBotStats(instanceId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.botStats(instanceId),
     queryFn: () => apiClient.getBotStats(instanceId),
+    ...queryConfigs.trading,
+    enabled: enabled && !!instanceId,
+  });
+}
+
+/**
+ * Aggregate bot summary: stats + positions + recent trades in one request.
+ * Uses the GET /api/v1/bots/:instance_id/summary endpoint.
+ * Pass `include` to fetch only a subset (e.g. "stats,positions").
+ */
+export function useBotSummary(
+  instanceId: string,
+  params: { include?: string; limit?: number } = {},
+  enabled: boolean = true
+) {
+  return useQuery({
+    queryKey: queryKeys.botSummary(instanceId),
+    queryFn: () => apiClient.getBotSummary(instanceId, params),
     ...queryConfigs.trading,
     enabled: enabled && !!instanceId,
   });
@@ -1128,15 +1153,16 @@ export function useBacktestProgress(runId: string) {
           setBootstrapError(
             error instanceof Error ? error : new Error('Failed to fetch backtest progress')
           );
-          setData((current) =>
-            current ??
-            ({
-              run_id: runId,
-              status: 'PENDING',
-              progress_percent: 0,
-              progress_source: 'default',
-              checked_at: new Date().toISOString(),
-            } satisfies Record<string, unknown>)
+          setData(
+            (current) =>
+              current ??
+              ({
+                run_id: runId,
+                status: 'PENDING',
+                progress_percent: 0,
+                progress_source: 'default',
+                checked_at: new Date().toISOString(),
+              } satisfies Record<string, unknown>)
           );
         }
       } finally {
@@ -1218,7 +1244,8 @@ export function useBacktestProgress(runId: string) {
         }
       } catch (error) {
         httpFailureCountRef.current += 1;
-        nextHttpAttemptAtRef.current = Date.now() + Math.min(60000, 8000 * httpFailureCountRef.current);
+        nextHttpAttemptAtRef.current =
+          Date.now() + Math.min(60000, 8000 * httpFailureCountRef.current);
         setBootstrapError(
           error instanceof Error ? error : new Error('Failed to refresh backtest progress')
         );
@@ -1358,4 +1385,119 @@ export function useOptimisticBotUpdate(instanceId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.bot(instanceId) });
     },
   };
+}
+
+// ==================== Strategy Hooks ====================
+
+/**
+ * Fetch runtime status for a single strategy.
+ * Polls every 15 seconds while the strategy is running.
+ */
+export function useStrategyRuntime(strategyId: number, enabled: boolean = true) {
+  return useQuery({
+    queryKey: queryKeys.strategyRuntime(strategyId),
+    queryFn: () => api.getStrategyRuntime(strategyId),
+    ...queryConfigs.trading,
+    refetchInterval: (query) => {
+      const status = (
+        query.state.data?.data as { status?: string } | undefined
+      )?.status?.toLowerCase();
+      if (status === 'running' || status === 'starting' || status === 'stopping') {
+        return 15_000;
+      }
+      return 30_000;
+    },
+    refetchIntervalInBackground: false,
+    enabled: enabled && strategyId > 0,
+  });
+}
+
+/**
+ * Fetch runtime statuses for multiple strategies in parallel.
+ * Used by StrategyManager to replace the manual Promise.allSettled useEffect.
+ */
+export function useStrategyRuntimes(strategyIds: number[]) {
+  return useQueries({
+    queries: strategyIds.map((id) => ({
+      queryKey: queryKeys.strategyRuntime(id),
+      queryFn: () => api.getStrategyRuntime(id),
+      staleTime: queryConfigs.trading.staleTime,
+      gcTime: queryConfigs.trading.gcTime,
+      refetchInterval: 15_000,
+      refetchIntervalInBackground: false,
+      retry: 1,
+      enabled: id > 0,
+    })),
+  });
+}
+
+/**
+ * Fetch start-readiness check for a strategy.
+ * Only runs when the start dialog is open (controlled by `enabled`).
+ * 30-second staleTime — readiness data does not change second-to-second.
+ */
+export function useStrategyStartReadiness(
+  strategyId: number | null,
+  network: 'testnet' | 'mainnet',
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: queryKeys.strategyStartReadiness(strategyId ?? 0, network),
+    queryFn: () => api.getStrategyStartReadiness(strategyId!, network),
+    staleTime: 30_000,
+    gcTime: 2 * 60 * 1000,
+    enabled: enabled && strategyId !== null && strategyId > 0,
+    retry: 1,
+  });
+}
+
+/**
+ * Start a strategy runtime. Invalidates strategy runtime queries on success.
+ */
+export function useStartStrategyRuntime(strategyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      network,
+      forceRecreate = false,
+    }: {
+      network: 'testnet' | 'mainnet';
+      forceRecreate?: boolean;
+    }) => api.startStrategyRuntime(strategyId, network, forceRecreate),
+    onSuccess: () => {
+      void cacheUtils.invalidateStrategyQueries(strategyId);
+      // Also invalidate start-readiness so the next open shows fresh data
+      void queryClient.invalidateQueries({
+        queryKey: ['strategies', strategyId, 'start-readiness'],
+      });
+    },
+  });
+}
+
+/**
+ * Stop a strategy runtime. Invalidates strategy runtime queries on success.
+ */
+export function useStopStrategyRuntime(strategyId: number) {
+  return useMutation({
+    mutationFn: () => api.stopStrategyRuntime(strategyId),
+    onSuccess: () => {
+      void cacheUtils.invalidateStrategyQueries(strategyId);
+    },
+  });
+}
+
+/**
+ * Fetch recent completed backtests for a strategy (lazy — enabled only when needed).
+ */
+export function useStrategyBacktests(
+  strategyId: number,
+  limit: number = 5,
+  enabled: boolean = false
+) {
+  return useQuery({
+    queryKey: queryKeys.strategyBacktests(strategyId),
+    queryFn: () => api.listBacktestsByStrategy(strategyId, limit),
+    ...queryConfigs.historical,
+    enabled: enabled && strategyId > 0,
+  });
 }

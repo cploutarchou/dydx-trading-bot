@@ -944,6 +944,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		userRepo = repository.NewUserRepository(backtestSync.DB())
 		strategyRepo = repository.NewStrategyRepository(backtestSync.DB())
 	}
+	backtestDelegation := NewBacktestDelegationService(backtestSync)
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
 		if backtestSync == nil {
@@ -978,65 +979,7 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	}
 
 	resyncBacktestRun := func(c *gin.Context, requestClient *services.BotAPIClient, runID string) (gin.H, error) {
-		result := gin.H{
-			"run_synced":       false,
-			"trades_synced":    false,
-			"positions_synced": false,
-			"candles_synced":   false,
-			"run_id":           runID,
-			"status":           "unknown",
-			"progress_percent": 0.0,
-			"progress_pct":     0.0,
-			"progress":         0.0,
-			"current_task":     nil,
-			"current_pair":     nil,
-			"sync_state":       "partial",
-		}
-
-		details, err := requestClient.GetBacktestDetails(runID)
-		if err != nil {
-			return result, err
-		}
-		details = normalizeBacktestDetailsPayload(details)
-		state := normalizeBacktestStatusFields(unwrapEnvelopePayload(details))
-		if v, ok := state["run_id"]; ok && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
-			result["run_id"] = v
-		}
-		if v, ok := state["status"]; ok {
-			result["status"] = v
-		}
-		for _, key := range []string{"progress_percent", "progress_pct", "progress", "current_task", "current_pair"} {
-			if v, ok := state[key]; ok {
-				result[key] = v
-			}
-		}
-		syncRun(c, details)
-		syncChildren(c, runID, details)
-		result["run_synced"] = true
-
-		tradesPayload, err := requestClient.GetBacktestTradesWithFilters(runID, 500, 0, false)
-		if err == nil {
-			syncChildren(c, runID, tradesPayload)
-			result["trades_synced"] = true
-		}
-
-		positionsPayload, err := requestClient.GetPositionSnapshots(runID, 500, 0, nil)
-		if err == nil {
-			syncChildren(c, runID, positionsPayload)
-			result["positions_synced"] = true
-		}
-
-		metricsPayload, err := requestClient.GetAdvancedPerformanceMetrics(runID, "BTC-USD")
-		if err == nil {
-			syncChildren(c, runID, metricsPayload)
-			result["candles_synced"] = true
-		}
-
-		if result["run_synced"] == true && result["trades_synced"] == true && result["positions_synced"] == true && result["candles_synced"] == true {
-			result["sync_state"] = "completed"
-		}
-
-		return result, nil
+		return backtestDelegation.ResyncBacktestRun(c, requestClient, runID, syncRun, syncChildren)
 	}
 
 	requireBacktestRunAccess := func(c *gin.Context, runID string) bool {

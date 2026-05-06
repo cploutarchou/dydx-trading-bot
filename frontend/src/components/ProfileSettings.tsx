@@ -14,7 +14,8 @@ interface ProfileSettingsProps {
 }
 
 export interface ProfileUpdateData {
-  full_name?: string | null;
+  [key: string]: unknown;
+  full_name?: string;
   email: string;
   avatar?: string; // Base64 encoded image
 }

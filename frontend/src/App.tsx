@@ -7,10 +7,9 @@ import React, { Suspense, lazy, useEffect, useRef } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { QueryProvider } from './api/QueryProvider';
 import { getCurrentPortalType } from './app/portal';
+import { getPortalRouteManifest } from './app/routeManifest';
 import {
     BACKOFFICE_ROLES,
-    CLIENT_ROLES,
-    IB_ROLES,
     getUserWorkspaceRole,
     roleMatches,
     type WorkspaceRole,
@@ -61,57 +60,11 @@ const AuthSkeleton: React.FC = () => (
   </div>
 );
 
-const BacktestComparator = lazy(() =>
-  import('./components/BacktestComparator').then((module) => ({
-    default: module.BacktestComparator,
-  }))
-);
-const BotManager = lazy(() => import('./components/BotManager'));
-const StrategyBuilder = lazy(() => import('./components/StrategyBuilder'));
-const StrategyLibrary = lazy(() => import('./components/StrategyLibrary'));
-const StrategyManager = lazy(() => import('./components/StrategyManager'));
-const AdminHubPage = lazy(() =>
-  import('./pages/AdminHub').then((module) => ({ default: module.AdminHubPage }))
-);
-const AdminCeleryPage = lazy(() =>
-  import('./pages/AdminCelery').then((module) => ({ default: module.AdminCeleryPage }))
-);
-const BacktestDetailsV2 = lazy(() => import('./pages/BacktestDetailsV2'));
-const BacktestsPage = lazy(() =>
-  import('./pages/Backtests').then((module) => ({ default: module.BacktestsPage }))
-);
-const ClientAreaPage = lazy(() =>
-  import('./pages/ClientArea').then((module) => ({ default: module.ClientAreaPage }))
-);
-const CodexPage = lazy(() =>
-  import('./pages/Codex').then((module) => ({ default: module.CodexPage }))
-);
-const CRMRouter = lazy(() =>
-  import('./pages/crm/index').then((module) => ({ default: module.CRMRouter }))
-);
-const DashboardPage = lazy(() =>
-  import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage }))
-);
-const ClientProfilePage = lazy(() =>
-  import('./pages/client/ClientAccountPages').then((module) => ({
-    default: module.ClientProfilePage,
-  }))
-);
-const ClientSecurityPage = lazy(() =>
-  import('./pages/client/ClientAccountPages').then((module) => ({
-    default: module.ClientSecurityPage,
-  }))
-);
 const ForcePasswordChangePage = lazy(() =>
   import('./pages/ForcePasswordChange').then((module) => ({
     default: module.ForcePasswordChangePage,
   }))
 );
-const IBRouter = lazy(() => import('./pages/ib').then((module) => ({ default: module.IBRouter })));
-const NewsPage = lazy(() =>
-  import('./pages/News').then((module) => ({ default: module.NewsPage }))
-);
-const SettingsPage = lazy(() => import('./pages/Settings'));
 const TwoFactorAuthPage = lazy(() =>
   import('./pages/TwoFactorAuth').then((module) => ({ default: module.TwoFactorAuthPage }))
 );
@@ -179,6 +132,7 @@ const PasswordRotationRoute: React.FC = () => {
 
 export const App: React.FC = () => {
   const portal = getCurrentPortalType();
+  const portalRoutes = getPortalRouteManifest(portal);
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
   const toastWarning = useToastStore((state) => state.warning);
@@ -275,260 +229,15 @@ export const App: React.FC = () => {
                 }
               />
 
-              {portal === 'client' && (
-                <>
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <DashboardPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/client-area"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <ClientAreaPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/market-intel"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <CodexPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/market-intel/news"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <NewsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/codex"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <Navigate to="/market-intel" replace />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/news"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <Navigate to="/market-intel/news" replace />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/backtests"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BacktestsPage view="dashboard" />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/backtests/new"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BacktestsPage view="new" />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/backtests/runs"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BacktestsPage view="runs" />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/backtest/:runId"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BacktestDetailsV2 />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/backtests/compare"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BacktestComparator />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/strategies"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <StrategyLibrary />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/strategies/new"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <StrategyBuilder />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/strategies/manage"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <StrategyManager />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/strategies/:id/edit"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <StrategyBuilder />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/bots"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <BotManager />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/profile"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <Navigate to="/settings?section=profile" replace />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/security"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <Navigate to="/settings?section=security" replace />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/wallet"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <Navigate to="/settings?section=dydx_keys" replace />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/settings"
-                    element={
-                      <ProtectedRoute allowedRoles={CLIENT_ROLES}>
-                        <SettingsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/celery"
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin', 'backoffice_admin']}>
-                        <AdminCeleryPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                </>
-              )}
-
-              {portal === 'backoffice' && (
-                <>
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <ProtectedRoute allowedRoles={BACKOFFICE_ROLES}>
-                        <AdminHubPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin"
-                    element={
-                      <ProtectedRoute allowedRoles={BACKOFFICE_ROLES}>
-                        <AdminHubPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/celery"
-                    element={
-                      <ProtectedRoute allowedRoles={['admin', 'super_admin', 'backoffice_admin']}>
-                        <AdminCeleryPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/crm/*"
-                    element={
-                      <ProtectedRoute allowedRoles={BACKOFFICE_ROLES}>
-                        <CRMRouter />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/ib-portal/*"
-                    element={
-                      <ProtectedRoute allowedRoles={BACKOFFICE_ROLES}>
-                        <IBRouter />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/settings"
-                    element={
-                      <ProtectedRoute allowedRoles={BACKOFFICE_ROLES}>
-                        <SettingsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                </>
-              )}
-
-              {portal === 'ib' && (
-                <>
-                  <Route
-                    path="/profile"
-                    element={
-                      <ProtectedRoute allowedRoles={[...IB_ROLES, ...BACKOFFICE_ROLES]}>
-                        <ClientProfilePage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/security"
-                    element={
-                      <ProtectedRoute allowedRoles={[...IB_ROLES, ...BACKOFFICE_ROLES]}>
-                        <ClientSecurityPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/*"
-                    element={
-                      <ProtectedRoute allowedRoles={[...IB_ROLES, ...BACKOFFICE_ROLES]}>
-                        <IBRouter />
-                      </ProtectedRoute>
-                    }
-                  />
-                </>
-              )}
+              {portalRoutes.map((route) => (
+                <Route
+                  key={`${portal}:${route.path}`}
+                  path={route.path}
+                  element={
+                    <ProtectedRoute allowedRoles={route.allowedRoles}>{route.element}</ProtectedRoute>
+                  }
+                />
+              ))}
 
               <Route path="*" element={<Navigate to="/unauthorized" replace />} />
             </Routes>

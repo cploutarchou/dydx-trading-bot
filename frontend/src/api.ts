@@ -2120,7 +2120,8 @@ class ApiClient {
   async getBacktest(runId: string): Promise<ApiResponse<BacktestDetailsResponse>> {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse<BacktestDetailsResponse>>(
-      `/api/v1/backtests/${runId}`
+      `/api/v1/backtests/${runId}`,
+      { timeout: 12000 }
     );
     return response.data;
   }
@@ -2307,7 +2308,8 @@ class ApiClient {
   async getBacktestStatus(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse<Record<string, unknown>>>(
-      `/api/v1/backtests/${runId}/status`
+      `/api/v1/backtests/${runId}/status`,
+      { timeout: 8000 }
     );
     guardBacktestStatusContract(response.data);
     return response.data;

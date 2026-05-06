@@ -59,7 +59,10 @@ export function AIRuntimeDigest({
 
     try {
       const resp = await api.getRuntimeDigest(req);
-      const data = resp?.data ?? (resp as unknown as typeof resp.data);
+      const data = resp.data;
+      if (!data) {
+        throw new Error('AI digest response did not include content');
+      }
       setContent(data.content);
       setUsedAI(data.used_ai);
     } catch (err) {

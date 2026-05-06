@@ -73,7 +73,10 @@ export function AIBacktestExplainer({
 
     try {
       const resp = await api.explainBacktest(req);
-      const data = resp?.data ?? (resp as unknown as typeof resp.data);
+      const data = resp.data;
+      if (!data) {
+        throw new Error('AI explanation response did not include content');
+      }
       setContent(data.content);
       setUsedAI(data.used_ai);
     } catch (err) {

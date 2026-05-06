@@ -255,19 +255,6 @@ export const AdminCeleryPage: React.FC = () => {
     [activeTasks]
   );
 
-  const avgRuntimeSeconds = useMemo(() => {
-    const terminalTasks = sortedTasks.filter(
-      (task) => FAILURE_STATES.has(taskStatus(task)) || SUCCESS_STATES.has(taskStatus(task))
-    );
-    const values = terminalTasks
-      .map((task) => taskRuntimeSeconds(task))
-      .filter((value): value is number => value !== null);
-    if (values.length === 0) {
-      return null;
-    }
-    return values.reduce((sum, value) => sum + value, 0) / values.length;
-  }, [sortedTasks]);
-
   const statusCounts = useMemo(() => {
     const map = new Map<string, number>();
     sortedTasks.forEach((task) => {

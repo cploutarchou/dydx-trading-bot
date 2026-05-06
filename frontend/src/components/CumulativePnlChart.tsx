@@ -4,6 +4,7 @@ import {
     type ISeriesApi,
     type LineData,
     type MouseEventParams,
+    type Time,
 } from 'lightweight-charts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createTradingChart } from './charts/lightweightTheme';
@@ -92,14 +93,14 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
       priceLineVisible: true,
     });
 
-    const handleCrosshairMove = (param: MouseEventParams<string>) => {
+    const handleCrosshairMove = (param: MouseEventParams<Time>) => {
       const areaSeriesApi = areaSeriesRef.current;
       if (!areaSeriesApi || !param.time) {
         setHoverPoint(latestDataRef.current[latestDataRef.current.length - 1] ?? null);
         return;
       }
 
-      const areaData = param.seriesData.get(areaSeriesApi) as LineData<string> | undefined;
+      const areaData = param.seriesData.get(areaSeriesApi) as LineData<Time> | undefined;
       const pointTime = areaData?.time ? String(areaData.time) : String(param.time);
       const matched = latestDataRef.current.find((point) => point.time === pointTime);
       setHoverPoint(matched ?? latestDataRef.current[latestDataRef.current.length - 1] ?? null);
@@ -149,7 +150,7 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
       return;
     }
 
-    const areaData: LineData<string>[] = normalizedData.map((point) => ({
+    const areaData: LineData<Time>[] = normalizedData.map((point) => ({
       time: point.time,
       value: point.value,
     }));

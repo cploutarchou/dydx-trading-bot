@@ -1276,6 +1276,23 @@ async def lifespan(_: FastAPI):
             )
         os.environ["BACKTEST_WORKER_BACKEND"] = _worker_backend
 
+    # Safety guard: API_BYPASS_AUTH must never be enabled in production.
+    if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
+        _env = os.getenv("ENVIRONMENT", "development").lower()
+        if _env == "production":
+            logger.critical(
+                "API_BYPASS_AUTH=true is NOT permitted in ENVIRONMENT=production. "
+                "Refusing to start. Unset API_BYPASS_AUTH or set it to false."
+            )
+            raise RuntimeError(
+                "API_BYPASS_AUTH=true is forbidden in production environment."
+            )
+        logger.warning(
+            "API_BYPASS_AUTH=true — authentication is DISABLED (environment={}). "
+            "Do not use in production.",
+            _env,
+        )
+
     logger.info("Starting Bot API Server...")
     runtime_db_config = DatabaseConfig()
     logger.info(

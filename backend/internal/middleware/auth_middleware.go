@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -12,6 +13,23 @@ import (
 
 var jwtManager *auth.Manager
 var sessionStore *auth.SessionStore
+
+const defaultJWTSecret = "your-super-secret-key-change-in-production"
+
+func resolveJWTSecret(cfg *config.Config) string {
+	if secret := strings.TrimSpace(os.Getenv("JWT_SECRET_KEY")); secret != "" {
+		return secret
+	}
+	if secret := strings.TrimSpace(os.Getenv("SECRET_KEY")); secret != "" {
+		return secret
+	}
+	if cfg != nil {
+		if secret := strings.TrimSpace(cfg.Auth.JWTSecretKey); secret != "" {
+			return secret
+		}
+	}
+	return defaultJWTSecret
+}
 
 func InitAuthMiddleware(cfg *config.Config) {
 	if cfg != nil {
@@ -24,7 +42,7 @@ func InitAuthMiddleware(cfg *config.Config) {
 	}
 
 	jwtManager = auth.NewManager(auth.JWTConfig{
-		Secret:            cfg.Auth.JWTSecretKey,
+		Secret:            resolveJWTSecret(cfg),
 		ExpiryHours:       expiryHours,
 		RefreshExpiryDays: cfg.Auth.RefreshTokenExpireDays,
 	})

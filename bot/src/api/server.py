@@ -236,6 +236,52 @@ _instance_create_rate_limiter = _SlidingWindowRateLimiter(
 _backtest_endpoint_cache: Dict[str, Dict[str, Any]] = {}
 _backtest_endpoint_cache_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# Market data cache – serves stale data when dYdX is temporarily unavailable.
+# TTL: how long a fresh result is reused before a live refresh is attempted.
+# Stale TTL: how long expired data may still be served as a fallback on error.
+# Both are configurable via env vars; 0 disables the respective behaviour.
+# ---------------------------------------------------------------------------
+_MARKETS_CACHE_TTL_SECONDS = _read_non_negative_int_env("MARKETS_CACHE_TTL_SECONDS", 60)
+_MARKETS_STALE_TTL_SECONDS = _read_non_negative_int_env(
+    "MARKETS_STALE_TTL_SECONDS", 300
+)
+_markets_cache: Dict[str, Any] = {}
+_markets_cache_lock = threading.Lock()
+
+
+def _markets_cache_get(*, allow_stale: bool = False) -> Optional[Dict[str, Any]]:
+    """Return cached market data, optionally including expired (stale) entries.
+
+    Returns a dict with keys ``data`` (the cached payload) and ``stale`` (bool),
+    or *None* when no usable entry exists.
+    """
+    now = time.monotonic()
+    with _markets_cache_lock:
+        entry = _markets_cache.get("last")
+        if not entry:
+            return None
+        expires_at = float(entry.get("expires_at", 0.0))
+        stale_deadline = expires_at + float(_MARKETS_STALE_TTL_SECONDS)
+        if expires_at > now:
+            return {"data": entry["value"], "stale": False}
+        if allow_stale and _MARKETS_STALE_TTL_SECONDS > 0 and stale_deadline > now:
+            return {"data": entry["value"], "stale": True}
+        return None
+
+
+def _markets_cache_set(value: Dict[str, Any]) -> None:
+    """Store a fresh market data payload in the cache."""
+    if _MARKETS_CACHE_TTL_SECONDS <= 0:
+        return
+    now = time.monotonic()
+    with _markets_cache_lock:
+        _markets_cache["last"] = {
+            "value": value,
+            "expires_at": now + float(_MARKETS_CACHE_TTL_SECONDS),
+            "updated_at": now,
+        }
+
 
 def _cache_get(key: str) -> Optional[Any]:
     if _BACKTEST_ENDPOINT_CACHE_TTL_SECONDS <= 0:
@@ -1512,58 +1558,6 @@ def api_response(
     for header_name, header_value in (headers or {}).items():
         response.headers[header_name] = str(header_value)
     return response
-
-
-@app.get("/api/v1/markets/perpetuals")
-async def list_perpetual_markets(limit: int = 0):
-    """Return available dYdX perpetual markets for run configuration."""
-    cap = _normalize_requested_pair_cap(limit)
-    markets: List[str] = []
-    source = "dydx"
-    client = None
-
-    try:
-        client = await asyncio.wait_for(
-            connect_dydx(),
-            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
-        )
-        payload = await asyncio.wait_for(
-            client.indexer.markets.get_perpetual_markets(),
-            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
-        )
-        raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
-        if isinstance(raw_map, dict):
-            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
-    except Exception as err:
-        logger.warning(
-            "market_resolution_failed endpoint=/api/v1/markets/perpetuals error={}",
-            err,
-        )
-        return api_response(
-            success=False,
-            message=f"MARKET_RESOLUTION_FAILED: {err}",
-            data={"error": "MARKET_RESOLUTION_FAILED"},
-            status_code=503,
-        )
-    finally:
-        if client is not None:
-            try:
-                await client.node.close()
-            except Exception:
-                pass
-
-    if cap is not None:
-        markets = markets[:cap]
-
-    return api_response(
-        success=True,
-        data={
-            "markets": markets,
-            "count": len(markets),
-            "source": source,
-        },
-        message=f"Retrieved {len(markets)} perpetual markets",
-    )
 
 
 @app.post("/api/v1/runtime/preflight")
@@ -2926,6 +2920,111 @@ async def api_capabilities():
             "count": len(http_routes) + len(websocket_routes),
         },
         message="Bot API and websocket capabilities retrieved",
+    )
+
+
+@app.get("/api/v1/markets/perpetuals")
+async def list_perpetual_markets(limit: int = 0):
+    """Return available dYdX perpetual markets for run configuration.
+
+    Results are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).
+    When the live dYdX call fails, stale cache data is served (up to
+    ``MARKETS_STALE_TTL_SECONDS``, default 300 s) with an ``X-Cache-Stale: 1``
+    header so callers can distinguish live vs fallback responses.
+    A 503 is returned only when the live call fails *and* no usable cached
+    data exists.
+    """
+    cap = _normalize_requested_pair_cap(limit)
+    client = None
+
+    # Serve a fresh cache hit without making a network call.
+    cached = _markets_cache_get(allow_stale=False)
+    if cached is not None:
+        data = cached["data"]
+        result_markets = data["markets"] if cap is None else data["markets"][:cap]
+        return api_response(
+            success=True,
+            data={
+                "markets": result_markets,
+                "count": len(result_markets),
+                "source": "cache",
+            },
+            message=f"Retrieved {len(result_markets)} perpetual markets",
+            headers={"X-Cache-Hit": "1"},
+        )
+
+    markets: List[str] = []
+    live_error: Optional[Exception] = None
+
+    try:
+        client = await asyncio.wait_for(
+            connect_dydx(),
+            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+        )
+        payload = await asyncio.wait_for(
+            client.indexer.markets.get_perpetual_markets(),
+            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+        )
+        raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
+        if isinstance(raw_map, dict):
+            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
+    except Exception as err:
+        live_error = err
+        logger.warning(
+            "market_resolution_failed endpoint=/api/v1/markets/perpetuals error={}",
+            err,
+        )
+    finally:
+        if client is not None:
+            for _closer in (
+                getattr(client, "node", None),
+                getattr(client, "indexer_client", None),
+            ):
+                if _closer is not None and hasattr(_closer, "close"):
+                    try:
+                        await _closer.close()
+                    except Exception:
+                        pass
+
+    if live_error is not None:
+        # Live call failed – try stale cache before giving up.
+        stale = _markets_cache_get(allow_stale=True)
+        if stale is not None:
+            data = stale["data"]
+            result_markets = data["markets"] if cap is None else data["markets"][:cap]
+            logger.info(
+                "markets_stale_fallback endpoint=/api/v1/markets/perpetuals "
+                "count={} error={}",
+                len(result_markets),
+                live_error,
+            )
+            return api_response(
+                success=True,
+                data={
+                    "markets": result_markets,
+                    "count": len(result_markets),
+                    "source": "cache_stale",
+                },
+                message=f"Retrieved {len(result_markets)} perpetual markets (stale cache fallback)",
+                headers={"X-Cache-Stale": "1"},
+            )
+        return api_response(
+            success=False,
+            message=f"MARKET_RESOLUTION_FAILED: {live_error}",
+            data={"error": "MARKET_RESOLUTION_FAILED"},
+            status_code=503,
+        )
+
+    # Successful live fetch – populate cache and return.
+    _markets_cache_set({"markets": markets, "count": len(markets), "source": "dydx"})
+
+    if cap is not None:
+        markets = markets[:cap]
+
+    return api_response(
+        success=True,
+        data={"markets": markets, "count": len(markets), "source": "dydx"},
+        message=f"Retrieved {len(markets)} perpetual markets",
     )
 
 

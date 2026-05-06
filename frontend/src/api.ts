@@ -4,15 +4,15 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-    guardBacktestStatusContract,
-    guardListBacktestsContract,
-    guardRunBacktestContract,
-    guardSyncHealthContract,
+	guardBacktestStatusContract,
+	guardListBacktestsContract,
+	guardRunBacktestContract,
+	guardSyncHealthContract,
 } from './api/contractGuards';
 import {
-    getBackendHttpBase,
-    resolveBackendWebSocketUrl,
-    shouldAttemptCookieSessionBootstrap,
+	getBackendHttpBase,
+	resolveBackendWebSocketUrl,
+	shouldAttemptCookieSessionBootstrap,
 } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';
@@ -1509,6 +1509,12 @@ type PendingRequest = {
   reject: (_error: unknown) => void;
 };
 
+type RequestConfigWithAuthControl = {
+  _skipAuthHeader?: boolean;
+  headers?: AxiosRequestHeaders | Record<string, string>;
+  url?: string;
+};
+
 class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
@@ -1540,6 +1546,14 @@ class ApiClient {
       config.headers ??= {} as AxiosRequestHeaders;
       const headers = config.headers as AxiosRequestHeaders;
       attachTraceHeader(headers as Record<string, string>);
+
+      const authControlledConfig = config as typeof config & RequestConfigWithAuthControl;
+      const skipAuthHeader = authControlledConfig._skipAuthHeader === true;
+
+      if (skipAuthHeader) {
+        delete (headers as Record<string, string>).Authorization;
+        return config;
+      }
 
       if (this.accessToken) {
         headers.Authorization = `Bearer ${this.accessToken}`;
@@ -1972,7 +1986,10 @@ class ApiClient {
 
   async getCurrentUser(): Promise<ApiResponse<UserProfile>> {
     const response = await this.client.get<ApiResponse<UserProfile> | UserProfile>(
-      '/api/v1/users/me'
+      '/api/v1/users/me',
+      {
+        _skipAuthHeader: true,
+      } as RequestConfigWithAuthControl
     );
     const payload = response.data as ApiResponse<UserProfile> | UserProfile;
 

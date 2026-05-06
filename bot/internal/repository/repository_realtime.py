@@ -2,11 +2,18 @@
 Repository classes for realtime data operations
 """
 
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from internal.domain.models_realtime import Position, MarketData, BotStats, Alert, PositionStatusEnum
+from internal.domain.models_realtime import (
+    Position,
+    MarketData,
+    BotStats,
+    Alert,
+    PositionStatusEnum,
+)
 from src.shared.time_utils import utc_now
 
 
@@ -18,14 +25,28 @@ class PositionRepository:
 
     def get_open_positions(self, bot_instance_id: int) -> List[Position]:
         """Get all open positions for a bot"""
-        return self.session.query(Position).filter(
-            Position.bot_instance_id == bot_instance_id,
-            Position.status == PositionStatusEnum.OPEN
-        ).all()
+        return (
+            self.session.query(Position)
+            .filter(
+                Position.bot_instance_id == bot_instance_id,
+                Position.status == PositionStatusEnum.OPEN,
+            )
+            .all()
+        )
 
-    def create_position(self, bot_instance_id: int, position_id: str, pair1: str, pair2: str,
-                        side1: str, side2: str, entry_price1: float, entry_price2: float,
-                        entry_size1: float, entry_size2: float) -> Position:
+    def create_position(
+        self,
+        bot_instance_id: int,
+        position_id: str,
+        pair1: str,
+        pair2: str,
+        side1: str,
+        side2: str,
+        entry_price1: float,
+        entry_price2: float,
+        entry_size1: float,
+        entry_size2: float,
+    ) -> Position:
         """Create a new position"""
         position = Position(
             bot_instance_id=bot_instance_id,
@@ -43,9 +64,15 @@ class PositionRepository:
         self.session.commit()
         return position
 
-    def update_position_prices(self, position_id: str, current_price1: float, current_price2: float):
+    def update_position_prices(
+        self, position_id: str, current_price1: float, current_price2: float
+    ):
         """Update current prices for a position"""
-        position = self.session.query(Position).filter(Position.position_id == position_id).first()
+        position = (
+            self.session.query(Position)
+            .filter(Position.position_id == position_id)
+            .first()
+        )
         if position:
             position.current_price1 = current_price1
             position.current_price2 = current_price2
@@ -57,7 +84,11 @@ class PositionRepository:
 
     def close_position(self, position_id: str):
         """Close a position"""
-        position = self.session.query(Position).filter(Position.position_id == position_id).first()
+        position = (
+            self.session.query(Position)
+            .filter(Position.position_id == position_id)
+            .first()
+        )
         if position:
             position.status = PositionStatusEnum.CLOSED
             position.closed_at = utc_now()
@@ -70,25 +101,42 @@ class MarketDataRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_market_data(self, bot_instance_id: int, symbol: str) -> Optional[MarketData]:
+    def get_market_data(
+        self, bot_instance_id: int, symbol: str
+    ) -> Optional[MarketData]:
         """Get market data for a symbol"""
-        return self.session.query(MarketData).filter(
-            MarketData.bot_instance_id == bot_instance_id,
-            MarketData.symbol == symbol
-        ).first()
+        return (
+            self.session.query(MarketData)
+            .filter(
+                MarketData.bot_instance_id == bot_instance_id,
+                MarketData.symbol == symbol,
+            )
+            .first()
+        )
 
     def get_all_market_data(self, bot_instance_id: int) -> List[MarketData]:
         """Get all market data for a bot"""
-        return self.session.query(MarketData).filter(
-            MarketData.bot_instance_id == bot_instance_id
-        ).all()
+        return (
+            self.session.query(MarketData)
+            .filter(MarketData.bot_instance_id == bot_instance_id)
+            .all()
+        )
 
-    def upsert_market_data(self, bot_instance_id: int, symbol: str, current_price: float,
-                           bid_price: Optional[float] = None, ask_price: Optional[float] = None,
-                           volume_24h: Optional[float] = None, volatility_24h: Optional[float] = None,
-                           rsi: Optional[float] = None, macd: Optional[float] = None,
-                           moving_avg_20: Optional[float] = None, moving_avg_50: Optional[float] = None,
-                           funding_rate: Optional[float] = None):
+    def upsert_market_data(
+        self,
+        bot_instance_id: int,
+        symbol: str,
+        current_price: float,
+        bid_price: Optional[float] = None,
+        ask_price: Optional[float] = None,
+        volume_24h: Optional[float] = None,
+        volatility_24h: Optional[float] = None,
+        rsi: Optional[float] = None,
+        macd: Optional[float] = None,
+        moving_avg_20: Optional[float] = None,
+        moving_avg_50: Optional[float] = None,
+        funding_rate: Optional[float] = None,
+    ):
         """Insert or update market data"""
         market_data = self.get_market_data(bot_instance_id, symbol)
         if market_data:
@@ -132,12 +180,16 @@ class StatsRepository:
 
     def get_stats(self, bot_instance_id: int) -> Optional[BotStats]:
         """Get stats for a bot"""
-        return self.session.query(BotStats).filter(
-            BotStats.bot_instance_id == bot_instance_id
-        ).first()
+        return (
+            self.session.query(BotStats)
+            .filter(BotStats.bot_instance_id == bot_instance_id)
+            .first()
+        )
 
-    def calculate_and_update_stats(self, bot_instance_id: int, position_repo: PositionRepository):
-        """Calculate and update bot statistics"""
+    def calculate_and_update_stats(
+        self, bot_instance_id: int, position_repo: PositionRepository
+    ):
+        """Calculate and update bot statistics from live position and trade data."""
         positions = position_repo.get_open_positions(bot_instance_id)
         stats = self.get_stats(bot_instance_id)
 
@@ -145,20 +197,64 @@ class StatsRepository:
             stats = BotStats(bot_instance_id=bot_instance_id)
             self.session.add(stats)
 
-        # Calculate stats from positions
-        total_unrealized_pnl = sum(p.unrealized_pnl for p in positions)
-        total_positions = len(positions)
+        # --- Unrealized P&L from open positions ---
+        total_unrealized_pnl = sum(p.unrealized_pnl or 0.0 for p in positions)
+        total_entry_cost = sum(
+            (p.entry_price1 or 0.0) * (p.entry_size1 or 0.0)
+            + (p.entry_price2 or 0.0) * (p.entry_size2 or 0.0)
+            for p in positions
+        )
+        total_unrealized_pnl_pct = (
+            (total_unrealized_pnl / total_entry_cost) * 100.0
+            if total_entry_cost > 0
+            else 0.0
+        )
 
-        stats.total_open_positions = total_positions
+        # --- Daily realized P&L and win rate from trades table ---
+        daily_pnl = 0.0
+        daily_win_rate = 0.0
+        daily_trades_opened = 0
+        daily_trades_closed = 0
+        try:
+            from internal.domain.models import Trade, TradeStatusEnum
+
+            today_start = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            closed_today = (
+                self.session.query(Trade)
+                .filter(
+                    Trade.bot_id == bot_instance_id,
+                    Trade.status == TradeStatusEnum.CLOSED,
+                    Trade.closed_at >= today_start,
+                )
+                .all()
+            )
+            opened_today = (
+                self.session.query(Trade)
+                .filter(
+                    Trade.bot_id == bot_instance_id,
+                    Trade.created_at >= today_start,
+                )
+                .count()
+            )
+            daily_trades_opened = opened_today
+            daily_trades_closed = len(closed_today)
+            if closed_today:
+                daily_pnl = sum(t.realized_pnl or 0.0 for t in closed_today)
+                winning = sum(1 for t in closed_today if (t.realized_pnl or 0.0) > 0)
+                daily_win_rate = winning / len(closed_today)
+        except Exception:
+            # Trades table may not yet exist in all environments; degrade gracefully
+            pass
+
+        stats.total_open_positions = len(positions)
         stats.total_unrealized_pnl = total_unrealized_pnl
-        # Simplified calculations - would need more sophisticated logic
-        stats.total_unrealized_pnl_pct = 0.0
-        stats.daily_pnl = 0.0
-        stats.daily_pnl_pct = 0.0
-        stats.daily_trades_opened = 0
-        stats.daily_trades_closed = 0
-        stats.daily_win_rate = 0.0
-        stats.current_drawdown = 0.0
+        stats.total_unrealized_pnl_pct = total_unrealized_pnl_pct
+        stats.daily_pnl = daily_pnl
+        stats.daily_trades_opened = daily_trades_opened
+        stats.daily_trades_closed = daily_trades_closed
+        stats.daily_win_rate = daily_win_rate
 
         self.session.commit()
 
@@ -169,8 +265,14 @@ class AlertRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def create_alert(self, bot_instance_id: int, alert_type: str, severity: str,
-                     message: str, details: Optional[dict] = None):
+    def create_alert(
+        self,
+        bot_instance_id: int,
+        alert_type: str,
+        severity: str,
+        message: str,
+        details: Optional[dict] = None,
+    ):
         """Create a new alert"""
         alert = Alert(
             bot_instance_id=bot_instance_id,
@@ -185,10 +287,13 @@ class AlertRepository:
 
     def get_unacknowledged_alerts(self, bot_instance_id: int) -> List[Alert]:
         """Get unacknowledged alerts for a bot"""
-        return self.session.query(Alert).filter(
-            Alert.bot_instance_id == bot_instance_id,
-            Alert.acknowledged == False
-        ).all()
+        return (
+            self.session.query(Alert)
+            .filter(
+                Alert.bot_instance_id == bot_instance_id, Alert.acknowledged == False
+            )
+            .all()
+        )
 
     def acknowledge_alert(self, alert_id: int):
         """Mark an alert as acknowledged"""

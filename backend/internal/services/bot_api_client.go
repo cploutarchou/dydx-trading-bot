@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
@@ -30,6 +31,90 @@ type BotAPIClient struct {
 }
 
 const defaultBotAPIRequestTimeout = 120 * time.Second
+
+type BotAPIStatsSnapshot struct {
+	TotalRequests        int64 `json:"total_requests"`
+	SuccessfulRequests   int64 `json:"successful_requests"`
+	FailedRequests       int64 `json:"failed_requests"`
+	TransportFailures    int64 `json:"transport_failures"`
+	Timeouts             int64 `json:"timeouts"`
+	Upstream4xx          int64 `json:"upstream_4xx"`
+	Upstream5xx          int64 `json:"upstream_5xx"`
+	TotalLatencyMillis   int64 `json:"total_latency_ms"`
+	AverageLatencyMillis int64 `json:"average_latency_ms"`
+	MaxLatencyMillis     int64 `json:"max_latency_ms"`
+}
+
+type botAPIStatsCollector struct {
+	totalRequests      atomic.Int64
+	successfulRequests atomic.Int64
+	failedRequests     atomic.Int64
+	transportFailures  atomic.Int64
+	timeouts           atomic.Int64
+	upstream4xx        atomic.Int64
+	upstream5xx        atomic.Int64
+	totalLatencyMillis atomic.Int64
+	maxLatencyMillis   atomic.Int64
+}
+
+var botAPIStats botAPIStatsCollector
+
+func BotAPIStats() BotAPIStatsSnapshot {
+	total := botAPIStats.totalRequests.Load()
+	totalLatency := botAPIStats.totalLatencyMillis.Load()
+	averageLatency := int64(0)
+	if total > 0 {
+		averageLatency = totalLatency / total
+	}
+	return BotAPIStatsSnapshot{
+		TotalRequests:        total,
+		SuccessfulRequests:   botAPIStats.successfulRequests.Load(),
+		FailedRequests:       botAPIStats.failedRequests.Load(),
+		TransportFailures:    botAPIStats.transportFailures.Load(),
+		Timeouts:             botAPIStats.timeouts.Load(),
+		Upstream4xx:          botAPIStats.upstream4xx.Load(),
+		Upstream5xx:          botAPIStats.upstream5xx.Load(),
+		TotalLatencyMillis:   totalLatency,
+		AverageLatencyMillis: averageLatency,
+		MaxLatencyMillis:     botAPIStats.maxLatencyMillis.Load(),
+	}
+}
+
+func recordBotAPIRequest(statusCode int, latency time.Duration, err error) {
+	latencyMillis := latency.Milliseconds()
+	botAPIStats.totalRequests.Add(1)
+	botAPIStats.totalLatencyMillis.Add(latencyMillis)
+	for {
+		current := botAPIStats.maxLatencyMillis.Load()
+		if latencyMillis <= current || botAPIStats.maxLatencyMillis.CompareAndSwap(current, latencyMillis) {
+			break
+		}
+	}
+
+	if err != nil {
+		botAPIStats.failedRequests.Add(1)
+		var transportErr *BotAPITransportError
+		if errors.As(err, &transportErr) {
+			botAPIStats.transportFailures.Add(1)
+			if transportErr.StatusCode == http.StatusGatewayTimeout {
+				botAPIStats.timeouts.Add(1)
+			}
+		}
+		return
+	}
+
+	if statusCode >= 200 && statusCode < 400 {
+		botAPIStats.successfulRequests.Add(1)
+		return
+	}
+
+	botAPIStats.failedRequests.Add(1)
+	if statusCode >= 400 && statusCode < 500 {
+		botAPIStats.upstream4xx.Add(1)
+	} else if statusCode >= 500 {
+		botAPIStats.upstream5xx.Add(1)
+	}
+}
 
 // BotAPIError preserves upstream HTTP status and message for delegated routes.
 type BotAPIError struct {
@@ -356,6 +441,7 @@ func (c *BotAPIClient) shouldRetryWithFallback(currentToken string) bool {
 }
 
 func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte, token string) (map[string]interface{}, int, []byte, error) {
+	startedAt := time.Now()
 	var requestBody io.Reader
 	if len(requestBytes) > 0 {
 		requestBody = bytes.NewReader(requestBytes)
@@ -391,6 +477,7 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		transportErr := classifyTransportError(method, requestURL, err)
+		recordBotAPIRequest(transportErr.StatusCode, time.Since(startedAt), transportErr)
 		log.Printf("⚠️  Bot API transport error trace_id=%s: %s %s → HTTP %d (%s) | cause: %v",
 			strings.TrimSpace(c.traceID), method, requestURL, transportErr.StatusCode, transportErr.Message, err)
 		return nil, 0, nil, transportErr
@@ -399,8 +486,10 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		recordBotAPIRequest(resp.StatusCode, time.Since(startedAt), err)
 		return nil, 0, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	recordBotAPIRequest(resp.StatusCode, time.Since(startedAt), nil)
 
 	var result map[string]interface{}
 	if len(respBytes) == 0 {

@@ -1511,6 +1511,7 @@ type PendingRequest = {
 
 type RequestConfigWithAuthControl = {
   _skipAuthHeader?: boolean;
+  _allowAccessTokenFallback?: boolean;
   headers?: AxiosRequestHeaders | Record<string, string>;
   url?: string;
 };
@@ -1549,8 +1550,9 @@ class ApiClient {
 
       const authControlledConfig = config as typeof config & RequestConfigWithAuthControl;
       const skipAuthHeader = authControlledConfig._skipAuthHeader === true;
+      const allowAccessTokenFallback = authControlledConfig._allowAccessTokenFallback === true;
 
-      if (skipAuthHeader) {
+      if (skipAuthHeader && !(allowAccessTokenFallback && this.accessToken)) {
         delete (headers as Record<string, string>).Authorization;
         return config;
       }
@@ -1989,6 +1991,7 @@ class ApiClient {
       '/api/v1/users/me',
       {
         _skipAuthHeader: true,
+        _allowAccessTokenFallback: true,
       } as RequestConfigWithAuthControl
     );
     const payload = response.data as ApiResponse<UserProfile> | UserProfile;

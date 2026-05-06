@@ -31,6 +31,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
+import { enhancedApiClient } from '../api/enhancedClient';
 import { useBacktestProgress } from '../api/hooks';
 import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
 import BacktestLightweightChart, {
@@ -208,6 +209,11 @@ const formatDateValue = (value: string | null | undefined): string => {
 
 const normalizeStatus = (value: unknown): string => String(value || '').toLowerCase();
 
+const shouldRenderListShellOnly = (status: unknown): boolean =>
+  ['pending', 'queued', 'starting', 'started', 'running', 'in_progress'].includes(
+    normalizeStatus(status)
+  );
+
 const firstFiniteNumber = (...values: unknown[]): number | null => {
   for (const value of values) {
     const parsed =
@@ -217,6 +223,69 @@ const firstFiniteNumber = (...values: unknown[]): number | null => {
     }
   }
   return null;
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
+const unwrapDataRecord = (payload: unknown): Record<string, unknown> => {
+  const root = asRecord(payload) ?? {};
+  return asRecord(root.data) ?? root;
+};
+
+const buildFallbackBacktestFromStatus = (
+  runId: string,
+  payload: Record<string, unknown>
+): BacktestResponse => {
+  const now = new Date().toISOString();
+  const progress =
+    firstFiniteNumber(payload.progress_percent, payload.progress_pct, payload.progress) ?? 0;
+  const status = firstMeaningfulString(payload.status, payload.state) ?? 'PENDING';
+  const updatedAt = firstMeaningfulString(payload.updated_at, payload.timestamp, payload.started_at);
+
+  return {
+    run_id: runId,
+    status,
+    created_at: firstMeaningfulString(payload.created_at, payload.started_at, updatedAt) ?? now,
+    updated_at: updatedAt ?? now,
+    progress_percent: progress,
+    progress_pct: progress,
+    progress,
+    total_pnl: firstFiniteNumber(payload.total_pnl, payload.total_pnl_usd) ?? 0,
+    total_pnl_usd: firstFiniteNumber(payload.total_pnl_usd, payload.total_pnl) ?? 0,
+    win_rate: firstFiniteNumber(payload.win_rate) ?? 0,
+    sharpe_ratio: firstFiniteNumber(payload.sharpe_ratio) ?? 0,
+    max_drawdown_pct: firstFiniteNumber(payload.max_drawdown_pct, payload.max_drawdown) ?? 0,
+    max_drawdown: firstFiniteNumber(payload.max_drawdown, payload.max_drawdown_pct) ?? 0,
+    profit_factor: firstFiniteNumber(payload.profit_factor) ?? undefined,
+    total_trades: firstFiniteNumber(payload.total_trades) ?? 0,
+    error: firstMeaningfulString(payload.error) ?? undefined,
+    error_message: firstMeaningfulString(payload.error_message, payload.message) ?? undefined,
+    cancellable: Boolean(payload.cancellable),
+    pausable: Boolean(payload.pausable),
+    resumable: Boolean(payload.resumable),
+    restartable: Boolean(payload.restartable ?? true),
+    control_status: firstMeaningfulString(payload.control_status) ?? undefined,
+    control_action: firstMeaningfulString(payload.control_action) ?? undefined,
+    worker_backend: firstMeaningfulString(payload.worker_backend) ?? undefined,
+    request: asRecord(payload.request) ?? undefined,
+    strategy_id: firstFiniteNumber(payload.strategy_id) ?? undefined,
+    strategy_snapshot: asRecord(payload.strategy_snapshot) ?? undefined,
+  };
 };
 
 const formatDurationFromSeconds = (seconds: number): string => {
@@ -439,20 +508,42 @@ export const BacktestDetailsV2: React.FC = () => {
       }
       setError(null);
 
+      if (!runId) {
+        setBacktest(null);
+        setError('Missing backtest run id');
+        return;
+      }
+
+      const safeRunId = runId;
+
       try {
-        if (!runId) {
-          setBacktest(null);
-          setError('Missing backtest run id');
+        const liveStatusResponse = await withTimeout(
+          enhancedApiClient.getBacktestStatus(safeRunId),
+          8000,
+          'Backtest live status'
+        );
+        const liveStatusPayload = unwrapDataRecord(liveStatusResponse);
+        const fallbackBacktest = buildFallbackBacktestFromStatus(safeRunId, liveStatusPayload);
+
+        if (shouldRenderListShellOnly(fallbackBacktest.status)) {
+          setBacktest(fallbackBacktest);
+          setError(null);
           return;
         }
 
-        const response = await api.getBacktest(runId);
-        const data = response?.data || response;
-        setBacktest(data as unknown as BacktestResponse);
+        try {
+          const response = await withTimeout(api.getBacktest(safeRunId), 12000, 'Backtest detail');
+          const data = response?.data || response;
+          setBacktest(data as unknown as BacktestResponse);
+        } catch (detailErr: unknown) {
+          console.debug('Backtest detail request failed, rendering live summary shell:', detailErr);
+          setBacktest(fallbackBacktest);
+          setError(null);
+        }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Failed to fetch backtest';
-        setError(msg);
-        setBacktest(null);
+        console.debug('Backtest live summary failed, rendering route-only run shell:', err);
+        setBacktest(buildFallbackBacktestFromStatus(safeRunId, {}));
+        setError(null);
       } finally {
         if (showLoading) {
           setLoading(false);
@@ -1118,7 +1209,7 @@ export const BacktestDetailsV2: React.FC = () => {
       ? formatDurationFromSeconds(progressQuery.etaSeconds)
       : null;
   const progressSourceLabels: Record<string, string> = {
-    status: 'status endpoint',
+    status: 'live status',
     websocket: 'websocket',
     polling_recovery: 'polling recovery',
     polling: 'polling',

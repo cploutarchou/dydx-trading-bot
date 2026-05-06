@@ -601,6 +601,8 @@ export interface CreateBotRequest {
     address: string;
     mnemonic: string;
     network: 'mainnet' | 'testnet';
+    chain_id?: string;
+    secret_phrase?: string;
   };
   trading_params: TradingParams;
 }

@@ -955,6 +955,8 @@ export function useBacktestProgress(runId: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
   const [lastSocketEvent, setLastSocketEvent] = useState<Record<string, unknown> | null>(null);
+  const httpFailureCountRef = useRef(0);
+  const nextHttpAttemptAtRef = useRef(0);
   const isTerminalStatus = useCallback((status: unknown): boolean => {
     return [
       'COMPLETED',
@@ -1126,6 +1128,16 @@ export function useBacktestProgress(runId: string) {
           setBootstrapError(
             error instanceof Error ? error : new Error('Failed to fetch backtest progress')
           );
+          setData((current) =>
+            current ??
+            ({
+              run_id: runId,
+              status: 'PENDING',
+              progress_percent: 0,
+              progress_source: 'default',
+              checked_at: new Date().toISOString(),
+            } satisfies Record<string, unknown>)
+          );
         }
       } finally {
         if (!cancelled) {
@@ -1194,6 +1206,8 @@ export function useBacktestProgress(runId: string) {
       try {
         const result = await apiClient.getBacktestStatus(runId);
         if (result && typeof result === 'object') {
+          httpFailureCountRef.current = 0;
+          nextHttpAttemptAtRef.current = 0;
           setData((current) =>
             mergeProgressData(current, {
               ...(result as Record<string, unknown>),
@@ -1203,6 +1217,8 @@ export function useBacktestProgress(runId: string) {
           setBootstrapError(null);
         }
       } catch (error) {
+        httpFailureCountRef.current += 1;
+        nextHttpAttemptAtRef.current = Date.now() + Math.min(60000, 8000 * httpFailureCountRef.current);
         setBootstrapError(
           error instanceof Error ? error : new Error('Failed to refresh backtest progress')
         );
@@ -1221,6 +1237,9 @@ export function useBacktestProgress(runId: string) {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
         return;
       }
+      if (Date.now() < nextHttpAttemptAtRef.current) {
+        return;
+      }
 
       try {
         const result = await apiClient.getBacktestStatus(runId);
@@ -1228,6 +1247,8 @@ export function useBacktestProgress(runId: string) {
           return;
         }
 
+        httpFailureCountRef.current = 0;
+        nextHttpAttemptAtRef.current = 0;
         setData((current) =>
           mergeProgressData(current, {
             ...(result as Record<string, unknown>),
@@ -1245,6 +1266,9 @@ export function useBacktestProgress(runId: string) {
         setBootstrapError(null);
       } catch (error) {
         if (!cancelled) {
+          httpFailureCountRef.current += 1;
+          nextHttpAttemptAtRef.current =
+            Date.now() + Math.min(60000, 8000 * httpFailureCountRef.current);
           setBootstrapError(
             error instanceof Error ? error : new Error('Failed to refresh backtest progress')
           );

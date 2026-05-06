@@ -409,7 +409,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     queries: activeRunsQuickAccess.map((run) => ({
       queryKey: ['backtests', 'status', run.run_id, 'quick-access'],
       queryFn: async () => {
-        const response = await api.getBacktestStatus(run.run_id);
+        const response = await enhancedApiClient.getBacktestStatus(run.run_id);
         const payload = response as unknown as Record<string, unknown>;
         const progressCandidate = getEnvelopeField(payload, 'progress_pct');
         const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');

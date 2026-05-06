@@ -6,6 +6,8 @@
 - CRM / Backoffice: `VITE_APP_PORTAL_TYPE=backoffice`, deployed at `crm.example.com`
 - IB Portal: `VITE_APP_PORTAL_TYPE=ib`, deployed at `ib.example.com`
 
+Portal route registration is centralized in `src/app/routeManifest.tsx`. Each entry owns its route path, allowed workspace roles, and lazy-loaded element so `src/App.tsx` can apply one consistent protected-route wrapper.
+
 ## Shared Packages
 
 - `packages/shared-ui`: UI primitives, page containers, and feedback surfaces
@@ -14,6 +16,8 @@
 - `packages/shared-types`: shared portal, role, and API types
 
 These packages currently re-export existing `src/*` modules so the split does not duplicate business logic.
+
+Shared API exports now include `src/api/normalizers.ts` for envelope/list extraction. Shared UI exports include the platform primitives, `TerminalDataGrid`, and live-state/freshness badges.
 
 ## Role Assumptions
 

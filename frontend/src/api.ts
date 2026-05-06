@@ -1946,6 +1946,16 @@ class ApiClient {
       if (payload && payload.access_token) {
         this.setToken(payload.access_token);
       } else {
+        // Cookie-session mode (no access_token in login payload): ensure we
+        // don't keep sending a stale Bearer token from a previous session.
+        this.accessToken = null;
+        if (typeof localStorage !== 'undefined') {
+          try {
+            localStorage.removeItem('_dydx_access_token');
+          } catch (_e) {
+            // best effort
+          }
+        }
         console.debug('Login established an HttpOnly cookie session');
       }
 

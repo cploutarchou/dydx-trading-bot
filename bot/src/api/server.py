@@ -147,6 +147,65 @@ DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
 
+# ---------------------------------------------------------------------------
+# In-process rate limiter (sliding window, per caller key)
+# Protects expensive mutation endpoints from rapid repeated calls.
+# Limits are configurable via env vars; defaults are intentionally permissive.
+# ---------------------------------------------------------------------------
+
+
+class _SlidingWindowRateLimiter:
+    """Thread-safe sliding-window rate limiter for async FastAPI handlers."""
+
+    def __init__(self, max_requests: int, window_seconds: float):
+        self._max = max_requests
+        self._window = window_seconds
+        self._buckets: Dict[str, list] = {}
+        self._lock = threading.Lock()
+
+    def _caller_key(self, request: Request) -> str:
+        forwarded_for = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        return forwarded_for or (request.client.host if request.client else "unknown")
+
+    def is_allowed(self, request: Request) -> bool:
+        key = self._caller_key(request)
+        now = time.monotonic()
+        cutoff = now - self._window
+        with self._lock:
+            timestamps = self._buckets.get(key, [])
+            timestamps = [t for t in timestamps if t > cutoff]
+            if len(timestamps) >= self._max:
+                self._buckets[key] = timestamps
+                return False
+            timestamps.append(now)
+            self._buckets[key] = timestamps
+        return True
+
+
+_backtest_rate_limiter: _SlidingWindowRateLimiter
+_instance_create_rate_limiter: _SlidingWindowRateLimiter
+
+
+def _check_backtest_rate_limit(request: Request) -> None:
+    """FastAPI dependency: raises 429 if backtest rate limit is exceeded."""
+    if not _backtest_rate_limiter.is_allowed(request):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many backtest requests. Please wait before retrying.",
+            headers={"Retry-After": str(int(_backtest_rate_limiter._window))},
+        )
+
+
+def _check_instance_rate_limit(request: Request) -> None:
+    """FastAPI dependency: raises 429 if instance-creation rate limit is exceeded."""
+    if not _instance_create_rate_limiter.is_allowed(request):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many instance creation requests. Please wait before retrying.",
+            headers={"Retry-After": str(int(_instance_create_rate_limiter._window))},
+        )
+
+
 def _read_non_negative_int_env(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -163,6 +222,16 @@ _BACKTEST_ENDPOINT_CACHE_TTL_SECONDS = _read_non_negative_int_env(
 _BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES = max(
     50,
     _read_non_negative_int_env("BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES", 512),
+)
+
+# Instantiate rate limiters now that _read_non_negative_int_env is defined.
+_backtest_rate_limiter = _SlidingWindowRateLimiter(
+    max_requests=_read_non_negative_int_env("RATE_LIMIT_BACKTEST_MAX_REQUESTS", 20),
+    window_seconds=float(os.getenv("RATE_LIMIT_BACKTEST_WINDOW_SECONDS", "60") or "60"),
+)
+_instance_create_rate_limiter = _SlidingWindowRateLimiter(
+    max_requests=_read_non_negative_int_env("RATE_LIMIT_INSTANCE_MAX_REQUESTS", 10),
+    window_seconds=float(os.getenv("RATE_LIMIT_INSTANCE_WINDOW_SECONDS", "60") or "60"),
 )
 _backtest_endpoint_cache: Dict[str, Dict[str, Any]] = {}
 _backtest_endpoint_cache_lock = threading.Lock()
@@ -1866,7 +1935,9 @@ def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) 
 
 @app.post("/api/v1/bots", response_model=BotOperationResult)
 async def create_bot_instance(
-    config: BotInstanceConfig, current_user: User = Depends(get_current_active_user)
+    config: BotInstanceConfig,
+    current_user: User = Depends(get_current_active_user),
+    _rate: None = Depends(_check_instance_rate_limit),
 ):
     """Create a new bot instance"""
     try:
@@ -3808,6 +3879,7 @@ def _get_live_progress_sync(run_id: str):
 @app.post("/api/v1/backtests", response_model=BacktestResponse)
 async def create_backtest(
     request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
+    _rate: None = Depends(_check_backtest_rate_limit),
 ):
     """Create and start a new backtest"""
     try:
@@ -3874,6 +3946,7 @@ async def create_backtest(
 @app.post("/api/v1/backtests/run")
 async def run_backtest_compat(
     request: BacktestRunRequestCompat,
+    _rate: None = Depends(_check_backtest_rate_limit),
 ):
     """Frontend-compatible backtest execution route."""
     try:

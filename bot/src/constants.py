@@ -11,6 +11,7 @@ else:
     MARKET_DATA_MODE = "MAINNET"
 
 import logging as _std_logging
+
 _std_logging.getLogger(__name__).debug("Market Data Mode: %s", MARKET_DATA_MODE)
 # Get bot settings from config
 bot_settings = _CONFIG.botSettings
@@ -18,7 +19,9 @@ if bot_settings is None:
     raise RuntimeError("botSettings configuration is missing")
 
 SUBACCOUNT_NUMBER = int(getattr(bot_settings, "subaccountNumber", 0) or 0)
-CAPITAL_ALLOCATION_USD = float(getattr(bot_settings, "capitalAllocationUsd", 0.0) or 0.0)
+CAPITAL_ALLOCATION_USD = float(
+    getattr(bot_settings, "capitalAllocationUsd", 0.0) or 0.0
+)
 
 # Close all open positions and orders
 ABORT_ALL_POSITIONS = bot_settings.abortAllPositions

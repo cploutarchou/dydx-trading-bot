@@ -543,8 +543,10 @@ class BotInstance:
                     self.logger.error(
                         f"Bot instance {self.instance_id} failed: {self._describe_exception(e)}"
                     )
-        raise
+            raise
 
+
+async def main():
     """Main entry point for bot instance"""
     try:
         args = parse_arguments()

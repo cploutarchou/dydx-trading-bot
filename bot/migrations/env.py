@@ -22,6 +22,7 @@ if not _env_url:
     _pass = os.environ.get("BOT_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD")
     if _host and _port and _name and _user:
         from urllib.parse import quote_plus as _quote_plus
+
         _env_url = f"postgresql+psycopg2://{_quote_plus(_user)}:{_quote_plus(_pass or '')}@{_host}:{_port}/{_name}"
 if _env_url:
     config.set_main_option("sqlalchemy.url", _env_url)

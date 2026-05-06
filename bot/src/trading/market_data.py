@@ -64,14 +64,19 @@ async def get_candles_recent(client, market, resolution=None):
     # Define output
     close_prices = []
 
-    effective_resolution = normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
+    effective_resolution = (
+        normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
+    )
 
     # Protect API
     await asyncio.sleep(0.2)
 
     # Get Prices from DYDX V4
-    response = await client.indexer.markets.get_perpetual_market_candles(
-        market=market, resolution=effective_resolution
+    response = await asyncio.wait_for(
+        client.indexer.markets.get_perpetual_market_candles(
+            market=market, resolution=effective_resolution
+        ),
+        timeout=15.0,
     )
 
     # Candles
@@ -91,7 +96,9 @@ async def get_candles_historical(client, market, resolution=None):
     # Define output
     close_prices = []
 
-    effective_resolution = normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
+    effective_resolution = (
+        normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
+    )
     # Refresh time windows each call so long-running processes use current timestamps
     iso_times = get_ISO_times()
 
@@ -106,19 +113,24 @@ async def get_candles_historical(client, market, resolution=None):
         # Protect rate limits
         await asyncio.sleep(0.2)
 
-        response = await client.indexer.markets.get_perpetual_market_candles(
-            market=market,
-            resolution=effective_resolution,
-            from_iso=from_iso,
-            to_iso=to_iso,
-            limit=100,
+        response = await asyncio.wait_for(
+            client.indexer.markets.get_perpetual_market_candles(
+                market=market,
+                resolution=effective_resolution,
+                from_iso=from_iso,
+                to_iso=to_iso,
+                limit=100,
+            ),
+            timeout=15.0,
         )
 
         candles = response
 
         # Structure data
         for candle in candles["candles"]:
-            close_prices.append({"datetime": candle["startedAt"], market: candle["close"]})
+            close_prices.append(
+                {"datetime": candle["startedAt"], market: candle["close"]}
+            )
 
     # Construct and return DataFrame
     close_prices.reverse()
@@ -127,7 +139,10 @@ async def get_candles_historical(client, market, resolution=None):
 
 async def get_markets(client):
     """Get list of all perpetual markets."""
-    return await client.indexer.markets.get_perpetual_markets()
+    return await asyncio.wait_for(
+        client.indexer.markets.get_perpetual_markets(),
+        timeout=15.0,
+    )
 
 
 async def construct_market_prices(client, selected_markets=None, resolution=None):
@@ -167,7 +182,9 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
         )
 
     # Set initial DataFrame
-    close_prices = await get_candles_historical(client, tradeable_markets[0], resolution=resolution)
+    close_prices = await get_candles_historical(
+        client, tradeable_markets[0], resolution=resolution
+    )
     df = pd.DataFrame(close_prices)
     df.set_index("datetime", inplace=True)
 
@@ -180,7 +197,9 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
             len(tradeable_markets),
             market,
         )
-        close_prices_add = await get_candles_historical(client, market, resolution=resolution)
+        close_prices_add = await get_candles_historical(
+            client, market, resolution=resolution
+        )
         df_add = pd.DataFrame(close_prices_add)
         try:
             df_add.set_index("datetime", inplace=True)

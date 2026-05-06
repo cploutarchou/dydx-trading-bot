@@ -75,7 +75,9 @@ async def main():
     try:
         current_config = load_config()
         logger.info("Configuration loaded successfully")
-        logger.info("Is Testnet: %s", current_config.is_testnet if current_config else "Unknown")
+        logger.info(
+            "Is Testnet: %s", current_config.is_testnet if current_config else "Unknown"
+        )
         logger.info(
             "Bot Strategy: %s",
             (
@@ -94,7 +96,7 @@ async def main():
         )
     except Exception as e:
         logger.error("Error loading configuration: %s", e)
-        sys.exit(1)
+        raise
     # Initialize Telegram messenger
     telegram_messenger = TelegramMessenger()
 
@@ -133,7 +135,7 @@ async def main():
             is_critical=True,
             category="connectivity_client",
         )
-        exit(1)
+        raise
 
     # Abort all open positions
     if ABORT_ALL_POSITIONS:
@@ -149,7 +151,7 @@ async def main():
                 is_critical=True,
                 category="risk_abort_positions",
             )
-            exit(1)
+            raise
 
     # Find Cointegrated Pairs
     if FIND_COINTEGRATED:
@@ -167,7 +169,7 @@ async def main():
                 is_critical=True,
                 category="market_data",
             )
-            exit(1)
+            raise
 
         # Store Cointegrated Pairs
         try:
@@ -176,7 +178,7 @@ async def main():
             stores_result = store_cointegration_results(df_market_prices)
             if stores_result != "saved":
                 print("Error saving cointegrated pairs")
-                exit(1)
+                raise RuntimeError("Failed to save cointegrated pairs")
         except Exception as e:
             print("Error saving cointegrated pairs: ", e)
             telegram_messenger.send_error_message(
@@ -185,7 +187,7 @@ async def main():
                 is_critical=True,
                 category="analysis_cointegration",
             )
-            exit(1)
+            raise
 
     # Run as always on
     try:
@@ -205,7 +207,7 @@ async def main():
                         is_critical=False,
                         category="execution_exit",
                     )
-                    exit(1)
+                    raise
 
             # Place trades for opening positions
             if PLACE_TRADES:
@@ -221,7 +223,7 @@ async def main():
                         is_critical=False,
                         category="execution_entry",
                     )
-                    exit(1)
+                    raise
 
     except KeyboardInterrupt:
         logger = logging.getLogger(__name__)
@@ -236,3 +238,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logging.info("Bot interrupted during startup")
         sys.exit(0)
+    except Exception as exc:
+        logging.error("Bot terminated with error: %s", exc)
+        sys.exit(1)

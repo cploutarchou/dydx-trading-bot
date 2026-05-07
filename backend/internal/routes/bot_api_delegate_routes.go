@@ -939,6 +939,50 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, nil)
 }
 
+// RegisterBotAPIDelegateRoutesWithSyncCacheAndPush registers delegated bot API endpoints
+// with optional backtest sync, Redis-backed cache, and a Redis pub/sub push hub for
+// WebSocket status streaming.
+func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
+	router *gin.Engine,
+	apiClient *services.BotAPIClient,
+	backtestSync *services.BacktestSyncService,
+	cache *services.CacheService,
+	pushHub *services.BacktestPushHub,
+) {
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, cache)
+
+	if pushHub == nil {
+		return
+	}
+
+	// WebSocket endpoint for Redis-backed backtest status push
+	// GET /api/v1/backtests/:run_id/push  (requires auth)
+	backtestPush := router.Group("/api/v1/backtests")
+	backtestPush.Use(middleware.RequireAuth())
+	backtestPush.GET("/:run_id/push", func(c *gin.Context) {
+		runID := strings.TrimSpace(c.Param("run_id"))
+		if runID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "run_id required"})
+			return
+		}
+		conn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			return
+		}
+		pushHub.Subscribe(runID, conn)
+		defer func() {
+			pushHub.Unsubscribe(runID, conn)
+			_ = conn.Close()
+		}()
+		// Block until the client disconnects
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+}
+
 // RegisterBotAPIDelegateRoutesWithSyncAndCache registers delegated bot API endpoints with
 // optional backtest sync and optional Redis-backed response cache for hot polling paths.
 func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService, cache *services.CacheService) {

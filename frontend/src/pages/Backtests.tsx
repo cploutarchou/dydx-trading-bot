@@ -13,7 +13,7 @@ import {
     Target,
     TrendingUp,
 } from 'lucide-react';
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
@@ -405,6 +405,47 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         .slice(0, 6),
     [backtestsQuery.data]
   );
+
+  // Subscribe to Redis-backed WebSocket push for each active run so that
+  // progress updates arrive via push instead of only via polling.
+  const wsRefs = useRef<Map<string, WebSocket>>(new Map());
+  useEffect(() => {
+    const activeIds = new Set(activeRunsQuickAccess.map((r) => r.run_id).filter(Boolean));
+
+    // Close sockets for runs no longer active
+    for (const [id, ws] of wsRefs.current.entries()) {
+      if (!activeIds.has(id)) {
+        ws.close();
+        wsRefs.current.delete(id);
+      }
+    }
+
+    // Open sockets for newly active runs
+    for (const runId of activeIds) {
+      if (wsRefs.current.has(runId)) continue;
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const ws = new WebSocket(`${proto}//${host}/api/v1/backtests/${runId}/push`);
+      ws.addEventListener('message', () => {
+        void queryClient.invalidateQueries({ queryKey: ['backtests', 'status', runId] });
+        void queryClient.invalidateQueries({ queryKey: ['backtests'] });
+      });
+      ws.addEventListener('close', () => {
+        wsRefs.current.delete(runId);
+      });
+      wsRefs.current.set(runId, ws);
+    }
+
+    return () => {
+      // Component unmount: close all sockets
+      for (const ws of wsRefs.current.values()) {
+        ws.close();
+      }
+      wsRefs.current.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunsQuickAccess.map((r) => r.run_id).join(',')]);
+
   const activeRunLiveStatusQueries = useQueries({
     queries: activeRunsQuickAccess.map((run) => ({
       queryKey: ['backtests', 'status', run.run_id, 'quick-access'],

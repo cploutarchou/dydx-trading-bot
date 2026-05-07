@@ -168,6 +168,20 @@ func (ccs *CandleCacheService) GetLatestCandle(runID int, market string) (*model
 	return &candle, nil
 }
 
+// GetAggregatedChart retrieves pre-aggregated OHLCV bars for a run+market+resolution
+// from Redis (written by the Python aggregate_backtest_candles Celery task).
+// Returns the raw JSON string (caller deserialises) and nil error on cache hit,
+// or ("", nil) on cache miss, or ("", err) on Redis error.
+// resolution must be "1min" or "1hour".
+func (ccs *CandleCacheService) GetAggregatedChart(runID, market, resolution string) (string, error) {
+	key := fmt.Sprintf("backtest:chart:%s:%s:%s", resolution, runID, market)
+	val, err := ccs.cache.GetCacheString(key)
+	if err != nil {
+		return "", fmt.Errorf("GetAggregatedChart: %w", err)
+	}
+	return val, nil
+}
+
 // PrefetchCandlesForRun fetches all candles for a completed run from the
 // backtest_candles table and stores them in Redis (24h TTL by default).
 // Call this after a backtest completes so the first chart render is cache-warm.

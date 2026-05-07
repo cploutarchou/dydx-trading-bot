@@ -10,6 +10,7 @@ import (
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
+	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
@@ -50,6 +51,9 @@ func RegisterBackofficeRoutes(router *gin.Engine, database *sql.DB) {
 		backoffice.PUT("/crm/commission-metrics/:user_id", middleware.RequirePermission(database, "finance.manage"), upsertCommissionMetricsHandler(database))
 
 		backoffice.GET("/audit-logs", middleware.RequirePermission(database, "audit.read"), backofficeAuditLogsHandler(database))
+
+		// Bot API gateway stats (admin-only, in-memory counters)
+		backoffice.GET("/bot-api-stats", middleware.RequirePermission(database, "users.read"), botAPIStatsHandler())
 	}
 }
 
@@ -396,4 +400,12 @@ func mapKeys(values map[string]interface{}) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+// botAPIStatsHandler returns in-process counters for the Go→Bot API gateway.
+func botAPIStatsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		stats := services.BotAPIStats()
+		c.JSON(http.StatusOK, gin.H{"data": stats})
+	}
 }

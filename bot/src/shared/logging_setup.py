@@ -59,7 +59,13 @@ def _effective_log_level() -> str:
 def _suppress_noisy_libraries() -> None:
     logging.getLogger("dydx_v4_client").setLevel(logging.WARNING)
     if _effective_log_level() == "DEBUG":
-        for name in ("urllib3", "urllib3.connectionpool", "requests", "httpx", "httpcore"):
+        for name in (
+            "urllib3",
+            "urllib3.connectionpool",
+            "requests",
+            "httpx",
+            "httpcore",
+        ):
             logging.getLogger(name).setLevel(logging.WARNING)
 
 
@@ -69,12 +75,12 @@ def _configure_standard_logging_bridge(level: int) -> None:
     logging.root.setLevel(level)
 
     for name in (
-            "uvicorn",
-            "uvicorn.error",
-            "uvicorn.access",
-            "fastapi",
-            "sqlalchemy",
-            "alembic",
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        "fastapi",
+        "sqlalchemy",
+        "alembic",
     ):
         std_logger = logging.getLogger(name)
         std_logger.handlers = [intercept]
@@ -92,9 +98,10 @@ def _configure_console_sink(level: str) -> None:
         "<blue>func={function}</blue> | "
         "<magenta>line={line}</magenta> | "
         "<yellow>process={process.id}</yellow> | "
+        "<dim>trace_id={extra[trace_id]}</dim> | "
         "{message}"
         if is_colored_local
-        else "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | module={name} | func={function} | line={line} | process={process.id} | {message}"
+        else "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | module={name} | func={function} | line={line} | process={process.id} | trace_id={extra[trace_id]} | {message}"
     )
 
     logger.remove()
@@ -114,12 +121,12 @@ def _configure_console_sink(level: str) -> None:
 
 
 def send_to_loki_directly(
-        message: str,
-        level: str,
-        labels: Dict[str, str],
-        url: str,
-        username: str,
-        password: str,
+    message: str,
+    level: str,
+    labels: Dict[str, str],
+    url: str,
+    username: str,
+    password: str,
 ) -> bool:
     """Send one record to Loki via HTTP API."""
 
@@ -189,6 +196,9 @@ def setup_logging() -> None:
     global _LOGGING_CONFIGURED
     if _LOGGING_CONFIGURED:
         return
+
+    # Ensure trace_id is always present in extra so format strings never raise KeyError
+    logger.configure(extra={"trace_id": ""})
 
     level_name = _effective_log_level()
     level = getattr(logging, level_name, logging.INFO)

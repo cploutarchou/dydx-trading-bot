@@ -182,8 +182,86 @@ class _SlidingWindowRateLimiter:
         return True
 
 
-_backtest_rate_limiter: _SlidingWindowRateLimiter
-_instance_create_rate_limiter: _SlidingWindowRateLimiter
+class _RedisSlidingWindowRateLimiter:
+    """Redis-backed sliding-window rate limiter using sorted sets.
+
+    Falls back transparently to the in-process limiter on any Redis error so
+    the API remains available even when Redis is down.
+    """
+
+    def __init__(
+        self,
+        max_requests: int,
+        window_seconds: float,
+        endpoint_label: str,
+        fallback: "_SlidingWindowRateLimiter",
+    ):
+        self._max = max_requests
+        self._window = window_seconds
+        self._label = endpoint_label
+        self._fallback = fallback
+        self._redis_client: Any = None
+        self._redis_unavailable = False
+        self._redis_retry_at: float = 0.0
+
+    def _get_redis(self) -> Any:
+        import importlib as _importlib
+
+        now = time.monotonic()
+        if self._redis_unavailable and now < self._redis_retry_at:
+            return None
+        if self._redis_client is not None:
+            return self._redis_client
+        if _importlib.util.find_spec("redis") is None:
+            self._redis_unavailable = True
+            return None
+        try:
+            import redis as _redis
+
+            url = (
+                os.getenv("CELERY_BROKER_URL")
+                or os.getenv("REDIS_URL")
+                or "redis://localhost:6379/0"
+            )
+            self._redis_client = _redis.from_url(
+                url,
+                decode_responses=True,
+                socket_connect_timeout=0.5,
+                socket_timeout=0.5,
+            )
+            self._redis_unavailable = False
+            return self._redis_client
+        except Exception:
+            self._redis_unavailable = True
+            self._redis_retry_at = time.monotonic() + 30.0
+            return None
+
+    def _caller_key(self, request: Request) -> str:
+        forwarded_for = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        ip = forwarded_for or (request.client.host if request.client else "unknown")
+        return f"ratelimit:{self._label}:{ip}"
+
+    def is_allowed(self, request: Request) -> bool:
+        rc = self._get_redis()
+        if rc is None:
+            return self._fallback.is_allowed(request)
+        key = self._caller_key(request)
+        now_ts = time.time()
+        cutoff = now_ts - self._window
+        try:
+            pipe = rc.pipeline()
+            pipe.zremrangebyscore(key, "-inf", cutoff)
+            pipe.zadd(key, {str(now_ts): now_ts})
+            pipe.zcard(key)
+            pipe.expire(key, int(self._window) + 1)
+            results = pipe.execute()
+            count = int(results[2])
+            return count <= self._max
+        except Exception:
+            self._redis_client = None
+            self._redis_unavailable = True
+            self._redis_retry_at = time.monotonic() + 30.0
+            return self._fallback.is_allowed(request)
 
 
 def _check_backtest_rate_limit(request: Request) -> None:
@@ -225,13 +303,29 @@ _BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES = max(
 )
 
 # Instantiate rate limiters now that _read_non_negative_int_env is defined.
-_backtest_rate_limiter = _SlidingWindowRateLimiter(
+_backtest_rate_limiter_fallback = _SlidingWindowRateLimiter(
     max_requests=_read_non_negative_int_env("RATE_LIMIT_BACKTEST_MAX_REQUESTS", 20),
     window_seconds=float(os.getenv("RATE_LIMIT_BACKTEST_WINDOW_SECONDS", "60") or "60"),
 )
-_instance_create_rate_limiter = _SlidingWindowRateLimiter(
+_backtest_rate_limiter: _RedisSlidingWindowRateLimiter = _RedisSlidingWindowRateLimiter(
+    max_requests=_read_non_negative_int_env("RATE_LIMIT_BACKTEST_MAX_REQUESTS", 20),
+    window_seconds=float(os.getenv("RATE_LIMIT_BACKTEST_WINDOW_SECONDS", "60") or "60"),
+    endpoint_label="backtest",
+    fallback=_backtest_rate_limiter_fallback,
+)
+_instance_create_rate_limiter_fallback = _SlidingWindowRateLimiter(
     max_requests=_read_non_negative_int_env("RATE_LIMIT_INSTANCE_MAX_REQUESTS", 10),
     window_seconds=float(os.getenv("RATE_LIMIT_INSTANCE_WINDOW_SECONDS", "60") or "60"),
+)
+_instance_create_rate_limiter: _RedisSlidingWindowRateLimiter = (
+    _RedisSlidingWindowRateLimiter(
+        max_requests=_read_non_negative_int_env("RATE_LIMIT_INSTANCE_MAX_REQUESTS", 10),
+        window_seconds=float(
+            os.getenv("RATE_LIMIT_INSTANCE_WINDOW_SECONDS", "60") or "60"
+        ),
+        endpoint_label="instance_create",
+        fallback=_instance_create_rate_limiter_fallback,
+    )
 )
 _backtest_endpoint_cache: Dict[str, Dict[str, Any]] = {}
 _backtest_endpoint_cache_lock = threading.Lock()
@@ -1866,7 +1960,8 @@ async def request_trace_logging_middleware(request: Request, call_next):
         )
 
     try:
-        response = await call_next(request)
+        with logger.contextualize(trace_id=trace_id):
+            response = await call_next(request)
     except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         logger.exception(

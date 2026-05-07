@@ -431,6 +431,19 @@ export interface CRMSummaryResponse extends Record<string, unknown> {
   pending_partner_applications: number;
 }
 
+export interface BotAPIStatsResponse extends Record<string, unknown> {
+  TotalRequests: number;
+  SuccessfulRequests: number;
+  FailedRequests: number;
+  TransportFailures: number;
+  Timeouts: number;
+  Upstream4xx: number;
+  Upstream5xx: number;
+  TotalLatencyMillis: number;
+  AverageLatencyMillis: number;
+  MaxLatencyMillis: number;
+}
+
 export interface CRMUserRow extends Record<string, unknown> {
   id: number;
   username: string;
@@ -2753,6 +2766,13 @@ class ApiClient {
     }
   }
 
+  async getBotAPIStats(): Promise<ApiResponse<{ data: BotAPIStatsResponse }>> {
+    const response = await this.client.get<ApiResponse<{ data: BotAPIStatsResponse }>>(
+      '/api/v1/backoffice/bot-api-stats'
+    );
+    return response.data;
+  }
+
   async getCRMUsersTable(): Promise<ApiResponse<CRMUsersTableResponse>> {
     try {
       const response = await this.client.get<ApiResponse<CRMUsersTableResponse>>(
@@ -3269,13 +3289,15 @@ class ApiClient {
     runId: string,
     market?: string,
     startDate?: string,
-    endDate?: string
+    endDate?: string,
+    resolution?: '1min' | '1hour'
   ): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     const params = new URLSearchParams();
     if (market) params.append('market', market);
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
+    if (resolution) params.append('resolution', resolution);
 
     const url = `/api/v1/backtests/${runId}/candles${params.toString() ? `?${params}` : ''}`;
     const response = await this.client.get<ApiResponse>(url);

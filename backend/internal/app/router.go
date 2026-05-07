@@ -20,11 +20,12 @@ import (
 )
 
 type Dependencies struct {
-	Database     *db.Database
-	BotAPIClient *services.BotAPIClient
-	CacheService *services.CacheService
-	BotAPIURL    string
-	StartTime    time.Time
+	Database        *db.Database
+	BotAPIClient    *services.BotAPIClient
+	CacheService    *services.CacheService
+	BacktestPushHub *services.BacktestPushHub
+	BotAPIURL       string
+	StartTime       time.Time
 }
 
 func ResolveBotAPIURL() string {
@@ -75,14 +76,24 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 		)
 	}
 
+	// Build BacktestPushHub if Redis is enabled
+	if deps.BacktestPushHub == nil && cfg.Redis.Enabled {
+		deps.BacktestPushHub = services.NewBacktestPushHub(
+			cfg.Redis.Host,
+			cfg.Redis.Port,
+			cfg.Redis.Password,
+			cfg.Redis.Db,
+		)
+	}
+
 	registerHealthRoutes(router, cfg, deps.Database, deps.BotAPIURL, deps.StartTime)
-	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService)
+	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub)
 	registerDebugRoutes(router, deps.Database)
 
 	return router, nil
 }
 
-func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService) {
+func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub) {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterBackofficeRoutes(router, database.DB)
@@ -95,7 +106,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
 
 	routes.RegisterBotInstanceRoutes(router, database, cacheService)
-	routes.RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSyncService, cacheService)
+	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub)
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)

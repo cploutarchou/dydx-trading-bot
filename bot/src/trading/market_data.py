@@ -1,7 +1,10 @@
 """Market data retrieval and price construction for dYdX."""
 
 import asyncio
+import importlib.util
+import os
 import time
+from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -22,6 +25,81 @@ ISO_TIMES = get_ISO_times()
 _markets_cache: dict = {"data": None, "expires": 0.0}
 # key: (market, resolution) → {"data": pd.Series, "expires": float}
 _candles_recent_cache: dict = {}
+
+# ── Token-bucket rate limiter (aiolimiter) ────────────────────────────────────
+# Defaults: 5 requests per 1-second window (configurable via env vars).
+# Falls back to legacy asyncio.sleep throttle if aiolimiter is not installed.
+_DYDX_RATE_LIMIT_RPS = float(os.getenv("DYDX_RATE_LIMIT_RPS", "5"))
+_DYDX_RATE_LIMIT_WINDOW = float(os.getenv("DYDX_RATE_LIMIT_WINDOW", "1.0"))
+_rate_limiter = None  # type: ignore[assignment]
+
+if importlib.util.find_spec("aiolimiter") is not None:
+    try:
+        from aiolimiter import AsyncLimiter  # type: ignore[import]
+
+        _rate_limiter = AsyncLimiter(
+            max_rate=_DYDX_RATE_LIMIT_RPS,
+            time_period=_DYDX_RATE_LIMIT_WINDOW,
+        )
+    except Exception:
+        _rate_limiter = None
+
+
+async def _throttle_api_call() -> None:
+    """Acquire one slot from the token-bucket rate limiter, or fall back to sleep."""
+    if _rate_limiter is not None:
+        async with _rate_limiter:
+            return
+    if DYDX_API_THROTTLE_SECONDS > 0:
+        await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
+
+
+# ── Circuit breaker (pybreaker) ───────────────────────────────────────────────
+# Opens after DYDX_CIRCUIT_FAIL_MAX consecutive failures within
+# DYDX_CIRCUIT_RESET_TIMEOUT seconds; transitions to half-open after the reset
+# timeout, then closes on the first success.  Falls back to a no-op wrapper
+# when pybreaker is not installed.
+_CIRCUIT_FAIL_MAX = int(os.getenv("DYDX_CIRCUIT_FAIL_MAX", "3"))
+_CIRCUIT_RESET_TIMEOUT = int(os.getenv("DYDX_CIRCUIT_RESET_TIMEOUT", "30"))
+_dydx_circuit_breaker: Any = None
+
+if importlib.util.find_spec("pybreaker") is not None:
+    try:
+        import pybreaker as _pybreaker  # type: ignore[import]
+
+        class _CircuitBreakerListener(_pybreaker.CircuitBreakerListener):  # type: ignore[misc]
+            def state_change(self, cb, old_state, new_state):  # type: ignore[override]
+                if new_state.name == "open":
+                    logger.critical(
+                        "dydx_circuit_breaker_open fail_max={} recent_failures={}",
+                        _CIRCUIT_FAIL_MAX,
+                        cb.fail_counter,
+                    )
+                elif new_state.name == "closed":
+                    logger.info("dydx_circuit_breaker_closed")
+                elif new_state.name == "half-open":
+                    logger.info("dydx_circuit_breaker_half_open")
+
+        _dydx_circuit_breaker = _pybreaker.CircuitBreaker(
+            fail_max=_CIRCUIT_FAIL_MAX,
+            reset_timeout=_CIRCUIT_RESET_TIMEOUT,
+            listeners=[_CircuitBreakerListener()],
+            name="dydx_api",
+        )
+    except Exception:
+        _dydx_circuit_breaker = None
+
+
+async def _circuit_call(coro_factory):
+    """Run *coro_factory()* guarded by the dYdX circuit breaker.
+
+    Falls back to direct execution when pybreaker is not installed.
+    Raises ``pybreaker.CircuitBreakerError`` when the circuit is open so callers
+    can return cached data instead of failing.
+    """
+    if _dydx_circuit_breaker is None:
+        return await coro_factory()
+    return await _dydx_circuit_breaker.call_async(coro_factory)
 
 
 def normalize_resolution(resolution):
@@ -87,17 +165,66 @@ async def get_candles_recent(client, market, resolution=None):
         if cached is not None and now < cached["expires"]:
             return cached["data"]
 
-    # Protect API rate limits
-    if DYDX_API_THROTTLE_SECONDS > 0:
-        await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
+    # Check shared Redis cache (written by the Celery Beat market sync task)
+    try:
+        import os as _os
+        import redis as _redis
 
-    # Get Prices from DYDX V4
-    response = await asyncio.wait_for(
-        client.indexer.markets.get_perpetual_market_candles(
-            market=market, resolution=effective_resolution
-        ),
-        timeout=15.0,
-    )
+        _rc = _redis.from_url(
+            _os.getenv("CELERY_BROKER_URL")
+            or _os.getenv("REDIS_URL")
+            or "redis://localhost:6379/0",
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        _redis_val = _rc.get(f"market:candles:{market}:{effective_resolution}")
+        _rc.close()
+        if _redis_val:
+            import json as _json
+
+            _redis_data = _json.loads(_redis_val)
+            if CANDLES_RECENT_CACHE_TTL_SECONDS > 0:
+                _candles_recent_cache[cache_key] = {
+                    "data": _redis_data,
+                    "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
+                }
+            return _redis_data
+    except Exception:
+        pass  # Redis unavailable — fall through to direct API call
+
+    # Protect API rate limits
+    await _throttle_api_call()
+
+    # Get Prices from DYDX V4 (guarded by circuit breaker)
+    _fetch_start = time.monotonic()
+    try:
+        response = await _circuit_call(
+            lambda: asyncio.wait_for(
+                client.indexer.markets.get_perpetual_market_candles(
+                    market=market, resolution=effective_resolution
+                ),
+                timeout=15.0,
+            )
+        )
+    except Exception as _exc:
+        _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
+        logger.warning(
+            "candle_fetch_error market={} resolution={} latency_ms={:.1f} error={}",
+            market,
+            effective_resolution,
+            _latency_ms,
+            _exc,
+        )
+        raise
+    else:
+        _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
+        logger.debug(
+            "candle_fetch_ok type=recent market={} resolution={} latency_ms={:.1f}",
+            market,
+            effective_resolution,
+            _latency_ms,
+        )
 
     close_prices = []
     for candle in response["candles"]:
@@ -141,19 +268,42 @@ async def get_candles_historical(client, market, resolution=None):
         to_iso = tf_obj["to_iso"]
 
         # Protect rate limits
-        if DYDX_API_THROTTLE_SECONDS > 0:
-            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
+        await _throttle_api_call()
 
-        response = await asyncio.wait_for(
-            client.indexer.markets.get_perpetual_market_candles(
-                market=market,
-                resolution=effective_resolution,
-                from_iso=from_iso,
-                to_iso=to_iso,
-                limit=100,
-            ),
-            timeout=15.0,
-        )
+        _fetch_start = time.monotonic()
+        try:
+            response = await _circuit_call(
+                lambda: asyncio.wait_for(
+                    client.indexer.markets.get_perpetual_market_candles(
+                        market=market,
+                        resolution=effective_resolution,
+                        from_iso=from_iso,
+                        to_iso=to_iso,
+                        limit=100,
+                    ),
+                    timeout=15.0,
+                )
+            )
+        except Exception as _exc:
+            _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
+            logger.warning(
+                "candle_fetch_error type=historical market={} resolution={} timeframe={} latency_ms={:.1f} error={}",
+                market,
+                effective_resolution,
+                timeframe,
+                _latency_ms,
+                _exc,
+            )
+            raise
+        else:
+            _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
+            logger.debug(
+                "candle_fetch_ok type=historical market={} resolution={} timeframe={} latency_ms={:.1f}",
+                market,
+                effective_resolution,
+                timeframe,
+                _latency_ms,
+            )
 
         candles = response
 

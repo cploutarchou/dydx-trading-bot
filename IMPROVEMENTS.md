@@ -151,7 +151,7 @@ Status:
 - documented subscription tier specifications, lifecycle (trial/active/expired/canceled), and feature gating enforcement in OPERATIONS.md
 - frontend subscription state display deferred to follow-up; backend DB integration for actual gating checks planned for next phase
 
-1. Public website conversion and trust layer
+1. [x] Public website conversion and trust layer
 Owner: frontend
 Why: the site looks better now, but still needs the trust, conversion, and clarity expected from a DeFi platform.
 Deliverables:
@@ -159,6 +159,11 @@ Deliverables:
 - stronger enterprise/trust/compliance content
 - better subscription funnel and onboarding flow
 - clearer risk disclosures and “how it works” sections
+Status:
+- completed 2026-05-07
+- strengthened public trust/compliance messaging on `Landing` with controls-first onboarding, transparent operating model, and audit-ready operations proof points
+- improved subscription funnel clarity on `Pricing` with explicit step-by-step flow from evaluation through security readiness to live activation
+- added dedicated risk disclosure sections on both `Landing` and `Pricing` with explicit statements on trading risk, simulated performance limits, market/liquidity variability, and user compliance responsibility
 
 ### P1. Operator UX and Product Quality
 

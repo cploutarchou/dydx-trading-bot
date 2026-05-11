@@ -55,8 +55,11 @@ No default business logic changed:
 - Added scan cycle IDs and rejection reason logs.
 - Added centralized rejection-reason counters (`rejection_reasons`) in arbitrage metrics payloads.
 - Surfaced top rejection reasons in `frontend/src/components/ArbitrageImprovementPanel.tsx` as additive operator diagnostics.
+- Added UI action to fetch explainability details for a selected rejection reason via delegated endpoint.
 - Locked backend delegated metrics contract to preserve `rejection_reasons` in `bot_api_delegate_control_plane_test`.
 - Added backend proxy and integration assertion for delegated opportunity explain diagnostics.
+- Added an operator playbook in `README.md` for safely using flags/metrics/explainability to improve efficiency without changing core trading logic.
+- Added `docs/arbitrage-day1-rollout-command-sheet.md` with exact rollout-window commands and expected checks.
 - Added import-safe Celery hook modules for configured market sync and candle aggregation tasks.
 
 ## Files Changed
@@ -132,6 +135,10 @@ Passed in this session:
 # latest run: 10 passed
 cd /home/chris/workspace/dydx-trading-bot/backend && go test -tags integration ./internal/routes -run TestDelegateCapabilitiesAndRuntimeDBConfigRoutes -count=1
 # latest run: ok
+cd /home/chris/workspace/dydx-trading-bot && /home/chris/workspace/dydx-trading-bot/.venv/bin/python scripts/validate_docs_governance.py
+# latest run: [OK] Documentation governance validated across 23 markdown files
+/home/chris/workspace/dydx-trading-bot/.venv/bin/python scripts/validate_docs_governance.py
+# latest run: [OK] Documentation governance validated across 25 markdown files
 ```
 
 Not rerun in this session:

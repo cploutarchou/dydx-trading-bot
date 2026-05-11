@@ -22,6 +22,7 @@
 - Bot `/api/v1/arbitrage/improvement-metrics` and `/api/v1/arbitrage/pair-priority` endpoints.
 - Authenticated backend proxy routes for the arbitrage diagnostics endpoints.
 - Frontend bot-manager panel for feature-flag state, saved-call counters, and pair-priority explanations.
+- Admin-only `Settings -> Arbitrage Runtime` controls backed by `bot_settings` and synchronized to the bot runtime.
 
 ## Future Safe Additions
 
@@ -32,4 +33,5 @@
 
 ## Rollback
 
-Set all feature flags false. The added logs and metrics are passive and do not require schema rollback.
+Set all feature flags false in `Settings -> Arbitrage Runtime` or in env defaults, then save and sync.
+The added logs, metrics, and settings rows are passive and do not require schema rollback.

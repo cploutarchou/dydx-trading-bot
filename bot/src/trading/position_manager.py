@@ -10,9 +10,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 from loguru import logger
 from src.constants import (
-    ARBITRAGE_IMPROVEMENTS_ENABLED,
     CLOSE_AT_ZSCORE_CROSS,
-    PAIR_PRIORITY_ENGINE_ENABLED,
     USD_MIN_COLLATERAL,
     USD_PER_TRADE,
     ZSCORE_THRESH,
@@ -37,6 +35,11 @@ from src.trading.bot_agents_state import (
     save_processed_positions,
 )
 from src.trading.market_data import get_candles_recent, get_markets
+from src.trading.arbitrage_runtime_config import (
+    is_arbitrage_improvements_enabled,
+    is_pair_priority_engine_enabled,
+    pair_priority_max_pairs,
+)
 from src.trading.pair_priority import prioritize_pairs
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
@@ -107,7 +110,7 @@ async def _get_recent_candles_for_cycle(
         market: str,
         cycle_cache: Optional[Dict[str, Any]],
 ):
-    if not ARBITRAGE_IMPROVEMENTS_ENABLED or cycle_cache is None:
+    if not is_arbitrage_improvements_enabled() or cycle_cache is None:
         return await get_candles_recent(client, market)
     if market in cycle_cache:
         increment_metric("duplicate_api_calls_avoided_total")
@@ -342,8 +345,9 @@ async def open_positions(client):
     market_map = markets.get("markets", {}) if isinstance(markets, dict) else {}
 
     priority_scores = []
-    if PAIR_PRIORITY_ENGINE_ENABLED:
-        max_pairs = int(os.getenv("PAIR_PRIORITY_MAX_PAIRS", "0") or "0")
+    pair_priority_enabled = is_pair_priority_engine_enabled()
+    if pair_priority_enabled:
+        max_pairs = pair_priority_max_pairs()
         pairs, priority_scores = prioritize_pairs(
             pairs,
             market_map=market_map,
@@ -363,12 +367,14 @@ async def open_positions(client):
 
     # Convert to DataFrame for backward compatibility with existing logic
     df = pd.DataFrame([pair.to_dict() for pair in pairs])
-    cycle_candle_cache: Optional[Dict[str, Any]] = {} if ARBITRAGE_IMPROVEMENTS_ENABLED else None
+    cycle_candle_cache: Optional[Dict[str, Any]] = (
+        {} if is_arbitrage_improvements_enabled() else None
+    )
     logger.info(
         "arbitrage_scan_cycle_start cycle_id={} pair_candidates={} pair_priority_enabled={}",
         scan_cycle_id,
         len(df),
-        PAIR_PRIORITY_ENGINE_ENABLED,
+        pair_priority_enabled,
     )
 
     # Find ZScore triggers

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from src.infrastructure.domain.cointegration_storage import CointegrationResult
+from src.trading.arbitrage_runtime_config import update_runtime_settings
 from src.trading.pair_priority import is_pair_analysis_stale, prioritize_pairs, score_pair
 
 
@@ -19,8 +20,8 @@ def _pair(base: str, quote: str, *, confidence: float, z_std: float, ts: str):
     )
 
 
-def test_pair_priority_scores_internal_cointegration_data(monkeypatch):
-    monkeypatch.setenv("PAIR_PRIORITY_STALE_SECONDS", "86400")
+def test_pair_priority_scores_internal_cointegration_data():
+    update_runtime_settings({"PAIR_PRIORITY_STALE_SECONDS": 86400})
     now = datetime.now(timezone.utc)
     strong = _pair(
         "ETH-USD",
@@ -46,8 +47,8 @@ def test_pair_priority_scores_internal_cointegration_data(monkeypatch):
     ]
 
 
-def test_pair_priority_marks_stale_analysis(monkeypatch):
-    monkeypatch.setenv("PAIR_PRIORITY_STALE_SECONDS", "60")
+def test_pair_priority_marks_stale_analysis():
+    update_runtime_settings({"PAIR_PRIORITY_STALE_SECONDS": 60})
     now = datetime.now(timezone.utc)
     stale = _pair(
         "SOL-USD",

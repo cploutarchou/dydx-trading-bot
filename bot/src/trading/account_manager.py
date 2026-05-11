@@ -8,9 +8,10 @@ from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
 from loguru import logger
-from src.constants import ARBITRAGE_IMPROVEMENTS_ENABLED, DYDX_ADDRESS, SUBACCOUNT_NUMBER
+from src.constants import DYDX_ADDRESS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
 from src.trading.bot_agents_state import clear_tracked_positions
+from src.trading.arbitrage_runtime_config import is_arbitrage_improvements_enabled
 from src.trading.market_data import get_markets
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
@@ -41,7 +42,7 @@ async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
     ticker = str(order["ticker"])
-    if ARBITRAGE_IMPROVEMENTS_ENABLED:
+    if is_arbitrage_improvements_enabled():
         markets_payload = await get_markets(client)
     else:
         markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
@@ -205,7 +206,7 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Initialize
     ticker = str(market)
     current_block = await client.node.latest_block_height()
-    if ARBITRAGE_IMPROVEMENTS_ENABLED:
+    if is_arbitrage_improvements_enabled():
         markets_payload = await get_markets(client)
     else:
         markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)

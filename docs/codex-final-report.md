@@ -44,6 +44,7 @@ No default business logic changed:
 - Added `/metrics`, `/api/v1/arbitrage/improvement-metrics`, and `/api/v1/arbitrage/pair-priority` to the bot API.
 - Added authenticated Go backend proxy routes for the new arbitrage diagnostics.
 - Added a frontend arbitrage intelligence panel on the non-embedded bot manager surface.
+- Added admin Settings controls that persist arbitrage runtime flags in `bot_settings` and sync them to the bot process.
 - Added same-cycle recent-candle de-duplication behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Reused cached market metadata for order placement/cancellation behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Added optional pair-priority scoring behind `PAIR_PRIORITY_ENGINE_ENABLED`.
@@ -58,6 +59,7 @@ No default business logic changed:
 - `bot/src/constants.py`
 - `bot/src/api/server.py`
 - `bot/src/trading/arbitrage_observability.py`
+- `bot/src/trading/arbitrage_runtime_config.py`
 - `bot/src/trading/pair_priority.py`
 - `bot/src/trading/market_data.py`
 - `bot/src/trading/position_manager.py`
@@ -65,12 +67,16 @@ No default business logic changed:
 - `bot/src/infrastructure/workers/market_sync_tasks.py`
 - `bot/src/infrastructure/workers/candle_aggregate_tasks.py`
 - `backend/internal/services/bot_api_client_extended.go`
+- `backend/internal/routes/arbitrage_settings_routes.go`
+- `backend/internal/routes/arbitrage_settings_routes_test.go`
 - `backend/internal/routes/bot_api_delegate_routes.go`
 - `backend/internal/routes/bot_api_delegate_control_plane_test.go`
 - `backend/internal/routes/bot_instance_contract_lock_test.go`
 - `frontend/src/api.ts`
 - `frontend/src/components/BotManager.tsx`
 - `frontend/src/components/ArbitrageImprovementPanel.tsx`
+- `frontend/src/components/ArbitrageRuntimeSettings.tsx`
+- `frontend/src/pages/Settings.tsx`
 - `bot/tests/test_pair_priority_engine.py`
 - `bot/tests/test_arbitrage_cycle_cache.py`
 - `docs/current-project-arbitrage-analysis.md`
@@ -97,14 +103,16 @@ Optional tuning:
 
 - Pair-priority scoring and stale-analysis detection.
 - Same-cycle candle cache behavior enabled and disabled.
+- Backend DB-backed arbitrage runtime setting persistence and bot payload mapping.
 
 ## Verification
 
 Passed:
 
 ```bash
-python3 -m py_compile bot/src/trading/arbitrage_observability.py bot/src/trading/pair_priority.py bot/src/trading/position_manager.py bot/src/trading/market_data.py bot/src/trading/account_manager.py bot/src/api/server.py bot/src/infrastructure/workers/market_sync_tasks.py bot/src/infrastructure/workers/candle_aggregate_tasks.py bot/tests/test_pair_priority_engine.py bot/tests/test_arbitrage_cycle_cache.py
+python3 -m py_compile bot/src/trading/arbitrage_runtime_config.py bot/src/trading/arbitrage_observability.py bot/src/trading/pair_priority.py bot/src/trading/position_manager.py bot/src/trading/market_data.py bot/src/trading/account_manager.py bot/src/api/server.py bot/src/infrastructure/workers/market_sync_tasks.py bot/src/infrastructure/workers/candle_aggregate_tasks.py bot/tests/test_pair_priority_engine.py bot/tests/test_arbitrage_cycle_cache.py
 cd backend && go test ./internal/services ./internal/routes
+cd backend && go test ./internal/services ./internal/routes ./internal/app
 cd backend && go test -tags integration ./internal/routes -run TestDelegateCapabilitiesAndRuntimeDBConfigRoutes
 python3 scripts/validate_docs_governance.py
 ```
@@ -134,15 +142,17 @@ Actual reduction depends on pair overlap. A pair universe with shared high-liqui
 - Pair-priority ranking changes scan order when explicitly enabled.
 - `PAIR_PRIORITY_MAX_PAIRS > 0` intentionally skips lower-ranked pairs and should be tested in paper/testnet first.
 - External signal flags are reserved only; providers are not implemented in this patch.
+- Admin DB settings sync to the running bot process; if the bot API is unreachable, DB values are saved and sync status reports `bot_unreachable`.
 - The Celery hook tasks are import-safe compatibility hooks, not full Redis market-sync/aggregation implementations.
 
 ## Rollback Steps
 
 1. Set all new feature flags to `false`.
 2. Unset `PAIR_PRIORITY_MAX_PAIRS` or set it to `0`.
-3. Revert the backend proxy and frontend panel patch if user-facing diagnostics should be hidden.
-4. Revert the bot code patch if passive metrics/endpoints are not wanted.
-5. No DB migration rollback is required.
+3. Use `Settings -> Arbitrage Runtime` to save and sync the disabled values, or update `bot_settings` section `arbitrage` directly.
+4. Revert the backend proxy/settings and frontend panel/settings patch if user-facing controls should be hidden.
+5. Revert the bot code patch if passive metrics/endpoints are not wanted.
+6. No DB migration rollback is required.
 
 ## Recommended Next Phase
 

@@ -22,6 +22,15 @@
 - Bot `/api/v1/arbitrage/improvement-metrics` and `/api/v1/arbitrage/pair-priority` endpoints.
 - Authenticated backend proxy routes for the arbitrage diagnostics endpoints.
 - Frontend bot-manager panel for feature-flag state, saved-call counters, and pair-priority explanations.
+- Admin-only `Settings -> Arbitrage Runtime` controls backed by `bot_settings` and synchronized to the bot runtime.
+- Audit logs for admin arbitrage runtime setting updates, including changed keys and bot sync status.
+
+## Secure Storage Model
+
+- Non-secret arbitrage toggles and numeric tuning values live in `bot_settings` section `arbitrage`.
+- dYdX addresses and mnemonics stay in the existing encrypted dYdX key storage.
+- Provider API keys stay in `external_api_credentials` through the existing encrypted credential service.
+- User login credentials remain in the existing auth tables and must not be copied into runtime settings.
 
 ## Future Safe Additions
 
@@ -32,4 +41,5 @@
 
 ## Rollback
 
-Set all feature flags false. The added logs and metrics are passive and do not require schema rollback.
+Set all feature flags false in `Settings -> Arbitrage Runtime` or in env defaults, then save and sync.
+The added logs, metrics, and settings rows are passive and do not require schema rollback.

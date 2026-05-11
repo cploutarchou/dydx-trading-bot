@@ -9,6 +9,7 @@ Date: 2026-05-11
 - Reuse existing cached market metadata for execution metadata lookup.
 - Add import-safe Celery task hooks for configured worker schedules.
 - Add optional diagnostics endpoints without changing existing response fields.
+- Add DB-backed admin controls for feature flags and pair-priority tuning.
 
 ## 2. Keep Untouched
 
@@ -16,6 +17,7 @@ Date: 2026-05-11
 - `BotAgent.open_trades()` sequencing and emergency cleanup semantics.
 - Frontend/backend existing endpoint paths and response fields.
 - Database schema and migrations.
+- Existing encrypted credential storage for dYdX keys and provider API keys.
 - Automatic execution behavior unless explicitly enabled later.
 
 ## 3. Add Behind Feature Flags
@@ -98,6 +100,7 @@ Expose counters:
 
 - `bot/src/constants.py`
 - `bot/src/trading/arbitrage_observability.py`
+- `bot/src/trading/arbitrage_runtime_config.py`
 - `bot/src/trading/pair_priority.py`
 - `bot/src/trading/market_data.py`
 - `bot/src/trading/position_manager.py`
@@ -106,9 +109,12 @@ Expose counters:
 - `bot/src/infrastructure/workers/market_sync_tasks.py`
 - `bot/src/infrastructure/workers/candle_aggregate_tasks.py`
 - `backend/internal/services/bot_api_client_extended.go`
+- `backend/internal/routes/arbitrage_settings_routes.go`
+- `backend/internal/routes/arbitrage_settings_routes_test.go`
 - `backend/internal/routes/bot_api_delegate_routes.go`
 - `backend/internal/routes/bot_api_delegate_control_plane_test.go`
 - `frontend/src/api.ts`
+- `frontend/src/components/ArbitrageRuntimeSettings.tsx`
 - `frontend/src/components/BotManager.tsx`
 - `frontend/src/components/ArbitrageImprovementPanel.tsx`
 - `bot/tests/test_pair_priority_engine.py`
@@ -125,12 +131,13 @@ Expose counters:
 6. Add bot metrics/diagnostic endpoints.
 7. Proxy diagnostics through the backend without changing existing contracts.
 8. Add the frontend diagnostics panel as an additive bot-manager surface.
-9. Add tests and docs.
+9. Add DB-backed admin settings controls for runtime flags.
+10. Add tests and docs.
 
 ## 12. Rollback Plan
 
 1. Set all new feature flags to `false`.
 2. Set `PAIR_PRIORITY_MAX_PAIRS=0` or unset it.
 3. If metrics endpoint causes operational issues, remove backend `/metrics` bot dependency expectation or revert `bot/src/api/server.py` changes.
-4. Revert the small patch set touching `bot/src/trading/*`, `bot/src/api/server.py`, backend proxy routes, frontend API/panel files, and worker hook modules.
+4. Revert the small patch set touching `bot/src/trading/*`, `bot/src/api/server.py`, backend proxy/settings routes, frontend API/panel/settings files, and worker hook modules.
 5. No database rollback is required because no schema changes are introduced.

@@ -42,12 +42,21 @@ No default business logic changed:
 - Added required feature flags with safe defaults.
 - Added bot-local arbitrage metrics counters.
 - Added `/metrics`, `/api/v1/arbitrage/improvement-metrics`, and `/api/v1/arbitrage/pair-priority` to the bot API.
+- Added optional `/api/v1/arbitrage/opportunity/{id}/explain` diagnostics endpoint (bot + backend proxy + frontend client method).
 - Added authenticated Go backend proxy routes for the new arbitrage diagnostics.
 - Added a frontend arbitrage intelligence panel on the non-embedded bot manager surface.
+- Added admin Settings controls that persist arbitrage runtime flags in `bot_settings` and sync them to the bot process.
+- Added audit logging for admin arbitrage runtime setting updates.
 - Added same-cycle recent-candle de-duplication behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Reused cached market metadata for order placement/cancellation behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
+- Collapsed per-opportunity open-position checks into one account snapshot behind `ARBITRAGE_IMPROVEMENTS_ENABLED` (with safe fallback to legacy checks).
+- Added API-call/provider-error metric coverage for account/order/subaccount-order indexer paths in `account_manager`.
 - Added optional pair-priority scoring behind `PAIR_PRIORITY_ENGINE_ENABLED`.
 - Added scan cycle IDs and rejection reason logs.
+- Added centralized rejection-reason counters (`rejection_reasons`) in arbitrage metrics payloads.
+- Surfaced top rejection reasons in `frontend/src/components/ArbitrageImprovementPanel.tsx` as additive operator diagnostics.
+- Locked backend delegated metrics contract to preserve `rejection_reasons` in `bot_api_delegate_control_plane_test`.
+- Added backend proxy and integration assertion for delegated opportunity explain diagnostics.
 - Added import-safe Celery hook modules for configured market sync and candle aggregation tasks.
 
 ## Files Changed
@@ -58,6 +67,7 @@ No default business logic changed:
 - `bot/src/constants.py`
 - `bot/src/api/server.py`
 - `bot/src/trading/arbitrage_observability.py`
+- `bot/src/trading/arbitrage_runtime_config.py`
 - `bot/src/trading/pair_priority.py`
 - `bot/src/trading/market_data.py`
 - `bot/src/trading/position_manager.py`
@@ -65,19 +75,25 @@ No default business logic changed:
 - `bot/src/infrastructure/workers/market_sync_tasks.py`
 - `bot/src/infrastructure/workers/candle_aggregate_tasks.py`
 - `backend/internal/services/bot_api_client_extended.go`
+- `backend/internal/routes/arbitrage_settings_routes.go`
+- `backend/internal/routes/arbitrage_settings_routes_test.go`
 - `backend/internal/routes/bot_api_delegate_routes.go`
 - `backend/internal/routes/bot_api_delegate_control_plane_test.go`
 - `backend/internal/routes/bot_instance_contract_lock_test.go`
 - `frontend/src/api.ts`
 - `frontend/src/components/BotManager.tsx`
 - `frontend/src/components/ArbitrageImprovementPanel.tsx`
+- `frontend/src/components/ArbitrageRuntimeSettings.tsx`
+- `frontend/src/pages/Settings.tsx`
 - `bot/tests/test_pair_priority_engine.py`
 - `bot/tests/test_arbitrage_cycle_cache.py`
+- `bot/tests/test_account_manager_metrics.py`
 - `docs/current-project-arbitrage-analysis.md`
 - `docs/project-specific-arbitrage-improvement-plan.md`
 - `docs/api-call-optimization-plan.md`
 - `docs/pair-priority-engine-plan.md`
 - `docs/risk-and-observability-plan.md`
+- `docs/arbitrage-feature-flags-and-tests.md`
 
 ## Feature Flags Added
 
@@ -97,27 +113,31 @@ Optional tuning:
 
 - Pair-priority scoring and stale-analysis detection.
 - Same-cycle candle cache behavior enabled and disabled.
+- Account-manager API metric increments (success + provider-error paths).
+- Open-position snapshot optimization path and fallback path.
+- Rejection reason aggregation and reset behavior in observability snapshot.
+- Backend DB-backed arbitrage runtime setting persistence and bot payload mapping.
+- Backend delegated arbitrage metrics proxy preservation of `rejection_reasons`.
+- Backend delegated arbitrage opportunity explain proxy path and response passthrough.
 
 ## Verification
 
-Passed:
+Passed in this session:
 
 ```bash
-python3 -m py_compile bot/src/trading/arbitrage_observability.py bot/src/trading/pair_priority.py bot/src/trading/position_manager.py bot/src/trading/market_data.py bot/src/trading/account_manager.py bot/src/api/server.py bot/src/infrastructure/workers/market_sync_tasks.py bot/src/infrastructure/workers/candle_aggregate_tasks.py bot/tests/test_pair_priority_engine.py bot/tests/test_arbitrage_cycle_cache.py
-cd backend && go test ./internal/services ./internal/routes
-cd backend && go test -tags integration ./internal/routes -run TestDelegateCapabilitiesAndRuntimeDBConfigRoutes
-python3 scripts/validate_docs_governance.py
+/home/chris/workspace/dydx-trading-bot/.venv/bin/python -m py_compile bot/src/trading/account_manager.py bot/src/trading/position_manager.py
+/home/chris/workspace/dydx-trading-bot/.venv/bin/python -m pytest bot/tests/test_arbitrage_cycle_cache.py bot/tests/test_account_manager_metrics.py -q
+# latest run: 8 passed
+/home/chris/workspace/dydx-trading-bot/.venv/bin/python -m pytest bot/tests/test_arbitrage_cycle_cache.py bot/tests/test_account_manager_metrics.py bot/tests/test_arbitrage_observability.py -q
+# latest run: 10 passed
+cd /home/chris/workspace/dydx-trading-bot/backend && go test -tags integration ./internal/routes -run TestDelegateCapabilitiesAndRuntimeDBConfigRoutes -count=1
+# latest run: ok
 ```
 
-Blocked:
+Not rerun in this session:
 
-```bash
-python3 -m pytest bot/tests/test_pair_priority_engine.py bot/tests/test_arbitrage_cycle_cache.py -q
-cd frontend && npm run build
-```
-
-The local `python3` environment does not have `pytest` installed, and this shell does not have
-`npm` installed.
+- backend Go test matrix
+- frontend build/lint matrix
 
 ## Expected API Call Reduction
 
@@ -134,19 +154,21 @@ Actual reduction depends on pair overlap. A pair universe with shared high-liqui
 - Pair-priority ranking changes scan order when explicitly enabled.
 - `PAIR_PRIORITY_MAX_PAIRS > 0` intentionally skips lower-ranked pairs and should be tested in paper/testnet first.
 - External signal flags are reserved only; providers are not implemented in this patch.
+- Admin DB settings sync to the running bot process; if the bot API is unreachable, DB values are saved and sync status reports `bot_unreachable`.
+- Runtime settings intentionally store only non-secret flags/tuning values; secrets remain in encrypted credential/key tables.
 - The Celery hook tasks are import-safe compatibility hooks, not full Redis market-sync/aggregation implementations.
 
 ## Rollback Steps
 
 1. Set all new feature flags to `false`.
 2. Unset `PAIR_PRIORITY_MAX_PAIRS` or set it to `0`.
-3. Revert the backend proxy and frontend panel patch if user-facing diagnostics should be hidden.
-4. Revert the bot code patch if passive metrics/endpoints are not wanted.
-5. No DB migration rollback is required.
+3. Use `Settings -> Arbitrage Runtime` to save and sync the disabled values, or update `bot_settings` section `arbitrage` directly.
+4. Revert the backend proxy/settings and frontend panel/settings patch if user-facing controls should be hidden.
+5. Revert the bot code patch if passive metrics/endpoints are not wanted.
+6. No DB migration rollback is required.
 
 ## Recommended Next Phase
 
-1. Collapse duplicate `is_open_positions()` calls into one account snapshot behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
-2. Add a real Redis market-candle sync task if operators want shared candle snapshots.
-3. Add stale-price and abnormal-spread guards behind `AUTO_EXECUTION_CHANGES_ENABLED` after a testnet dry run.
-4. Add real external signal providers behind their reserved feature flags.
+1. Add a real Redis market-candle sync task if operators want shared candle snapshots.
+2. Add stale-price and abnormal-spread guards behind `AUTO_EXECUTION_CHANGES_ENABLED` after a testnet dry run.
+3. Add real external signal providers behind their reserved feature flags.

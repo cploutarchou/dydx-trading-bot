@@ -4,15 +4,15 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-	guardBacktestStatusContract,
-	guardListBacktestsContract,
-	guardRunBacktestContract,
-	guardSyncHealthContract,
+    guardBacktestStatusContract,
+    guardListBacktestsContract,
+    guardRunBacktestContract,
+    guardSyncHealthContract,
 } from './api/contractGuards';
 import {
-	getBackendHttpBase,
-	resolveBackendWebSocketUrl,
-	shouldAttemptCookieSessionBootstrap,
+    getBackendHttpBase,
+    resolveBackendWebSocketUrl,
+    shouldAttemptCookieSessionBootstrap,
 } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';
@@ -670,7 +670,26 @@ export interface ArbitrageImprovementMetricsResponse extends Record<string, unkn
   started_at: string;
   updated_at: string;
   counters: Partial<ArbitrageMetricCounters>;
+  rejection_reasons?: Record<string, number>;
   feature_flags?: Record<string, boolean>;
+  runtime_settings?: Record<string, boolean | number>;
+}
+
+export interface ArbitrageRuntimeSettings extends Record<string, boolean | number> {
+  arbitrage_improvements_enabled: boolean;
+  pair_priority_engine_enabled: boolean;
+  polymarket_signals_enabled: boolean;
+  defillama_signals_enabled: boolean;
+  news_signals_enabled: boolean;
+  auto_execution_changes_enabled: boolean;
+  pair_priority_max_pairs: number;
+  pair_priority_stale_seconds: number;
+}
+
+export interface ArbitrageRuntimeSettingsResponse extends Record<string, unknown> {
+  data: ArbitrageRuntimeSettings;
+  bot_runtime?: Record<string, unknown>;
+  bot_sync_status?: string;
 }
 
 export interface InterruptedBacktestsResponse extends Record<string, unknown> {
@@ -927,6 +946,17 @@ export interface ArbitragePairPriorityResponse extends Record<string, unknown> {
   pairs: ArbitragePairPriorityItem[];
   count: number;
   enabled: boolean;
+}
+
+export interface ArbitrageOpportunityExplainResponse extends Record<string, unknown> {
+  opportunity_id: string;
+  matched_rejection_reason?: { reason: string; count: number } | null;
+  top_rejection_reasons?: Array<{ reason: string; count: number }>;
+  counters?: Partial<ArbitrageMetricCounters>;
+  feature_flags?: Record<string, boolean>;
+  runtime_settings?: Record<string, boolean | number>;
+  explainability_scope?: string;
+  note?: string;
 }
 
 interface StrategyRequest extends Record<string, unknown> {
@@ -2255,6 +2285,36 @@ class ApiClient {
     const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
     const response = await this.client.get<ApiResponse<ArbitragePairPriorityResponse>>(
       `/api/v1/arbitrage/pair-priority${query}`
+    );
+    return response.data;
+  }
+
+  async getArbitrageOpportunityExplain(
+    opportunityId: string
+  ): Promise<ApiResponse<ArbitrageOpportunityExplainResponse>> {
+    this.ensureTokenLoaded();
+    const safeId = encodeURIComponent(String(opportunityId || '').trim());
+    const response = await this.client.get<ApiResponse<ArbitrageOpportunityExplainResponse>>(
+      `/api/v1/arbitrage/opportunity/${safeId}/explain`
+    );
+    return response.data;
+  }
+
+  async getArbitrageRuntimeSettings(): Promise<ArbitrageRuntimeSettingsResponse> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ArbitrageRuntimeSettingsResponse>(
+      '/api/v1/settings/arbitrage-runtime'
+    );
+    return response.data;
+  }
+
+  async updateArbitrageRuntimeSettings(
+    settings: Partial<ArbitrageRuntimeSettings>
+  ): Promise<ArbitrageRuntimeSettingsResponse> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ArbitrageRuntimeSettingsResponse>(
+      '/api/v1/settings/arbitrage-runtime',
+      { settings }
     );
     return response.data;
   }

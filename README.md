@@ -91,7 +91,9 @@ When finished:
 
 ## Arbitrage Improvement Flags
 
-New live-arbitrage efficiency behavior is disabled by default:
+New live-arbitrage efficiency behavior is disabled by default. These env vars are startup
+defaults; admin users can now manage the persisted runtime values from
+`Settings -> Arbitrage Runtime`.
 
 - `ARBITRAGE_IMPROVEMENTS_ENABLED=false`
 - `PAIR_PRIORITY_ENGINE_ENABLED=false`
@@ -106,5 +108,17 @@ Authenticated diagnostics are exposed through the backend at:
 
 - `GET /api/v1/arbitrage/improvement-metrics`
 - `GET /api/v1/arbitrage/pair-priority?limit=10`
+- `GET /api/v1/arbitrage/opportunity/:id/explain`
+- `GET /api/v1/settings/arbitrage-runtime`
+- `PUT /api/v1/settings/arbitrage-runtime`
 
-The non-embedded bot manager screen displays these metrics without changing existing bot control flows.
+Bot-local runtime diagnostics are also exposed for service probing and platform health wiring:
+
+- `GET /metrics` (bot service)
+
+The bot `/metrics` payload now includes additive `arbitrage.rejection_reasons` buckets
+alongside existing counters to explain why opportunities were rejected.
+
+The non-embedded bot manager screen displays diagnostics, and the admin settings screen saves
+runtime flags to the backend database before syncing them to the bot process. dYdX keys and
+provider API secrets still use the existing encrypted credential flows, not plain settings rows.

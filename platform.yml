@@ -93,6 +93,7 @@ apps:
           CORS_ALLOWED_ORIGINS: "https://app.cydevcloud.com"
           # Upstream Python bot API via Consul DNS service discovery
           BOT_API_URL: "http://api.service.consul:8889"
+          BOT_API_FALLBACK_URLS: "http://dydx-trading-bot-api.service.consul:8889,http://127.0.0.1:8889"
           BOT_API_TIMEOUT_SECONDS: "120"
           # Backend's own PostgreSQL connection (same shared cluster, same DB for now)
           DB_TYPE: "postgresql"

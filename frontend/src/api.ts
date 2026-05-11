@@ -4,15 +4,15 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-    guardBacktestStatusContract,
-    guardListBacktestsContract,
-    guardRunBacktestContract,
-    guardSyncHealthContract,
+	guardBacktestStatusContract,
+	guardListBacktestsContract,
+	guardRunBacktestContract,
+	guardSyncHealthContract,
 } from './api/contractGuards';
 import {
-    getBackendHttpBase,
-    resolveBackendWebSocketUrl,
-    shouldAttemptCookieSessionBootstrap,
+	getBackendHttpBase,
+	resolveBackendWebSocketUrl,
+	shouldAttemptCookieSessionBootstrap,
 } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';
@@ -431,6 +431,19 @@ export interface CRMSummaryResponse extends Record<string, unknown> {
   pending_partner_applications: number;
 }
 
+export interface BotAPIStatsResponse extends Record<string, unknown> {
+  TotalRequests: number;
+  SuccessfulRequests: number;
+  FailedRequests: number;
+  TransportFailures: number;
+  Timeouts: number;
+  Upstream4xx: number;
+  Upstream5xx: number;
+  TotalLatencyMillis: number;
+  AverageLatencyMillis: number;
+  MaxLatencyMillis: number;
+}
+
 export interface CRMUserRow extends Record<string, unknown> {
   id: number;
   username: string;
@@ -634,6 +647,30 @@ export interface BotRuntimeDBConfigResponse extends Record<string, unknown> {
   ssl_enabled?: boolean;
   echo_sql?: boolean;
   count?: number;
+}
+
+export interface ArbitrageMetricCounters extends Record<string, number> {
+  arbitrage_scan_cycles_total: number;
+  exchange_api_calls_total: number;
+  exchange_api_calls_saved_total: number;
+  duplicate_api_calls_avoided_total: number;
+  pair_candidates_total: number;
+  pair_candidates_skipped_total: number;
+  opportunities_detected_total: number;
+  opportunities_rejected_total: number;
+  opportunities_executed_total: number;
+  stale_data_detected_total: number;
+  provider_errors_total: number;
+  cache_hits_total: number;
+  cache_misses_total: number;
+  websocket_reconnects_total: number;
+}
+
+export interface ArbitrageImprovementMetricsResponse extends Record<string, unknown> {
+  started_at: string;
+  updated_at: string;
+  counters: Partial<ArbitrageMetricCounters>;
+  feature_flags?: Record<string, boolean>;
 }
 
 export interface InterruptedBacktestsResponse extends Record<string, unknown> {
@@ -874,6 +911,22 @@ export interface PerpetualMarketsResponse extends Record<string, unknown> {
   markets: string[];
   count: number;
   source: string;
+}
+
+export interface ArbitragePairPriorityItem extends Record<string, unknown> {
+  pair: string;
+  base_market: string;
+  quote_market: string;
+  score: number;
+  components: Record<string, number>;
+  explanation: string[];
+  enabled: boolean;
+}
+
+export interface ArbitragePairPriorityResponse extends Record<string, unknown> {
+  pairs: ArbitragePairPriorityItem[];
+  count: number;
+  enabled: boolean;
 }
 
 interface StrategyRequest extends Record<string, unknown> {
@@ -1496,6 +1549,13 @@ type PendingRequest = {
   reject: (_error: unknown) => void;
 };
 
+type RequestConfigWithAuthControl = {
+  _skipAuthHeader?: boolean;
+  _allowAccessTokenFallback?: boolean;
+  headers?: AxiosRequestHeaders | Record<string, string>;
+  url?: string;
+};
+
 class ApiClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
@@ -1527,6 +1587,15 @@ class ApiClient {
       config.headers ??= {} as AxiosRequestHeaders;
       const headers = config.headers as AxiosRequestHeaders;
       attachTraceHeader(headers as Record<string, string>);
+
+      const authControlledConfig = config as typeof config & RequestConfigWithAuthControl;
+      const skipAuthHeader = authControlledConfig._skipAuthHeader === true;
+      const allowAccessTokenFallback = authControlledConfig._allowAccessTokenFallback === true;
+
+      if (skipAuthHeader && !(allowAccessTokenFallback && this.accessToken)) {
+        delete (headers as Record<string, string>).Authorization;
+        return config;
+      }
 
       if (this.accessToken) {
         headers.Authorization = `Bearer ${this.accessToken}`;
@@ -1933,6 +2002,16 @@ class ApiClient {
       if (payload && payload.access_token) {
         this.setToken(payload.access_token);
       } else {
+        // Cookie-session mode (no access_token in login payload): ensure we
+        // don't keep sending a stale Bearer token from a previous session.
+        this.accessToken = null;
+        if (typeof localStorage !== 'undefined') {
+          try {
+            localStorage.removeItem('_dydx_access_token');
+          } catch (_e) {
+            // best effort
+          }
+        }
         console.debug('Login established an HttpOnly cookie session');
       }
 
@@ -1949,7 +2028,11 @@ class ApiClient {
 
   async getCurrentUser(): Promise<ApiResponse<UserProfile>> {
     const response = await this.client.get<ApiResponse<UserProfile> | UserProfile>(
-      '/api/v1/users/me'
+      '/api/v1/users/me',
+      {
+        _skipAuthHeader: true,
+        _allowAccessTokenFallback: true,
+      } as RequestConfigWithAuthControl
     );
     const payload = response.data as ApiResponse<UserProfile> | UserProfile;
 
@@ -2120,7 +2203,8 @@ class ApiClient {
   async getBacktest(runId: string): Promise<ApiResponse<BacktestDetailsResponse>> {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse<BacktestDetailsResponse>>(
-      `/api/v1/backtests/${runId}`
+      `/api/v1/backtests/${runId}`,
+      { timeout: 12000 }
     );
     return response.data;
   }
@@ -2150,6 +2234,27 @@ class ApiClient {
     const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
     const response = await this.client.get<ApiResponse<PerpetualMarketsResponse>>(
       `/api/v1/markets/perpetuals${query}`
+    );
+    return response.data;
+  }
+
+  async getArbitrageImprovementMetrics(): Promise<
+    ApiResponse<ArbitrageImprovementMetricsResponse>
+  > {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<ArbitrageImprovementMetricsResponse>>(
+      '/api/v1/arbitrage/improvement-metrics'
+    );
+    return response.data;
+  }
+
+  async getArbitragePairPriority(
+    limit: number = 12
+  ): Promise<ApiResponse<ArbitragePairPriorityResponse>> {
+    this.ensureTokenLoaded();
+    const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    const response = await this.client.get<ApiResponse<ArbitragePairPriorityResponse>>(
+      `/api/v1/arbitrage/pair-priority${query}`
     );
     return response.data;
   }
@@ -2307,7 +2412,8 @@ class ApiClient {
   async getBacktestStatus(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse<Record<string, unknown>>>(
-      `/api/v1/backtests/${runId}/status`
+      `/api/v1/backtests/${runId}/status`,
+      { timeout: 8000 }
     );
     guardBacktestStatusContract(response.data);
     return response.data;
@@ -2749,6 +2855,13 @@ class ApiClient {
       );
       return fallback.data;
     }
+  }
+
+  async getBotAPIStats(): Promise<ApiResponse<{ data: BotAPIStatsResponse }>> {
+    const response = await this.client.get<ApiResponse<{ data: BotAPIStatsResponse }>>(
+      '/api/v1/backoffice/bot-api-stats'
+    );
+    return response.data;
   }
 
   async getCRMUsersTable(): Promise<ApiResponse<CRMUsersTableResponse>> {
@@ -3267,13 +3380,15 @@ class ApiClient {
     runId: string,
     market?: string,
     startDate?: string,
-    endDate?: string
+    endDate?: string,
+    resolution?: '1min' | '1hour'
   ): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     const params = new URLSearchParams();
     if (market) params.append('market', market);
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
+    if (resolution) params.append('resolution', resolution);
 
     const url = `/api/v1/backtests/${runId}/candles${params.toString() ? `?${params}` : ''}`;
     const response = await this.client.get<ApiResponse>(url);

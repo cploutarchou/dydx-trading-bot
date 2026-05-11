@@ -26,9 +26,12 @@ func extractAuthToken(c *gin.Context) string {
 }
 
 type BotInstanceHandler struct {
-	service  *services.BotInstanceService
-	repo     *repository.BotInstanceRepository
-	userRepo *repository.UserRepository
+	service      *services.BotInstanceService
+	repo         *repository.BotInstanceRepository
+	userRepo     *repository.UserRepository
+	positionRepo *repository.BotPositionRepository
+	botTradeRepo *repository.BotTradeRepository
+	cache        *services.CacheService
 }
 
 func unwrapBotAPIEnvelope(payload map[string]interface{}) map[string]interface{} {
@@ -104,6 +107,44 @@ func NewBotInstanceHandler(
 		service:  service,
 		repo:     repo,
 		userRepo: userRepo,
+	}
+}
+
+// NewBotInstanceHandlerWithRepos is like NewBotInstanceHandler but also accepts
+// the position and trade repositories needed for GetBotPositions and GetBotTrade.
+func NewBotInstanceHandlerWithRepos(
+	service *services.BotInstanceService,
+	repo *repository.BotInstanceRepository,
+	userRepo *repository.UserRepository,
+	positionRepo *repository.BotPositionRepository,
+	botTradeRepo *repository.BotTradeRepository,
+) *BotInstanceHandler {
+	return &BotInstanceHandler{
+		service:      service,
+		repo:         repo,
+		userRepo:     userRepo,
+		positionRepo: positionRepo,
+		botTradeRepo: botTradeRepo,
+	}
+}
+
+// NewBotInstanceHandlerWithCache is like NewBotInstanceHandlerWithRepos but also
+// accepts a CacheService for Redis-backed summary caching.
+func NewBotInstanceHandlerWithCache(
+	service *services.BotInstanceService,
+	repo *repository.BotInstanceRepository,
+	userRepo *repository.UserRepository,
+	positionRepo *repository.BotPositionRepository,
+	botTradeRepo *repository.BotTradeRepository,
+	cache *services.CacheService,
+) *BotInstanceHandler {
+	return &BotInstanceHandler{
+		service:      service,
+		repo:         repo,
+		userRepo:     userRepo,
+		positionRepo: positionRepo,
+		botTradeRepo: botTradeRepo,
+		cache:        cache,
 	}
 }
 
@@ -517,6 +558,185 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      unwrapBotAPIEnvelope(trades),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// GetBotPositions returns positions for a bot instance, optionally filtered by status.
+// GET /api/v1/bots/:instance_id/positions?status=open
+func (h *BotInstanceHandler) GetBotPositions(c *gin.Context) {
+	instanceID := c.Param("instance_id")
+	status := c.Query("status")
+	limit := 100
+	offset := 0
+
+	inst, authorized := h.authorizeInstanceAccess(c, instanceID)
+	if !authorized {
+		return
+	}
+
+	positions, err := h.positionRepo.ListBotPositionsByInstanceID(inst.ID, status, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Error:     err.Error(),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+
+	data := interface{}(positions)
+	if positions == nil {
+		data = []interface{}{}
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      data,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// GetBotTrade returns a single trade by trade_id, scoped to the bot instance.
+// GET /api/v1/bots/:instance_id/trades/:trade_id
+func (h *BotInstanceHandler) GetBotTrade(c *gin.Context) {
+	instanceID := c.Param("instance_id")
+	tradeID := c.Param("trade_id")
+
+	inst, authorized := h.authorizeInstanceAccess(c, instanceID)
+	if !authorized {
+		return
+	}
+
+	trade, err := h.botTradeRepo.GetBotTradeByTradeID(tradeID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, APIResponse{
+			Success:   false,
+			Error:     err.Error(),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+	if trade.BotInstanceID != inst.ID {
+		c.JSON(http.StatusNotFound, APIResponse{
+			Success:   false,
+			Error:     "trade not found",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      trade,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// GetBotSummary returns an aggregate view of a bot instance, combining stats,
+// open positions, and recent trades in a single response.
+//
+// Query params:
+//   - include: comma-separated subset of "stats,positions,trades" (default: all)
+//   - limit:   max trades/positions to return (default: 20)
+func (h *BotInstanceHandler) GetBotSummary(c *gin.Context) {
+	instanceID := c.Param("instance_id")
+	inst, ok := h.authorizeInstanceAccess(c, instanceID)
+	if !ok {
+		return
+	}
+
+	// Determine which sections to include.
+	includeParam := c.DefaultQuery("include", "stats,positions,trades")
+	includeSet := map[string]bool{}
+	for _, part := range strings.Split(includeParam, ",") {
+		includeSet[strings.TrimSpace(part)] = true
+	}
+
+	limitStr := c.DefaultQuery("limit", "20")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 200 {
+		limit = 20
+	}
+
+	summary := map[string]interface{}{}
+
+	// ── Stats (from Python bot API, Redis-cached for 30 s) ───────────────────
+	if includeSet["stats"] {
+		var statsPayload interface{}
+		cacheKey := fmt.Sprintf("bot_summary_stats:%s", instanceID)
+
+		if h.cache != nil {
+			if cached, cacheErr := h.cache.GetCacheString(cacheKey); cacheErr == nil && cached != "" {
+				var parsed interface{}
+				if json.Unmarshal([]byte(cached), &parsed) == nil {
+					statsPayload = parsed
+				}
+			}
+		}
+
+		if statsPayload == nil {
+			svc := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
+			stats, statsErr := svc.GetBotInstanceStats(instanceID)
+			if statsErr != nil {
+				if isRecoverableBotStatsError(statsErr) {
+					statsPayload = buildEmptyBotStatsPayload(instanceID, fmt.Sprintf("Runtime stats unavailable: %v", statsErr))
+				} else {
+					c.JSON(http.StatusInternalServerError, APIResponse{
+						Success:   false,
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+						Error:     fmt.Sprintf("Failed to get bot instance stats: %v", statsErr),
+					})
+					return
+				}
+			} else {
+				statsPayload = stats
+			}
+
+			if h.cache != nil {
+				if raw, marshalErr := json.Marshal(statsPayload); marshalErr == nil {
+					_ = h.cache.SetCache(cacheKey, string(raw), 30)
+				}
+			}
+		}
+
+		summary["stats"] = statsPayload
+	}
+
+	// ── Positions (from DB) ────────────────────────────────────────────────────
+	if includeSet["positions"] && h.positionRepo != nil {
+		positions, posErr := h.positionRepo.ListBotPositionsByInstanceID(inst.ID, "", limit, 0)
+		if posErr != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     fmt.Sprintf("Failed to get positions: %v", posErr),
+			})
+			return
+		}
+		summary["positions"] = positions
+	}
+
+	// ── Recent trades (from DB) ───────────────────────────────────────────────
+	if includeSet["trades"] && h.botTradeRepo != nil {
+		trades, tradesErr := h.botTradeRepo.ListBotTradesByInstanceID(inst.ID, limit, 0)
+		if tradesErr != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     fmt.Sprintf("Failed to get trades: %v", tradesErr),
+			})
+			return
+		}
+		summary["trades"] = trades
+	}
+
+	summary["instance_id"] = instanceID
+	summary["generated_at"] = time.Now().UTC().Format(time.RFC3339)
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      summary,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

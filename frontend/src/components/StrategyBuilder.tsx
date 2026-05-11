@@ -23,6 +23,7 @@ interface StrategyFormData {
   runtime_network: 'testnet' | 'mainnet';
   runtime_subaccount: number;
   selected_markets: string[];
+  pair_selection_mode: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   resolution: string;
   zscore_threshold: number;
   stats_window: number;
@@ -239,6 +240,7 @@ export default function StrategyBuilder() {
       runtime_network: 'testnet',
       runtime_subaccount: 0,
       selected_markets: [],
+      pair_selection_mode: 'cointegration',
       resolution: '1HOUR',
       zscore_threshold: 1.5,
       stats_window: 21,
@@ -554,7 +556,7 @@ export default function StrategyBuilder() {
       fieldName: K,
       value: StrategyFormData[K]
     ) => {
-      setValue(fieldName, value, {
+      (setValue as (name: K, value: StrategyFormData[K], options: Parameters<typeof setValue>[2]) => void)(fieldName, value, {
         shouldDirty: true,
         shouldTouch: true,
         shouldValidate: true,
@@ -959,6 +961,12 @@ export default function StrategyBuilder() {
           marketStats: Object.fromEntries(marketStatsMap.entries()),
         };
         setHistoricalMarketStats(statsSnapshot);
+      }
+
+      if (!statsSnapshot) {
+        setMarketFilterError('No historical market statistics were available. Using current top markets.');
+        onChange(normalizeTopMarkets(availableMarkets));
+        return;
       }
 
       const scoredMarkets = Object.entries(statsSnapshot.marketStats)

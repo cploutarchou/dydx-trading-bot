@@ -253,6 +253,25 @@ func (c *BotAPIClient) GetPerpetualMarkets(limit int) (map[string]interface{}, e
 	return c.makeRequest("GET", endpoint, nil)
 }
 
+// GetArbitrageImprovementMetrics retrieves bot-side arbitrage efficiency counters.
+func (c *BotAPIClient) GetArbitrageImprovementMetrics() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/arbitrage/improvement-metrics", nil)
+}
+
+// GetArbitragePairPriority retrieves the optional pair-priority ranking diagnostics.
+func (c *BotAPIClient) GetArbitragePairPriority(limit int) (map[string]interface{}, error) {
+	query := url.Values{}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+
+	endpoint := "/api/v1/arbitrage/pair-priority"
+	if encoded := query.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
+	return c.makeRequest("GET", endpoint, nil)
+}
+
 // GetRuntimePreflight evaluates whether a runtime can safely start on the upstream bot service.
 func (c *BotAPIClient) GetRuntimePreflight(config map[string]interface{}) (map[string]interface{}, error) {
 	return c.makeRequest("POST", "/api/v1/runtime/preflight", config)

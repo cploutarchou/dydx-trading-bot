@@ -66,6 +66,9 @@ When finished:
 - [Platform Overview](docs/PLATFORM.md)
 - [Development Workflow](docs/DEVELOPMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)
+- [Current Arbitrage Analysis](docs/current-project-arbitrage-analysis.md)
+- [Arbitrage Improvement Plan](docs/project-specific-arbitrage-improvement-plan.md)
+- [Arbitrage Final Report](docs/codex-final-report.md)
 - [Documentation Governance](docs/DOCUMENTATION_GOVERNANCE.md)
 - [Frontend Service Doc](frontend/README.md)
 - [Backend Service Doc](backend/README.md)
@@ -85,3 +88,23 @@ When finished:
 - use each service `README.md` for service-specific commands and responsibilities
 - treat generated artifacts such as `bot/openapi.json` as canonical contracts when detailed schema accuracy matters
 - run `python3 scripts/validate_docs_governance.py` before merge for doc/contract changes
+
+## Arbitrage Improvement Flags
+
+New live-arbitrage efficiency behavior is disabled by default:
+
+- `ARBITRAGE_IMPROVEMENTS_ENABLED=false`
+- `PAIR_PRIORITY_ENGINE_ENABLED=false`
+- `POLYMARKET_SIGNALS_ENABLED=false`
+- `DEFILLAMA_SIGNALS_ENABLED=false`
+- `NEWS_SIGNALS_ENABLED=false`
+- `AUTO_EXECUTION_CHANGES_ENABLED=false`
+
+See `env.example` for optional TTL and pair-priority tuning values.
+
+Authenticated diagnostics are exposed through the backend at:
+
+- `GET /api/v1/arbitrage/improvement-metrics`
+- `GET /api/v1/arbitrage/pair-priority?limit=10`
+
+The non-embedded bot manager screen displays these metrics without changing existing bot control flows.

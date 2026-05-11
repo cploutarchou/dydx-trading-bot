@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import socket
@@ -23,6 +24,67 @@ logger = logging.getLogger(__name__)
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _get_redis_client():
+    """Return a lazily-created synchronous redis client for pub/sub publishing."""
+    import redis as _redis
+    from urllib.parse import quote
+
+    try:
+        explicit_url = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL")
+        if explicit_url:
+            return _redis.from_url(explicit_url, decode_responses=True)
+
+        host = os.getenv("REDIS_HOST", "localhost")
+        port = int(os.getenv("REDIS_PORT", "6379"))
+        db_index = int(os.getenv("REDIS_DB", "0") or 0)
+        password = os.getenv("REDIS_PASSWORD", "")
+        ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
+        return _redis.Redis(
+            host=host,
+            port=port,
+            db=db_index,
+            password=password or None,
+            ssl=ssl,
+            decode_responses=True,
+        )
+    except Exception as exc:
+        logger.warning("backtest_pubsub_redis_init_failed error=%r", exc)
+        return None
+
+
+def _publish_backtest_status(
+    run_id: str,
+    status: str,
+    progress: float = 0.0,
+    current_pair: str = "",
+    eta_seconds: float = 0.0,
+) -> None:
+    """Publish a backtest status event to Redis for downstream WebSocket push."""
+    rc = _get_redis_client()
+    if rc is None:
+        return
+    try:
+        channel = f"backtest:{run_id}:status"
+        payload = json.dumps(
+            {
+                "run_id": run_id,
+                "status": status,
+                "progress": progress,
+                "current_pair": current_pair,
+                "eta_seconds": eta_seconds,
+                "timestamp": _now_iso(),
+            }
+        )
+        rc.publish(channel, payload)
+    except Exception as exc:
+        logger.debug("backtest_pubsub_publish_failed run_id=%s error=%r", run_id, exc)
+    finally:
+        try:
+            rc.close()
+        except Exception:
+            pass
 
 
 def _mark_worker_failure(
@@ -191,6 +253,7 @@ def run_backtest_task(
             started_at=_now_iso(),
         )
         repository.save_run(data)
+        _publish_backtest_status(run_id, "started")
 
         async def _progress_callback(
             callback_run_id: str, progress: float, current_pair: str, eta: float
@@ -224,8 +287,21 @@ def run_backtest_task(
                     selected_pairs=selected_pairs,
                 ),
             )
+            _publish_backtest_status(
+                callback_run_id, "progress", progress, current_pair, eta
+            )
 
         asyncio.run(service.execute_existing_backtest(run_id, _progress_callback))
+        _publish_backtest_status(run_id, "completed", 100.0, "complete")
+        # Kick off async candle aggregation so chart renders are served from Redis
+        try:
+            from src.infrastructure.workers.candle_aggregate_tasks import (
+                aggregate_backtest_candles,
+            )
+
+            aggregate_backtest_candles.delay(run_id)
+        except Exception:  # noqa: BLE001
+            pass  # Non-fatal — chart will fall back to PostgreSQL
         return {"run_id": run_id, "status": "completed"}
     except SoftTimeLimitExceeded:
         message = "Backtest Celery task exceeded soft time limit"
@@ -246,6 +322,7 @@ def run_backtest_task(
                 error_code="BACKTEST_TIMEOUT",
             ),
         )
+        _publish_backtest_status(run_id, "failed")
         raise
     except Exception as exc:
         logger.exception("Celery backtest task failed for %s", run_id)
@@ -270,6 +347,7 @@ def run_backtest_task(
                 ),
             ),
         )
+        _publish_backtest_status(run_id, "failed")
         raise
     finally:
         session.close()

@@ -1,11 +1,11 @@
 import {
-  ArrowRight,
-  CheckCircle2,
-  Radar,
-  ShieldCheck,
-  Sparkles,
-  TrendingUp,
-  Waypoints,
+    ArrowRight,
+    CheckCircle2,
+    Radar,
+    ShieldCheck,
+    Sparkles,
+    TrendingUp,
+    Waypoints,
 } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
@@ -44,6 +44,28 @@ const proofItems = [
   ['Commercial clarity', 'Client, IB, CRM, and admin workflows connected under one platform'],
 ] as const;
 
+const trustItems = [
+  [
+    'Controls-first onboarding',
+    'Credential checks, environment confirmation, and operator gating before runtime actions',
+  ],
+  [
+    'Transparent operating model',
+    'Evaluation first, then performance-aligned terms when live outcomes are measurable',
+  ],
+  [
+    'Audit-ready operations',
+    'Traceable API paths, runtime status evidence, and role-based visibility across surfaces',
+  ],
+] as const;
+
+const riskItems = [
+  'Trading digital assets carries risk, including partial or total loss of capital.',
+  'Backtest outcomes are historical simulations and do not guarantee future performance.',
+  'Execution quality depends on market liquidity, spread, latency, and venue availability.',
+  'Operators are responsible for their own compliance obligations and jurisdiction suitability.',
+] as const;
+
 export const LandingPage: React.FC = () => {
   return (
     <PublicSiteShell>
@@ -56,7 +78,8 @@ export const LandingPage: React.FC = () => {
                 DeFi operator platform
               </div>
               <h1>
-                Arbitrage intelligence, client operations, and live control in one premium crypto desk.
+                Arbitrage intelligence, client operations, and live control in one premium crypto
+                desk.
               </h1>
               <p>
                 DefiArbitrage brings research evidence, secure onboarding, partner operations, and
@@ -110,6 +133,16 @@ export const LandingPage: React.FC = () => {
           ))}
         </section>
 
+        <section className="public-modern-container public-proof-strip">
+          {trustItems.map(([title, body], index) => (
+            <MotionReveal key={title} className="public-proof-item" delayMs={index * 60}>
+              <span>T{String(index + 1).padStart(2, '0')}</span>
+              <strong>{title}</strong>
+              <p>{body}</p>
+            </MotionReveal>
+          ))}
+        </section>
+
         <section className="public-modern-container public-market-section">
           <MotionReveal distancePx={18}>
             <PublicMarketPulsePanel
@@ -133,7 +166,11 @@ export const LandingPage: React.FC = () => {
 
             <div className="public-capability-grid">
               {pathItems.map(([Icon, title, body], index) => (
-                <MotionReveal key={title} className="public-capability-card landing-modern-card" delayMs={index * 70}>
+                <MotionReveal
+                  key={title}
+                  className="public-capability-card landing-modern-card"
+                  delayMs={index * 70}
+                >
                   <Icon className="landing-modern-icon" />
                   <span>Step {String(index + 1).padStart(2, '0')}</span>
                   <h3>{title}</h3>
@@ -159,7 +196,11 @@ export const LandingPage: React.FC = () => {
 
           <div className="public-outcome-grid">
             {valueItems.map(([Icon, title, body], index) => (
-              <MotionReveal key={title} className="public-outcome-modern landing-modern-card" delayMs={index * 70}>
+              <MotionReveal
+                key={title}
+                className="public-outcome-modern landing-modern-card"
+                delayMs={index * 70}
+              >
                 <Icon className="landing-modern-icon" />
                 <span>Outcome {String(index + 1).padStart(2, '0')}</span>
                 <strong>{title}</strong>
@@ -198,6 +239,26 @@ export const LandingPage: React.FC = () => {
               </Link>
             </div>
           </MotionReveal>
+        </section>
+
+        <section className="public-modern-container public-outcome-stage">
+          <MotionReveal className="public-modern-section-copy" distancePx={18}>
+            <div className="surface-label">Risk disclosure</div>
+            <h2>Clear risk language before any live activation.</h2>
+            <p>
+              We aim to keep expectations explicit so operators can evaluate strategy quality, risk
+              posture, and operational readiness with no hidden assumptions.
+            </p>
+          </MotionReveal>
+
+          <div className="public-outcome-grid">
+            {riskItems.map((item, index) => (
+              <MotionReveal key={item} className="public-outcome-modern" delayMs={index * 70}>
+                <span>Disclosure {String(index + 1).padStart(2, '0')}</span>
+                <p>{item}</p>
+              </MotionReveal>
+            ))}
+          </div>
         </section>
       </div>
     </PublicSiteShell>

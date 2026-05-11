@@ -47,17 +47,8 @@ describe('enhanced API client helpers', () => {
     await expect(parseJsonResponse(response)).rejects.toThrow(/expected json/i);
   });
 
-  it('falls back to list progress when details endpoint is stale', async () => {
-    vi.spyOn(baseApiClient, 'getBacktest').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: {
-        run_id: 'run-1',
-        status: 'RUNNING',
-        progress_percent: 0,
-      },
-      timestamp: new Date().toISOString(),
-    });
+  it('uses list progress without calling the unstable status endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
     vi.spyOn(baseApiClient, 'listBacktests').mockResolvedValue({
       success: true,
@@ -85,14 +76,15 @@ describe('enhanced API client helpers', () => {
     expect(status.progress_percent).toBe(42);
     expect(status.progress_source).toBe('list_fallback');
     expect(status.current_pair).toBe('BTC-USD/ETH-USD');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps details progress when available and avoids fallback override', async () => {
+  it('shares an in-flight list fallback across concurrent status lookups', async () => {
     const listSpy = vi.spyOn(baseApiClient, 'listBacktests').mockResolvedValue({
       success: true,
       message: 'ok',
       data: {
-        total: 1,
+        total: 2,
         backtests: [
           {
             run_id: 'run-1',
@@ -100,26 +92,28 @@ describe('enhanced API client helpers', () => {
             created_at: '2026-04-11T00:00:00Z',
             progress_pct: 77,
           },
+          {
+            run_id: 'run-2',
+            status: 'PENDING',
+            created_at: '2026-04-11T00:00:01Z',
+            progress_pct: 12,
+          },
         ],
       },
       timestamp: new Date().toISOString(),
     });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
-    vi.spyOn(baseApiClient, 'getBacktest').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: {
-        run_id: 'run-1',
-        status: 'RUNNING',
-        progress_percent: 35,
-      },
-      timestamp: new Date().toISOString(),
-    });
+    const [firstStatus, secondStatus] = await Promise.all([
+      enhancedApiClient.getBacktestStatus('run-1'),
+      enhancedApiClient.getBacktestStatus('run-2'),
+    ]);
 
-    const status = await enhancedApiClient.getBacktestStatus('run-1');
-
-    expect(status.progress_percent).toBe(35);
-    expect(status.progress_source).toBe('details');
-    expect(listSpy).not.toHaveBeenCalled();
+    expect(firstStatus.progress_percent).toBe(77);
+    expect(secondStatus.progress_percent).toBe(12);
+    expect(firstStatus.progress_source).toBe('list_fallback');
+    expect(secondStatus.progress_source).toBe('list_fallback');
+    expect(listSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

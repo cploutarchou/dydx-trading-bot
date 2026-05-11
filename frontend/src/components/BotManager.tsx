@@ -23,6 +23,7 @@ import {
 	useStartBotInstance,
 	useStopBotInstance,
 } from '../api/hooks';
+import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
 import { useToastStore } from './ErrorBoundary';
 import { PageContainer } from './PageContainer';
 import { ActionDialog, EmptyState, InlineNotice } from './ui/PlatformUI';
@@ -619,10 +620,11 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           zscore_threshold: createForm.zscore_threshold,
           max_half_life: createForm.max_half_life,
           usd_per_trade: createForm.usd_per_trade,
+          max_positions: 5,
+          slippage_tolerance: 0.001,
+          risk_multiplier: 1,
         },
-        instance_name: createForm.instance_id,
-        strategy: 'default',
-      } as Parameters<typeof createBotMutation.mutateAsync>[0]);
+      });
 
       setShowCreateForm(false);
       resetCreateForm();
@@ -845,6 +847,8 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           </div>
         </section>
       )}
+
+      {!embedded && <ArbitrageImprovementPanel />}
 
       {error && (
         <InlineNotice tone="danger" title="Runtime action needs attention" description={error} />

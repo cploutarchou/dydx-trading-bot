@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import { PageContainer } from '../components/PageContainer';
 import {
-  EmptyState,
-  PlatformPageHeader,
-  PlatformPanel,
-  PlatformStatCard,
+    EmptyState,
+    PlatformPageHeader,
+    PlatformPanel,
+    PlatformStatCard,
 } from '../components/ui/PlatformUI';
 import { crmHref } from './crm/paths';
 import { ibPortalHref } from './ib/paths';
@@ -34,6 +34,29 @@ export const AdminHubPage = () => {
     queryKey: ['crm', 'summary', 'admin'],
     queryFn: async () => (await api.getCRMSummary()).data,
     staleTime: 20_000,
+  });
+
+  const botStatsQuery = useQuery({
+    queryKey: ['admin', 'bot-api-stats'],
+    queryFn: async () => {
+      const res = await api.getBotAPIStats();
+      return (
+        res as unknown as {
+          data: {
+            TotalRequests: number;
+            SuccessfulRequests: number;
+            FailedRequests: number;
+            AverageLatencyMillis: number;
+            MaxLatencyMillis: number;
+            Timeouts: number;
+            Upstream4xx: number;
+            Upstream5xx: number;
+          };
+        }
+      ).data;
+    },
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
 
   const modules = overviewQuery.data?.modules ?? [];
@@ -66,7 +89,12 @@ export const AdminHubPage = () => {
             icon: Workflow,
             tone: pendingApps > 0 ? ('warning' as const) : ('success' as const),
           },
-          { label: 'Portal modules', value: modules.length, icon: Activity, tone: 'violet' as const },
+          {
+            label: 'Portal modules',
+            value: modules.length,
+            icon: Activity,
+            tone: 'violet' as const,
+          },
           {
             label: 'Security surfaces',
             value: 3,
@@ -144,6 +172,35 @@ export const AdminHubPage = () => {
           </div>
         </PlatformPanel>
       </section>
+
+      <PlatformPanel
+        title="Bot API gateway health"
+        description="In-process counters for Go → Python bot API calls since last restart."
+      >
+        {botStatsQuery.isLoading ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : botStatsQuery.isError ? (
+          <p className="text-sm text-rose-400">Stats unavailable.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5 text-sm">
+            {[
+              { label: 'Total requests', value: botStatsQuery.data?.TotalRequests ?? 0 },
+              { label: 'Successful', value: botStatsQuery.data?.SuccessfulRequests ?? 0 },
+              { label: 'Failed', value: botStatsQuery.data?.FailedRequests ?? 0 },
+              {
+                label: 'Avg latency (ms)',
+                value: botStatsQuery.data?.AverageLatencyMillis?.toFixed(1) ?? '—',
+              },
+              { label: 'Max latency (ms)', value: botStatsQuery.data?.MaxLatencyMillis ?? 0 },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded border border-slate-700/50 bg-slate-900/60 p-3">
+                <p className="text-xs text-slate-400">{label}</p>
+                <p className="mt-1 text-lg font-semibold text-white">{value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </PlatformPanel>
     </PageContainer>
   );
 };

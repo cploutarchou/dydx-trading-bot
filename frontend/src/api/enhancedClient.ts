@@ -90,6 +90,7 @@ const toListResponse = (result: unknown, listKeys: string[] = []): ListResponse 
 // Enhanced API client with additional methods
 class EnhancedAPIClient {
   private baseClient = apiClient;
+  private backtestStatusListPromise: Promise<Entity[]> | null = null;
 
   private getAccessToken(): string | null {
     return this.baseClient.getAccessToken();
@@ -251,6 +252,32 @@ class EnhancedAPIClient {
       return withDataFallback<Entity>(result, {});
     } catch (error) {
       console.error('getBotStats error:', error);
+      throw error;
+    }
+  }
+
+  async getBotSummary(
+    instanceId: string,
+    params: { include?: string; limit?: number } = {}
+  ): Promise<Entity> {
+    try {
+      const queryString = new URLSearchParams();
+      if (params.include) queryString.append('include', params.include);
+      if (params.limit !== undefined) queryString.append('limit', String(params.limit));
+
+      const url = `/api/v1/bots/${instanceId}/summary${queryString.toString() ? `?${queryString}` : ''}`;
+      const response = await this.fetchWithAuth(url, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      return withDataFallback<Entity>(result, {});
+    } catch (error) {
+      console.error('getBotSummary error:', error);
       throw error;
     }
   }
@@ -567,6 +594,25 @@ class EnhancedAPIClient {
     return (result.data as Entity | undefined) ?? {};
   }
 
+  private async getBacktestStatusList(): Promise<Entity[]> {
+    if (this.backtestStatusListPromise) {
+      return this.backtestStatusListPromise;
+    }
+
+    this.backtestStatusListPromise = this.baseClient
+      .listBacktests(0, 50)
+      .then((listResult) => {
+        const listData = (listResult.data ?? {}) as { backtests?: unknown[] };
+        const runs = Array.isArray(listData.backtests) ? listData.backtests.filter(isRecord) : [];
+        return runs;
+      })
+      .finally(() => {
+        this.backtestStatusListPromise = null;
+      });
+
+    return this.backtestStatusListPromise;
+  }
+
   async getBacktestStatus(runId: string): Promise<{
     run_id: string;
     status: string;
@@ -575,7 +621,7 @@ class EnhancedAPIClient {
     estimated_completion_seconds?: number;
     updated_at?: string;
     checked_at?: string;
-    progress_source?: 'status' | 'details' | 'list_fallback' | 'default';
+    progress_source?: 'status' | 'list_fallback' | 'default';
   }> {
     const parseProgress = (value: unknown): number | null => {
       if (typeof value !== 'number' && typeof value !== 'string') {
@@ -636,70 +682,30 @@ class EnhancedAPIClient {
     let currentPair: string | undefined;
     let etaSeconds: number | undefined;
     let updatedAt: string | undefined;
-    let progressSource: 'status' | 'details' | 'list_fallback' | 'default' = 'default';
+    let progressSource: 'status' | 'list_fallback' | 'default' = 'default';
 
+    // The dedicated status endpoint currently times out for some active runs.
+    // The list response carries the same live fields without producing browser-level fetch errors.
     try {
-      const statusResult = await this.baseClient.getBacktestStatus(runId);
-      const statusData = (statusResult.data ?? {}) as Record<string, unknown>;
-      const statusProgress = extractFromRunRecord(statusData);
-      status = statusProgress.status ?? status;
-      progress = statusProgress.progress;
-      currentPair = statusProgress.currentPair;
-      etaSeconds = statusProgress.etaSeconds;
-      updatedAt = statusProgress.updatedAt;
-      if (statusProgress.progress !== undefined || statusProgress.status !== undefined) {
-        progressSource = 'status';
+      const listRuns = await this.getBacktestStatusList();
+      const matchedRun = listRuns.find((item) => item.run_id === runId);
+
+      if (isRecord(matchedRun)) {
+        const fallbackStatusProgress = extractFromRunRecord(matchedRun);
+        status = fallbackStatusProgress.status ?? status;
+        if (fallbackStatusProgress.progress !== undefined) {
+          progress = fallbackStatusProgress.progress;
+          progressSource = 'list_fallback';
+        }
+        currentPair = fallbackStatusProgress.currentPair ?? currentPair;
+        etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
+        updatedAt = fallbackStatusProgress.updatedAt ?? updatedAt;
       }
     } catch (error) {
-      console.warn('📊 enhancedClient.ts: failed to fetch backtest status endpoint', error);
-    }
-
-    if (progress === undefined || progressSource === 'default') {
-      const detailsResult = await this.baseClient.getBacktest(runId);
-      const detailsData = (detailsResult.data ?? {}) as Record<string, unknown>;
-      const detailsStatusProgress = extractFromRunRecord(detailsData);
-      status = detailsStatusProgress.status ?? status;
-      progress = detailsStatusProgress.progress ?? progress;
-      currentPair = detailsStatusProgress.currentPair ?? currentPair;
-      etaSeconds = detailsStatusProgress.etaSeconds ?? etaSeconds;
-      updatedAt = detailsStatusProgress.updatedAt ?? updatedAt;
-      if (detailsStatusProgress.progress !== undefined) {
-        progressSource = 'details';
-      }
-    }
-
-    // Fallback: list endpoint carries live progress_pct in this backend integration.
-    if (
-      progress === undefined ||
-      (progress === 0 && (status === 'RUNNING' || status === 'PENDING'))
-    ) {
-      try {
-        const listResult = await this.baseClient.listBacktests(0, 50);
-        const listData = (listResult.data ?? {}) as { backtests?: unknown[] };
-        const matchedRun = Array.isArray(listData.backtests)
-          ? listData.backtests.find((item) => {
-              if (!isRecord(item)) return false;
-              return item.run_id === runId;
-            })
-          : undefined;
-
-        if (isRecord(matchedRun)) {
-          const fallbackStatusProgress = extractFromRunRecord(matchedRun);
-          status = fallbackStatusProgress.status ?? status;
-          if (fallbackStatusProgress.progress !== undefined) {
-            progress = fallbackStatusProgress.progress;
-            progressSource = 'list_fallback';
-          }
-          currentPair = fallbackStatusProgress.currentPair ?? currentPair;
-          etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
-          updatedAt = fallbackStatusProgress.updatedAt ?? updatedAt;
-        }
-      } catch (error) {
-        console.warn(
-          '📊 enhancedClient.ts: failed to fetch list fallback for backtest status',
-          error
-        );
-      }
+      console.warn(
+        '📊 enhancedClient.ts: failed to fetch list fallback for backtest status',
+        error
+      );
     }
 
     const computedProgress = progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;

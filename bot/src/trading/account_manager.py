@@ -8,7 +8,7 @@ from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
 from loguru import logger
-from src.constants import DYDX_ADDRESS, SUBACCOUNT_NUMBER
+from src.constants import ARBITRAGE_IMPROVEMENTS_ENABLED, DYDX_ADDRESS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
 from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.market_data import get_markets
@@ -41,7 +41,10 @@ async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
     ticker = str(order["ticker"])
-    markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
+    if ARBITRAGE_IMPROVEMENTS_ENABLED:
+        markets_payload = await get_markets(client)
+    else:
+        markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
     market_payload = cast(dict[str, Any], markets_payload["markets"][ticker])
     market = Market(market_payload)
     # Use the client's wallet address when available to derive client id
@@ -202,7 +205,10 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Initialize
     ticker = str(market)
     current_block = await client.node.latest_block_height()
-    markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
+    if ARBITRAGE_IMPROVEMENTS_ENABLED:
+        markets_payload = await get_markets(client)
+    else:
+        markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
     market_payload = cast(dict[str, Any], markets_payload["markets"][ticker])
     market = Market(market_payload)
     address = _resolve_client_address(client)

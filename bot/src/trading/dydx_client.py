@@ -1,5 +1,6 @@
 """dYdX network client connection management."""
 
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -85,7 +86,9 @@ def _resolve_runtime_network(is_testnet: bool):
         "DYDX_MAINNET_NODE_URL",
     )
     if not node_url:
-        raise RuntimeError("DYDX_MAINNET_NODE_URL is required for mainnet runtime checks")
+        raise RuntimeError(
+            "DYDX_MAINNET_NODE_URL is required for mainnet runtime checks"
+        )
 
     return make_mainnet(
         rest_indexer=INDEXER_ENDPOINT_MAINNET,
@@ -122,7 +125,9 @@ async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) ->
         "testnet" if is_testnet else "mainnet",
     )
 
-    market_data_endpoint = INDEXER_ENDPOINT_TESTNET if is_testnet else INDEXER_ENDPOINT_MAINNET
+    market_data_endpoint = (
+        INDEXER_ENDPOINT_TESTNET if is_testnet else INDEXER_ENDPOINT_MAINNET
+    )
     account_indexer_endpoint = market_data_endpoint
     logger.debug(
         "Market data endpoint resolved to {} (environment={})",
@@ -134,7 +139,9 @@ async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) ->
         indexer = IndexerClient(host=market_data_endpoint, api_timeout=5)
         logger.info("Initialized indexer client against {}", market_data_endpoint)
     except Exception:
-        logger.exception("Failed to initialize indexer client for {}", market_data_endpoint)
+        logger.exception(
+            "Failed to initialize indexer client for {}", market_data_endpoint
+        )
         raise
 
     try:
@@ -207,7 +214,7 @@ async def check_jurisdiction(client, market):
 
     logger.info("Checking Jurisdiction for market {}", market)
     try:
-        await get_candles_recent(client, market)
+        await asyncio.wait_for(get_candles_recent(client, market), timeout=15.0)
         _jurisdiction_success_cache[market] = now
         logger.info("Jurisdiction check succeeded for {}", market)
     except Exception as e:

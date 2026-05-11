@@ -5,8 +5,15 @@ Realtime database models for live trading data
 import enum
 
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Float, Boolean,
-    Enum, JSON
+    Column,
+    Integer,
+    String,
+    Text,
+    DateTime,
+    Float,
+    Boolean,
+    Enum,
+    JSON,
 )
 
 from internal.domain import Base
@@ -55,6 +62,18 @@ class Position(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     closed_at = Column(DateTime, nullable=True)
 
+    # Cointegration metadata — columns present in live_position migration schema
+    hedge_ratio = Column(Float, nullable=True)
+    correlation = Column(Float, nullable=True)
+    half_life = Column(Float, nullable=True)
+
+    # dYdX perpetual-specific fields
+    funding_rate = Column(Float, nullable=True)
+    dydx_order_ids = Column(
+        JSON, nullable=True
+    )  # list of dYdX order IDs for this position
+    dydx_position_id = Column(String(100), nullable=True, index=True)
+
 
 class MarketData(Base):
     __tablename__ = "market_data_realtime"
@@ -75,7 +94,9 @@ class MarketData(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
-        {"schema": None},  # Uses the default PostgreSQL schema unless configured otherwise.
+        {
+            "schema": None
+        },  # Uses the default PostgreSQL schema unless configured otherwise.
     )
 
 

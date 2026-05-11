@@ -50,7 +50,9 @@ class BotInstance:
         )
 
         # Replace placeholders in file paths
-        self.bot_agents_file = self.bot_agents_file.replace("{instance_id}", instance_id)
+        self.bot_agents_file = self.bot_agents_file.replace(
+            "{instance_id}", instance_id
+        )
         self.pairs_file = self.pairs_file.replace("{instance_id}", instance_id)
 
     @staticmethod
@@ -75,7 +77,9 @@ class BotInstance:
     def setup_logging(self):
         """Setup instance-specific logging"""
         setup_logging()
-        self.logger = logger.bind(instance_id=self.instance_id, component="bot_instance")
+        self.logger = logger.bind(
+            instance_id=self.instance_id, component="bot_instance"
+        )
         self.logger.info(f"Bot instance {self.instance_id} initializing...")
 
     def load_config(self):
@@ -84,9 +88,10 @@ class BotInstance:
             # Attempt to load instance-specific YAML config file first
             if self.config_file and os.path.exists(self.config_file):
                 import yaml
+
                 if self.logger:
                     self.logger.info(f"Loading instance config from {self.config_file}")
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, "r") as f:
                     config_data = yaml.safe_load(f)
                     if config_data:
                         # Config loaded from file; build minimal DydxConfig from YAML
@@ -106,76 +111,193 @@ class BotInstance:
                             environment=config_data.get("environment", "development"),
                             telegram=TelegramSettings(
                                 token=config_data.get("telegram", {}).get("token", ""),
-                                chat_id=config_data.get("telegram", {}).get("chat_id", ""),
+                                chat_id=config_data.get("telegram", {}).get(
+                                    "chat_id", ""
+                                ),
                             ),
                             botSettings=BotSettings(
                                 is_testnet=config_data.get("is_testnet", True),
-                                subaccountNumber=int(config_data.get("botSettings", {}).get("subaccountNumber", 0)),
+                                subaccountNumber=int(
+                                    config_data.get("botSettings", {}).get(
+                                        "subaccountNumber", 0
+                                    )
+                                ),
                                 capitalAllocationUsd=float(
-                                    config_data.get("botSettings", {}).get("capitalAllocationUsd", 0.0)),
-                                abortAllPositions=config_data.get("botSettings", {}).get("abortAllPositions", False),
-                                findCointegratedPairs=config_data.get("botSettings", {}).get("findCointegratedPairs",
-                                                                                             False),
-                                manageExits=config_data.get("botSettings", {}).get("manageExits", False),
-                                placeTrades=config_data.get("botSettings", {}).get("placeTrades", False),
-                                resolutionTimeframe=config_data.get("botSettings", {}).get("resolutionTimeframe",
-                                                                                           "1HOUR"),
-                                strategy=config_data.get("botSettings", {}).get("strategy", "cointegration"),
-                                statsWindow=int(config_data.get("botSettings", {}).get("statsWindow", 21)),
-                                maxHalfLife=int(config_data.get("botSettings", {}).get("maxHalfLife", 24)),
-                                ZScoreThreshold=float(config_data.get("botSettings", {}).get("ZScoreThreshold", 1.5)),
-                                usdPerTrade=float(config_data.get("botSettings", {}).get("usdPerTrade", 10.0)),
+                                    config_data.get("botSettings", {}).get(
+                                        "capitalAllocationUsd", 0.0
+                                    )
+                                ),
+                                abortAllPositions=config_data.get(
+                                    "botSettings", {}
+                                ).get("abortAllPositions", False),
+                                findCointegratedPairs=config_data.get(
+                                    "botSettings", {}
+                                ).get("findCointegratedPairs", False),
+                                manageExits=config_data.get("botSettings", {}).get(
+                                    "manageExits", False
+                                ),
+                                placeTrades=config_data.get("botSettings", {}).get(
+                                    "placeTrades", False
+                                ),
+                                resolutionTimeframe=config_data.get(
+                                    "botSettings", {}
+                                ).get("resolutionTimeframe", "1HOUR"),
+                                strategy=config_data.get("botSettings", {}).get(
+                                    "strategy", "cointegration"
+                                ),
+                                statsWindow=int(
+                                    config_data.get("botSettings", {}).get(
+                                        "statsWindow", 21
+                                    )
+                                ),
+                                maxHalfLife=int(
+                                    config_data.get("botSettings", {}).get(
+                                        "maxHalfLife", 24
+                                    )
+                                ),
+                                ZScoreThreshold=float(
+                                    config_data.get("botSettings", {}).get(
+                                        "ZScoreThreshold", 1.5
+                                    )
+                                ),
+                                usdPerTrade=float(
+                                    config_data.get("botSettings", {}).get(
+                                        "usdPerTrade", 10.0
+                                    )
+                                ),
                                 usdMinCollateral=float(
-                                    config_data.get("botSettings", {}).get("usdMinCollateral", 100.0)),
-                                closeAtZscoreCross=config_data.get("botSettings", {}).get("closeAtZscoreCross", True),
-                                maxPositions=int(config_data.get("botSettings", {}).get("maxPositions", 5)),
-                                maxDrawdownPct=float(config_data.get("botSettings", {}).get("maxDrawdownPct", 15.0)),
-                                stopLossPct=float(config_data.get("botSettings", {}).get("stopLossPct", 2.0)),
-                                takeProfitPct=float(config_data.get("botSettings", {}).get("takeProfitPct", 5.0)),
-                                trailingStopPct=float(config_data.get("botSettings", {}).get("trailingStopPct", 1.0)),
+                                    config_data.get("botSettings", {}).get(
+                                        "usdMinCollateral", 100.0
+                                    )
+                                ),
+                                closeAtZscoreCross=config_data.get(
+                                    "botSettings", {}
+                                ).get("closeAtZscoreCross", True),
+                                maxPositions=int(
+                                    config_data.get("botSettings", {}).get(
+                                        "maxPositions", 5
+                                    )
+                                ),
+                                maxDrawdownPct=float(
+                                    config_data.get("botSettings", {}).get(
+                                        "maxDrawdownPct", 15.0
+                                    )
+                                ),
+                                stopLossPct=float(
+                                    config_data.get("botSettings", {}).get(
+                                        "stopLossPct", 2.0
+                                    )
+                                ),
+                                takeProfitPct=float(
+                                    config_data.get("botSettings", {}).get(
+                                        "takeProfitPct", 5.0
+                                    )
+                                ),
+                                trailingStopPct=float(
+                                    config_data.get("botSettings", {}).get(
+                                        "trailingStopPct", 1.0
+                                    )
+                                ),
                                 rebalanceIntervalHours=int(
-                                    config_data.get("botSettings", {}).get("rebalanceIntervalHours", 24)),
+                                    config_data.get("botSettings", {}).get(
+                                        "rebalanceIntervalHours", 24
+                                    )
+                                ),
                                 positionTimeoutHours=int(
-                                    config_data.get("botSettings", {}).get("positionTimeoutHours", 72)),
+                                    config_data.get("botSettings", {}).get(
+                                        "positionTimeoutHours", 72
+                                    )
+                                ),
                                 selectedMarkets=[
                                     str(market).strip()
-                                    for market in config_data.get("botSettings", {}).get("selectedMarkets", [])
+                                    for market in config_data.get(
+                                        "botSettings", {}
+                                    ).get("selectedMarkets", [])
                                     if str(market).strip()
                                 ],
                             ),
                             dydx_testnet=DYDXTestnetSettings(
-                                dydx_chain_address=config_data.get("dydx_testnet", {}).get("dydx_chain_address", ""),
-                                dydx_chain_secret=config_data.get("dydx_testnet", {}).get("dydx_chain_secret", ""),
+                                dydx_chain_address=config_data.get(
+                                    "dydx_testnet", {}
+                                ).get("dydx_chain_address", ""),
+                                dydx_chain_secret=config_data.get(
+                                    "dydx_testnet", {}
+                                ).get("dydx_chain_secret", ""),
                             ),
                             dydx_mainnet=DYDXMainnetSettings(
-                                dydx_chain_address=config_data.get("dydx_mainnet", {}).get("dydx_chain_address", ""),
-                                dydx_chain_secret=config_data.get("dydx_mainnet", {}).get("dydx_chain_secret", ""),
+                                dydx_chain_address=config_data.get(
+                                    "dydx_mainnet", {}
+                                ).get("dydx_chain_address", ""),
+                                dydx_chain_secret=config_data.get(
+                                    "dydx_mainnet", {}
+                                ).get("dydx_chain_secret", ""),
                             ),
                             logging=LoggingSettings(
-                                level=config_data.get("logging", {}).get("level", "INFO"),
+                                level=config_data.get("logging", {}).get(
+                                    "level", "INFO"
+                                ),
                                 loki=LokiSettings(
-                                    enabled=config_data.get("logging", {}).get("loki", {}).get("enabled", False),
-                                    url=config_data.get("logging", {}).get("loki", {}).get("url", ""),
-                                    username=config_data.get("logging", {}).get("loki", {}).get("username", ""),
-                                    password=config_data.get("logging", {}).get("loki", {}).get("password", ""),
-                                    labels=config_data.get("logging", {}).get("loki", {}).get("labels", {}),
+                                    enabled=config_data.get("logging", {})
+                                    .get("loki", {})
+                                    .get("enabled", False),
+                                    url=config_data.get("logging", {})
+                                    .get("loki", {})
+                                    .get("url", ""),
+                                    username=config_data.get("logging", {})
+                                    .get("loki", {})
+                                    .get("username", ""),
+                                    password=config_data.get("logging", {})
+                                    .get("loki", {})
+                                    .get("password", ""),
+                                    labels=config_data.get("logging", {})
+                                    .get("loki", {})
+                                    .get("labels", {}),
                                 ),
                             ),
                             backtesting=BacktestSettings(
-                                candleResolution=config_data.get("backtesting", {}).get("candleResolution", "1HOUR"),
-                                maxHistoryDays=int(config_data.get("backtesting", {}).get("maxHistoryDays", 90)),
+                                candleResolution=config_data.get("backtesting", {}).get(
+                                    "candleResolution", "1HOUR"
+                                ),
+                                maxHistoryDays=int(
+                                    config_data.get("backtesting", {}).get(
+                                        "maxHistoryDays", 90
+                                    )
+                                ),
                                 startingBalance=float(
-                                    config_data.get("backtesting", {}).get("startingBalance", 1000.0)),
-                                transactionFee=float(config_data.get("backtesting", {}).get("transactionFee", 0.0005)),
-                                slippage=float(config_data.get("backtesting", {}).get("slippage", 0.001)),
-                                benchmarkSymbol=config_data.get("backtesting", {}).get("benchmarkSymbol", "BTC-USD"),
-                                riskFreeRate=float(config_data.get("backtesting", {}).get("riskFreeRate", 0.02)),
+                                    config_data.get("backtesting", {}).get(
+                                        "startingBalance", 1000.0
+                                    )
+                                ),
+                                transactionFee=float(
+                                    config_data.get("backtesting", {}).get(
+                                        "transactionFee", 0.0005
+                                    )
+                                ),
+                                slippage=float(
+                                    config_data.get("backtesting", {}).get(
+                                        "slippage", 0.001
+                                    )
+                                ),
+                                benchmarkSymbol=config_data.get("backtesting", {}).get(
+                                    "benchmarkSymbol", "BTC-USD"
+                                ),
+                                riskFreeRate=float(
+                                    config_data.get("backtesting", {}).get(
+                                        "riskFreeRate", 0.02
+                                    )
+                                ),
                             ),
                         )
                         if self.logger:
-                            self.logger.info(f"Configuration loaded for instance {self.instance_id}")
-                            self.logger.info(f"Network: {'TESTNET' if self.config.is_testnet else 'MAINNET'}")
-                            self.logger.info(f"Strategy: {self.config.botSettings.strategy}")
+                            self.logger.info(
+                                f"Configuration loaded for instance {self.instance_id}"
+                            )
+                            self.logger.info(
+                                f"Network: {'TESTNET' if self.config.is_testnet else 'MAINNET'}"
+                            )
+                            self.logger.info(
+                                f"Strategy: {self.config.botSettings.strategy}"
+                            )
                         return
 
             # Fallback to environment-based config
@@ -185,8 +307,12 @@ class BotInstance:
                 raise RuntimeError("Failed to load configuration")
 
             if self.logger:
-                self.logger.info(f"Configuration loaded for instance {self.instance_id}")
-                self.logger.info(f"Network: {'TESTNET' if self.config.is_testnet else 'MAINNET'}")
+                self.logger.info(
+                    f"Configuration loaded for instance {self.instance_id}"
+                )
+                self.logger.info(
+                    f"Network: {'TESTNET' if self.config.is_testnet else 'MAINNET'}"
+                )
                 self.logger.info(f"Strategy: {self.config.botSettings.strategy}")
         except Exception as e:
             if self.logger:
@@ -219,7 +345,7 @@ class BotInstance:
             if self.config and self.config.telegram:
                 telegram_token = self.config.telegram.token or ""
                 telegram_chat_id = self.config.telegram.chat_id or ""
-            
+
             self.messenger = TelegramMessenger(
                 bot_token=telegram_token,
                 chat_id=telegram_chat_id,
@@ -269,9 +395,7 @@ class BotInstance:
                 mnemonic=instance_mnemonic,
                 is_testnet=self.config.is_testnet,
             )
-            self.logger.info(
-                "Successfully connected to dYdX as {}", instance_address
-            )
+            self.logger.info("Successfully connected to dYdX as {}", instance_address)
 
         except Exception as e:
             error_detail = self._describe_exception(e)
@@ -323,7 +447,9 @@ class BotInstance:
                     error_detail = ""
                     if isinstance(stores_result, dict) and stores_result.get("error"):
                         error_detail = f": {stores_result['error']}"
-                    raise RuntimeError(f"Failed to save cointegration results{error_detail}")
+                    raise RuntimeError(
+                        f"Failed to save cointegration results{error_detail}"
+                    )
 
                 self.logger.info("Cointegration analysis completed")
 
@@ -383,7 +509,9 @@ class BotInstance:
 
         except KeyboardInterrupt:
             self.logger.info(f"Bot instance {self.instance_id} stopped by user")
-            self.messenger.send_shutdown_message(f"User interrupt (instance {self.instance_id})")
+            self.messenger.send_shutdown_message(
+                f"User interrupt (instance {self.instance_id})"
+            )
         except Exception as e:
             error_detail = self._describe_exception(e)
             self._log_exception("Critical error in trading loop: {}", e)
@@ -415,15 +543,7 @@ class BotInstance:
                     self.logger.error(
                         f"Bot instance {self.instance_id} failed: {self._describe_exception(e)}"
                     )
-            sys.exit(1)
-
-
-def parse_arguments():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description="dYdX Trading Bot Instance")
-    parser.add_argument("--instance-id", required=True, help="Unique instance ID for this bot")
-    parser.add_argument("--config", help="Path to instance-specific config file")
-    return parser.parse_args()
+            raise
 
 
 async def main():

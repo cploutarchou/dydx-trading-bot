@@ -53,6 +53,7 @@
 		"build:ib": "VITE_APP_PORTAL_TYPE=ib vite build --outDir dist/ib-portal",
 		"preview": "vite preview",
 		"lint": "eslint src --ext .ts,.tsx",
+		"typecheck": "tsc --noEmit",
 		"test:contracts": "vitest run src/api/contractGuards.test.ts",
 		"qa:screenshots:plan": "node ./scripts/capture-responsive-screenshots.mjs --dry-run",
 		"qa:screenshots:capture": "node ./scripts/capture-responsive-screenshots.mjs",

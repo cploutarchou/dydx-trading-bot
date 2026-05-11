@@ -826,7 +826,15 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 			SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
 		}
 
-		if shouldReturnLegacyAuthTokens() {
+		// If session storage is unavailable (e.g. Redis/session store misconfigured),
+		// `sessionToken` is empty and cookie-session auth cannot work for /users/me.
+		// Fall back to bearer access tokens so auth remains functional.
+		issueBearerFallback := sessionToken == ""
+		if issueBearerFallback {
+			log.Printf("loginHandler: session store unavailable, issuing bearer fallback token for user=%d", user.ID)
+		}
+
+		if shouldReturnLegacyAuthTokens() || issueBearerFallback {
 			accessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 			if err != nil {
 				log.Printf("Failed to generate access token: %v", err)
@@ -1077,7 +1085,14 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
 		}
 
-		if shouldReturnLegacyAuthTokens() {
+		// Same fallback as login: if session storage is unavailable, return bearer
+		// access token so clients can still authenticate /users/me immediately.
+		issueBearerFallback := sessionToken == ""
+		if issueBearerFallback {
+			log.Printf("refreshHandler: session store unavailable, issuing bearer fallback token for user=%d", user.ID)
+		}
+
+		if shouldReturnLegacyAuthTokens() || issueBearerFallback {
 			newAccessToken, err := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{

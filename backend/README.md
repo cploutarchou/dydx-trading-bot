@@ -31,12 +31,17 @@ The backend is the public application API for the platform. It is the only servi
 ## Core Commands
 
 ```bash
+make doctor
 make run
 make dev
 make test
 make lint
 make verify
 ```
+
+`make doctor` validates that the active Go binary is a supported install. A Go
+binary under `/snap/bin` is not supported for this backend because it can fail
+under sandboxed shells with `snap-confine` capability errors before tests start.
 
 ## Contract Rules
 
@@ -91,6 +96,14 @@ The legacy dummy CRM seeding route is no longer registered. Production portal fl
 - liveness: `GET /health`
 - readiness: `GET /ready`
 - tests: `make test`
+
+## Database Migration Posture
+
+PostgreSQL migrations in `migrations/postgres` are the runtime source of truth.
+The `migrations/sqlite` tree is retained only as legacy test/reference material
+and must not be extended for new backend runtime behavior. New migrations should
+be created with `make migrate-create NAME=...`, which writes to
+`migrations/postgres`.
 
 ## Related Docs
 

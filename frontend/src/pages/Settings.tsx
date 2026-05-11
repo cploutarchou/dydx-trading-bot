@@ -42,6 +42,7 @@ import apiClient from '../api';
 import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
 import { AIMarketSettings } from '../components/AIMarketSettings';
+import { ArbitrageRuntimeSettings } from '../components/ArbitrageRuntimeSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
 import { CodexSettings } from '../components/CodexSettings';
 import { CoinDeskNewsSettings } from '../components/CoinDeskNewsSettings';
@@ -149,6 +150,7 @@ const MANUAL_SECTION_IDS = new Set([
   'dydx_keys',
   'security',
   'access_control',
+  'arbitrage_runtime',
   'botsettings',
   'backtesting',
   'bot_settings',
@@ -162,6 +164,7 @@ const SECTION_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = 
   ai_market_filters: Zap,
   codex_io: BarChart2,
   access_control: Users,
+  arbitrage_runtime: SlidersHorizontal,
   telegram: MessageSquare,
   mailgun: Mail,
   market_news: Newspaper,
@@ -174,7 +177,10 @@ const getSectionIcon = (id: string): ComponentType<{ className?: string }> =>
 const SIDEBAR_GROUPS: Array<{ label: string; sectionIds: string[] }> = [
   { label: 'Identity', sectionIds: ['profile', 'security'] },
   { label: 'API Keys', sectionIds: ['dydx_keys', 'ai_market_filters', 'codex_io'] },
-  { label: 'Integrations', sectionIds: ['access_control', 'telegram', 'mailgun', 'market_news'] },
+  {
+    label: 'Integrations',
+    sectionIds: ['access_control', 'telegram', 'mailgun', 'market_news', 'arbitrage_runtime'],
+  },
 ];
 
 interface SidebarNavGroup {
@@ -400,6 +406,11 @@ export default function Settings() {
             },
             { section: 'mailgun', title: 'Mailgun', description: 'Outbound email' },
             { section: 'market_news', title: 'Market News', description: 'CoinDesk feed' },
+            {
+              section: 'arbitrage_runtime',
+              title: 'Arbitrage Runtime',
+              description: 'Feature flags & pair ranking',
+            },
           ]
         : []),
     ];
@@ -922,6 +933,9 @@ export default function Settings() {
           {activeSection === 'telegram' && <TelegramSettings />}
           {activeSection === 'market_news' && canManageBackofficeSettings && (
             <CoinDeskNewsSettings />
+          )}
+          {activeSection === 'arbitrage_runtime' && canManageBackofficeSettings && (
+            <ArbitrageRuntimeSettings />
           )}
           {activeSection === 'security' && <AuthSettingsComponent />}
 

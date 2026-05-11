@@ -93,7 +93,7 @@ apps:
           CORS_ALLOWED_ORIGINS: "https://app.cydevcloud.com"
           # Upstream Python bot API. Prefer loopback (host-network static port)
           # and keep Consul DNS names only as fallback while DNS is being stabilized.
-          BOT_API_URL: "http://127.0.0.1:8889"
+          BOT_API_URL: "http://172.17.0.1:8889"
           BOT_API_FALLBACK_URLS: "http://api.service.consul:8889,http://dydx-trading-bot-api.service.consul:8889"
           BOT_API_TIMEOUT_SECONDS: "120"
           # Backend's own PostgreSQL connection (same shared cluster, same DB for now)

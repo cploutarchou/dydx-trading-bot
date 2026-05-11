@@ -23,6 +23,14 @@
 - Authenticated backend proxy routes for the arbitrage diagnostics endpoints.
 - Frontend bot-manager panel for feature-flag state, saved-call counters, and pair-priority explanations.
 - Admin-only `Settings -> Arbitrage Runtime` controls backed by `bot_settings` and synchronized to the bot runtime.
+- Audit logs for admin arbitrage runtime setting updates, including changed keys and bot sync status.
+
+## Secure Storage Model
+
+- Non-secret arbitrage toggles and numeric tuning values live in `bot_settings` section `arbitrage`.
+- dYdX addresses and mnemonics stay in the existing encrypted dYdX key storage.
+- Provider API keys stay in `external_api_credentials` through the existing encrypted credential service.
+- User login credentials remain in the existing auth tables and must not be copied into runtime settings.
 
 ## Future Safe Additions
 

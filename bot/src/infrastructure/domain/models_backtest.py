@@ -57,6 +57,9 @@ class BacktestConfigRequest(BaseModel):
     timeout_seconds: Optional[float] = Field(
         None, description="Maximum wall-clock runtime for the backtest"
     )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None, description="Optional structured run metadata persisted with the request"
+    )
 
 
 class BacktestResponse(BaseModel):

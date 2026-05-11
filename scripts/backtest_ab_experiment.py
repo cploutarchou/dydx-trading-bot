@@ -183,6 +183,24 @@ def _api_compare(
     return _unwrap(payload)
 
 
+def _api_update_backtest_metadata(
+    base_url: str,
+    token: str | None,
+    run_id: str,
+    *,
+    metadata: dict[str, Any],
+    merge: bool = True,
+) -> dict[str, Any]:
+    payload = _request_json(
+        "POST",
+        f"{base_url}/api/v1/backtests/{run_id}/metadata",
+        token=token,
+        payload={"metadata": metadata, "merge": bool(merge)},
+        timeout=45.0,
+    )
+    return _unwrap(payload)
+
+
 def _build_run_payload(
     *,
     name: str,
@@ -196,6 +214,7 @@ def _build_run_payload(
     zscore_threshold: float,
     stats_window: int,
     usd_per_trade: float,
+    metadata: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -212,6 +231,7 @@ def _build_run_payload(
             "pair_selection_mode": str(pair_selection_mode),
         },
         "timeout_seconds": float(timeout_seconds),
+        "metadata": metadata,
     }
 
 
@@ -301,11 +321,46 @@ def main() -> int:
     original_runtime: dict[str, Any] | None = None
     run_a_id = ""
     run_b_id = ""
+    experiment_id = f"ab-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    runtime_before_ab: dict[str, Any] = {}
 
     try:
         if runtime_changes_requested:
             original_runtime = _api_get_runtime_settings(base_url, args.token)
+            runtime_before_ab = dict(original_runtime)
             print("Captured original runtime settings.", flush=True)
+
+        experiment_base = {
+            "experiment_id": experiment_id,
+            "experiment_name": args.experiment_name,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "start_date": args.start_date,
+            "end_date": args.end_date,
+            "selected_pairs": selected_pairs,
+            "runtime_settings_overrides": {
+                "a": runtime_a,
+                "b": runtime_b,
+            },
+            "runtime_settings_before": runtime_before_ab,
+            "script": "scripts/backtest_ab_experiment.py",
+        }
+
+        metadata_a = {
+            "ab_experiment": {
+                **experiment_base,
+                "variant": "A",
+                "pair_selection_mode": args.pair_selection_mode_a,
+                "max_pairs": args.max_pairs_a,
+            }
+        }
+        metadata_b = {
+            "ab_experiment": {
+                **experiment_base,
+                "variant": "B",
+                "pair_selection_mode": args.pair_selection_mode_b,
+                "max_pairs": args.max_pairs_b,
+            }
+        }
 
         payload_a = _build_run_payload(
             name=f"{args.experiment_name}-A",
@@ -319,6 +374,7 @@ def main() -> int:
             zscore_threshold=args.zscore_threshold,
             stats_window=args.stats_window,
             usd_per_trade=args.usd_per_trade,
+            metadata=metadata_a,
         )
         payload_b = _build_run_payload(
             name=f"{args.experiment_name}-B",
@@ -332,6 +388,7 @@ def main() -> int:
             zscore_threshold=args.zscore_threshold,
             stats_window=args.stats_window,
             usd_per_trade=args.usd_per_trade,
+            metadata=metadata_b,
         )
 
         if runtime_a:
@@ -372,6 +429,36 @@ def main() -> int:
         ]
         compare_payload = _api_compare(base_url, args.token, [run_a_id, run_b_id], metrics)
         _print_compare_summary(compare_payload)
+
+        completed_at = datetime.now(timezone.utc).isoformat()
+        comparison_metadata = {
+            "ab_experiment": {
+                **experiment_base,
+                "completed_at": completed_at,
+                "run_a_id": run_a_id,
+                "run_b_id": run_b_id,
+                "run_a_status": status_a.get("status"),
+                "run_b_status": status_b.get("status"),
+                "compare_summary": compare_payload.get("summary", {}),
+                "compare_missing_runs": compare_payload.get("missing_runs", []),
+                "metrics": metrics,
+            }
+        }
+
+        for persisted_run_id in (run_a_id, run_b_id):
+            try:
+                _api_update_backtest_metadata(
+                    base_url,
+                    args.token,
+                    persisted_run_id,
+                    metadata=comparison_metadata,
+                    merge=True,
+                )
+            except Exception as exc:
+                print(
+                    f"WARNING: failed to persist compare metadata for run {persisted_run_id}: {exc}",
+                    file=sys.stderr,
+                )
 
         print(
             json.dumps(

@@ -3,7 +3,11 @@ import { AxiosError } from 'axios';
 import { Play } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import api, { DYDX_CANDLE_RESOLUTION_OPTIONS, normalizeDydxCandleResolution } from '../api';
+import api, {
+    DYDX_CANDLE_RESOLUTION_OPTIONS,
+    normalizeDydxCandleResolution,
+    type PerpetualMarketsResponse,
+} from '../api';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { useStrategyStore } from '../store/strategies';
 import { useToastStore } from './ErrorBoundary';
@@ -129,6 +133,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(false);
   const [marketsError, setMarketsError] = useState<string | null>(null);
+  const [marketsSource, setMarketsSource] = useState<string>('unknown');
+  const [marketsStale, setMarketsStale] = useState(false);
+  const [marketsStaticFallback, setMarketsStaticFallback] = useState(false);
   const requestedStrategyId = useMemo(() => {
     const raw = searchParams.get('strategy_id');
     const parsed = raw ? Number(raw) : NaN;
@@ -173,8 +180,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       try {
         const response = await api.getPerpetualMarkets(120);
         const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
+        const responseData = (response.data || {}) as PerpetualMarketsResponse;
         if (!cancelled) {
           setAvailableMarkets(markets);
+          setMarketsSource(String(responseData.source || 'unknown'));
+          setMarketsStale(Boolean(responseData.cache_stale));
+          setMarketsStaticFallback(Boolean(responseData.static_fallback));
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -548,6 +559,48 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const selectedMode =
     (formData.trading_parameters
       .pair_selection_mode as BacktestRunRequest['pair_selection_mode']) || 'liquidity';
+  const normalizedMarketsSource = marketsSource.trim().toLowerCase();
+  const marketSourceBadge = useMemo(() => {
+    if (marketsStaticFallback || normalizedMarketsSource === 'static_fallback') {
+      return {
+        label: 'Source: static fallback',
+        className: 'border-rose-500/50 bg-rose-500/10 text-rose-200',
+      };
+    }
+    if (marketsStale || normalizedMarketsSource === 'cache_stale') {
+      return {
+        label: 'Source: stale cache',
+        className: 'border-amber-500/50 bg-amber-500/10 text-amber-200',
+      };
+    }
+    if (normalizedMarketsSource === 'cache') {
+      return {
+        label: 'Source: cache',
+        className: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200',
+      };
+    }
+    if (normalizedMarketsSource === 'dydx') {
+      return {
+        label: 'Source: live dYdX',
+        className: 'border-emerald-500/45 bg-emerald-500/10 text-emerald-200',
+      };
+    }
+    return {
+      label: 'Source: unknown',
+      className: 'border-slate-600/70 bg-slate-700/40 text-slate-200',
+    };
+  }, [marketsSource, marketsStale, marketsStaticFallback, normalizedMarketsSource]);
+
+  const marketSourceWarning = useMemo(() => {
+    if (marketsStaticFallback || normalizedMarketsSource === 'static_fallback') {
+      return 'Using static fallback market list due to temporary upstream market resolution failure.';
+    }
+    if (marketsStale || normalizedMarketsSource === 'cache_stale') {
+      return 'Using stale cached market list while upstream refresh is unavailable.';
+    }
+    return null;
+  }, [marketsStaticFallback, marketsStale, normalizedMarketsSource]);
+
   const pairSelectionNotes: Record<
     NonNullable<BacktestRunRequest['pair_selection_mode']>,
     string
@@ -776,6 +829,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               <label className="block text-xs font-semibold uppercase text-slate-400">
                 dYdX Markets
               </label>
+              <span
+                className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${marketSourceBadge.className}`}
+                title="Market data source health"
+              >
+                {marketSourceBadge.label}
+              </span>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -828,6 +887,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                 </div>
               )}
             </div>
+            {marketSourceWarning && !marketsError && (
+              <p className="mt-2 text-xs text-amber-200">{marketSourceWarning}</p>
+            )}
             <p className="mt-1 text-xs text-gray-400">
               Optional. Select 2-5 markets; the run processes the first five generated pair
               combinations.

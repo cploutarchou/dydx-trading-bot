@@ -1,11 +1,6 @@
 import { lazy, type ReactElement } from 'react';
 import { Navigate } from 'react-router-dom';
-import {
-  BACKOFFICE_ROLES,
-  CLIENT_ROLES,
-  IB_ROLES,
-  type WorkspaceRole,
-} from '../auth/roles';
+import { BACKOFFICE_ROLES, CLIENT_ROLES, IB_ROLES, type WorkspaceRole } from '../auth/roles';
 import type { AppPortalType } from './portal';
 
 export interface PortalRouteDefinition {
@@ -75,6 +70,11 @@ const clientRoutes: PortalRouteDefinition[] = [
   { path: '/backtests', allowedRoles: CLIENT_ROLES, element: <BacktestsPage view="dashboard" /> },
   { path: '/backtests/new', allowedRoles: CLIENT_ROLES, element: <BacktestsPage view="new" /> },
   { path: '/backtests/runs', allowedRoles: CLIENT_ROLES, element: <BacktestsPage view="runs" /> },
+  {
+    path: '/backtests/experiments',
+    allowedRoles: CLIENT_ROLES,
+    element: <BacktestsPage view="experiments" />,
+  },
   { path: '/backtest/:runId', allowedRoles: CLIENT_ROLES, element: <BacktestDetailsV2 /> },
   { path: '/backtests/compare', allowedRoles: CLIENT_ROLES, element: <BacktestComparator /> },
   { path: '/strategies', allowedRoles: CLIENT_ROLES, element: <StrategyLibrary /> },
@@ -137,4 +137,3 @@ export const getPortalRouteManifest = (portal: AppPortalType): PortalRouteDefini
       return clientRoutes;
   }
 };
-

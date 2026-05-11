@@ -55,6 +55,7 @@ No default business logic changed:
 - Added scan cycle IDs and rejection reason logs.
 - Added centralized rejection-reason counters (`rejection_reasons`) in arbitrage metrics payloads.
 - Surfaced top rejection reasons in `frontend/src/components/ArbitrageImprovementPanel.tsx` as additive operator diagnostics.
+- Added UI action to fetch explainability details for a selected rejection reason via delegated endpoint.
 - Locked backend delegated metrics contract to preserve `rejection_reasons` in `bot_api_delegate_control_plane_test`.
 - Added backend proxy and integration assertion for delegated opportunity explain diagnostics.
 - Added import-safe Celery hook modules for configured market sync and candle aggregation tasks.

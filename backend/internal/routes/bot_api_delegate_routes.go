@@ -1597,6 +1597,24 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				return requestClient.GetArbitragePairPriority(limit)
 			})
 		})
+
+		arbitrageGroup.GET("/opportunity/:opportunity_id/explain", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			opportunityID := strings.TrimSpace(c.Param("opportunity_id"))
+			if opportunityID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success":   false,
+					"message":   "opportunity_id is required",
+					"error":     "opportunity_id is required",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetArbitrageOpportunityExplain(opportunityID)
+			})
+		})
 	}
 
 	celeryGroup := router.Group("/api/v1/celery")

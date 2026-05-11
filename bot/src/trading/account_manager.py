@@ -61,6 +61,26 @@ async def _get_perpetual_markets_with_metrics(client, ticker: str) -> dict[str, 
         raise
 
 
+async def _get_order_with_metrics(client, order_id: str) -> dict[str, Any]:
+    """Fetch order payload and track API/provider metrics."""
+    increment_metric("exchange_api_calls_total")
+    try:
+        return await client.indexer_account.account.get_order(order_id)
+    except Exception:
+        increment_metric("provider_errors_total")
+        raise
+
+
+async def _get_subaccount_orders_with_metrics(client, *args, **kwargs) -> Any:
+    """Fetch subaccount orders and track API/provider metrics."""
+    increment_metric("exchange_api_calls_total")
+    try:
+        return await client.indexer_account.account.get_subaccount_orders(*args, **kwargs)
+    except Exception:
+        increment_metric("provider_errors_total")
+        raise
+
+
 async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
@@ -128,7 +148,7 @@ async def get_open_positions(client):
 
 async def get_order(client, order_id):
     """Get details of a specific order."""
-    return await client.indexer_account.account.get_order(order_id)
+    return await _get_order_with_metrics(client, order_id)
 
 
 async def get_order_fills(client, order_id, market=None, limit: int = 100):
@@ -193,7 +213,7 @@ async def is_open_positions(client, market):
 
 async def check_order_status(client, order_id):
     """Check the current status of an order."""
-    order = await client.indexer_account.account.get_order(order_id)
+    order = await _get_order_with_metrics(client, order_id)
     if order["status"]:
         return order["status"]
     return "FAILED"
@@ -373,7 +393,8 @@ async def _resolve_recent_order_id(
         await asyncio.sleep(delay)
 
         try:
-            raw_orders = await client.indexer_account.account.get_subaccount_orders(
+            raw_orders = await _get_subaccount_orders_with_metrics(
+                client,
                 order_lookup_address,
                 _resolve_subaccount_number(),
                 ticker,
@@ -433,7 +454,8 @@ async def cancel_all_orders(client):
     """Cancel all open orders."""
     try:
         order_lookup_address = _resolve_client_address(client)
-        orders = await client.indexer_account.account.get_subaccount_orders(
+        orders = await _get_subaccount_orders_with_metrics(
+            client,
             order_lookup_address, _resolve_subaccount_number(), status="OPEN"
         )
     except Exception as e:

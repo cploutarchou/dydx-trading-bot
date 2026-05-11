@@ -8,8 +8,8 @@ import json
 import os
 import re
 import sys
-import time
 import threading
+import time
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
@@ -34,8 +34,8 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.concurrency import run_in_threadpool
 from src.shared.env_loader import load_repo_env
+from starlette.concurrency import run_in_threadpool
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -106,6 +106,7 @@ from src.api.websocket_server import (
 
 # Import database utilities
 from src.infrastructure.database import DatabaseConfig, db
+from src.infrastructure.domain.cointegration_storage import pair_storage
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (
@@ -131,7 +132,6 @@ from src.infrastructure.workers.celery_monitor import (
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.shared.time_utils import utc_now_iso
-from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.trading.arbitrage_observability import snapshot_metrics
 from src.trading.arbitrage_runtime_config import (
     get_feature_flags,
@@ -349,6 +349,12 @@ _MARKETS_CACHE_TTL_SECONDS = _read_non_negative_int_env("MARKETS_CACHE_TTL_SECON
 _MARKETS_STALE_TTL_SECONDS = _read_non_negative_int_env(
     "MARKETS_STALE_TTL_SECONDS", 300
 )
+_MARKETS_ENDPOINT_TIMEOUT_SECONDS = float(
+    _read_non_negative_int_env(
+        "MARKETS_ENDPOINT_TIMEOUT_SECONDS",
+        int(MARKET_RESOLUTION_TIMEOUT_SECONDS),
+    )
+)
 _markets_cache: Dict[str, Any] = {}
 _markets_cache_lock = threading.Lock()
 
@@ -384,6 +390,23 @@ def _markets_cache_set(value: Dict[str, Any]) -> None:
             "expires_at": now + float(_MARKETS_CACHE_TTL_SECONDS),
             "updated_at": now,
         }
+
+
+def _static_market_fallback() -> List[str]:
+    """Return deterministic local fallback markets for temporary dYdX outages."""
+    raw = os.getenv("MARKETS_FALLBACK_LIST", "")
+    if raw.strip():
+        markets = [item.strip().upper() for item in raw.split(",") if item.strip()]
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for market in markets:
+            if market in seen:
+                continue
+            seen.add(market)
+            deduped.append(market)
+        if deduped:
+            return deduped
+    return list(DEFAULT_PAIRS)
 
 
 def _cache_get(key: str) -> Optional[Any]:
@@ -668,6 +691,7 @@ class BacktestRunRequestCompat(BaseModel):
     environment: Optional[str] = None
     requested_by_user_id: Optional[int] = None
     source_strategy_version: Optional[Any] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 def _normalize_string_list(values: Optional[List[str]]) -> List[str]:
@@ -1173,6 +1197,7 @@ def _strategy_to_backtest_request(
         requested_by_user_id=request.requested_by_user_id,
         source_strategy_version=request.source_strategy_version,
         timeout_seconds=request.timeout_seconds,
+        metadata=dict(request.metadata or {}),
     )
 
 
@@ -1230,6 +1255,7 @@ def _manual_backtest_request(
         environment=request.environment,
         requested_by_user_id=request.requested_by_user_id,
         source_strategy_version=request.source_strategy_version,
+        metadata=dict(request.metadata or {}),
     )
 
 
@@ -3185,8 +3211,8 @@ async def list_perpetual_markets(limit: int = 0):
     When the live dYdX call fails, stale cache data is served (up to
     ``MARKETS_STALE_TTL_SECONDS``, default 300 s) with an ``X-Cache-Stale: 1``
     header so callers can distinguish live vs fallback responses.
-    A 503 is returned only when the live call fails *and* no usable cached
-    data exists.
+    When both live resolution and cache fallback are unavailable, the endpoint
+    can return a deterministic static fallback list instead of 5xx.
     """
     cap = _normalize_requested_pair_cap(limit)
     client = None
@@ -3213,11 +3239,11 @@ async def list_perpetual_markets(limit: int = 0):
     try:
         client = await asyncio.wait_for(
             connect_dydx(),
-            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+            timeout=_MARKETS_ENDPOINT_TIMEOUT_SECONDS,
         )
         payload = await asyncio.wait_for(
             client.indexer.markets.get_perpetual_markets(),
-            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
+            timeout=_MARKETS_ENDPOINT_TIMEOUT_SECONDS,
         )
         raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
         if isinstance(raw_map, dict):
@@ -3262,6 +3288,34 @@ async def list_perpetual_markets(limit: int = 0):
                 message=f"Retrieved {len(result_markets)} perpetual markets (stale cache fallback)",
                 headers={"X-Cache-Stale": "1"},
             )
+
+        allow_static_fallback = (
+            os.getenv("MARKETS_ENDPOINT_ALLOW_STATIC_FALLBACK", "true")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        if allow_static_fallback:
+            fallback_markets = _static_market_fallback()
+            if cap is not None:
+                fallback_markets = fallback_markets[:cap]
+            logger.warning(
+                "markets_static_fallback endpoint=/api/v1/markets/perpetuals "
+                "count={} error={}",
+                len(fallback_markets),
+                live_error,
+            )
+            return api_response(
+                success=True,
+                data={
+                    "markets": fallback_markets,
+                    "count": len(fallback_markets),
+                    "source": "static_fallback",
+                },
+                message=f"Retrieved {len(fallback_markets)} perpetual markets (static fallback)",
+                headers={"X-Cache-Stale": "1", "X-Markets-Fallback": "1"},
+            )
+
         return api_response(
             success=False,
             message=f"MARKET_RESOLUTION_FAILED: {live_error}",
@@ -4539,6 +4593,50 @@ async def get_backtest_status(
 
     except Exception as e:
         logger.error(f"Error getting backtest status: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/metadata")
+async def update_backtest_metadata(
+    run_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+):
+    """Attach or merge structured metadata into a persisted backtest run."""
+    try:
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            return api_response(
+                success=False,
+                message="Validation error: metadata must be an object",
+                data={"error": "INVALID_METADATA"},
+                status_code=422,
+            )
+
+        merge = bool(payload.get("merge", True))
+        with backtest_service_scope() as service:
+            result = service.update_backtest_metadata(
+                run_id,
+                metadata,
+                merge=merge,
+            )
+
+        if result is None:
+            return api_response(
+                success=False,
+                message=f"Backtest run '{run_id}' not found",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result,
+            message=f"Updated metadata for backtest '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error updating backtest metadata: {e}")
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )

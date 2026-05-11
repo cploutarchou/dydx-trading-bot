@@ -195,6 +195,34 @@ type BacktestRun struct {
 	UpdatedAt         time.Time      `db:"updated_at" json:"updated_at"`
 }
 
+type BacktestExperimentRunSummary struct {
+	RunID         string     `json:"run_id"`
+	Status        string     `json:"status"`
+	CreatedAt     time.Time  `json:"created_at"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+	TotalTrades   int        `json:"total_trades"`
+	TotalPnLUSD   float64    `json:"total_pnl_usd"`
+	WinRate       *float64   `json:"win_rate,omitempty"`
+	Variant       string     `json:"variant,omitempty"`
+	CompareWinner *bool      `json:"compare_winner,omitempty"`
+}
+
+type BacktestExperimentVariantSummary struct {
+	Variant  string `json:"variant"`
+	RunCount int    `json:"run_count"`
+}
+
+type BacktestExperimentGroup struct {
+	ExperimentID    string                             `json:"experiment_id"`
+	RunCount        int                                `json:"run_count"`
+	VariantCount    int                                `json:"variant_count"`
+	CreatedAt       time.Time                          `json:"created_at"`
+	LatestCreatedAt time.Time                          `json:"latest_created_at"`
+	LatestStatus    string                             `json:"latest_status"`
+	Variants        []BacktestExperimentVariantSummary `json:"variants"`
+	Runs            []BacktestExperimentRunSummary     `json:"runs"`
+}
+
 // ==================== BACKTEST METRICS MODELS ====================
 
 type BacktestMetrics struct {

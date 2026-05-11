@@ -303,6 +303,10 @@ python3 scripts/backtest_ab_experiment.py \
   --max-pairs-b 0
 ```
 
+Persistence note:
+
+- The helper stores experiment context + comparison summary in each run's DB-backed metadata (`ab_experiment`) via the backtest metadata API.
+
 Interpretation guide:
 
 - If only runtime flags changed and backtest inputs stayed identical, large PnL deltas are unexpected.

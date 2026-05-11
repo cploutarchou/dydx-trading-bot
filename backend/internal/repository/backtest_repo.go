@@ -3,10 +3,12 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -653,6 +655,241 @@ func (r *BacktestRepository) CountRunsByUserID(userID int) (int, error) {
 		return 0, fmt.Errorf("failed to count backtest runs: %w", err)
 	}
 	return count, nil
+}
+
+func (r *BacktestRepository) GetExperimentGroupsByUserID(userID int, runScanLimit int, groupLimit int) ([]models.BacktestExperimentGroup, error) {
+	if runScanLimit <= 0 {
+		runScanLimit = 500
+	}
+	if runScanLimit > 5000 {
+		runScanLimit = 5000
+	}
+
+	query := `
+		SELECT run_id, COALESCE(status, ''), created_at, completed_at,
+		       COALESCE(total_trades, 0), COALESCE(total_pnl_usd, 0), win_rate,
+		       config, strategy_snapshot
+		FROM backtest_runs
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`
+
+	rows, err := r.db.Query(query, userID, runScanLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query experiment runs: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close experiment run rows: %v", closeErr)
+		}
+	}()
+
+	groupsByID := make(map[string]*models.BacktestExperimentGroup)
+	variantCountsByGroup := make(map[string]map[string]int)
+
+	for rows.Next() {
+		var runID string
+		var status string
+		var createdAt time.Time
+		var completedAt *time.Time
+		var totalTrades int
+		var totalPnLUSD float64
+		var winRate *float64
+		var config sql.NullString
+		var strategySnapshot sql.NullString
+
+		if err := rows.Scan(
+			&runID,
+			&status,
+			&createdAt,
+			&completedAt,
+			&totalTrades,
+			&totalPnLUSD,
+			&winRate,
+			&config,
+			&strategySnapshot,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan experiment run: %w", err)
+		}
+
+		experimentID, variant, compareWinner := extractABExperimentFields(config, strategySnapshot)
+		if experimentID == "" {
+			continue
+		}
+
+		group := groupsByID[experimentID]
+		if group == nil {
+			group = &models.BacktestExperimentGroup{
+				ExperimentID:    experimentID,
+				RunCount:        0,
+				VariantCount:    0,
+				CreatedAt:       createdAt,
+				LatestCreatedAt: createdAt,
+				LatestStatus:    status,
+				Variants:        []models.BacktestExperimentVariantSummary{},
+				Runs:            []models.BacktestExperimentRunSummary{},
+			}
+			groupsByID[experimentID] = group
+			variantCountsByGroup[experimentID] = map[string]int{}
+		}
+
+		group.RunCount++
+		if createdAt.Before(group.CreatedAt) {
+			group.CreatedAt = createdAt
+		}
+		if createdAt.After(group.LatestCreatedAt) {
+			group.LatestCreatedAt = createdAt
+			group.LatestStatus = status
+		}
+
+		if variant != "" {
+			variantCountsByGroup[experimentID][variant]++
+		}
+
+		runSummary := models.BacktestExperimentRunSummary{
+			RunID:       runID,
+			Status:      status,
+			CreatedAt:   createdAt,
+			CompletedAt: completedAt,
+			TotalTrades: totalTrades,
+			TotalPnLUSD: totalPnLUSD,
+			WinRate:     winRate,
+			Variant:     variant,
+		}
+		if compareWinner != nil {
+			runSummary.CompareWinner = compareWinner
+		}
+		group.Runs = append(group.Runs, runSummary)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating experiment runs: %w", err)
+	}
+
+	groups := make([]models.BacktestExperimentGroup, 0, len(groupsByID))
+	for experimentID, group := range groupsByID {
+		counts := variantCountsByGroup[experimentID]
+		variants := make([]models.BacktestExperimentVariantSummary, 0, len(counts))
+		for variant, count := range counts {
+			variants = append(variants, models.BacktestExperimentVariantSummary{
+				Variant:  variant,
+				RunCount: count,
+			})
+		}
+		sort.SliceStable(variants, func(i, j int) bool {
+			if variants[i].RunCount == variants[j].RunCount {
+				return variants[i].Variant < variants[j].Variant
+			}
+			return variants[i].RunCount > variants[j].RunCount
+		})
+		group.Variants = variants
+		group.VariantCount = len(variants)
+
+		sort.SliceStable(group.Runs, func(i, j int) bool {
+			return group.Runs[i].CreatedAt.After(group.Runs[j].CreatedAt)
+		})
+
+		groups = append(groups, *group)
+	}
+
+	sort.SliceStable(groups, func(i, j int) bool {
+		return groups[i].LatestCreatedAt.After(groups[j].LatestCreatedAt)
+	})
+
+	if groupLimit > 0 && len(groups) > groupLimit {
+		groups = groups[:groupLimit]
+	}
+
+	return groups, nil
+}
+
+func extractABExperimentFields(config sql.NullString, strategySnapshot sql.NullString) (experimentID string, variant string, compareWinner *bool) {
+	for _, source := range []sql.NullString{config, strategySnapshot} {
+		if !source.Valid {
+			continue
+		}
+
+		var decoded map[string]interface{}
+		if err := json.Unmarshal([]byte(source.String), &decoded); err != nil {
+			continue
+		}
+
+		if experimentID != "" {
+			continue
+		}
+
+		metadata := extractMetadataMap(decoded)
+		abExperiment := asMap(metadata["ab_experiment"])
+		if abExperiment == nil {
+			continue
+		}
+
+		experimentID = strings.TrimSpace(asString(abExperiment["experiment_id"]))
+		variant = strings.TrimSpace(asString(abExperiment["variant"]))
+
+		if compare := asMap(metadata["ab_compare_summary"]); compare != nil {
+			if winner, ok := asBool(compare["winner"]); ok {
+				compareWinner = &winner
+			}
+		}
+	}
+
+	return experimentID, variant, compareWinner
+}
+
+func extractMetadataMap(source map[string]interface{}) map[string]interface{} {
+	if source == nil {
+		return nil
+	}
+
+	if metadata := asMap(source["metadata"]); metadata != nil {
+		return metadata
+	}
+
+	if request := asMap(source["request"]); request != nil {
+		if metadata := asMap(request["metadata"]); metadata != nil {
+			return metadata
+		}
+	}
+
+	return nil
+}
+
+func asMap(value interface{}) map[string]interface{} {
+	if mapped, ok := value.(map[string]interface{}); ok {
+		return mapped
+	}
+	return nil
+}
+
+func asString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	if typed, ok := value.(string); ok {
+		return typed
+	}
+	return fmt.Sprintf("%v", value)
+}
+
+func asBool(value interface{}) (bool, bool) {
+	if value == nil {
+		return false, false
+	}
+	if typed, ok := value.(bool); ok {
+		return typed, true
+	}
+	if typed, ok := value.(string); ok {
+		trimmed := strings.TrimSpace(strings.ToLower(typed))
+		if trimmed == "true" || trimmed == "1" || trimmed == "yes" {
+			return true, true
+		}
+		if trimmed == "false" || trimmed == "0" || trimmed == "no" {
+			return false, true
+		}
+	}
+	return false, false
 }
 
 // GetRunsByStrategyID returns completed backtest runs for a given strategy,

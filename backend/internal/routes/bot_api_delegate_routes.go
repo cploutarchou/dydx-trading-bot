@@ -1902,6 +1902,60 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			})
 		})
 
+		backtestGroup.GET("/experiments", func(c *gin.Context) {
+			if backtestRepo == nil {
+				respondBacktestEnvelope(c, http.StatusOK, "Backtest experiments fetched successfully", map[string]interface{}{
+					"experiments": []models.BacktestExperimentGroup{},
+					"count":       0,
+				})
+				return
+			}
+
+			userIDValue, exists := c.Get("user_id")
+			userID, ok := userIDValue.(int)
+			if !exists || !ok || userID <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"message":   "invalid user context",
+					"error":     "invalid user context",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			runScanLimit := 500
+			if raw := c.Query("run_limit"); raw != "" {
+				if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+					runScanLimit = parsed
+				}
+			}
+
+			groupLimit := 100
+			if raw := c.Query("limit"); raw != "" {
+				if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+					groupLimit = parsed
+				}
+			}
+
+			experiments, err := backtestRepo.GetExperimentGroupsByUserID(userID, runScanLimit, groupLimit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to retrieve backtest experiments",
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest experiments fetched successfully", map[string]interface{}{
+				"experiments": experiments,
+				"count":       len(experiments),
+			})
+		})
+
 		// Get backtest summary stats
 		backtestGroup.GET("/stats/summary", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
@@ -2012,6 +2066,33 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			result = normalizeBacktestStatusPayload(result)
 			syncRun(c, result)
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest status fetched successfully", result)
+		})
+
+		backtestGroup.POST("/:run_id/metadata", func(c *gin.Context) {
+			runID := strings.TrimSpace(c.Param("run_id"))
+			if runID == "" {
+				respondBacktestEnvelope(c, http.StatusBadRequest, "run_id required", map[string]interface{}{
+					"error": "run_id required",
+				})
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			var payload map[string]interface{}
+			if err := c.ShouldBindJSON(&payload); err != nil {
+				respondBacktestEnvelope(c, http.StatusBadRequest, "Invalid request body", map[string]interface{}{
+					"error": err.Error(),
+				})
+				return
+			}
+
+			metadataPayload, err := requestClient.UpdateBacktestMetadata(runID, payload)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest metadata updated successfully", metadataPayload)
 		})
 
 		backtestGroup.GET("/:run_id/logs", func(c *gin.Context) {

@@ -631,6 +631,8 @@ class BacktestService:
     ) -> Dict[str, Any]:
         clean_request = dict(cls._strip_runtime_control(request_payload or {}))
         existing = cls._task_context_from_request(clean_request)
+        request_metadata = clean_request.get("metadata")
+        request_metadata = request_metadata if isinstance(request_metadata, dict) else {}
         selected_pairs = cls._selected_pair_labels_from_request(clean_request)
         raw_strategy_snapshot = clean_request.get("strategy_payload_snapshot")
         strategy_snapshot = (
@@ -663,6 +665,8 @@ class BacktestService:
             metadata["requested_by_user_id"] = requested_by_user_id
 
         merged_metadata: Dict[str, Any] = {}
+        if request_metadata:
+            merged_metadata.update(request_metadata)
         existing_metadata = existing.get("metadata")
         if isinstance(existing_metadata, dict):
             merged_metadata.update(existing_metadata)
@@ -690,6 +694,46 @@ class BacktestService:
         }
         context.update(overrides)
         return context
+
+    def update_backtest_metadata(
+        self,
+        run_id: str,
+        metadata: Dict[str, Any],
+        *,
+        merge: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        run_data = self._load_run_data(run_id)
+        if run_data is None:
+            return None
+
+        request_payload = dict(run_data.get("request") or {})
+        task_context = self._task_context_from_request(request_payload)
+        existing_metadata = task_context.get("metadata")
+        existing_metadata = (
+            dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
+        )
+        incoming_metadata = dict(metadata or {})
+
+        next_metadata = dict(existing_metadata)
+        if merge:
+            next_metadata.update(incoming_metadata)
+        else:
+            next_metadata = incoming_metadata
+
+        task_context["metadata"] = next_metadata
+        request_payload[self._TASK_CONTEXT_KEY] = task_context
+        request_payload["metadata"] = next_metadata
+        run_data["request"] = request_payload
+        run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        persisted = self._persist_run_data(run_data)
+        observed = self._with_status_observability(persisted)
+        return {
+            "run_id": run_id,
+            "status": observed.get("status"),
+            "updated_at": observed.get("updated_at"),
+            "metadata": dict(observed.get("metadata") or {}),
+        }
 
     @classmethod
     def _merge_runtime_control(

@@ -218,6 +218,12 @@ func (c *BotAPIClient) GetLiveProgress(runID string) (map[string]interface{}, er
 	return c.makeRequest("GET", endpoint, nil)
 }
 
+// UpdateBacktestMetadata merges or replaces structured metadata for a backtest run.
+func (c *BotAPIClient) UpdateBacktestMetadata(runID string, payload map[string]interface{}) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/metadata", runID)
+	return c.makeRequest("POST", endpoint, payload)
+}
+
 // QuickDeployBot quickly deploys and optionally starts a new bot instance
 func (c *BotAPIClient) QuickDeployBot(instanceName string, autoStart bool, config map[string]interface{}) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/bots/quick-deploy?instance_name=%s&auto_start=%v", instanceName, autoStart)

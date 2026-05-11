@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Tuple
 
 from src.trading.arbitrage_observability import increment_metric
+from src.trading.arbitrage_runtime_config import pair_priority_stale_seconds
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -49,7 +49,7 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 
 def is_pair_analysis_stale(pair: Any, *, now: datetime | None = None) -> bool:
-    stale_after = _safe_float(os.getenv("PAIR_PRIORITY_STALE_SECONDS", "86400"), 86400.0)
+    stale_after = _safe_float(pair_priority_stale_seconds(), 86400.0)
     if stale_after <= 0:
         return False
     timestamp = _parse_timestamp(_pair_value(pair, "analysis_timestamp"))

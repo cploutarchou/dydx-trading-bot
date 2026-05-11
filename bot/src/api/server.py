@@ -131,16 +131,14 @@ from src.infrastructure.workers.celery_monitor import (
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.shared.time_utils import utc_now_iso
-from src.constants import (
-    ARBITRAGE_IMPROVEMENTS_ENABLED,
-    AUTO_EXECUTION_CHANGES_ENABLED,
-    DEFILLAMA_SIGNALS_ENABLED,
-    NEWS_SIGNALS_ENABLED,
-    PAIR_PRIORITY_ENGINE_ENABLED,
-    POLYMARKET_SIGNALS_ENABLED,
-)
 from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.trading.arbitrage_observability import snapshot_metrics
+from src.trading.arbitrage_runtime_config import (
+    get_feature_flags,
+    get_runtime_settings,
+    is_pair_priority_engine_enabled,
+    update_runtime_settings,
+)
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime
 from src.trading.pair_priority import prioritize_pairs, score_pair
 
@@ -2975,14 +2973,8 @@ async def metrics():
         "service": "bot",
         "arbitrage": snapshot_metrics(
             {
-                "feature_flags": {
-                    "ARBITRAGE_IMPROVEMENTS_ENABLED": ARBITRAGE_IMPROVEMENTS_ENABLED,
-                    "PAIR_PRIORITY_ENGINE_ENABLED": PAIR_PRIORITY_ENGINE_ENABLED,
-                    "POLYMARKET_SIGNALS_ENABLED": POLYMARKET_SIGNALS_ENABLED,
-                    "DEFILLAMA_SIGNALS_ENABLED": DEFILLAMA_SIGNALS_ENABLED,
-                    "NEWS_SIGNALS_ENABLED": NEWS_SIGNALS_ENABLED,
-                    "AUTO_EXECUTION_CHANGES_ENABLED": AUTO_EXECUTION_CHANGES_ENABLED,
-                }
+                "feature_flags": get_feature_flags(),
+                "runtime_settings": get_runtime_settings(),
             }
         ),
     }
@@ -3060,17 +3052,38 @@ async def get_arbitrage_improvement_metrics(
         success=True,
         data=snapshot_metrics(
             {
-                "feature_flags": {
-                    "ARBITRAGE_IMPROVEMENTS_ENABLED": ARBITRAGE_IMPROVEMENTS_ENABLED,
-                    "PAIR_PRIORITY_ENGINE_ENABLED": PAIR_PRIORITY_ENGINE_ENABLED,
-                    "POLYMARKET_SIGNALS_ENABLED": POLYMARKET_SIGNALS_ENABLED,
-                    "DEFILLAMA_SIGNALS_ENABLED": DEFILLAMA_SIGNALS_ENABLED,
-                    "NEWS_SIGNALS_ENABLED": NEWS_SIGNALS_ENABLED,
-                    "AUTO_EXECUTION_CHANGES_ENABLED": AUTO_EXECUTION_CHANGES_ENABLED,
-                }
+                "feature_flags": get_feature_flags(),
+                "runtime_settings": get_runtime_settings(),
             }
         ),
         message="Arbitrage improvement metrics retrieved",
+    )
+
+
+@app.get("/api/v1/arbitrage/runtime-settings")
+async def get_arbitrage_runtime_settings(
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    settings = get_runtime_settings()
+    return api_response(
+        success=True,
+        data={"settings": settings, "feature_flags": get_feature_flags()},
+        message="Arbitrage runtime settings retrieved",
+    )
+
+
+@app.put("/api/v1/arbitrage/runtime-settings")
+async def update_arbitrage_runtime_settings(
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    settings = update_runtime_settings(payload or {})
+    return api_response(
+        success=True,
+        data={"settings": settings, "feature_flags": get_feature_flags()},
+        message="Arbitrage runtime settings updated",
     )
 
 
@@ -3082,7 +3095,8 @@ async def get_arbitrage_pair_priority(
     _ = current_user
     safe_limit = max(1, min(int(limit or 25), 100))
     pairs = pair_storage.load_pairs()
-    if PAIR_PRIORITY_ENGINE_ENABLED:
+    pair_priority_enabled = is_pair_priority_engine_enabled()
+    if pair_priority_enabled:
         ranked_pairs, scores = prioritize_pairs(pairs, max_pairs=safe_limit)
     else:
         ranked_pairs = pairs[:safe_limit]
@@ -3100,12 +3114,12 @@ async def get_arbitrage_pair_priority(
                 "score": score.score if score else 0.0,
                 "components": score.components if score else {},
                 "explanation": score.explanation if score else [],
-                "enabled": PAIR_PRIORITY_ENGINE_ENABLED,
+                "enabled": pair_priority_enabled,
             }
         )
     return api_response(
         success=True,
-        data={"pairs": data, "count": len(data), "enabled": PAIR_PRIORITY_ENGINE_ENABLED},
+        data={"pairs": data, "count": len(data), "enabled": pair_priority_enabled},
         message="Arbitrage pair priority retrieved",
     )
 

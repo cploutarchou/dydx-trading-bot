@@ -111,6 +111,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterSettingsRoutes(router, database)
+	routes.RegisterArbitrageSettingsRoutes(router, database, apiClient)
 	routes.RegisterMailgunRoutes(router, database)
 	routes.RegisterTelegramRoutes(router, database)
 	routes.RegisterCodexRoutes(router, database)

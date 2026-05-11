@@ -23,6 +23,7 @@ import {
 	useStartBotInstance,
 	useStopBotInstance,
 } from '../api/hooks';
+import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
 import { useToastStore } from './ErrorBoundary';
 import { PageContainer } from './PageContainer';
 import { ActionDialog, EmptyState, InlineNotice } from './ui/PlatformUI';
@@ -846,6 +847,8 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           </div>
         </section>
       )}
+
+      {!embedded && <ArbitrageImprovementPanel />}
 
       {error && (
         <InlineNotice tone="danger" title="Runtime action needs attention" description={error} />

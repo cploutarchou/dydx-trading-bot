@@ -649,6 +649,30 @@ export interface BotRuntimeDBConfigResponse extends Record<string, unknown> {
   count?: number;
 }
 
+export interface ArbitrageMetricCounters extends Record<string, number> {
+  arbitrage_scan_cycles_total: number;
+  exchange_api_calls_total: number;
+  exchange_api_calls_saved_total: number;
+  duplicate_api_calls_avoided_total: number;
+  pair_candidates_total: number;
+  pair_candidates_skipped_total: number;
+  opportunities_detected_total: number;
+  opportunities_rejected_total: number;
+  opportunities_executed_total: number;
+  stale_data_detected_total: number;
+  provider_errors_total: number;
+  cache_hits_total: number;
+  cache_misses_total: number;
+  websocket_reconnects_total: number;
+}
+
+export interface ArbitrageImprovementMetricsResponse extends Record<string, unknown> {
+  started_at: string;
+  updated_at: string;
+  counters: Partial<ArbitrageMetricCounters>;
+  feature_flags?: Record<string, boolean>;
+}
+
 export interface InterruptedBacktestsResponse extends Record<string, unknown> {
   interruption_error: string;
   orphaned_in_progress: Array<Record<string, unknown>>;
@@ -887,6 +911,22 @@ export interface PerpetualMarketsResponse extends Record<string, unknown> {
   markets: string[];
   count: number;
   source: string;
+}
+
+export interface ArbitragePairPriorityItem extends Record<string, unknown> {
+  pair: string;
+  base_market: string;
+  quote_market: string;
+  score: number;
+  components: Record<string, number>;
+  explanation: string[];
+  enabled: boolean;
+}
+
+export interface ArbitragePairPriorityResponse extends Record<string, unknown> {
+  pairs: ArbitragePairPriorityItem[];
+  count: number;
+  enabled: boolean;
 }
 
 interface StrategyRequest extends Record<string, unknown> {
@@ -2194,6 +2234,27 @@ class ApiClient {
     const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
     const response = await this.client.get<ApiResponse<PerpetualMarketsResponse>>(
       `/api/v1/markets/perpetuals${query}`
+    );
+    return response.data;
+  }
+
+  async getArbitrageImprovementMetrics(): Promise<
+    ApiResponse<ArbitrageImprovementMetricsResponse>
+  > {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<ArbitrageImprovementMetricsResponse>>(
+      '/api/v1/arbitrage/improvement-metrics'
+    );
+    return response.data;
+  }
+
+  async getArbitragePairPriority(
+    limit: number = 12
+  ): Promise<ApiResponse<ArbitragePairPriorityResponse>> {
+    this.ensureTokenLoaded();
+    const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    const response = await this.client.get<ApiResponse<ArbitragePairPriorityResponse>>(
+      `/api/v1/arbitrage/pair-priority${query}`
     );
     return response.data;
   }

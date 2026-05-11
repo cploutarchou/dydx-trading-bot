@@ -131,7 +131,18 @@ from src.infrastructure.workers.celery_monitor import (
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.shared.time_utils import utc_now_iso
+from src.constants import (
+    ARBITRAGE_IMPROVEMENTS_ENABLED,
+    AUTO_EXECUTION_CHANGES_ENABLED,
+    DEFILLAMA_SIGNALS_ENABLED,
+    NEWS_SIGNALS_ENABLED,
+    PAIR_PRIORITY_ENGINE_ENABLED,
+    POLYMARKET_SIGNALS_ENABLED,
+)
+from src.infrastructure.domain.cointegration_storage import pair_storage
+from src.trading.arbitrage_observability import snapshot_metrics
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime
+from src.trading.pair_priority import prioritize_pairs, score_pair
 
 sys.stderr = _original_stderr
 
@@ -2956,6 +2967,27 @@ async def readiness_check():
         )
 
 
+@app.get("/metrics")
+async def metrics():
+    """Return bot-local runtime metrics for backend /metrics dependency probing."""
+    return {
+        "timestamp": utc_now_iso(),
+        "service": "bot",
+        "arbitrage": snapshot_metrics(
+            {
+                "feature_flags": {
+                    "ARBITRAGE_IMPROVEMENTS_ENABLED": ARBITRAGE_IMPROVEMENTS_ENABLED,
+                    "PAIR_PRIORITY_ENGINE_ENABLED": PAIR_PRIORITY_ENGINE_ENABLED,
+                    "POLYMARKET_SIGNALS_ENABLED": POLYMARKET_SIGNALS_ENABLED,
+                    "DEFILLAMA_SIGNALS_ENABLED": DEFILLAMA_SIGNALS_ENABLED,
+                    "NEWS_SIGNALS_ENABLED": NEWS_SIGNALS_ENABLED,
+                    "AUTO_EXECUTION_CHANGES_ENABLED": AUTO_EXECUTION_CHANGES_ENABLED,
+                }
+            }
+        ),
+    }
+
+
 @app.get("/api/v1/capabilities")
 async def api_capabilities():
     """Expose bot-service HTTP and websocket capabilities for backend integration."""
@@ -2972,6 +3004,7 @@ async def api_capabilities():
         is_supported_scope = (
             path.startswith("/api/v1/bots")
             or path.startswith("/api/v1/backtests")
+            or path.startswith("/api/v1/arbitrage")
             or path.startswith("/ws/")
             or path == "/api/v1/capabilities"
         )
@@ -3015,6 +3048,65 @@ async def api_capabilities():
             "count": len(http_routes) + len(websocket_routes),
         },
         message="Bot API and websocket capabilities retrieved",
+    )
+
+
+@app.get("/api/v1/arbitrage/improvement-metrics")
+async def get_arbitrage_improvement_metrics(
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    return api_response(
+        success=True,
+        data=snapshot_metrics(
+            {
+                "feature_flags": {
+                    "ARBITRAGE_IMPROVEMENTS_ENABLED": ARBITRAGE_IMPROVEMENTS_ENABLED,
+                    "PAIR_PRIORITY_ENGINE_ENABLED": PAIR_PRIORITY_ENGINE_ENABLED,
+                    "POLYMARKET_SIGNALS_ENABLED": POLYMARKET_SIGNALS_ENABLED,
+                    "DEFILLAMA_SIGNALS_ENABLED": DEFILLAMA_SIGNALS_ENABLED,
+                    "NEWS_SIGNALS_ENABLED": NEWS_SIGNALS_ENABLED,
+                    "AUTO_EXECUTION_CHANGES_ENABLED": AUTO_EXECUTION_CHANGES_ENABLED,
+                }
+            }
+        ),
+        message="Arbitrage improvement metrics retrieved",
+    )
+
+
+@app.get("/api/v1/arbitrage/pair-priority")
+async def get_arbitrage_pair_priority(
+    limit: int = 25,
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    safe_limit = max(1, min(int(limit or 25), 100))
+    pairs = pair_storage.load_pairs()
+    if PAIR_PRIORITY_ENGINE_ENABLED:
+        ranked_pairs, scores = prioritize_pairs(pairs, max_pairs=safe_limit)
+    else:
+        ranked_pairs = pairs[:safe_limit]
+        scores = [score_pair(pair) for pair in ranked_pairs]
+    ranked_lookup = {score.pair: score for score in scores}
+    data = []
+    for pair in ranked_pairs:
+        label = f"{pair.base_market}/{pair.quote_market}"
+        score = ranked_lookup.get(label)
+        data.append(
+            {
+                "pair": label,
+                "base_market": pair.base_market,
+                "quote_market": pair.quote_market,
+                "score": score.score if score else 0.0,
+                "components": score.components if score else {},
+                "explanation": score.explanation if score else [],
+                "enabled": PAIR_PRIORITY_ENGINE_ENABLED,
+            }
+        )
+    return api_response(
+        success=True,
+        data={"pairs": data, "count": len(data), "enabled": PAIR_PRIORITY_ENGINE_ENABLED},
+        message="Arbitrage pair priority retrieved",
     )
 
 

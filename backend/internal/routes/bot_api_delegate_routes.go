@@ -1574,6 +1574,31 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		})
 	})
 
+	arbitrageGroup := router.Group("/api/v1/arbitrage")
+	arbitrageGroup.Use(middleware.RequireAuth())
+	arbitrageGroup.Use(withRequestScopedBotClient)
+	{
+		arbitrageGroup.GET("/improvement-metrics", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetArbitrageImprovementMetrics()
+			})
+		})
+
+		arbitrageGroup.GET("/pair-priority", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			limit := 25
+			if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+				if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+					limit = parsed
+				}
+			}
+			delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
+				return requestClient.GetArbitragePairPriority(limit)
+			})
+		})
+	}
+
 	celeryGroup := router.Group("/api/v1/celery")
 	celeryGroup.Use(middleware.RequireAuth())
 	celeryGroup.Use(withRequestScopedBotClient)

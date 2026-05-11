@@ -930,6 +930,9 @@ export interface PerpetualMarketsResponse extends Record<string, unknown> {
   markets: string[];
   count: number;
   source: string;
+  cache_stale?: boolean;
+  static_fallback?: boolean;
+  cache_hit?: boolean;
 }
 
 export interface ArbitragePairPriorityItem extends Record<string, unknown> {
@@ -1351,6 +1354,39 @@ interface BacktestListItem extends Record<string, unknown> {
 interface BacktestListResponse extends Record<string, unknown> {
   backtests: BacktestListItem[];
   total: number;
+}
+
+export interface BacktestExperimentRunSummary extends Record<string, unknown> {
+  run_id: string;
+  status: string;
+  created_at: string;
+  completed_at?: string;
+  total_trades: number;
+  total_pnl_usd: number;
+  win_rate?: number;
+  variant?: string;
+  compare_winner?: boolean;
+}
+
+export interface BacktestExperimentVariantSummary extends Record<string, unknown> {
+  variant: string;
+  run_count: number;
+}
+
+export interface BacktestExperimentGroup extends Record<string, unknown> {
+  experiment_id: string;
+  run_count: number;
+  variant_count: number;
+  created_at: string;
+  latest_created_at: string;
+  latest_status: string;
+  variants: BacktestExperimentVariantSummary[];
+  runs: BacktestExperimentRunSummary[];
+}
+
+export interface BacktestExperimentsResponse extends Record<string, unknown> {
+  experiments: BacktestExperimentGroup[];
+  count: number;
 }
 
 interface BacktestTradeResponse extends Record<string, unknown> {
@@ -2230,6 +2266,19 @@ class ApiClient {
     };
   }
 
+  async listBacktestExperiments(
+    limit: number = 100,
+    runLimit: number = 500
+  ): Promise<ApiResponse<BacktestExperimentsResponse>> {
+    this.ensureTokenLoaded();
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 100;
+    const safeRunLimit = Number.isFinite(runLimit) && runLimit > 0 ? Math.floor(runLimit) : 500;
+    const response = await this.client.get<ApiResponse<BacktestExperimentsResponse>>(
+      `/api/v1/backtests/experiments?limit=${safeLimit}&run_limit=${safeRunLimit}`
+    );
+    return response.data;
+  }
+
   async getBacktest(runId: string): Promise<ApiResponse<BacktestDetailsResponse>> {
     this.ensureTokenLoaded();
     const response = await this.client.get<ApiResponse<BacktestDetailsResponse>>(
@@ -2265,7 +2314,37 @@ class ApiClient {
     const response = await this.client.get<ApiResponse<PerpetualMarketsResponse>>(
       `/api/v1/markets/perpetuals${query}`
     );
-    return response.data;
+    const headerValue = (name: string): string => {
+      const raw = response.headers?.[name];
+      if (typeof raw === 'string') {
+        return raw;
+      }
+      if (Array.isArray(raw) && raw.length > 0) {
+        return String(raw[0]);
+      }
+      return '';
+    };
+
+    const isHeaderEnabled = (name: string): boolean => {
+      const value = headerValue(name).trim().toLowerCase();
+      return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+    };
+
+    const payload = response.data;
+    const marketsData = payload?.data as PerpetualMarketsResponse | undefined;
+    const source = String(marketsData?.source || '')
+      .trim()
+      .toLowerCase();
+
+    return {
+      ...payload,
+      data: {
+        ...(marketsData || {}),
+        cache_hit: isHeaderEnabled('x-cache-hit'),
+        cache_stale: isHeaderEnabled('x-cache-stale') || source === 'cache_stale',
+        static_fallback: isHeaderEnabled('x-markets-fallback') || source === 'static_fallback',
+      },
+    };
   }
 
   async getArbitrageImprovementMetrics(): Promise<

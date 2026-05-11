@@ -212,6 +212,106 @@ Expected:
 - response shape unchanged
 - no delegated route regressions
 
+## 9) Backtest A/B experiments (feature impact)
+
+Yes — you can run A/B backtests, but with an important boundary:
+
+- `ARBITRAGE_IMPROVEMENTS_ENABLED`: expected to affect live runtime efficiency (API-call behavior), **not** backtest PnL logic.
+- `PAIR_PRIORITY_ENGINE_ENABLED`: live runtime flag; backtest selection impact should be tested via backtest request fields (`pair_selection_mode`, `max_pairs`) rather than this runtime flag alone.
+
+Recommended experiment pattern:
+
+1. Keep strategy payload identical.
+2. Run baseline backtest (A).
+3. Change only one variable for variant (B):
+   - `pair_selection_mode` (e.g. `liquidity` -> `cointegration`), or
+   - `max_pairs` (e.g. `0` -> `20`).
+4. Compare with `/api/v1/backtests/compare`.
+
+Example A run:
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  http://localhost:8888/api/v1/backtests/run \
+  -d '{
+    "name": "A-liquidity-all",
+    "start_date": "2025-01-01",
+    "end_date": "2025-03-31",
+    "pair_selection_mode": "liquidity",
+    "max_pairs": 0,
+    "selected_pairs": ["BTC-USD/ETH-USD", "SOL-USD/AVAX-USD"],
+    "trading_parameters": {
+      "zscore_threshold": 1.5,
+      "stats_window": 21,
+      "usd_per_trade": 10.0,
+      "pair_selection_mode": "liquidity"
+    }
+  }' | jq '.data.run_id'
+```
+
+Example B run (single-variable change):
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  http://localhost:8888/api/v1/backtests/run \
+  -d '{
+    "name": "B-cointegration-all",
+    "start_date": "2025-01-01",
+    "end_date": "2025-03-31",
+    "pair_selection_mode": "cointegration",
+    "max_pairs": 0,
+    "selected_pairs": ["BTC-USD/ETH-USD", "SOL-USD/AVAX-USD"],
+    "trading_parameters": {
+      "zscore_threshold": 1.5,
+      "stats_window": 21,
+      "usd_per_trade": 10.0,
+      "pair_selection_mode": "cointegration"
+    }
+  }' | jq '.data.run_id'
+```
+
+Compare A vs B:
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  http://localhost:8888/api/v1/backtests/compare \
+  -d '{
+    "run_ids": ["<runA>", "<runB>"],
+    "metrics": ["total_pnl", "win_rate", "sharpe_ratio", "max_drawdown_pct", "total_trades", "profit_factor"]
+  }' | jq '.data'
+```
+
+Optional automation helper (runs A/B end-to-end and prints compare summary):
+
+```bash
+python3 scripts/backtest_ab_experiment.py \
+  --base-url http://localhost:8888 \
+  --token "$ADMIN_TOKEN" \
+  --experiment-name "ab-liquidity-vs-cointegration" \
+  --start-date 2025-01-01 \
+  --end-date 2025-03-31 \
+  --selected-pairs "BTC-USD/ETH-USD,SOL-USD/AVAX-USD" \
+  --pair-selection-mode-a liquidity \
+  --pair-selection-mode-b cointegration \
+  --max-pairs-a 0 \
+  --max-pairs-b 0
+```
+
+Persistence note:
+
+- The helper stores experiment context + comparison summary in each run's DB-backed metadata (`ab_experiment`) via the backtest metadata API.
+
+Interpretation guide:
+
+- If only runtime flags changed and backtest inputs stayed identical, large PnL deltas are unexpected.
+- If `pair_selection_mode` / `max_pairs` changed, metric shifts are expected and should be used for strategy tuning.
+
 ## References
 
 - `docs/arbitrage-phase2-rollout-playbook.md`

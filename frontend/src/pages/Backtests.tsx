@@ -387,13 +387,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     if (variantFromParams !== experimentVariantFilter) {
       setExperimentVariantFilter(variantFromParams);
     }
-  }, [
-    view,
-    searchParams,
-    experimentSearch,
-    experimentStatusFilter,
-    experimentVariantFilter,
-  ]);
+  }, [view, searchParams, experimentSearch, experimentStatusFilter, experimentVariantFilter]);
 
   useEffect(() => {
     if (view !== 'experiments') {
@@ -1040,15 +1034,15 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
             </label>
           </div>
 
-          {hasActiveFilters ? (
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => void copyFilteredExperimentsUrl()}
-                className="inline-flex items-center gap-2 rounded-lg border border-cyan-600/50 bg-cyan-900/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200 transition hover:border-cyan-400/70"
-              >
-                Copy filtered URL
-              </button>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => void copyFilteredExperimentsUrl()}
+              className="inline-flex items-center gap-2 rounded-lg border border-cyan-600/50 bg-cyan-900/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200 transition hover:border-cyan-400/70"
+            >
+              {hasActiveFilters ? 'Copy filtered URL' : 'Copy page URL'}
+            </button>
+            {hasActiveFilters ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1060,10 +1054,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
               >
                 Clear filters
               </button>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
-          {copyLinkFeedback ? <p className="text-right text-xs text-cyan-300">{copyLinkFeedback}</p> : null}
+          {copyLinkFeedback ? (
+            <p className="text-right text-xs text-cyan-300">{copyLinkFeedback}</p>
+          ) : null}
 
           {experiments.length === 0 ? (
             <p className="text-sm text-slate-400">

@@ -69,6 +69,8 @@ When finished:
 - [Current Arbitrage Analysis](docs/current-project-arbitrage-analysis.md)
 - [Arbitrage Improvement Plan](docs/project-specific-arbitrage-improvement-plan.md)
 - [Arbitrage Final Report](docs/codex-final-report.md)
+- [Arbitrage Phase 2 Rollout Playbook](docs/arbitrage-phase2-rollout-playbook.md)
+- [Arbitrage Day-1 Rollout Command Sheet](docs/arbitrage-day1-rollout-command-sheet.md)
 - [Documentation Governance](docs/DOCUMENTATION_GOVERNANCE.md)
 - [Frontend Service Doc](frontend/README.md)
 - [Backend Service Doc](backend/README.md)

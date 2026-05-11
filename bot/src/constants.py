@@ -98,6 +98,21 @@ else:
 # ── Performance tuning ────────────────────────────────────────────────────────
 import os as _os
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = _os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+ARBITRAGE_IMPROVEMENTS_ENABLED = _env_flag("ARBITRAGE_IMPROVEMENTS_ENABLED", False)
+PAIR_PRIORITY_ENGINE_ENABLED = _env_flag("PAIR_PRIORITY_ENGINE_ENABLED", False)
+POLYMARKET_SIGNALS_ENABLED = _env_flag("POLYMARKET_SIGNALS_ENABLED", False)
+DEFILLAMA_SIGNALS_ENABLED = _env_flag("DEFILLAMA_SIGNALS_ENABLED", False)
+NEWS_SIGNALS_ENABLED = _env_flag("NEWS_SIGNALS_ENABLED", False)
+AUTO_EXECUTION_CHANGES_ENABLED = _env_flag("AUTO_EXECUTION_CHANGES_ENABLED", False)
+
 # Per-call sleep between dYdX API requests (milliseconds → seconds).
 # Set DYDX_API_THROTTLE_MS=0 to disable; default 200 ms.
 DYDX_API_THROTTLE_SECONDS: float = (

@@ -130,7 +130,7 @@ func setupBotInstanceContractRouter(t *testing.T, upstream http.Handler) (*gin.E
 
 	router := gin.New()
 	RegisterAuthRoutes(router, dbConn)
-	RegisterBotInstanceRoutes(router, &db.Database{DB: dbConn})
+	RegisterBotInstanceRoutes(router, &db.Database{DB: dbConn}, nil)
 
 	return router, dbConn, upstreamServer
 }

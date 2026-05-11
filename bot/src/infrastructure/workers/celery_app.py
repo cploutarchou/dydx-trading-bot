@@ -26,8 +26,14 @@ celery_app = Celery(
     "dydx_bot",
     broker=_redis_url(0),
     backend=os.getenv("CELERY_RESULT_BACKEND") or _redis_url(1),
-    include=["src.infrastructure.workers.backtest_tasks"],
+    include=[
+        "src.infrastructure.workers.backtest_tasks",
+        "src.infrastructure.workers.candle_aggregate_tasks",
+        "src.infrastructure.workers.market_sync_tasks",
+    ],
 )
+
+_MARKET_SYNC_INTERVAL = float(os.getenv("MARKET_SYNC_INTERVAL_SECONDS", "10"))
 
 celery_app.conf.update(
     task_acks_late=True,
@@ -37,7 +43,9 @@ celery_app.conf.update(
     task_send_sent_event=True,
     worker_send_task_events=True,
     result_extended=True,
-    task_time_limit=int(os.getenv("BACKTEST_CELERY_TASK_TIME_LIMIT", str(7 * 24 * 60 * 60))),
+    task_time_limit=int(
+        os.getenv("BACKTEST_CELERY_TASK_TIME_LIMIT", str(7 * 24 * 60 * 60))
+    ),
     task_soft_time_limit=int(
         os.getenv("BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT", str(7 * 24 * 60 * 60 - 60))
     ),
@@ -45,4 +53,10 @@ celery_app.conf.update(
     result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", str(24 * 60 * 60))),
     timezone="UTC",
     enable_utc=True,
+    beat_schedule={
+        "sync-market-candles": {
+            "task": "bot.sync_market_candles",
+            "schedule": _MARKET_SYNC_INTERVAL,
+        },
+    },
 )

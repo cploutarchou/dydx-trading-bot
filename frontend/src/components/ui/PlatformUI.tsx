@@ -283,10 +283,12 @@ interface ActionDialogProps {
   confirmLabel: string;
   onConfirm: () => void;
   onClose: () => void;
-  confirmTone?: Extract<Tone, 'accent' | 'warning' | 'danger' | 'success'>;
+  confirmTone?: ActionDialogConfirmTone;
   loading?: boolean;
   details?: ReactNode;
 }
+
+type ActionDialogConfirmTone = Extract<Tone, 'accent' | 'warning' | 'danger' | 'success'>;
 
 export const ActionDialog = ({
   open,
@@ -301,7 +303,7 @@ export const ActionDialog = ({
 }: ActionDialogProps) => {
   if (!open) return null;
 
-  const confirmClassMap: Record<ActionDialogProps['confirmTone'], string> = {
+  const confirmClassMap: Record<ActionDialogConfirmTone, string> = {
     accent:
       'border-cyan-500/30 bg-cyan-500/15 text-cyan-50 hover:border-cyan-400/50 hover:bg-cyan-500/20',
     warning:

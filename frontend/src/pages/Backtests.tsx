@@ -13,7 +13,7 @@ import {
     Target,
     TrendingUp,
 } from 'lucide-react';
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
@@ -405,11 +405,52 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         .slice(0, 6),
     [backtestsQuery.data]
   );
+
+  // Subscribe to Redis-backed WebSocket push for each active run so that
+  // progress updates arrive via push instead of only via polling.
+  const wsRefs = useRef<Map<string, WebSocket>>(new Map());
+  useEffect(() => {
+    const activeIds = new Set(activeRunsQuickAccess.map((r) => r.run_id).filter(Boolean));
+
+    // Close sockets for runs no longer active
+    for (const [id, ws] of wsRefs.current.entries()) {
+      if (!activeIds.has(id)) {
+        ws.close();
+        wsRefs.current.delete(id);
+      }
+    }
+
+    // Open sockets for newly active runs
+    for (const runId of activeIds) {
+      if (wsRefs.current.has(runId)) continue;
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const ws = new WebSocket(`${proto}//${host}/api/v1/backtests/${runId}/push`);
+      ws.addEventListener('message', () => {
+        void queryClient.invalidateQueries({ queryKey: ['backtests', 'status', runId] });
+        void queryClient.invalidateQueries({ queryKey: ['backtests'] });
+      });
+      ws.addEventListener('close', () => {
+        wsRefs.current.delete(runId);
+      });
+      wsRefs.current.set(runId, ws);
+    }
+
+    return () => {
+      // Component unmount: close all sockets
+      for (const ws of wsRefs.current.values()) {
+        ws.close();
+      }
+      wsRefs.current.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunsQuickAccess.map((r) => r.run_id).join(',')]);
+
   const activeRunLiveStatusQueries = useQueries({
     queries: activeRunsQuickAccess.map((run) => ({
       queryKey: ['backtests', 'status', run.run_id, 'quick-access'],
       queryFn: async () => {
-        const response = await api.getBacktestStatus(run.run_id);
+        const response = await enhancedApiClient.getBacktestStatus(run.run_id);
         const payload = response as unknown as Record<string, unknown>;
         const progressCandidate = getEnvelopeField(payload, 'progress_pct');
         const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');
@@ -429,34 +470,20 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         };
       },
       staleTime: 6_000,
-      refetchInterval: 7_000,
-      refetchIntervalInBackground: false,
-      retry: 1,
-      enabled: Boolean(run.run_id),
-    })),
-  });
-  const activeRunSummaryQueries = useQueries({
-    queries: activeRunsQuickAccess.map((run) => ({
-      queryKey: ['backtests', 'analytics-summary', run.run_id, 'quick-access'],
-      queryFn: async () => {
-        const response = await api.getBacktestAnalyticsSummary(run.run_id);
-        const payload = response as unknown as Record<string, unknown>;
-        const totalPnlCandidate = getEnvelopeField(payload, 'total_pnl_usd');
-        const totalTradesCandidate = getEnvelopeField(payload, 'total_trades');
-        const winRateCandidate = getEnvelopeField(payload, 'win_rate');
-        return {
-          totalPnlUsd: safeNumber(totalPnlCandidate, Number.NaN),
-          totalTrades: safeNumber(totalTradesCandidate, Number.NaN),
-          winRate: safeNumber(winRateCandidate, Number.NaN),
-        };
+      // Stop polling per-run status once the main list shows it as completed/failed
+      refetchInterval: (query: { state: { data?: { status?: string } } }) => {
+        const statusFromQuery = query.state.data?.status?.toUpperCase();
+        if (statusFromQuery && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(statusFromQuery)) {
+          return false;
+        }
+        return 7_000;
       },
-      staleTime: 12_000,
-      refetchInterval: 12_000,
       refetchIntervalInBackground: false,
       retry: 1,
       enabled: Boolean(run.run_id),
     })),
   });
+  // activeRunSummaryQueries removed — PnL/trades/winRate are sourced from backtestsQuery list data
   const activeRunLiveById = useMemo(() => {
     const lookup = new Map<
       string,
@@ -470,41 +497,37 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         winRate?: number;
       }
     >();
+    // Build a quick lookup from the main list for list-level fields
+    const runListById = new Map<string, BacktestRun>(
+      (backtestsQuery.data ?? []).map((r) => [r.run_id, r])
+    );
 
     activeRunsQuickAccess.forEach((run, index) => {
       const query = activeRunLiveStatusQueries[index];
-      const summaryQuery = activeRunSummaryQueries[index];
+      const listRun = runListById.get(run.run_id);
       const progressValue = query?.data?.progressPct;
       const normalizedProgress =
         typeof progressValue === 'number' && Number.isFinite(progressValue)
           ? Math.max(0, Math.min(100, progressValue))
           : undefined;
 
+      const listPnl = safeNumber(listRun?.total_pnl, Number.NaN);
+      const listTrades = safeNumber(listRun?.total_trades, Number.NaN);
+      const listWinRate = safeNumber(listRun?.win_rate, Number.NaN);
+
       lookup.set(run.run_id, {
         status: query?.data?.status,
         progressPct: normalizedProgress,
         updatedAtMs: query?.data?.updatedAtMs,
         isFetching: Boolean(query?.isFetching),
-        totalPnlUsd:
-          typeof summaryQuery?.data?.totalPnlUsd === 'number' &&
-          Number.isFinite(summaryQuery.data.totalPnlUsd)
-            ? summaryQuery.data.totalPnlUsd
-            : undefined,
-        totalTrades:
-          typeof summaryQuery?.data?.totalTrades === 'number' &&
-          Number.isFinite(summaryQuery.data.totalTrades)
-            ? summaryQuery.data.totalTrades
-            : undefined,
-        winRate:
-          typeof summaryQuery?.data?.winRate === 'number' &&
-          Number.isFinite(summaryQuery.data.winRate)
-            ? summaryQuery.data.winRate
-            : undefined,
+        totalPnlUsd: Number.isFinite(listPnl) ? listPnl : undefined,
+        totalTrades: Number.isFinite(listTrades) ? listTrades : undefined,
+        winRate: Number.isFinite(listWinRate) ? listWinRate : undefined,
       });
     });
 
     return lookup;
-  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, activeRunSummaryQueries]);
+  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, backtestsQuery.data]);
   const capacityPanelRef = useRef<HTMLDivElement>(null);
   const scrollToCapacityPanel = () =>
     capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });

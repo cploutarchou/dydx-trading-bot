@@ -8,6 +8,7 @@ import {
     type LineData,
     type MouseEventParams,
     type SeriesMarker,
+    type Time,
 } from 'lightweight-charts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createTradingChart } from './charts/lightweightTheme';
@@ -60,7 +61,7 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
   const chartRef = useRef<IChartApi | null>(null);
   const areaSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
   const histogramSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const markerApiRef = useRef<ReturnType<typeof createSeriesMarkers<string>> | null>(null);
+  const markerApiRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const latestDataRef = useRef<BacktestChartPoint[]>([]);
   const hasFittedContentRef = useRef(false);
   const [hoverPoint, setHoverPoint] = useState<BacktestChartPoint | null>(null);
@@ -82,7 +83,7 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
     return Array.from(byDay.values()).sort((a, b) => a.time.localeCompare(b.time));
   }, [data]);
 
-  const normalizedMarkers = useMemo<SeriesMarker<string>[]>(() => {
+  const normalizedMarkers = useMemo<SeriesMarker<Time>[]>(() => {
     const byDay = new Map<string, BacktestChartMarker[]>();
     markers.forEach((marker) => {
       const time = toBusinessDay(marker.time);
@@ -158,14 +159,14 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
 
     const markerApi = createSeriesMarkers(areaSeries, []);
 
-    const handleCrosshairMove = (param: MouseEventParams<string>) => {
+    const handleCrosshairMove = (param: MouseEventParams<Time>) => {
       const areaSeriesApi = areaSeriesRef.current;
       if (!areaSeriesApi || !param.time) {
         setHoverPoint(latestDataRef.current[latestDataRef.current.length - 1] ?? null);
         return;
       }
 
-      const areaData = param.seriesData.get(areaSeriesApi) as LineData<string> | undefined;
+      const areaData = param.seriesData.get(areaSeriesApi) as LineData<Time> | undefined;
       const pointTime = areaData?.time ? String(areaData.time) : String(param.time);
       const matched = latestDataRef.current.find((point) => point.time === pointTime);
       setHoverPoint(matched ?? latestDataRef.current[latestDataRef.current.length - 1] ?? null);
@@ -206,11 +207,11 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
       return;
     }
 
-    const areaData: LineData<string>[] = normalizedData.map((point) => ({
+    const areaData: LineData<Time>[] = normalizedData.map((point) => ({
       time: point.time,
       value: point.value,
     }));
-    const histogramData: HistogramData<string>[] = normalizedData.map((point) => ({
+    const histogramData: HistogramData<Time>[] = normalizedData.map((point) => ({
       time: point.time,
       value: point.trades,
       color: point.pnl >= 0 ? 'rgba(34, 197, 94, 0.6)' : 'rgba(239, 68, 68, 0.6)',

@@ -12,20 +12,21 @@
 
 import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2, X } from 'lucide-react';
 import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+    type KeyboardEvent as ReactKeyboardEvent,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, {
-	type AIBacktestSummary,
-	DYDX_CANDLE_RESOLUTION_OPTIONS,
-	normalizeDydxCandleResolution,
-	toAIBacktestSummary,
+    type AIBacktestSummary,
+    DYDX_CANDLE_RESOLUTION_OPTIONS,
+    normalizeDydxCandleResolution,
+    toAIBacktestSummary,
 } from '../api';
+import { useStrategyRuntimes, useStrategyStartReadiness } from '../api/hooks';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
@@ -280,14 +281,10 @@ export default function StrategyManager() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [startDialogStrategy, setStartDialogStrategy] = useState<Strategy | null>(null);
   const [startDialogNetwork, setStartDialogNetwork] = useState<'testnet' | 'mainnet'>('testnet');
-  const [startDialogLoading, setStartDialogLoading] = useState(false);
   const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
-  const [startDialogError, setStartDialogError] = useState<string | null>(null);
   const [viewPreset, setViewPreset] = useState<'operator' | 'analyst'>('analyst');
   const [focusedCardId, setFocusedCardId] = useState<number | null>(null);
-  const [startDialogReadiness, setStartDialogReadiness] = useState<StrategyStartReadiness | null>(
-    null
-  );
+  // startDialogReadiness, startDialogLoading, startDialogError are now derived from useStrategyStartReadiness
   const [strategyActivity, setStrategyActivity] = useState<Map<number, StrategyActivityEntry>>(
     new Map()
   );
@@ -467,84 +464,51 @@ export default function StrategyManager() {
     };
   };
 
+  // ── Runtime status: use React Query instead of manual useEffect polling ─────
+  const strategyIds = useMemo(() => safeStrategies.map((s) => s.id), [safeStrategies]);
+  const runtimeQueries = useStrategyRuntimes(strategyIds);
+
+  // Derive strategyStatuses / runningCount / heartbeatTrend from React Query results
   useEffect(() => {
-    if (safeStrategies.length === 0) {
+    if (strategyIds.length === 0) {
       applyStrategyStatuses([]);
       return;
     }
 
-    let cancelled = false;
-
-    const syncStrategyRuntimeStatuses = async () => {
-      const settledStatuses = await Promise.allSettled(
-        safeStrategies.map(async (strategy) => {
-          const response = await apiClient.getStrategyRuntime(strategy.id);
-          return toStrategyStatus(strategy.id, response.data);
-        })
-      );
-
-      if (cancelled) {
-        return;
-      }
-
-      const nextStatuses = settledStatuses.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return result.value;
-        }
-
-        return {
-          strategyId: safeStrategies[index].id,
-          status: 'error' as const,
-          lastError: getErrorMessage(result.reason, 'Failed to load runtime status'),
-          updatedAt: new Date().toISOString(),
-        };
-      });
-
-      applyStrategyStatuses(nextStatuses);
-    };
-
-    void syncStrategyRuntimeStatuses();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [safeStrategies]);
-
-  useEffect(() => {
-    if (!startDialogStrategy) {
-      return;
-    }
-
-    let cancelled = false;
-    const loadReadiness = async () => {
-      setStartDialogLoading(true);
-      setStartDialogError(null);
-      try {
-        const response = await apiClient.getStrategyStartReadiness(
-          startDialogStrategy.id,
-          startDialogNetwork
+    const nextStatuses = runtimeQueries.map((query, index) => {
+      if (query.isSuccess && query.data) {
+        return toStrategyStatus(
+          strategyIds[index],
+          query.data.data as Record<string, unknown> | undefined
         );
-        if (!cancelled) {
-          setStartDialogReadiness(response.data as StrategyStartReadiness);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setStartDialogReadiness(null);
-          setStartDialogError(getErrorMessage(error, 'Failed to load runtime readiness'));
-        }
-      } finally {
-        if (!cancelled) {
-          setStartDialogLoading(false);
-        }
       }
-    };
+      return {
+        strategyId: strategyIds[index],
+        status: 'error' as const,
+        lastError: query.error
+          ? getErrorMessage(query.error, 'Failed to load runtime status')
+          : 'Loading...',
+        updatedAt: new Date().toISOString(),
+      };
+    });
 
-    void loadReadiness();
+    applyStrategyStatuses(nextStatuses);
+  }, [runtimeQueries.map((q) => q.dataUpdatedAt).join(','), strategyIds.join(',')]);
+  // ─────────────────────────────────────────────────────────────────────────────
 
-    return () => {
-      cancelled = true;
-    };
-  }, [startDialogNetwork, startDialogStrategy]);
+  // ── Start-dialog readiness: React Query (only fetches when dialog is open) ──
+  const readinessQuery = useStrategyStartReadiness(
+    startDialogStrategy?.id ?? null,
+    startDialogNetwork,
+    Boolean(startDialogStrategy)
+  );
+  const startDialogReadiness =
+    (readinessQuery.data?.data as StrategyStartReadiness | undefined) ?? null;
+  const startDialogLoading = readinessQuery.isLoading;
+  const startDialogError = readinessQuery.error
+    ? getErrorMessage(readinessQuery.error, 'Failed to load runtime readiness')
+    : null;
+  // ─────────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!startDialogStrategy) {
@@ -704,9 +668,6 @@ export default function StrategyManager() {
       return;
     }
     setStartDialogStrategy(null);
-    setStartDialogReadiness(null);
-    setStartDialogError(null);
-    setStartDialogLoading(false);
     window.setTimeout(() => lastFocusedElementRef.current?.focus(), 0);
   };
 
@@ -715,8 +676,6 @@ export default function StrategyManager() {
       typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
     setStartDialogStrategy(strategy);
     setStartDialogNetwork(strategy.runtime_network ?? 'testnet');
-    setStartDialogReadiness(null);
-    setStartDialogError(null);
   };
 
   const closeConfigDialog = () => {
@@ -871,8 +830,12 @@ export default function StrategyManager() {
     }
 
     if (!hasExplicitMarketSelection(startDialogReadiness)) {
-      setStartDialogError(
-        'Select at least two dYdX markets for this strategy before starting runtime.'
+      showTransientMessage(
+        {
+          type: 'error',
+          text: 'Select at least two dYdX markets for this strategy before starting runtime.',
+        },
+        5000
       );
       return;
     }
@@ -2162,7 +2125,10 @@ export default function StrategyManager() {
               <div className="flex items-center justify-between border-b border-slate-800 px-6 py-5">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Live Launch</p>
-                  <h2 id="start-runtime-dialog-title" className="mt-2 text-2xl font-semibold text-white">
+                  <h2
+                    id="start-runtime-dialog-title"
+                    className="mt-2 text-2xl font-semibold text-white"
+                  >
                     Start {startDialogStrategy.name}
                   </h2>
                 </div>

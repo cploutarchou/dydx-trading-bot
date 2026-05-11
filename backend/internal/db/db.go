@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -459,6 +460,9 @@ func runMigrations(cfg Config) error {
 		if !isRecoverable {
 			return fmt.Errorf("migration execution failed: %w", err)
 		}
+		if !migrationForceRecoveryAllowed() {
+			return fmt.Errorf("migration execution failed with recoverable state but automatic force recovery is disabled in production: %w", err)
+		}
 
 		ver, _, vErr := m.Version()
 		if vErr != nil {
@@ -486,6 +490,23 @@ func isAlreadyExistsMigrationError(errLower string) bool {
 		strings.Contains(errLower, "constraint") ||
 		strings.Contains(errLower, "column") ||
 		strings.Contains(errLower, "table")
+}
+
+func migrationForceRecoveryAllowed() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DB_MIGRATION_FORCE_RECOVERY"))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+
+	for _, key := range []string{"APP_CONFIG_ENV", "APP_ENV", "ENVIRONMENT"} {
+		switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+		case "production", "prod":
+			return false
+		}
+	}
+	return true
 }
 
 // BuildMigrateDatabaseURL converts cfg.Driver and cfg.DSN into a URL acceptable by golang-migrate

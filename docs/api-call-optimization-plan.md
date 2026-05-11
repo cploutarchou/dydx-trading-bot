@@ -23,6 +23,14 @@
 
 ## Next API Reductions
 
-- Replace two `is_open_positions()` calls per opportunity with one `get_open_positions()` snapshot.
 - Add dYdX websocket market-data adapter as read-only input.
 - Add Redis-backed recent-candle sync only after the missing task has a concrete implementation and operational owner.
+
+## Completed Since Initial Plan
+
+- Replaced two `is_open_positions()` calls per detected opportunity with one
+	`get_open_positions()` snapshot behind `ARBITRAGE_IMPROVEMENTS_ENABLED`,
+	with safe fallback to legacy checks if snapshot retrieval fails.
+- Added account/order/subaccount-order API call instrumentation so API-call
+	reductions are measurable (`exchange_api_calls_total`,
+	`exchange_api_calls_saved_total`, `duplicate_api_calls_avoided_total`).

@@ -119,6 +119,39 @@ Bot-local runtime diagnostics are also exposed for service probing and platform 
 The bot `/metrics` payload now includes additive `arbitrage.rejection_reasons` buckets
 alongside existing counters to explain why opportunities were rejected.
 
+## Arbitrage Intelligence Operator Playbook
+
+Use the non-embedded bot manager panel and diagnostics endpoints to improve results
+without changing core strategy logic.
+
+1. **Baseline first (flags off)**
+	- Keep all new flags off initially.
+	- Capture 30-60 minutes of metrics from:
+	  - `GET /api/v1/arbitrage/improvement-metrics`
+	  - `GET /api/v1/arbitrage/pair-priority?limit=10`
+2. **Enable safe efficiency improvements**
+	- Turn on `ARBITRAGE_IMPROVEMENTS_ENABLED=true`.
+	- Watch for upward trend in:
+	  - `exchange_api_calls_saved_total`
+	  - `duplicate_api_calls_avoided_total`
+	- Validate `provider_errors_total` does not rise materially.
+3. **Use rejection reasons to remove waste**
+	- In the panel, inspect top rejection reasons and click for explainability.
+	- For repeated `min_order_size` or `market_already_open`, reduce low-value scan pressure before changing any execution logic.
+4. **Turn on pair priority cautiously**
+	- Enable `PAIR_PRIORITY_ENGINE_ENABLED=true` in testnet/staging first.
+	- Start with `PAIR_PRIORITY_MAX_PAIRS=0` (no cap), then gradually apply caps.
+	- Verify opportunity quality remains stable while API calls per scan decline.
+5. **Keep execution behavior unchanged by default**
+	- Leave `AUTO_EXECUTION_CHANGES_ENABLED=false` unless explicitly testing a reviewed release plan.
+
+Suggested weekly KPI review:
+
+- API efficiency: saved calls / total calls
+- Opportunity quality: executed / detected
+- Rejection concentration: top 3 rejection reasons share
+- Stability: provider errors, stale-data detections, reconnect counts
+
 The non-embedded bot manager screen displays diagnostics, and the admin settings screen saves
 runtime flags to the backend database before syncing them to the bot process. dYdX keys and
 provider API secrets still use the existing encrypted credential flows, not plain settings rows.

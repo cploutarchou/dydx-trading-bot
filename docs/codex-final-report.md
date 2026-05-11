@@ -42,6 +42,7 @@ No default business logic changed:
 - Added required feature flags with safe defaults.
 - Added bot-local arbitrage metrics counters.
 - Added `/metrics`, `/api/v1/arbitrage/improvement-metrics`, and `/api/v1/arbitrage/pair-priority` to the bot API.
+- Added optional `/api/v1/arbitrage/opportunity/{id}/explain` diagnostics endpoint (bot + backend proxy + frontend client method).
 - Added authenticated Go backend proxy routes for the new arbitrage diagnostics.
 - Added a frontend arbitrage intelligence panel on the non-embedded bot manager surface.
 - Added admin Settings controls that persist arbitrage runtime flags in `bot_settings` and sync them to the bot process.
@@ -49,8 +50,13 @@ No default business logic changed:
 - Added same-cycle recent-candle de-duplication behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Reused cached market metadata for order placement/cancellation behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Collapsed per-opportunity open-position checks into one account snapshot behind `ARBITRAGE_IMPROVEMENTS_ENABLED` (with safe fallback to legacy checks).
+- Added API-call/provider-error metric coverage for account/order/subaccount-order indexer paths in `account_manager`.
 - Added optional pair-priority scoring behind `PAIR_PRIORITY_ENGINE_ENABLED`.
 - Added scan cycle IDs and rejection reason logs.
+- Added centralized rejection-reason counters (`rejection_reasons`) in arbitrage metrics payloads.
+- Surfaced top rejection reasons in `frontend/src/components/ArbitrageImprovementPanel.tsx` as additive operator diagnostics.
+- Locked backend delegated metrics contract to preserve `rejection_reasons` in `bot_api_delegate_control_plane_test`.
+- Added backend proxy and integration assertion for delegated opportunity explain diagnostics.
 - Added import-safe Celery hook modules for configured market sync and candle aggregation tasks.
 
 ## Files Changed
@@ -108,7 +114,11 @@ Optional tuning:
 - Pair-priority scoring and stale-analysis detection.
 - Same-cycle candle cache behavior enabled and disabled.
 - Account-manager API metric increments (success + provider-error paths).
+- Open-position snapshot optimization path and fallback path.
+- Rejection reason aggregation and reset behavior in observability snapshot.
 - Backend DB-backed arbitrage runtime setting persistence and bot payload mapping.
+- Backend delegated arbitrage metrics proxy preservation of `rejection_reasons`.
+- Backend delegated arbitrage opportunity explain proxy path and response passthrough.
 
 ## Verification
 
@@ -117,6 +127,11 @@ Passed in this session:
 ```bash
 /home/chris/workspace/dydx-trading-bot/.venv/bin/python -m py_compile bot/src/trading/account_manager.py bot/src/trading/position_manager.py
 /home/chris/workspace/dydx-trading-bot/.venv/bin/python -m pytest bot/tests/test_arbitrage_cycle_cache.py bot/tests/test_account_manager_metrics.py -q
+# latest run: 8 passed
+/home/chris/workspace/dydx-trading-bot/.venv/bin/python -m pytest bot/tests/test_arbitrage_cycle_cache.py bot/tests/test_account_manager_metrics.py bot/tests/test_arbitrage_observability.py -q
+# latest run: 10 passed
+cd /home/chris/workspace/dydx-trading-bot/backend && go test -tags integration ./internal/routes -run TestDelegateCapabilitiesAndRuntimeDBConfigRoutes -count=1
+# latest run: ok
 ```
 
 Not rerun in this session:

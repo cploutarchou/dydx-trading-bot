@@ -3124,6 +3124,59 @@ async def get_arbitrage_pair_priority(
     )
 
 
+@app.get("/api/v1/arbitrage/opportunity/{opportunity_id}/explain")
+async def get_arbitrage_opportunity_explain(
+    opportunity_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    metrics = snapshot_metrics(
+        {
+            "feature_flags": get_feature_flags(),
+            "runtime_settings": get_runtime_settings(),
+        }
+    )
+    rejection_reasons = metrics.get("rejection_reasons", {})
+    normalized_id = str(opportunity_id or "").strip().lower().replace(" ", "_")
+
+    matched_reason = None
+    if isinstance(rejection_reasons, dict) and normalized_id in rejection_reasons:
+        matched_reason = {
+            "reason": normalized_id,
+            "count": rejection_reasons.get(normalized_id, 0),
+        }
+
+    top_rejections: List[Dict[str, Any]] = []
+    if isinstance(rejection_reasons, dict):
+        sorted_reasons = sorted(
+            rejection_reasons.items(),
+            key=lambda item: float(item[1]),
+            reverse=True,
+        )
+        top_rejections = [
+            {"reason": str(reason), "count": float(count)}
+            for reason, count in sorted_reasons[:10]
+        ]
+
+    return api_response(
+        success=True,
+        data={
+            "opportunity_id": opportunity_id,
+            "matched_rejection_reason": matched_reason,
+            "top_rejection_reasons": top_rejections,
+            "counters": metrics.get("counters", {}),
+            "feature_flags": metrics.get("feature_flags", {}),
+            "runtime_settings": metrics.get("runtime_settings", {}),
+            "explainability_scope": "runtime_diagnostics",
+            "note": (
+                "Per-opportunity historical explain payloads are not persisted yet; "
+                "this endpoint provides current runtime diagnostics and rejection trends."
+            ),
+        },
+        message="Arbitrage opportunity explainability retrieved",
+    )
+
+
 @app.get("/api/v1/markets/perpetuals")
 async def list_perpetual_markets(limit: int = 0):
     """Return available dYdX perpetual markets for run configuration.

@@ -45,6 +45,7 @@ No default business logic changed:
 - Added authenticated Go backend proxy routes for the new arbitrage diagnostics.
 - Added a frontend arbitrage intelligence panel on the non-embedded bot manager surface.
 - Added admin Settings controls that persist arbitrage runtime flags in `bot_settings` and sync them to the bot process.
+- Added audit logging for admin arbitrage runtime setting updates.
 - Added same-cycle recent-candle de-duplication behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Reused cached market metadata for order placement/cancellation behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Added optional pair-priority scoring behind `PAIR_PRIORITY_ENGINE_ENABLED`.
@@ -143,6 +144,7 @@ Actual reduction depends on pair overlap. A pair universe with shared high-liqui
 - `PAIR_PRIORITY_MAX_PAIRS > 0` intentionally skips lower-ranked pairs and should be tested in paper/testnet first.
 - External signal flags are reserved only; providers are not implemented in this patch.
 - Admin DB settings sync to the running bot process; if the bot API is unreachable, DB values are saved and sync status reports `bot_unreachable`.
+- Runtime settings intentionally store only non-secret flags/tuning values; secrets remain in encrypted credential/key tables.
 - The Celery hook tasks are import-safe compatibility hooks, not full Redis market-sync/aggregation implementations.
 
 ## Rollback Steps

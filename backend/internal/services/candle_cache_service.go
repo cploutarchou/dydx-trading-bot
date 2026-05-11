@@ -6,17 +6,28 @@ import (
 	"log"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 )
 
 // CandleCacheService manages candle data caching
 type CandleCacheService struct {
 	cache *CacheService
+	repo  *repository.BacktestRepository
 }
 
 // NewCandleCacheService creates a new candle cache service
 func NewCandleCacheService(cache *CacheService) *CandleCacheService {
 	return &CandleCacheService{
 		cache: cache,
+	}
+}
+
+// NewCandleCacheServiceWithRepo creates a CandleCacheService with DB access for
+// PrefetchCandlesForRun and WarmCache.
+func NewCandleCacheServiceWithRepo(cache *CacheService, repo *repository.BacktestRepository) *CandleCacheService {
+	return &CandleCacheService{
+		cache: cache,
+		repo:  repo,
 	}
 }
 
@@ -157,24 +168,88 @@ func (ccs *CandleCacheService) GetLatestCandle(runID int, market string) (*model
 	return &candle, nil
 }
 
-// PrefetchCandlesForRun prefetches all candles for a run from database
-// This is typically called during backtest initialization
+// GetAggregatedChart retrieves pre-aggregated OHLCV bars for a run+market+resolution
+// from Redis (written by the Python aggregate_backtest_candles Celery task).
+// Returns the raw JSON string (caller deserialises) and nil error on cache hit,
+// or ("", nil) on cache miss, or ("", err) on Redis error.
+// resolution must be "1min" or "1hour".
+func (ccs *CandleCacheService) GetAggregatedChart(runID, market, resolution string) (string, error) {
+	key := fmt.Sprintf("backtest:chart:%s:%s:%s", resolution, runID, market)
+	val, err := ccs.cache.GetCacheString(key)
+	if err != nil {
+		return "", fmt.Errorf("GetAggregatedChart: %w", err)
+	}
+	return val, nil
+}
+
+// PrefetchCandlesForRun fetches all candles for a completed run from the
+// backtest_candles table and stores them in Redis (24h TTL by default).
+// Call this after a backtest completes so the first chart render is cache-warm.
 func (ccs *CandleCacheService) PrefetchCandlesForRun(runID int, ttlSeconds int) error {
-	// This would typically call the backtest repository to fetch candles
-	// Implementation depends on how candles are retrieved from the database
-	log.Printf("Prefetching candles for run %d", runID)
+	if ccs.repo == nil {
+		log.Printf("CandleCacheService: repo not set, skipping PrefetchCandlesForRun for run %d", runID)
+		return nil
+	}
+	if ttlSeconds <= 0 {
+		ttlSeconds = 86400 // 24 h
+	}
+
+	markets, err := ccs.repo.GetUniqueMarkets(runID)
+	if err != nil {
+		return fmt.Errorf("PrefetchCandlesForRun: get markets for run %d: %w", runID, err)
+	}
+	if len(markets) == 0 {
+		log.Printf("CandleCacheService: no markets found for run %d, skipping prefetch", runID)
+		return nil
+	}
+
+	for _, market := range markets {
+		candles, err := ccs.repo.GetCandles(repository.CandleFilter{RunID: runID, Market: market})
+		if err != nil {
+			log.Printf("CandleCacheService: failed to fetch candles for run %d market %s: %v", runID, market, err)
+			continue
+		}
+		if err := ccs.CacheCandles(runID, market, candles, ttlSeconds); err != nil {
+			log.Printf("CandleCacheService: failed to cache candles for run %d market %s: %v", runID, market, err)
+		}
+	}
+
+	log.Printf("CandleCacheService: prefetch complete for run %d (%d markets)", runID, len(markets))
 	return nil
 }
 
-// WarmCache warms up the cache with frequently accessed data
+// WarmCache batch-fetches candles for the given markets and caches them.
+// durationHours is unused (the full candle history is always fetched) but kept
+// for API compatibility.
 func (ccs *CandleCacheService) WarmCache(runID int, markets []string, durationHours int) error {
-
-	for _, market := range markets {
-		// In a real implementation, fetch from database and cache
-		// For now, just initialize the cache structure
-		key := fmt.Sprintf("backtest:candles:%d:%s", runID, market)
-		log.Printf("Warming cache for %s", key)
+	if ccs.repo == nil {
+		log.Printf("CandleCacheService: repo not set, skipping WarmCache for run %d", runID)
+		return nil
 	}
 
+	const pageSize = 1000
+	ttlSeconds := 86400 // 24 h
+
+	for _, market := range markets {
+		// Fetch in pages to avoid large single-query memory spikes
+		candles, err := ccs.repo.GetCandles(repository.CandleFilter{RunID: runID, Market: market})
+		if err != nil {
+			log.Printf("CandleCacheService: WarmCache fetch error for run %d market %s: %v", runID, market, err)
+			continue
+		}
+
+		// Cache in pages
+		for start := 0; start < len(candles); start += pageSize {
+			end := start + pageSize
+			if end > len(candles) {
+				end = len(candles)
+			}
+			if err := ccs.CacheCandles(runID, market, candles[start:end], ttlSeconds); err != nil {
+				log.Printf("CandleCacheService: WarmCache cache error for run %d market %s page %d: %v", runID, market, start/pageSize, err)
+			}
+		}
+	}
+
+	log.Printf("CandleCacheService: WarmCache complete for run %d (%d markets)", runID, len(markets))
 	return nil
 }

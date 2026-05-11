@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -27,7 +27,7 @@ func NewCacheService(redisHost string, redisPort int, redisPassword string, redi
 	// Test connection
 	ctx := context.Background()
 	if err := client.Ping(ctx).Err(); err != nil {
-		log.Printf("Warning: Redis connection failed: %v", err)
+		slog.Warn("redis connection failed", "error", err)
 	}
 
 	return &CacheService{
@@ -50,7 +50,7 @@ func (cs *CacheService) SetCache(key string, value interface{}, ttlSeconds int) 
 		return fmt.Errorf("failed to set cache: %w", err)
 	}
 
-	log.Printf("✅ Cache set: %s (TTL: %d seconds)", key, ttlSeconds)
+	slog.Debug("cache set", "key", key, "ttl_seconds", ttlSeconds)
 	return nil
 }
 
@@ -71,7 +71,7 @@ func (cs *CacheService) GetCache(key string) (interface{}, error) {
 		return nil, fmt.Errorf("failed to unmarshal cache value: %w", err)
 	}
 
-	log.Printf("✅ Cache hit: %s", key)
+	slog.Debug("cache hit", "key", key)
 	return data, nil
 }
 
@@ -81,12 +81,15 @@ func (cs *CacheService) GetCacheString(key string) (string, error) {
 
 	val, err := cs.client.Get(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
+		slog.Debug("cache miss", "key", key)
 		return "", nil
 	}
 	if err != nil {
+		slog.Error("cache get error", "key", key, "error", err)
 		return "", fmt.Errorf("failed to get cache: %w", err)
 	}
 
+	slog.Debug("cache hit", "key", key)
 	return val, nil
 }
 
@@ -99,7 +102,7 @@ func (cs *CacheService) DeleteCache(key string) error {
 		return fmt.Errorf("failed to delete cache: %w", err)
 	}
 
-	log.Printf("✅ Cache deleted: %s", key)
+	slog.Debug("cache deleted", "key", key)
 	return nil
 }
 
@@ -117,7 +120,7 @@ func (cs *CacheService) DeleteCachePattern(pattern string) error {
 		if err != nil {
 			return fmt.Errorf("failed to delete keys: %w", err)
 		}
-		log.Printf("✅ Cache pattern deleted: %s (removed %d keys)", pattern, len(keys))
+		slog.Info("cache pattern deleted", "pattern", pattern, "removed_keys", len(keys))
 	}
 
 	return nil
@@ -132,7 +135,7 @@ func (cs *CacheService) ClearAllCache() error {
 		return fmt.Errorf("failed to clear cache: %w", err)
 	}
 
-	log.Printf("✅ Cache cleared: All data removed")
+	slog.Info("cache cleared")
 	return nil
 }
 

@@ -930,12 +930,62 @@ func isUpstreamNotFound(err error) bool {
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
-	RegisterBotAPIDelegateRoutesWithSync(router, apiClient, nil)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, nil, nil)
 }
 
 // RegisterBotAPIDelegateRoutesWithSync registers delegated bot API endpoints and
 // optionally persists backtest run status snapshots into local DB tables.
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, nil)
+}
+
+// RegisterBotAPIDelegateRoutesWithSyncCacheAndPush registers delegated bot API endpoints
+// with optional backtest sync, Redis-backed cache, and a Redis pub/sub push hub for
+// WebSocket status streaming.
+func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
+	router *gin.Engine,
+	apiClient *services.BotAPIClient,
+	backtestSync *services.BacktestSyncService,
+	cache *services.CacheService,
+	pushHub *services.BacktestPushHub,
+) {
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, cache)
+
+	if pushHub == nil {
+		return
+	}
+
+	// WebSocket endpoint for Redis-backed backtest status push
+	// GET /api/v1/backtests/:run_id/push  (requires auth)
+	backtestPush := router.Group("/api/v1/backtests")
+	backtestPush.Use(middleware.RequireAuth())
+	backtestPush.GET("/:run_id/push", func(c *gin.Context) {
+		runID := strings.TrimSpace(c.Param("run_id"))
+		if runID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "run_id required"})
+			return
+		}
+		conn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			return
+		}
+		pushHub.Subscribe(runID, conn)
+		defer func() {
+			pushHub.Unsubscribe(runID, conn)
+			_ = conn.Close()
+		}()
+		// Block until the client disconnects
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+}
+
+// RegisterBotAPIDelegateRoutesWithSyncAndCache registers delegated bot API endpoints with
+// optional backtest sync and optional Redis-backed response cache for hot polling paths.
+func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService, cache *services.CacheService) {
 	backtestRepo := (*repository.BacktestRepository)(nil)
 	userRepo := (*repository.UserRepository)(nil)
 	strategyRepo := (*repository.StrategyRepository)(nil)
@@ -943,6 +993,13 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
 		userRepo = repository.NewUserRepository(backtestSync.DB())
 		strategyRepo = repository.NewStrategyRepository(backtestSync.DB())
+	}
+	backtestDelegation := NewBacktestDelegationService(backtestSync)
+
+	// CandleCacheService for post-completion prefetch (nil-safe if Redis is off)
+	var candleCache *services.CandleCacheService
+	if cache != nil && backtestRepo != nil {
+		candleCache = services.NewCandleCacheServiceWithRepo(cache, backtestRepo)
 	}
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
@@ -975,68 +1032,22 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 		if err := backtestSync.SyncBacktestCandles(runID, payload); err != nil {
 			log.Printf("Backtest sync warning: failed syncing candles for run %s: %v", runID, err)
 		}
+		// After candles are synced, prefetch into Redis in the background so the
+		// first chart render is served from cache rather than the DB.
+		if candleCache != nil {
+			run, err := backtestRepo.GetRunByID(runID)
+			if err == nil && run != nil && strings.EqualFold(run.Status, "completed") {
+				go func(runPK int) {
+					if prefetchErr := candleCache.PrefetchCandlesForRun(runPK, 0); prefetchErr != nil {
+						log.Printf("CandleCache: prefetch error for run %s (pk=%d): %v", runID, runPK, prefetchErr)
+					}
+				}(run.ID)
+			}
+		}
 	}
 
 	resyncBacktestRun := func(c *gin.Context, requestClient *services.BotAPIClient, runID string) (gin.H, error) {
-		result := gin.H{
-			"run_synced":       false,
-			"trades_synced":    false,
-			"positions_synced": false,
-			"candles_synced":   false,
-			"run_id":           runID,
-			"status":           "unknown",
-			"progress_percent": 0.0,
-			"progress_pct":     0.0,
-			"progress":         0.0,
-			"current_task":     nil,
-			"current_pair":     nil,
-			"sync_state":       "partial",
-		}
-
-		details, err := requestClient.GetBacktestDetails(runID)
-		if err != nil {
-			return result, err
-		}
-		details = normalizeBacktestDetailsPayload(details)
-		state := normalizeBacktestStatusFields(unwrapEnvelopePayload(details))
-		if v, ok := state["run_id"]; ok && strings.TrimSpace(fmt.Sprintf("%v", v)) != "" {
-			result["run_id"] = v
-		}
-		if v, ok := state["status"]; ok {
-			result["status"] = v
-		}
-		for _, key := range []string{"progress_percent", "progress_pct", "progress", "current_task", "current_pair"} {
-			if v, ok := state[key]; ok {
-				result[key] = v
-			}
-		}
-		syncRun(c, details)
-		syncChildren(c, runID, details)
-		result["run_synced"] = true
-
-		tradesPayload, err := requestClient.GetBacktestTradesWithFilters(runID, 500, 0, false)
-		if err == nil {
-			syncChildren(c, runID, tradesPayload)
-			result["trades_synced"] = true
-		}
-
-		positionsPayload, err := requestClient.GetPositionSnapshots(runID, 500, 0, nil)
-		if err == nil {
-			syncChildren(c, runID, positionsPayload)
-			result["positions_synced"] = true
-		}
-
-		metricsPayload, err := requestClient.GetAdvancedPerformanceMetrics(runID, "BTC-USD")
-		if err == nil {
-			syncChildren(c, runID, metricsPayload)
-			result["candles_synced"] = true
-		}
-
-		if result["run_synced"] == true && result["trades_synced"] == true && result["positions_synced"] == true && result["candles_synced"] == true {
-			result["sync_state"] = "completed"
-		}
-
-		return result, nil
+		return backtestDelegation.ResyncBacktestRun(c, requestClient, runID, syncRun, syncChildren)
 	}
 
 	requireBacktestRunAccess := func(c *gin.Context, runID string) bool {
@@ -2512,16 +2523,41 @@ func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *service
 			})
 		})
 
-		// Get realtime stats
+		// Get realtime stats (cached with 30-second TTL when Redis is available)
 		botGroup.GET("/:instance_id/realtime-stats", func(c *gin.Context) {
 			botID, err := normalizeRealtimeBotInstanceID(c.Param("instance_id"))
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
-			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
-				return requestClient.GetRealtimeStats(botID)
-			})
+
+			cacheKey := fmt.Sprintf("bot:realtime-stats:%s", botID)
+			statsTTL := readPositiveIntEnv(30, "BOT_STATS_CACHE_TTL_SECONDS")
+
+			// Try Redis cache first
+			if cache != nil && statsTTL > 0 {
+				if cached, cacheErr := cache.GetCache(cacheKey); cacheErr == nil && cached != nil {
+					if mapped, ok := cached.(map[string]interface{}); ok {
+						c.JSON(http.StatusOK, mapped)
+						return
+					}
+				}
+			}
+
+			// Cache miss — delegate to Python bot API
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			result, delegateErr := requestClient.GetRealtimeStats(botID)
+			if delegateErr != nil {
+				respondBotAPIError(c, delegateErr)
+				return
+			}
+
+			// Store in cache (best-effort; don't fail if Redis is down)
+			if cache != nil && statsTTL > 0 {
+				_ = cache.SetCache(cacheKey, result, statsTTL)
+			}
+
+			c.JSON(http.StatusOK, result)
 		})
 
 		// Get alerts

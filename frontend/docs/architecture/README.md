@@ -24,6 +24,8 @@ React app
 - `src/api` for HTTP, origin, websocket, and hook integration
 - `src/store` for local state
 - `src/navigation` for workspace shell navigation
+- `src/app/routeManifest.tsx` for typed portal route ownership, role gates, and redirect definitions
+- `src/api/normalizers.ts` for backend envelope/list extraction shared by components and hooks
 
 ## Live Data Pattern
 
@@ -34,6 +36,18 @@ The preferred live pattern is:
 3. recover with silent HTTP resync only when needed
 
 That pattern now powers backtests, runtime views, and live operator surfaces.
+
+Shared live-state badges and freshness helpers live in `src/components/ui/LiveState.tsx`.
+
+## Validation Gates
+
+Frontend structural changes should pass:
+
+- `npm run lint`
+- `npm run typecheck`
+- `npx vitest run`
+- `npm run build`
+- portal builds when routes or package exports change: `npm run build:client`, `npm run build:backoffice`, `npm run build:ib`
 
 ## Design Direction
 

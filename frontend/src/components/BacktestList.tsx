@@ -2,6 +2,8 @@ import { Inbox, SlidersHorizontal } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
+import { enhancedApiClient } from '../api/enhancedClient';
+import { getEnvelopeList, getEnvelopeValue, toApiRecord } from '../api/normalizers';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE' | 'TIMEOUT';
 
@@ -64,6 +66,9 @@ function normalizePercent(value: number | undefined | null): number | null {
   const numeric = Number(value);
   return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
 }
+
+const optionalPercent = (value: number | undefined | null): number | undefined =>
+  normalizePercent(value) ?? undefined;
 
 const normalizeStatus = (status?: string, run?: Partial<BacktestRun>): RunStatus => {
   const normalized = String(status || '')
@@ -150,8 +155,7 @@ const POLL_INTERVAL_MS = 4000;
 const MAX_POLL_INTERVAL_MS = 30000;
 const LIVE_SYNC_STALE_AFTER_MS = 30000;
 
-const toRecord = (value: unknown): Record<string, unknown> =>
-  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+const toRecord = toApiRecord;
 
 const toFiniteNumber = (value: unknown, fallback = 0): number => {
   const parsed = Number(value);
@@ -202,14 +206,6 @@ const deriveRetryPressureBadge = (run: BacktestRun): RetryPressureBadge | null =
     label: 'high',
     className: 'border-rose-500/35 bg-rose-500/10 text-rose-300',
   };
-};
-
-const getEnvelopeValue = (payload: Record<string, unknown>, key: string): unknown => {
-  const nested = toRecord(payload.data);
-  if (key in nested) {
-    return nested[key];
-  }
-  return payload[key];
 };
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
@@ -437,18 +433,7 @@ export const BacktestList: React.FC<{
     // Keep this fast for dashboard rendering: fetch the newest page only.
     // If needed later, we can add cursor-based pagination without blocking initial paint.
     const response = await api.listBacktests(0, 50);
-    const raw = toRecord(response);
-    const rawData = toRecord(raw.data);
-
-    const runs = Array.isArray(rawData.backtests)
-      ? (rawData.backtests as BacktestRun[])
-      : Array.isArray(raw?.backtests)
-        ? (raw.backtests as BacktestRun[])
-        : Array.isArray(rawData.runs)
-          ? (rawData.runs as BacktestRun[])
-          : Array.isArray(raw?.runs)
-            ? (raw.runs as BacktestRun[])
-            : [];
+    const runs = getEnvelopeList<BacktestRun>(response, ['backtests', 'runs']);
 
     const activeRuns = runs
       .filter((run) => {
@@ -464,27 +449,27 @@ export const BacktestList: React.FC<{
 
     const statusSettled = await Promise.allSettled(
       activeRuns.map(async (run) => {
-        const statusResponse = await api.getBacktestStatus(run.run_id);
+        const statusResponse = await enhancedApiClient.getBacktestStatus(run.run_id);
         const payload = toRecord(statusResponse);
 
         return {
           run_id: run.run_id,
           status: String(getEnvelopeValue(payload, 'status') ?? run.status),
-          progress_pct: normalizePercent(
+          progress_pct: optionalPercent(
             Number(
               getEnvelopeValue(payload, 'progress_pct') ??
                 getEnvelopeValue(payload, 'progress_percent') ??
                 getEnvelopeValue(payload, 'progress')
             )
           ),
-          progress_percent: normalizePercent(
+          progress_percent: optionalPercent(
             Number(
               getEnvelopeValue(payload, 'progress_percent') ??
                 getEnvelopeValue(payload, 'progress_pct') ??
                 getEnvelopeValue(payload, 'progress')
             )
           ),
-          progress: normalizePercent(
+          progress: optionalPercent(
             Number(
               getEnvelopeValue(payload, 'progress') ??
                 getEnvelopeValue(payload, 'progress_pct') ??
@@ -795,7 +780,7 @@ export const BacktestList: React.FC<{
             }
             title={
               liveSyncHealthy
-                ? 'Active rows are merged with per-run status endpoint values.'
+                ? 'Active rows are merged with live list status values.'
                 : 'No active rows are currently receiving live status merges.'
             }
           >

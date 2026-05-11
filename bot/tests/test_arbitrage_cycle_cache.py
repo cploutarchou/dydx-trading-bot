@@ -12,7 +12,7 @@ def test_cycle_candle_cache_avoids_duplicate_fetches_when_enabled(monkeypatch):
         calls.append(market)
         return pd.Series([1.0, 2.0, 3.0])
 
-    monkeypatch.setattr(position_manager, "ARBITRAGE_IMPROVEMENTS_ENABLED", True)
+    monkeypatch.setattr(position_manager, "is_arbitrage_improvements_enabled", lambda: True)
     monkeypatch.setattr(position_manager, "get_candles_recent", fake_get_candles_recent)
 
     cache = {}
@@ -34,7 +34,7 @@ def test_cycle_candle_cache_preserves_legacy_fetch_path_when_disabled(monkeypatc
         calls.append(market)
         return pd.Series([1.0, 2.0, 3.0])
 
-    monkeypatch.setattr(position_manager, "ARBITRAGE_IMPROVEMENTS_ENABLED", False)
+    monkeypatch.setattr(position_manager, "is_arbitrage_improvements_enabled", lambda: False)
     monkeypatch.setattr(position_manager, "get_candles_recent", fake_get_candles_recent)
 
     cache = {}

@@ -419,6 +419,8 @@ async def open_positions(client):
                 client, quote_market, cycle_candle_cache
             )
         except Exception:
+            increment_metric("pair_candidates_skipped_total")
+            increment_metric("stale_data_detected_total")
             logger.exception("Failed to fetch candles for {} / {}", base_market, quote_market)
             continue
 
@@ -440,8 +442,26 @@ async def open_positions(client):
                 )
 
                 # Ensure like-for-like not already open (diversify trading)
-                is_base_open = await is_open_positions(client, base_market)
-                is_quote_open = await is_open_positions(client, quote_market)
+                if is_arbitrage_improvements_enabled():
+                    try:
+                        open_positions_snapshot = await get_open_positions(client)
+                        is_base_open = base_market in open_positions_snapshot
+                        is_quote_open = quote_market in open_positions_snapshot
+                        increment_metric("duplicate_api_calls_avoided_total")
+                        increment_metric("exchange_api_calls_saved_total")
+                    except Exception as exc:
+                        logger.warning(
+                            "scan_cycle={} position_snapshot_failed pair={}/{} error={} falling_back_to_legacy_checks",
+                            scan_cycle_id,
+                            base_market,
+                            quote_market,
+                            exc,
+                        )
+                        is_base_open = await is_open_positions(client, base_market)
+                        is_quote_open = await is_open_positions(client, quote_market)
+                else:
+                    is_base_open = await is_open_positions(client, base_market)
+                    is_quote_open = await is_open_positions(client, quote_market)
 
                 # Place trade
                 if not is_base_open and not is_quote_open:
@@ -718,6 +738,7 @@ async def open_positions(client):
                 )
         else:
             increment_metric("pair_candidates_skipped_total")
+            increment_metric("stale_data_detected_total")
             logger.debug(
                 "scan_cycle={} pair_skipped pair={}/{} reason=invalid_series_lengths len_1={} len_2={}",
                 scan_cycle_id,

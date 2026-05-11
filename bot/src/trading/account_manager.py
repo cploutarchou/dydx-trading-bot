@@ -10,6 +10,7 @@ from dydx_v4_client.node.market import Market
 from loguru import logger
 from src.constants import DYDX_ADDRESS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
+from src.trading.arbitrage_observability import increment_metric
 from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.arbitrage_runtime_config import is_arbitrage_improvements_enabled
 from src.trading.market_data import get_markets
@@ -38,6 +39,28 @@ def _resolve_subaccount_number() -> int:
     return int(SUBACCOUNT_NUMBER)
 
 
+async def _get_subaccount_with_metrics(client, address: str) -> dict[str, Any]:
+    """Fetch subaccount payload and track API/provider metrics."""
+    increment_metric("exchange_api_calls_total")
+    try:
+        return await client.indexer_account.account.get_subaccount(
+            address, _resolve_subaccount_number()
+        )
+    except Exception:
+        increment_metric("provider_errors_total")
+        raise
+
+
+async def _get_perpetual_markets_with_metrics(client, ticker: str) -> dict[str, Any]:
+    """Fetch perpetual market metadata directly from provider with metrics."""
+    increment_metric("exchange_api_calls_total")
+    try:
+        return await client.indexer.markets.get_perpetual_markets(ticker)
+    except Exception:
+        increment_metric("provider_errors_total")
+        raise
+
+
 async def cancel_order(client, order_id):
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
@@ -45,7 +68,7 @@ async def cancel_order(client, order_id):
     if is_arbitrage_improvements_enabled():
         markets_payload = await get_markets(client)
     else:
-        markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
+        markets_payload = await _get_perpetual_markets_with_metrics(client, ticker)
     market_payload = cast(dict[str, Any], markets_payload["markets"][ticker])
     market = Market(market_payload)
     # Use the client's wallet address when available to derive client id
@@ -75,14 +98,10 @@ async def get_account(client):
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
     address = _resolve_client_address(client)
     try:
-        account = await client.indexer_account.account.get_subaccount(
-            address, _resolve_subaccount_number()
-        )
+        account = await _get_subaccount_with_metrics(client, address)
     except Exception:
         # Fallback to configured DYDX_ADDRESS
-        account = await client.indexer_account.account.get_subaccount(
-            DYDX_ADDRESS, _resolve_subaccount_number()
-        )
+        account = await _get_subaccount_with_metrics(client, DYDX_ADDRESS)
     return account["subaccount"]
 
 
@@ -91,15 +110,11 @@ async def get_open_positions(client):
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
     address = _resolve_client_address(client)
     try:
-        response = await client.indexer_account.account.get_subaccount(
-            address, _resolve_subaccount_number()
-        )
+        response = await _get_subaccount_with_metrics(client, address)
     except Exception:
         # If primary address fails (likely 404 for fresh account), try configured address
         try:
-            response = await client.indexer_account.account.get_subaccount(
-                DYDX_ADDRESS, _resolve_subaccount_number()
-            )
+            response = await _get_subaccount_with_metrics(client, DYDX_ADDRESS)
         except Exception as e2:
             # Both addresses failed - likely fresh testnet account with no trading history
             import httpx
@@ -148,14 +163,10 @@ async def is_open_positions(client, market):
     # Get positions (try wallet address then configured address)
     address = _resolve_client_address(client)
     try:
-        response = await client.indexer_account.account.get_subaccount(
-            address, _resolve_subaccount_number()
-        )
+        response = await _get_subaccount_with_metrics(client, address)
     except Exception:
         try:
-            response = await client.indexer_account.account.get_subaccount(
-                DYDX_ADDRESS, _resolve_subaccount_number()
-            )
+            response = await _get_subaccount_with_metrics(client, DYDX_ADDRESS)
         except Exception as e:
             # Both addresses failed - likely fresh testnet account
             import httpx
@@ -209,7 +220,7 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     if is_arbitrage_improvements_enabled():
         markets_payload = await get_markets(client)
     else:
-        markets_payload = await client.indexer.markets.get_perpetual_markets(ticker)
+        markets_payload = await _get_perpetual_markets_with_metrics(client, ticker)
     market_payload = cast(dict[str, Any], markets_payload["markets"][ticker])
     market = Market(market_payload)
     address = _resolve_client_address(client)

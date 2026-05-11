@@ -48,6 +48,7 @@ No default business logic changed:
 - Added audit logging for admin arbitrage runtime setting updates.
 - Added same-cycle recent-candle de-duplication behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
 - Reused cached market metadata for order placement/cancellation behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
+- Collapsed per-opportunity open-position checks into one account snapshot behind `ARBITRAGE_IMPROVEMENTS_ENABLED` (with safe fallback to legacy checks).
 - Added optional pair-priority scoring behind `PAIR_PRIORITY_ENGINE_ENABLED`.
 - Added scan cycle IDs and rejection reason logs.
 - Added import-safe Celery hook modules for configured market sync and candle aggregation tasks.
@@ -80,11 +81,13 @@ No default business logic changed:
 - `frontend/src/pages/Settings.tsx`
 - `bot/tests/test_pair_priority_engine.py`
 - `bot/tests/test_arbitrage_cycle_cache.py`
+- `bot/tests/test_account_manager_metrics.py`
 - `docs/current-project-arbitrage-analysis.md`
 - `docs/project-specific-arbitrage-improvement-plan.md`
 - `docs/api-call-optimization-plan.md`
 - `docs/pair-priority-engine-plan.md`
 - `docs/risk-and-observability-plan.md`
+- `docs/arbitrage-feature-flags-and-tests.md`
 
 ## Feature Flags Added
 
@@ -104,29 +107,22 @@ Optional tuning:
 
 - Pair-priority scoring and stale-analysis detection.
 - Same-cycle candle cache behavior enabled and disabled.
+- Account-manager API metric increments (success + provider-error paths).
 - Backend DB-backed arbitrage runtime setting persistence and bot payload mapping.
 
 ## Verification
 
-Passed:
+Passed in this session:
 
 ```bash
-python3 -m py_compile bot/src/trading/arbitrage_runtime_config.py bot/src/trading/arbitrage_observability.py bot/src/trading/pair_priority.py bot/src/trading/position_manager.py bot/src/trading/market_data.py bot/src/trading/account_manager.py bot/src/api/server.py bot/src/infrastructure/workers/market_sync_tasks.py bot/src/infrastructure/workers/candle_aggregate_tasks.py bot/tests/test_pair_priority_engine.py bot/tests/test_arbitrage_cycle_cache.py
-cd backend && go test ./internal/services ./internal/routes
-cd backend && go test ./internal/services ./internal/routes ./internal/app
-cd backend && go test -tags integration ./internal/routes -run TestDelegateCapabilitiesAndRuntimeDBConfigRoutes
-python3 scripts/validate_docs_governance.py
+/home/chris/workspace/dydx-trading-bot/.venv/bin/python -m py_compile bot/src/trading/account_manager.py bot/src/trading/position_manager.py
+/home/chris/workspace/dydx-trading-bot/.venv/bin/python -m pytest bot/tests/test_arbitrage_cycle_cache.py bot/tests/test_account_manager_metrics.py -q
 ```
 
-Blocked:
+Not rerun in this session:
 
-```bash
-python3 -m pytest bot/tests/test_pair_priority_engine.py bot/tests/test_arbitrage_cycle_cache.py -q
-cd frontend && npm run build
-```
-
-The local `python3` environment does not have `pytest` installed, and this shell does not have
-`npm` installed.
+- backend Go test matrix
+- frontend build/lint matrix
 
 ## Expected API Call Reduction
 
@@ -158,7 +154,6 @@ Actual reduction depends on pair overlap. A pair universe with shared high-liqui
 
 ## Recommended Next Phase
 
-1. Collapse duplicate `is_open_positions()` calls into one account snapshot behind `ARBITRAGE_IMPROVEMENTS_ENABLED`.
-2. Add a real Redis market-candle sync task if operators want shared candle snapshots.
-3. Add stale-price and abnormal-spread guards behind `AUTO_EXECUTION_CHANGES_ENABLED` after a testnet dry run.
-4. Add real external signal providers behind their reserved feature flags.
+1. Add a real Redis market-candle sync task if operators want shared candle snapshots.
+2. Add stale-price and abnormal-spread guards behind `AUTO_EXECUTION_CHANGES_ENABLED` after a testnet dry run.
+3. Add real external signal providers behind their reserved feature flags.

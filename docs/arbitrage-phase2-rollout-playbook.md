@@ -187,6 +187,12 @@ For release sign-off, run your normal backtest regression matrix and verify:
 - expected run status normalization still works
 - no regression in run creation/list/details/status/trades flows
 
+For strategy-impact A/B testing:
+
+- vary backtest request inputs one-at-a-time (`pair_selection_mode`, `max_pairs`) to measure behavioral impact
+- treat `ARBITRAGE_IMPROVEMENTS_ENABLED` as runtime-efficiency scope (do not expect direct backtest PnL deltas from this flag alone)
+- compare candidate runs via `POST /api/v1/backtests/compare`
+
 ## Day-1 commands
 
 For a ready-to-run operator checklist with exact curl commands, use:

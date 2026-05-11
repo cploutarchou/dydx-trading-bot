@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, BarChart3, RefreshCw, ShieldCheck, TrendingUp } from 'lucide-react';
+import { useState } from 'react';
 import api, {
     type ArbitrageImprovementMetricsResponse,
     type ArbitragePairPriorityItem,
@@ -37,6 +38,8 @@ const reasonLabel = (name: string): string =>
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export function ArbitrageImprovementPanel() {
+  const [selectedReason, setSelectedReason] = useState<string>('');
+
   const metricsQuery = useQuery({
     queryKey: ['arbitrage', 'improvement-metrics'],
     queryFn: async () => {
@@ -53,6 +56,15 @@ export function ArbitrageImprovementPanel() {
       return response.data;
     },
     refetchInterval: 30_000,
+  });
+
+  const explainQuery = useQuery({
+    queryKey: ['arbitrage', 'opportunity-explain', selectedReason],
+    queryFn: async () => {
+      const response = await api.getArbitrageOpportunityExplain(`reason_${selectedReason}`);
+      return response.data;
+    },
+    enabled: selectedReason.length > 0,
   });
 
   const metrics = metricsQuery.data;
@@ -75,7 +87,9 @@ export function ArbitrageImprovementPanel() {
       ? metricsQuery.error.message
       : priorityQuery.error instanceof Error
         ? priorityQuery.error.message
-        : '';
+        : explainQuery.error instanceof Error
+          ? explainQuery.error.message
+          : '';
 
   return (
     <section className="operator-section-card p-5">
@@ -96,6 +110,9 @@ export function ArbitrageImprovementPanel() {
           onClick={() => {
             void metricsQuery.refetch();
             void priorityQuery.refetch();
+            if (selectedReason) {
+              void explainQuery.refetch();
+            }
           }}
           disabled={metricsQuery.isFetching || priorityQuery.isFetching}
           className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm disabled:opacity-60"
@@ -226,14 +243,45 @@ export function ArbitrageImprovementPanel() {
         ) : (
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {topRejections.map(([reason, count]) => (
-              <div
+              <button
+                type="button"
                 key={reason}
-                className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/50 px-3 py-2 text-sm"
+                onClick={() => setSelectedReason(reason)}
+                className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/50 px-3 py-2 text-sm transition-colors hover:border-cyan-700/70 hover:bg-slate-900"
+                aria-pressed={selectedReason === reason}
               >
                 <span className="text-slate-300">{reasonLabel(reason)}</span>
                 <span className="font-semibold text-amber-200">{formatMetric(count)}</span>
-              </div>
+              </button>
             ))}
+          </div>
+        )}
+
+        {selectedReason && (
+          <div className="mt-4 rounded-md border border-cyan-900/60 bg-slate-900/60 p-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-cyan-200">
+                Explain: <span className="font-semibold">{reasonLabel(selectedReason)}</span>
+              </p>
+              {explainQuery.isFetching && (
+                <span className="text-xs text-slate-400">Loading explainability…</span>
+              )}
+            </div>
+            {explainQuery.data ? (
+              <div className="mt-2 space-y-1 text-slate-300">
+                <p>
+                  Match count:{' '}
+                  <span className="font-semibold text-white">
+                    {formatMetric(Number(explainQuery.data?.matched_rejection_reason?.count ?? 0))}
+                  </span>
+                </p>
+                <p className="text-slate-400">{String(explainQuery.data?.note ?? '').trim()}</p>
+              </div>
+            ) : (
+              !explainQuery.isFetching && (
+                <p className="mt-2 text-slate-500">No explainability details returned yet.</p>
+              )
+            )}
           </div>
         )}
       </div>

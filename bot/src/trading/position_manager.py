@@ -18,7 +18,7 @@ from src.constants import (
 from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number
-from src.trading.arbitrage_observability import increment_metric
+from src.trading.arbitrage_observability import increment_metric, record_rejection
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -120,6 +120,36 @@ async def _get_recent_candles_for_cycle(
     result = await get_candles_recent(client, market)
     cycle_cache[market] = result
     return result
+
+
+async def _resolve_leg_open_state(
+        client,
+        *,
+        base_market: str,
+        quote_market: str,
+        scan_cycle_id: str,
+) -> tuple[bool, bool]:
+    """Resolve whether either leg is already open, with safe fallback behavior."""
+    if is_arbitrage_improvements_enabled():
+        try:
+            open_positions_snapshot = await get_open_positions(client)
+            is_base_open = base_market in open_positions_snapshot
+            is_quote_open = quote_market in open_positions_snapshot
+            increment_metric("duplicate_api_calls_avoided_total")
+            increment_metric("exchange_api_calls_saved_total")
+            return is_base_open, is_quote_open
+        except Exception as exc:
+            logger.warning(
+                "scan_cycle={} position_snapshot_failed pair={}/{} error={} falling_back_to_legacy_checks",
+                scan_cycle_id,
+                base_market,
+                quote_market,
+                exc,
+            )
+
+    is_base_open = await is_open_positions(client, base_market)
+    is_quote_open = await is_open_positions(client, quote_market)
+    return is_base_open, is_quote_open
 
 
 def _build_trade_opened_notification(
@@ -442,26 +472,12 @@ async def open_positions(client):
                 )
 
                 # Ensure like-for-like not already open (diversify trading)
-                if is_arbitrage_improvements_enabled():
-                    try:
-                        open_positions_snapshot = await get_open_positions(client)
-                        is_base_open = base_market in open_positions_snapshot
-                        is_quote_open = quote_market in open_positions_snapshot
-                        increment_metric("duplicate_api_calls_avoided_total")
-                        increment_metric("exchange_api_calls_saved_total")
-                    except Exception as exc:
-                        logger.warning(
-                            "scan_cycle={} position_snapshot_failed pair={}/{} error={} falling_back_to_legacy_checks",
-                            scan_cycle_id,
-                            base_market,
-                            quote_market,
-                            exc,
-                        )
-                        is_base_open = await is_open_positions(client, base_market)
-                        is_quote_open = await is_open_positions(client, quote_market)
-                else:
-                    is_base_open = await is_open_positions(client, base_market)
-                    is_quote_open = await is_open_positions(client, quote_market)
+                is_base_open, is_quote_open = await _resolve_leg_open_state(
+                    client,
+                    base_market=base_market,
+                    quote_market=quote_market,
+                    scan_cycle_id=scan_cycle_id,
+                )
 
                 # Place trade
                 if not is_base_open and not is_quote_open:
@@ -524,7 +540,7 @@ async def open_positions(client):
 
                         # P1.6: Guard 1 - Ensure minimum collateral
                         if free_collateral < USD_MIN_COLLATERAL:
-                            increment_metric("opportunities_rejected_total")
+                            record_rejection("insufficient_collateral")
                             logger.warning(
                                 "scan_cycle={} opportunity_rejected pair={}/{} "
                                 "reason=insufficient_collateral free_collateral={:.2f} "
@@ -543,7 +559,7 @@ async def open_positions(client):
                         remaining_after_trade = free_collateral - USD_PER_TRADE
                         required_buffer = USD_MIN_COLLATERAL * COLLATERAL_BUFFER_RATIO
                         if remaining_after_trade < required_buffer:
-                            increment_metric("opportunities_rejected_total")
+                            record_rejection("collateral_buffer")
                             logger.warning(
                                 "scan_cycle={} opportunity_rejected pair={}/{} "
                                 "reason=collateral_buffer free_collateral={:.2f} "
@@ -588,7 +604,7 @@ async def open_positions(client):
                         try:
                             bot_open_dict = await bot_agent.open_trades()
                         except Exception as exc:
-                            increment_metric("opportunities_rejected_total")
+                            record_rejection("entry_execution_failed")
                             _record_entry_failure(pair_key, exc)
                             persist_trade_activity_event(
                                 "trade_entry_attempt_failed",
@@ -614,7 +630,7 @@ async def open_positions(client):
 
                         # Guard: Handle failure
                         if bot_open_dict == "failed":
-                            increment_metric("opportunities_rejected_total")
+                            record_rejection("bot_agent_failed")
                             _record_entry_failure(pair_key, "bot_agent returned failed")
                             persist_trade_activity_event(
                                 "trade_entry_attempt_failed",
@@ -683,7 +699,7 @@ async def open_positions(client):
                                 quote_market,
                             )
                         elif isinstance(bot_open_dict, dict):
-                            increment_metric("opportunities_rejected_total")
+                            record_rejection("non_live_pair_status")
                             _record_entry_failure(
                                 pair_key,
                                 f"bot_agent pair_status={bot_open_dict.get('pair_status', 'unknown')}",
@@ -706,7 +722,7 @@ async def open_positions(client):
                             )
 
                     else:
-                        increment_metric("opportunities_rejected_total")
+                        record_rejection("min_order_size")
                         logger.debug(
                             "scan_cycle={} opportunity_rejected pair={}/{} "
                             "reason=min_order_size base_check={} quote_check={}",
@@ -717,7 +733,7 @@ async def open_positions(client):
                             check_quote,
                         )
                 else:
-                    increment_metric("opportunities_rejected_total")
+                    record_rejection("market_already_open")
                     logger.debug(
                         "scan_cycle={} opportunity_rejected pair={}/{} "
                         "reason=market_already_open base_open={} quote_open={}",

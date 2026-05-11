@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, BarChart3, RefreshCw, ShieldCheck, TrendingUp } from 'lucide-react';
 import api, {
-  type ArbitrageImprovementMetricsResponse,
-  type ArbitragePairPriorityItem,
+    type ArbitrageImprovementMetricsResponse,
+    type ArbitragePairPriorityItem,
 } from '../api';
 
 const metricValue = (
@@ -14,7 +14,9 @@ const metricValue = (
 };
 
 const formatMetric = (value: number): string =>
-  value >= 1000 ? Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value) : String(value);
+  value >= 1000
+    ? Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)
+    : String(value);
 
 const formatScore = (value: unknown): string => {
   const parsed = typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -24,6 +26,12 @@ const formatScore = (value: unknown): string => {
 const flagLabel = (name: string): string =>
   name
     .replace(/_ENABLED$/, '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const reasonLabel = (name: string): string =>
+  name
     .replace(/_/g, ' ')
     .toLowerCase()
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -57,6 +65,10 @@ export function ArbitrageImprovementPanel() {
   const cacheMisses = metricValue(metrics, 'cache_misses_total');
   const cacheTotal = cacheHits + cacheMisses;
   const cacheHitRate = cacheTotal > 0 ? (cacheHits / cacheTotal) * 100 : 0;
+  const topRejections = Object.entries(metrics?.rejection_reasons ?? {})
+    .filter(([, count]) => typeof count === 'number' && Number.isFinite(count) && count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
 
   const errorText =
     metricsQuery.error instanceof Error
@@ -86,7 +98,7 @@ export function ArbitrageImprovementPanel() {
             void priorityQuery.refetch();
           }}
           disabled={metricsQuery.isFetching || priorityQuery.isFetching}
-          className="premium-button premium-button-secondary rounded-[1rem] px-4 py-2 text-sm disabled:opacity-60"
+          className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm disabled:opacity-60"
         >
           <RefreshCw
             size={16}
@@ -128,7 +140,10 @@ export function ArbitrageImprovementPanel() {
         ].map((item) => {
           const Icon = item.icon;
           return (
-            <div key={item.label} className="rounded-lg border border-slate-800 bg-slate-950/55 p-4">
+            <div
+              key={item.label}
+              className="rounded-lg border border-slate-800 bg-slate-950/55 p-4"
+            >
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
                   {item.label}
@@ -136,9 +151,7 @@ export function ArbitrageImprovementPanel() {
                 <Icon className="h-4 w-4 text-cyan-300" />
               </div>
               <p className="mt-2 text-2xl font-semibold text-white">
-                {item.suffix === '%'
-                  ? item.value.toFixed(1)
-                  : formatMetric(item.value)}
+                {item.suffix === '%' ? item.value.toFixed(1) : formatMetric(item.value)}
                 {item.suffix ?? ''}
               </p>
             </div>
@@ -176,9 +189,7 @@ export function ArbitrageImprovementPanel() {
             </span>
           </div>
           <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
-            <div
-              className="grid grid-cols-[1.2fr_0.4fr_1.4fr] bg-slate-900/70 px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-slate-500"
-            >
+            <div className="grid grid-cols-[1.2fr_0.4fr_1.4fr] bg-slate-900/70 px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">
               <span>Pair</span>
               <span>Score</span>
               <span>Reason</span>
@@ -203,6 +214,28 @@ export function ArbitrageImprovementPanel() {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/45 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-white">Top Rejection Reasons</h3>
+          <span className="text-xs text-slate-500">from live opportunity checks</span>
+        </div>
+        {topRejections.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">No rejection reason data yet.</p>
+        ) : (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {topRejections.map(([reason, count]) => (
+              <div
+                key={reason}
+                className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/50 px-3 py-2 text-sm"
+              >
+                <span className="text-slate-300">{reasonLabel(reason)}</span>
+                <span className="font-semibold text-amber-200">{formatMetric(count)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

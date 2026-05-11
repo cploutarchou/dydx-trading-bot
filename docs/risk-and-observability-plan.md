@@ -20,8 +20,10 @@
 - Stale pair-analysis counter.
 - Bot `/metrics` endpoint for backend probing.
 - Bot `/api/v1/arbitrage/improvement-metrics` and `/api/v1/arbitrage/pair-priority` endpoints.
+- Bot `/api/v1/arbitrage/opportunity/{id}/explain` endpoint for additive runtime explainability.
 - Authenticated backend proxy routes for the arbitrage diagnostics endpoints.
 - Frontend bot-manager panel for feature-flag state, saved-call counters, and pair-priority explanations.
+- Frontend rejection-reason intelligence with click-to-explain workflow.
 - Admin-only `Settings -> Arbitrage Runtime` controls backed by `bot_settings` and synchronized to the bot runtime.
 - Audit logs for admin arbitrage runtime setting updates, including changed keys and bot sync status.
 
@@ -36,7 +38,6 @@
 
 - Net-profit estimate logs after fees/slippage before execution.
 - Stale-price guard behind `AUTO_EXECUTION_CHANGES_ENABLED`.
-- Single account snapshot per opportunity.
 - Abnormal spread detector behind a non-execution flag first.
 
 ## Rollback

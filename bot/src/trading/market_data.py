@@ -16,6 +16,7 @@ from src.constants import (
     RESOLUTION,
 )
 from src.shared.utils import get_ISO_times
+from src.trading.arbitrage_observability import increment_metric
 
 # Get relevant time periods for ISO from and to
 ISO_TIMES = get_ISO_times()
@@ -163,7 +164,10 @@ async def get_candles_recent(client, market, resolution=None):
     if CANDLES_RECENT_CACHE_TTL_SECONDS > 0:
         cached = _candles_recent_cache.get(cache_key)
         if cached is not None and now < cached["expires"]:
+            increment_metric("cache_hits_total")
+            increment_metric("exchange_api_calls_saved_total")
             return cached["data"]
+    increment_metric("cache_misses_total")
 
     # Check shared Redis cache (written by the Celery Beat market sync task)
     try:
@@ -189,12 +193,15 @@ async def get_candles_recent(client, market, resolution=None):
                     "data": _redis_data,
                     "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
                 }
+            increment_metric("cache_hits_total")
+            increment_metric("exchange_api_calls_saved_total")
             return _redis_data
     except Exception:
         pass  # Redis unavailable — fall through to direct API call
 
     # Protect API rate limits
     await _throttle_api_call()
+    increment_metric("exchange_api_calls_total")
 
     # Get Prices from DYDX V4 (guarded by circuit breaker)
     _fetch_start = time.monotonic()
@@ -208,6 +215,7 @@ async def get_candles_recent(client, market, resolution=None):
             )
         )
     except Exception as _exc:
+        increment_metric("provider_errors_total")
         _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
         logger.warning(
             "candle_fetch_error market={} resolution={} latency_ms={:.1f} error={}",
@@ -327,12 +335,20 @@ async def get_markets(client):
         and _markets_cache["data"] is not None
         and now < _markets_cache["expires"]
     ):
+        increment_metric("cache_hits_total")
+        increment_metric("exchange_api_calls_saved_total")
         return _markets_cache["data"]
+    increment_metric("cache_misses_total")
 
-    result = await asyncio.wait_for(
-        client.indexer.markets.get_perpetual_markets(),
-        timeout=15.0,
-    )
+    try:
+        increment_metric("exchange_api_calls_total")
+        result = await asyncio.wait_for(
+            client.indexer.markets.get_perpetual_markets(),
+            timeout=15.0,
+        )
+    except Exception:
+        increment_metric("provider_errors_total")
+        raise
     if MARKETS_CACHE_TTL_SECONDS > 0:
         _markets_cache = {"data": result, "expires": now + MARKETS_CACHE_TTL_SECONDS}
     return result

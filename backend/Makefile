@@ -1,6 +1,6 @@
 # Makefile for dYdX Trading Bot Backend
 
-.PHONY: help help-check build run test clean lint lint-full fmt vet install-tools docker-build docker-run migrate-up migrate-down dev dev-env tasks-summary tasks-validate tasks-governance
+.PHONY: help help-check doctor build run test clean lint lint-full fmt vet install-tools docker-build docker-run migrate-up migrate-down dev dev-env tasks-summary tasks-validate tasks-governance
 
 # Variables
 BINARY_NAME=dydx-bot
@@ -65,6 +65,32 @@ help-check:
 			} \
 		}' $(MAKEFILE_LIST)
 	@echo "$(GREEN)✓ Help metadata looks good$(NC)"
+
+## doctor: Check local backend toolchain and required runtime env hints
+doctor:
+	@echo "$(CYAN)Checking backend development environment...$(NC)"
+	@command -v $(GO) >/dev/null || { echo "$(RED)go was not found on PATH$(NC)"; exit 1; }
+	@GO_PATH="$$(command -v $(GO))"; \
+	echo "go: $$GO_PATH"; \
+	case "$$GO_PATH" in /snap/*) \
+		echo "$(RED)Unsupported Go install detected under /snap. Install Go from go.dev or your OS package manager and put it before /snap/bin on PATH.$(NC)"; \
+		exit 1; \
+	esac
+	@$(GO) version
+	@if command -v $(GOLANGCI_LINT) >/dev/null; then \
+		echo "golangci-lint: $$(command -v $(GOLANGCI_LINT))"; \
+	else \
+		echo "$(CYAN)golangci-lint not installed; make lint will use pinned go run fallback$(NC)"; \
+	fi
+	@if command -v $(MIGRATE) >/dev/null; then \
+		echo "migrate: $$(command -v $(MIGRATE))"; \
+	else \
+		echo "$(CYAN)migrate CLI not installed; run make install-tools if you need manual migrations$(NC)"; \
+	fi
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "$(CYAN)DATABASE_URL is not set; make migrate-up/down will require it$(NC)"; \
+	fi
+	@echo "$(GREEN)✓ Doctor checks complete$(NC)"
 
 ## build: Build the application binary
 build:
@@ -216,7 +242,7 @@ migrate-create:
 		exit 1; \
 	fi
 	@echo "$(CYAN)Creating migration: $(NAME)...$(NC)"
-	$(MIGRATE) create -ext sql -dir migrations -seq $(NAME)
+	$(MIGRATE) create -ext sql -dir migrations/postgres -seq $(NAME)
 	@echo "$(GREEN)✓ Migration files created$(NC)"
 
 ## tasks-summary: Recompute Completed/Pending summary counts in backend/bot/frontend tasks.md files

@@ -106,6 +106,9 @@ func authenticatedJSONRequest(t *testing.T, method, url, token string) (int, map
 func TestDelegateCapabilitiesAndRuntimeDBConfigRoutes(t *testing.T) {
 	capabilitiesAuthHeader := make(chan string, 1)
 	runtimeAuthHeader := make(chan string, 1)
+	arbitrageMetricsAuthHeader := make(chan string, 1)
+	arbitragePriorityQuery := make(chan string, 1)
+	arbitrageExplainPath := make(chan string, 1)
 
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +120,21 @@ func TestDelegateCapabilitiesAndRuntimeDBConfigRoutes(t *testing.T) {
 		runtimeAuthHeader <- r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"db_type":"postgresql","cutover_mode":"dedicated","connection_source":"BOT_DATABASE_URL","count":1},"timestamp":"2026-04-04T00:00:00Z"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/arbitrage/improvement-metrics", func(w http.ResponseWriter, r *http.Request) {
+		arbitrageMetricsAuthHeader <- r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"counters":{"exchange_api_calls_saved_total":2},"rejection_reasons":{"min_order_size":3,"market_already_open":1},"feature_flags":{"PAIR_PRIORITY_ENGINE_ENABLED":false}},"timestamp":"2026-04-04T00:00:00Z"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/arbitrage/pair-priority", func(w http.ResponseWriter, r *http.Request) {
+		arbitragePriorityQuery <- r.URL.Query().Get("limit")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"pairs":[{"pair":"ETH-USD/BTC-USD","score":1.25,"explanation":["confidence=0.900"]}],"count":1,"enabled":false},"timestamp":"2026-04-04T00:00:00Z"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/arbitrage/opportunity/reason_min_order_size/explain", func(w http.ResponseWriter, r *http.Request) {
+		arbitrageExplainPath <- r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"opportunity_id":"reason_min_order_size","matched_rejection_reason":{"reason":"min_order_size","count":3},"top_rejection_reasons":[{"reason":"min_order_size","count":3}],"explainability_scope":"runtime_diagnostics"},"timestamp":"2026-04-04T00:00:00Z"}`))
 	})
 
 	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
@@ -171,6 +189,66 @@ func TestDelegateCapabilitiesAndRuntimeDBConfigRoutes(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for runtime db-config upstream auth header")
+	}
+
+	statusCode, payload = authenticatedJSONRequest(t, http.MethodGet, backendServer.URL+"/api/v1/arbitrage/improvement-metrics", userToken)
+	if statusCode != http.StatusOK {
+		t.Fatalf("unexpected arbitrage metrics status: %d", statusCode)
+	}
+	data, _ = payload["data"].(map[string]interface{})
+	if _, ok := data["counters"]; !ok {
+		t.Fatalf("expected counters in arbitrage metrics payload: %v", payload)
+	}
+	if _, ok := data["rejection_reasons"]; !ok {
+		t.Fatalf("expected rejection_reasons in arbitrage metrics payload: %v", payload)
+	}
+
+	select {
+	case authHeader := <-arbitrageMetricsAuthHeader:
+		if authHeader == "" {
+			t.Fatal("missing upstream arbitrage metrics Authorization header")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for arbitrage metrics upstream auth header")
+	}
+
+	statusCode, payload = authenticatedJSONRequest(t, http.MethodGet, backendServer.URL+"/api/v1/arbitrage/pair-priority?limit=7", userToken)
+	if statusCode != http.StatusOK {
+		t.Fatalf("unexpected arbitrage pair-priority status: %d", statusCode)
+	}
+	data, _ = payload["data"].(map[string]interface{})
+	if _, ok := data["pairs"]; !ok {
+		t.Fatalf("expected pairs in arbitrage priority payload: %v", payload)
+	}
+
+	select {
+	case limit := <-arbitragePriorityQuery:
+		if limit != "7" {
+			t.Fatalf("expected priority limit=7 upstream, got %q", limit)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for arbitrage priority query")
+	}
+
+	statusCode, payload = authenticatedJSONRequest(t, http.MethodGet, backendServer.URL+"/api/v1/arbitrage/opportunity/reason_min_order_size/explain", userToken)
+	if statusCode != http.StatusOK {
+		t.Fatalf("unexpected arbitrage explain status: %d", statusCode)
+	}
+	data, _ = payload["data"].(map[string]interface{})
+	if data["opportunity_id"] != "reason_min_order_size" {
+		t.Fatalf("expected opportunity_id=reason_min_order_size, got %v", data["opportunity_id"])
+	}
+	if _, ok := data["top_rejection_reasons"]; !ok {
+		t.Fatalf("expected top_rejection_reasons in arbitrage explain payload: %v", payload)
+	}
+
+	select {
+	case path := <-arbitrageExplainPath:
+		if path != "/api/v1/arbitrage/opportunity/reason_min_order_size/explain" {
+			t.Fatalf("unexpected arbitrage explain upstream path: %q", path)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for arbitrage explain path")
 	}
 }
 

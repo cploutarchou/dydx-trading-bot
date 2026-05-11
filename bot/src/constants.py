@@ -10,14 +10,18 @@ if _CONFIG.is_testnet:
 else:
     MARKET_DATA_MODE = "MAINNET"
 
-print(f"Market Data Mode: {MARKET_DATA_MODE}")
+import logging as _std_logging
+
+_std_logging.getLogger(__name__).debug("Market Data Mode: %s", MARKET_DATA_MODE)
 # Get bot settings from config
 bot_settings = _CONFIG.botSettings
 if bot_settings is None:
     raise RuntimeError("botSettings configuration is missing")
 
 SUBACCOUNT_NUMBER = int(getattr(bot_settings, "subaccountNumber", 0) or 0)
-CAPITAL_ALLOCATION_USD = float(getattr(bot_settings, "capitalAllocationUsd", 0.0) or 0.0)
+CAPITAL_ALLOCATION_USD = float(
+    getattr(bot_settings, "capitalAllocationUsd", 0.0) or 0.0
+)
 
 # Close all open positions and orders
 ABORT_ALL_POSITIONS = bot_settings.abortAllPositions
@@ -90,3 +94,38 @@ else:
     LOKI_PASSWORD = ""
     LOKI_TENANT_ID = None
     LOKI_LABELS = {}
+
+# ── Performance tuning ────────────────────────────────────────────────────────
+import os as _os
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = _os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+ARBITRAGE_IMPROVEMENTS_ENABLED = _env_flag("ARBITRAGE_IMPROVEMENTS_ENABLED", False)
+PAIR_PRIORITY_ENGINE_ENABLED = _env_flag("PAIR_PRIORITY_ENGINE_ENABLED", False)
+POLYMARKET_SIGNALS_ENABLED = _env_flag("POLYMARKET_SIGNALS_ENABLED", False)
+DEFILLAMA_SIGNALS_ENABLED = _env_flag("DEFILLAMA_SIGNALS_ENABLED", False)
+NEWS_SIGNALS_ENABLED = _env_flag("NEWS_SIGNALS_ENABLED", False)
+AUTO_EXECUTION_CHANGES_ENABLED = _env_flag("AUTO_EXECUTION_CHANGES_ENABLED", False)
+
+# Per-call sleep between dYdX API requests (milliseconds → seconds).
+# Set DYDX_API_THROTTLE_MS=0 to disable; default 200 ms.
+DYDX_API_THROTTLE_SECONDS: float = (
+    float(_os.getenv("DYDX_API_THROTTLE_MS", "200")) / 1000.0
+)
+
+# How long to cache the perpetual markets list (seconds). 0 = disabled.
+MARKETS_CACHE_TTL_SECONDS: float = float(_os.getenv("MARKETS_CACHE_TTL_SECONDS", "60"))
+
+# How long to cache recent-candle responses per market (seconds). 0 = disabled.
+CANDLES_RECENT_CACHE_TTL_SECONDS: float = float(
+    _os.getenv("CANDLES_RECENT_CACHE_TTL_SECONDS", "30")
+)
+
+# Max concurrent dYdX candle fetches when building the price matrix.
+CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

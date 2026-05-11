@@ -346,7 +346,10 @@ export function AIStrategyAdvisor({
 
     try {
       const resp = await api.suggestStrategyParams(req);
-      const data = resp?.data ?? (resp as unknown as typeof resp.data);
+      const data = resp.data;
+      if (!data) {
+        throw new Error('AI suggestion response did not include content');
+      }
       setContent(data.content);
       setUsedAI(data.used_ai);
     } catch (err) {

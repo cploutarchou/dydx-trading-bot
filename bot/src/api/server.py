@@ -8,8 +8,8 @@ import json
 import os
 import re
 import sys
-import time
 import threading
+import time
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
@@ -34,8 +34,8 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.concurrency import run_in_threadpool
 from src.shared.env_loader import load_repo_env
+from starlette.concurrency import run_in_threadpool
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -106,6 +106,7 @@ from src.api.websocket_server import (
 
 # Import database utilities
 from src.infrastructure.database import DatabaseConfig, db
+from src.infrastructure.domain.cointegration_storage import pair_storage
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (
@@ -131,7 +132,15 @@ from src.infrastructure.workers.celery_monitor import (
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.shared.time_utils import utc_now_iso
+from src.trading.arbitrage_observability import snapshot_metrics
+from src.trading.arbitrage_runtime_config import (
+    get_feature_flags,
+    get_runtime_settings,
+    is_pair_priority_engine_enabled,
+    update_runtime_settings,
+)
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime
+from src.trading.pair_priority import prioritize_pairs, score_pair
 
 sys.stderr = _original_stderr
 
@@ -145,6 +154,143 @@ bot_manager_monitor_task: Optional[asyncio.Task] = None
 
 DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
+
+
+# ---------------------------------------------------------------------------
+# In-process rate limiter (sliding window, per caller key)
+# Protects expensive mutation endpoints from rapid repeated calls.
+# Limits are configurable via env vars; defaults are intentionally permissive.
+# ---------------------------------------------------------------------------
+
+
+class _SlidingWindowRateLimiter:
+    """Thread-safe sliding-window rate limiter for async FastAPI handlers."""
+
+    def __init__(self, max_requests: int, window_seconds: float):
+        self._max = max_requests
+        self._window = window_seconds
+        self._buckets: Dict[str, list] = {}
+        self._lock = threading.Lock()
+
+    def _caller_key(self, request: Request) -> str:
+        forwarded_for = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        return forwarded_for or (request.client.host if request.client else "unknown")
+
+    def is_allowed(self, request: Request) -> bool:
+        key = self._caller_key(request)
+        now = time.monotonic()
+        cutoff = now - self._window
+        with self._lock:
+            timestamps = self._buckets.get(key, [])
+            timestamps = [t for t in timestamps if t > cutoff]
+            if len(timestamps) >= self._max:
+                self._buckets[key] = timestamps
+                return False
+            timestamps.append(now)
+            self._buckets[key] = timestamps
+        return True
+
+
+class _RedisSlidingWindowRateLimiter:
+    """Redis-backed sliding-window rate limiter using sorted sets.
+
+    Falls back transparently to the in-process limiter on any Redis error so
+    the API remains available even when Redis is down.
+    """
+
+    def __init__(
+        self,
+        max_requests: int,
+        window_seconds: float,
+        endpoint_label: str,
+        fallback: "_SlidingWindowRateLimiter",
+    ):
+        self._max = max_requests
+        self._window = window_seconds
+        self._label = endpoint_label
+        self._fallback = fallback
+        self._redis_client: Any = None
+        self._redis_unavailable = False
+        self._redis_retry_at: float = 0.0
+
+    def _get_redis(self) -> Any:
+        import importlib as _importlib
+
+        now = time.monotonic()
+        if self._redis_unavailable and now < self._redis_retry_at:
+            return None
+        if self._redis_client is not None:
+            return self._redis_client
+        if _importlib.util.find_spec("redis") is None:
+            self._redis_unavailable = True
+            return None
+        try:
+            import redis as _redis
+
+            url = (
+                os.getenv("CELERY_BROKER_URL")
+                or os.getenv("REDIS_URL")
+                or "redis://localhost:6379/0"
+            )
+            self._redis_client = _redis.from_url(
+                url,
+                decode_responses=True,
+                socket_connect_timeout=0.5,
+                socket_timeout=0.5,
+            )
+            self._redis_unavailable = False
+            return self._redis_client
+        except Exception:
+            self._redis_unavailable = True
+            self._redis_retry_at = time.monotonic() + 30.0
+            return None
+
+    def _caller_key(self, request: Request) -> str:
+        forwarded_for = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        ip = forwarded_for or (request.client.host if request.client else "unknown")
+        return f"ratelimit:{self._label}:{ip}"
+
+    def is_allowed(self, request: Request) -> bool:
+        rc = self._get_redis()
+        if rc is None:
+            return self._fallback.is_allowed(request)
+        key = self._caller_key(request)
+        now_ts = time.time()
+        cutoff = now_ts - self._window
+        try:
+            pipe = rc.pipeline()
+            pipe.zremrangebyscore(key, "-inf", cutoff)
+            pipe.zadd(key, {str(now_ts): now_ts})
+            pipe.zcard(key)
+            pipe.expire(key, int(self._window) + 1)
+            results = pipe.execute()
+            count = int(results[2])
+            return count <= self._max
+        except Exception:
+            self._redis_client = None
+            self._redis_unavailable = True
+            self._redis_retry_at = time.monotonic() + 30.0
+            return self._fallback.is_allowed(request)
+
+
+def _check_backtest_rate_limit(request: Request) -> None:
+    """FastAPI dependency: raises 429 if backtest rate limit is exceeded."""
+    if not _backtest_rate_limiter.is_allowed(request):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many backtest requests. Please wait before retrying.",
+            headers={"Retry-After": str(int(_backtest_rate_limiter._window))},
+        )
+
+
+def _check_instance_rate_limit(request: Request) -> None:
+    """FastAPI dependency: raises 429 if instance-creation rate limit is exceeded."""
+    if not _instance_create_rate_limiter.is_allowed(request):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many instance creation requests. Please wait before retrying.",
+            headers={"Retry-After": str(int(_instance_create_rate_limiter._window))},
+        )
 
 
 def _read_non_negative_int_env(name: str, default: int) -> int:
@@ -164,8 +310,103 @@ _BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES = max(
     50,
     _read_non_negative_int_env("BACKTEST_ENDPOINT_CACHE_MAX_ENTRIES", 512),
 )
+
+# Instantiate rate limiters now that _read_non_negative_int_env is defined.
+_backtest_rate_limiter_fallback = _SlidingWindowRateLimiter(
+    max_requests=_read_non_negative_int_env("RATE_LIMIT_BACKTEST_MAX_REQUESTS", 20),
+    window_seconds=float(os.getenv("RATE_LIMIT_BACKTEST_WINDOW_SECONDS", "60") or "60"),
+)
+_backtest_rate_limiter: _RedisSlidingWindowRateLimiter = _RedisSlidingWindowRateLimiter(
+    max_requests=_read_non_negative_int_env("RATE_LIMIT_BACKTEST_MAX_REQUESTS", 20),
+    window_seconds=float(os.getenv("RATE_LIMIT_BACKTEST_WINDOW_SECONDS", "60") or "60"),
+    endpoint_label="backtest",
+    fallback=_backtest_rate_limiter_fallback,
+)
+_instance_create_rate_limiter_fallback = _SlidingWindowRateLimiter(
+    max_requests=_read_non_negative_int_env("RATE_LIMIT_INSTANCE_MAX_REQUESTS", 10),
+    window_seconds=float(os.getenv("RATE_LIMIT_INSTANCE_WINDOW_SECONDS", "60") or "60"),
+)
+_instance_create_rate_limiter: _RedisSlidingWindowRateLimiter = (
+    _RedisSlidingWindowRateLimiter(
+        max_requests=_read_non_negative_int_env("RATE_LIMIT_INSTANCE_MAX_REQUESTS", 10),
+        window_seconds=float(
+            os.getenv("RATE_LIMIT_INSTANCE_WINDOW_SECONDS", "60") or "60"
+        ),
+        endpoint_label="instance_create",
+        fallback=_instance_create_rate_limiter_fallback,
+    )
+)
 _backtest_endpoint_cache: Dict[str, Dict[str, Any]] = {}
 _backtest_endpoint_cache_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Market data cache – serves stale data when dYdX is temporarily unavailable.
+# TTL: how long a fresh result is reused before a live refresh is attempted.
+# Stale TTL: how long expired data may still be served as a fallback on error.
+# Both are configurable via env vars; 0 disables the respective behaviour.
+# ---------------------------------------------------------------------------
+_MARKETS_CACHE_TTL_SECONDS = _read_non_negative_int_env("MARKETS_CACHE_TTL_SECONDS", 60)
+_MARKETS_STALE_TTL_SECONDS = _read_non_negative_int_env(
+    "MARKETS_STALE_TTL_SECONDS", 300
+)
+_MARKETS_ENDPOINT_TIMEOUT_SECONDS = float(
+    _read_non_negative_int_env(
+        "MARKETS_ENDPOINT_TIMEOUT_SECONDS",
+        int(MARKET_RESOLUTION_TIMEOUT_SECONDS),
+    )
+)
+_markets_cache: Dict[str, Any] = {}
+_markets_cache_lock = threading.Lock()
+
+
+def _markets_cache_get(*, allow_stale: bool = False) -> Optional[Dict[str, Any]]:
+    """Return cached market data, optionally including expired (stale) entries.
+
+    Returns a dict with keys ``data`` (the cached payload) and ``stale`` (bool),
+    or *None* when no usable entry exists.
+    """
+    now = time.monotonic()
+    with _markets_cache_lock:
+        entry = _markets_cache.get("last")
+        if not entry:
+            return None
+        expires_at = float(entry.get("expires_at", 0.0))
+        stale_deadline = expires_at + float(_MARKETS_STALE_TTL_SECONDS)
+        if expires_at > now:
+            return {"data": entry["value"], "stale": False}
+        if allow_stale and _MARKETS_STALE_TTL_SECONDS > 0 and stale_deadline > now:
+            return {"data": entry["value"], "stale": True}
+        return None
+
+
+def _markets_cache_set(value: Dict[str, Any]) -> None:
+    """Store a fresh market data payload in the cache."""
+    if _MARKETS_CACHE_TTL_SECONDS <= 0:
+        return
+    now = time.monotonic()
+    with _markets_cache_lock:
+        _markets_cache["last"] = {
+            "value": value,
+            "expires_at": now + float(_MARKETS_CACHE_TTL_SECONDS),
+            "updated_at": now,
+        }
+
+
+def _static_market_fallback() -> List[str]:
+    """Return deterministic local fallback markets for temporary dYdX outages."""
+    raw = os.getenv("MARKETS_FALLBACK_LIST", "")
+    if raw.strip():
+        markets = [item.strip().upper() for item in raw.split(",") if item.strip()]
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for market in markets:
+            if market in seen:
+                continue
+            seen.add(market)
+            deduped.append(market)
+        if deduped:
+            return deduped
+    return list(DEFAULT_PAIRS)
 
 
 def _cache_get(key: str) -> Optional[Any]:
@@ -450,6 +691,7 @@ class BacktestRunRequestCompat(BaseModel):
     environment: Optional[str] = None
     requested_by_user_id: Optional[int] = None
     source_strategy_version: Optional[Any] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 def _normalize_string_list(values: Optional[List[str]]) -> List[str]:
@@ -955,6 +1197,7 @@ def _strategy_to_backtest_request(
         requested_by_user_id=request.requested_by_user_id,
         source_strategy_version=request.source_strategy_version,
         timeout_seconds=request.timeout_seconds,
+        metadata=dict(request.metadata or {}),
     )
 
 
@@ -1012,6 +1255,7 @@ def _manual_backtest_request(
         environment=request.environment,
         requested_by_user_id=request.requested_by_user_id,
         source_strategy_version=request.source_strategy_version,
+        metadata=dict(request.metadata or {}),
     )
 
 
@@ -1276,6 +1520,23 @@ async def lifespan(_: FastAPI):
             )
         os.environ["BACKTEST_WORKER_BACKEND"] = _worker_backend
 
+    # Safety guard: API_BYPASS_AUTH must never be enabled in production.
+    if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
+        _env = os.getenv("ENVIRONMENT", "development").lower()
+        if _env == "production":
+            logger.critical(
+                "API_BYPASS_AUTH=true is NOT permitted in ENVIRONMENT=production. "
+                "Refusing to start. Unset API_BYPASS_AUTH or set it to false."
+            )
+            raise RuntimeError(
+                "API_BYPASS_AUTH=true is forbidden in production environment."
+            )
+        logger.warning(
+            "API_BYPASS_AUTH=true — authentication is DISABLED (environment={}). "
+            "Do not use in production.",
+            _env,
+        )
+
     logger.info("Starting Bot API Server...")
     runtime_db_config = DatabaseConfig()
     logger.info(
@@ -1426,58 +1687,6 @@ def api_response(
     for header_name, header_value in (headers or {}).items():
         response.headers[header_name] = str(header_value)
     return response
-
-
-@app.get("/api/v1/markets/perpetuals")
-async def list_perpetual_markets(limit: int = 0):
-    """Return available dYdX perpetual markets for run configuration."""
-    cap = _normalize_requested_pair_cap(limit)
-    markets: List[str] = []
-    source = "dydx"
-    client = None
-
-    try:
-        client = await asyncio.wait_for(
-            connect_dydx(),
-            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
-        )
-        payload = await asyncio.wait_for(
-            client.indexer.markets.get_perpetual_markets(),
-            timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
-        )
-        raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
-        if isinstance(raw_map, dict):
-            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
-    except Exception as err:
-        logger.warning(
-            "market_resolution_failed endpoint=/api/v1/markets/perpetuals error={}",
-            err,
-        )
-        return api_response(
-            success=False,
-            message=f"MARKET_RESOLUTION_FAILED: {err}",
-            data={"error": "MARKET_RESOLUTION_FAILED"},
-            status_code=503,
-        )
-    finally:
-        if client is not None:
-            try:
-                await client.node.close()
-            except Exception:
-                pass
-
-    if cap is not None:
-        markets = markets[:cap]
-
-    return api_response(
-        success=True,
-        data={
-            "markets": markets,
-            "count": len(markets),
-            "source": source,
-        },
-        message=f"Retrieved {len(markets)} perpetual markets",
-    )
 
 
 @app.post("/api/v1/runtime/preflight")
@@ -1786,7 +1995,8 @@ async def request_trace_logging_middleware(request: Request, call_next):
         )
 
     try:
-        response = await call_next(request)
+        with logger.contextualize(trace_id=trace_id):
+            response = await call_next(request)
     except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         logger.exception(
@@ -1849,7 +2059,9 @@ def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) 
 
 @app.post("/api/v1/bots", response_model=BotOperationResult)
 async def create_bot_instance(
-    config: BotInstanceConfig, current_user: User = Depends(get_current_active_user)
+    config: BotInstanceConfig,
+    current_user: User = Depends(get_current_active_user),
+    _rate: None = Depends(_check_instance_rate_limit),
 ):
     """Create a new bot instance"""
     try:
@@ -2779,6 +2991,21 @@ async def readiness_check():
         )
 
 
+@app.get("/metrics")
+async def metrics():
+    """Return bot-local runtime metrics for backend /metrics dependency probing."""
+    return {
+        "timestamp": utc_now_iso(),
+        "service": "bot",
+        "arbitrage": snapshot_metrics(
+            {
+                "feature_flags": get_feature_flags(),
+                "runtime_settings": get_runtime_settings(),
+            }
+        ),
+    }
+
+
 @app.get("/api/v1/capabilities")
 async def api_capabilities():
     """Expose bot-service HTTP and websocket capabilities for backend integration."""
@@ -2795,6 +3022,7 @@ async def api_capabilities():
         is_supported_scope = (
             path.startswith("/api/v1/bots")
             or path.startswith("/api/v1/backtests")
+            or path.startswith("/api/v1/arbitrage")
             or path.startswith("/ws/")
             or path == "/api/v1/capabilities"
         )
@@ -2838,6 +3066,273 @@ async def api_capabilities():
             "count": len(http_routes) + len(websocket_routes),
         },
         message="Bot API and websocket capabilities retrieved",
+    )
+
+
+@app.get("/api/v1/arbitrage/improvement-metrics")
+async def get_arbitrage_improvement_metrics(
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    return api_response(
+        success=True,
+        data=snapshot_metrics(
+            {
+                "feature_flags": get_feature_flags(),
+                "runtime_settings": get_runtime_settings(),
+            }
+        ),
+        message="Arbitrage improvement metrics retrieved",
+    )
+
+
+@app.get("/api/v1/arbitrage/runtime-settings")
+async def get_arbitrage_runtime_settings(
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    settings = get_runtime_settings()
+    return api_response(
+        success=True,
+        data={"settings": settings, "feature_flags": get_feature_flags()},
+        message="Arbitrage runtime settings retrieved",
+    )
+
+
+@app.put("/api/v1/arbitrage/runtime-settings")
+async def update_arbitrage_runtime_settings(
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    settings = update_runtime_settings(payload or {})
+    return api_response(
+        success=True,
+        data={"settings": settings, "feature_flags": get_feature_flags()},
+        message="Arbitrage runtime settings updated",
+    )
+
+
+@app.get("/api/v1/arbitrage/pair-priority")
+async def get_arbitrage_pair_priority(
+    limit: int = 25,
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    safe_limit = max(1, min(int(limit or 25), 100))
+    pairs = pair_storage.load_pairs()
+    pair_priority_enabled = is_pair_priority_engine_enabled()
+    if pair_priority_enabled:
+        ranked_pairs, scores = prioritize_pairs(pairs, max_pairs=safe_limit)
+    else:
+        ranked_pairs = pairs[:safe_limit]
+        scores = [score_pair(pair) for pair in ranked_pairs]
+    ranked_lookup = {score.pair: score for score in scores}
+    data = []
+    for pair in ranked_pairs:
+        label = f"{pair.base_market}/{pair.quote_market}"
+        score = ranked_lookup.get(label)
+        data.append(
+            {
+                "pair": label,
+                "base_market": pair.base_market,
+                "quote_market": pair.quote_market,
+                "score": score.score if score else 0.0,
+                "components": score.components if score else {},
+                "explanation": score.explanation if score else [],
+                "enabled": pair_priority_enabled,
+            }
+        )
+    return api_response(
+        success=True,
+        data={"pairs": data, "count": len(data), "enabled": pair_priority_enabled},
+        message="Arbitrage pair priority retrieved",
+    )
+
+
+@app.get("/api/v1/arbitrage/opportunity/{opportunity_id}/explain")
+async def get_arbitrage_opportunity_explain(
+    opportunity_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    _ = current_user
+    metrics = snapshot_metrics(
+        {
+            "feature_flags": get_feature_flags(),
+            "runtime_settings": get_runtime_settings(),
+        }
+    )
+    rejection_reasons = metrics.get("rejection_reasons", {})
+    normalized_id = str(opportunity_id or "").strip().lower().replace(" ", "_")
+
+    matched_reason = None
+    if isinstance(rejection_reasons, dict) and normalized_id in rejection_reasons:
+        matched_reason = {
+            "reason": normalized_id,
+            "count": rejection_reasons.get(normalized_id, 0),
+        }
+
+    top_rejections: List[Dict[str, Any]] = []
+    if isinstance(rejection_reasons, dict):
+        sorted_reasons = sorted(
+            rejection_reasons.items(),
+            key=lambda item: float(item[1]),
+            reverse=True,
+        )
+        top_rejections = [
+            {"reason": str(reason), "count": float(count)}
+            for reason, count in sorted_reasons[:10]
+        ]
+
+    return api_response(
+        success=True,
+        data={
+            "opportunity_id": opportunity_id,
+            "matched_rejection_reason": matched_reason,
+            "top_rejection_reasons": top_rejections,
+            "counters": metrics.get("counters", {}),
+            "feature_flags": metrics.get("feature_flags", {}),
+            "runtime_settings": metrics.get("runtime_settings", {}),
+            "explainability_scope": "runtime_diagnostics",
+            "note": (
+                "Per-opportunity historical explain payloads are not persisted yet; "
+                "this endpoint provides current runtime diagnostics and rejection trends."
+            ),
+        },
+        message="Arbitrage opportunity explainability retrieved",
+    )
+
+
+@app.get("/api/v1/markets/perpetuals")
+async def list_perpetual_markets(limit: int = 0):
+    """Return available dYdX perpetual markets for run configuration.
+
+    Results are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).
+    When the live dYdX call fails, stale cache data is served (up to
+    ``MARKETS_STALE_TTL_SECONDS``, default 300 s) with an ``X-Cache-Stale: 1``
+    header so callers can distinguish live vs fallback responses.
+    When both live resolution and cache fallback are unavailable, the endpoint
+    can return a deterministic static fallback list instead of 5xx.
+    """
+    cap = _normalize_requested_pair_cap(limit)
+    client = None
+
+    # Serve a fresh cache hit without making a network call.
+    cached = _markets_cache_get(allow_stale=False)
+    if cached is not None:
+        data = cached["data"]
+        result_markets = data["markets"] if cap is None else data["markets"][:cap]
+        return api_response(
+            success=True,
+            data={
+                "markets": result_markets,
+                "count": len(result_markets),
+                "source": "cache",
+            },
+            message=f"Retrieved {len(result_markets)} perpetual markets",
+            headers={"X-Cache-Hit": "1"},
+        )
+
+    markets: List[str] = []
+    live_error: Optional[Exception] = None
+
+    try:
+        client = await asyncio.wait_for(
+            connect_dydx(),
+            timeout=_MARKETS_ENDPOINT_TIMEOUT_SECONDS,
+        )
+        payload = await asyncio.wait_for(
+            client.indexer.markets.get_perpetual_markets(),
+            timeout=_MARKETS_ENDPOINT_TIMEOUT_SECONDS,
+        )
+        raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
+        if isinstance(raw_map, dict):
+            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
+    except Exception as err:
+        live_error = err
+        logger.warning(
+            "market_resolution_failed endpoint=/api/v1/markets/perpetuals error={}",
+            err,
+        )
+    finally:
+        if client is not None:
+            for _closer in (
+                getattr(client, "node", None),
+                getattr(client, "indexer_client", None),
+            ):
+                if _closer is not None and hasattr(_closer, "close"):
+                    try:
+                        await _closer.close()
+                    except Exception:
+                        pass
+
+    if live_error is not None:
+        # Live call failed – try stale cache before giving up.
+        stale = _markets_cache_get(allow_stale=True)
+        if stale is not None:
+            data = stale["data"]
+            result_markets = data["markets"] if cap is None else data["markets"][:cap]
+            logger.info(
+                "markets_stale_fallback endpoint=/api/v1/markets/perpetuals "
+                "count={} error={}",
+                len(result_markets),
+                live_error,
+            )
+            return api_response(
+                success=True,
+                data={
+                    "markets": result_markets,
+                    "count": len(result_markets),
+                    "source": "cache_stale",
+                },
+                message=f"Retrieved {len(result_markets)} perpetual markets (stale cache fallback)",
+                headers={"X-Cache-Stale": "1"},
+            )
+
+        allow_static_fallback = (
+            os.getenv("MARKETS_ENDPOINT_ALLOW_STATIC_FALLBACK", "true")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        if allow_static_fallback:
+            fallback_markets = _static_market_fallback()
+            if cap is not None:
+                fallback_markets = fallback_markets[:cap]
+            logger.warning(
+                "markets_static_fallback endpoint=/api/v1/markets/perpetuals "
+                "count={} error={}",
+                len(fallback_markets),
+                live_error,
+            )
+            return api_response(
+                success=True,
+                data={
+                    "markets": fallback_markets,
+                    "count": len(fallback_markets),
+                    "source": "static_fallback",
+                },
+                message=f"Retrieved {len(fallback_markets)} perpetual markets (static fallback)",
+                headers={"X-Cache-Stale": "1", "X-Markets-Fallback": "1"},
+            )
+
+        return api_response(
+            success=False,
+            message=f"MARKET_RESOLUTION_FAILED: {live_error}",
+            data={"error": "MARKET_RESOLUTION_FAILED"},
+            status_code=503,
+        )
+
+    # Successful live fetch – populate cache and return.
+    _markets_cache_set({"markets": markets, "count": len(markets), "source": "dydx"})
+
+    if cap is not None:
+        markets = markets[:cap]
+
+    return api_response(
+        success=True,
+        data={"markets": markets, "count": len(markets), "source": "dydx"},
+        message=f"Retrieved {len(markets)} perpetual markets",
     )
 
 
@@ -3791,6 +4286,7 @@ def _get_live_progress_sync(run_id: str):
 @app.post("/api/v1/backtests", response_model=BacktestResponse)
 async def create_backtest(
     request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
+    _rate: None = Depends(_check_backtest_rate_limit),
 ):
     """Create and start a new backtest"""
     try:
@@ -3857,6 +4353,7 @@ async def create_backtest(
 @app.post("/api/v1/backtests/run")
 async def run_backtest_compat(
     request: BacktestRunRequestCompat,
+    _rate: None = Depends(_check_backtest_rate_limit),
 ):
     """Frontend-compatible backtest execution route."""
     try:
@@ -4096,6 +4593,50 @@ async def get_backtest_status(
 
     except Exception as e:
         logger.error(f"Error getting backtest status: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
+@app.post("/api/v1/backtests/{run_id}/metadata")
+async def update_backtest_metadata(
+    run_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+):
+    """Attach or merge structured metadata into a persisted backtest run."""
+    try:
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            return api_response(
+                success=False,
+                message="Validation error: metadata must be an object",
+                data={"error": "INVALID_METADATA"},
+                status_code=422,
+            )
+
+        merge = bool(payload.get("merge", True))
+        with backtest_service_scope() as service:
+            result = service.update_backtest_metadata(
+                run_id,
+                metadata,
+                merge=merge,
+            )
+
+        if result is None:
+            return api_response(
+                success=False,
+                message=f"Backtest run '{run_id}' not found",
+                status_code=404,
+            )
+
+        return api_response(
+            success=True,
+            data=result,
+            message=f"Updated metadata for backtest '{run_id}'",
+        )
+
+    except Exception as e:
+        logger.error(f"Error updating backtest metadata: {e}")
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )

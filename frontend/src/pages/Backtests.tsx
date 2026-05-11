@@ -13,9 +13,9 @@ import {
     Target,
     TrendingUp,
 } from 'lucide-react';
-import React, { useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
-import api from '../api';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import api, { type BacktestExperimentGroup } from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
@@ -37,7 +37,7 @@ import {
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
 
-export type BacktestsView = 'dashboard' | 'new' | 'runs';
+export type BacktestsView = 'dashboard' | 'new' | 'runs' | 'experiments';
 
 interface BacktestsPageProps {
   view?: BacktestsView;
@@ -231,6 +231,22 @@ const toOptionalNumber = (value: unknown): number | null => {
 const toOptionalString = (value: unknown): string | null =>
   typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 
+const normalizeExperimentStatusParam = (value: string | null): string => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'all') {
+    return 'all';
+  }
+  return trimmed.toUpperCase();
+};
+
+const normalizeExperimentVariantParam = (value: string | null): string => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'all') {
+    return 'all';
+  }
+  return trimmed;
+};
+
 type CapacityRiskModel = {
   label: string;
   detail: string;
@@ -289,6 +305,7 @@ const resolveCapacityRiskModel = (
 };
 
 export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard' }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const getEnvelopeField = (payload: Record<string, unknown>, key: string): unknown => {
     const nested = payload.data;
     if (nested && typeof nested === 'object' && nested !== null) {
@@ -301,6 +318,16 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   };
 
   const queryClient = useQueryClient();
+  const [experimentSearch, setExperimentSearch] = useState(() =>
+    String(searchParams.get('q') || '').trim()
+  );
+  const [experimentStatusFilter, setExperimentStatusFilter] = useState(() =>
+    normalizeExperimentStatusParam(searchParams.get('status'))
+  );
+  const [experimentVariantFilter, setExperimentVariantFilter] = useState(() =>
+    normalizeExperimentVariantParam(searchParams.get('variant'))
+  );
+  const [copyLinkFeedback, setCopyLinkFeedback] = useState('');
   const strategiesQuery = useQuery({
     queryKey: ['strategies', 'lookup'],
     queryFn: async (): Promise<StrategyRef[]> => {
@@ -318,6 +345,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       const response = await api.listBacktests(0, 50);
       return extractBacktestRuns(response);
     },
+    enabled: view !== 'experiments',
     staleTime: 10_000,
     refetchInterval: (query) =>
       (query.state.data ?? []).some((run) => isActiveBacktestRun(run as BacktestRun))
@@ -329,6 +357,181 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     () => (backtestsQuery.data ?? []).filter((run) => isActiveBacktestRun(run)).length,
     [backtestsQuery.data]
   );
+  const experimentsQuery = useQuery({
+    queryKey: ['backtests', 'experiments'],
+    queryFn: async (): Promise<BacktestExperimentGroup[]> => {
+      const response = await api.listBacktestExperiments(100, 1000);
+      return Array.isArray(response.data?.experiments)
+        ? (response.data.experiments as BacktestExperimentGroup[])
+        : [];
+    },
+    enabled: view === 'experiments',
+    staleTime: 15_000,
+  });
+
+  useEffect(() => {
+    if (view !== 'experiments') {
+      return;
+    }
+
+    const searchFromParams = String(searchParams.get('q') || '').trim();
+    const statusFromParams = normalizeExperimentStatusParam(searchParams.get('status'));
+    const variantFromParams = normalizeExperimentVariantParam(searchParams.get('variant'));
+
+    if (searchFromParams !== experimentSearch) {
+      setExperimentSearch(searchFromParams);
+    }
+    if (statusFromParams !== experimentStatusFilter) {
+      setExperimentStatusFilter(statusFromParams);
+    }
+    if (variantFromParams !== experimentVariantFilter) {
+      setExperimentVariantFilter(variantFromParams);
+    }
+  }, [view, searchParams, experimentSearch, experimentStatusFilter, experimentVariantFilter]);
+
+  useEffect(() => {
+    if (view !== 'experiments') {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    const normalizedSearch = experimentSearch.trim();
+
+    if (normalizedSearch) {
+      nextParams.set('q', normalizedSearch);
+    } else {
+      nextParams.delete('q');
+    }
+
+    if (experimentStatusFilter !== 'all') {
+      nextParams.set('status', experimentStatusFilter);
+    } else {
+      nextParams.delete('status');
+    }
+
+    if (experimentVariantFilter !== 'all') {
+      nextParams.set('variant', experimentVariantFilter);
+    } else {
+      nextParams.delete('variant');
+    }
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [
+    view,
+    searchParams,
+    setSearchParams,
+    experimentSearch,
+    experimentStatusFilter,
+    experimentVariantFilter,
+  ]);
+
+  const copyFilteredExperimentsUrl = async () => {
+    const href = window.location.href;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(href);
+        setCopyLinkFeedback('Link copied');
+      } else {
+        throw new Error('Clipboard API unavailable');
+      }
+    } catch {
+      setCopyLinkFeedback('Copy unavailable');
+    }
+
+    window.setTimeout(() => {
+      setCopyLinkFeedback('');
+    }, 1600);
+  };
+
+  const allExperimentGroups = useMemo(() => experimentsQuery.data ?? [], [experimentsQuery.data]);
+  const experimentStatusOptions = useMemo(() => {
+    const values = new Set<string>();
+    allExperimentGroups.forEach((group) => {
+      const latest = String(group.latest_status || '')
+        .trim()
+        .toUpperCase();
+      if (latest) {
+        values.add(latest);
+      }
+      (group.runs || []).forEach((run) => {
+        const status = String(run.status || '')
+          .trim()
+          .toUpperCase();
+        if (status) {
+          values.add(status);
+        }
+      });
+    });
+    return Array.from(values).sort((left, right) => left.localeCompare(right));
+  }, [allExperimentGroups]);
+  const experimentVariantOptions = useMemo(() => {
+    const values = new Set<string>();
+    allExperimentGroups.forEach((group) => {
+      (group.variants || []).forEach((variant) => {
+        const value = String(variant.variant || '').trim();
+        if (value) {
+          values.add(value);
+        }
+      });
+      (group.runs || []).forEach((run) => {
+        const value = String(run.variant || '').trim();
+        if (value) {
+          values.add(value);
+        }
+      });
+    });
+    return Array.from(values).sort((left, right) => left.localeCompare(right));
+  }, [allExperimentGroups]);
+  const filteredExperimentGroups = useMemo(() => {
+    const searchNeedle = experimentSearch.trim().toLowerCase();
+    const requiredStatus = experimentStatusFilter.trim().toUpperCase();
+    const requiredVariant = experimentVariantFilter.trim();
+
+    return allExperimentGroups.filter((group) => {
+      if (
+        searchNeedle &&
+        !String(group.experiment_id || '')
+          .toLowerCase()
+          .includes(searchNeedle)
+      ) {
+        return false;
+      }
+
+      if (requiredStatus !== 'ALL') {
+        const statuses = new Set<string>();
+        const latest = String(group.latest_status || '')
+          .trim()
+          .toUpperCase();
+        if (latest) {
+          statuses.add(latest);
+        }
+        (group.runs || []).forEach((run) => {
+          const status = String(run.status || '')
+            .trim()
+            .toUpperCase();
+          if (status) {
+            statuses.add(status);
+          }
+        });
+        if (!statuses.has(requiredStatus)) {
+          return false;
+        }
+      }
+
+      if (requiredVariant !== 'all') {
+        const hasVariant = (group.runs || []).some(
+          (run) => String(run.variant || '').trim() === requiredVariant
+        );
+        if (!hasVariant) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [allExperimentGroups, experimentSearch, experimentStatusFilter, experimentVariantFilter]);
   const systemStatusQuery = useQuery({
     queryKey: ['system-status', 'backtest-capacity'],
     queryFn: async () => {
@@ -405,11 +608,52 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         .slice(0, 6),
     [backtestsQuery.data]
   );
+
+  // Subscribe to Redis-backed WebSocket push for each active run so that
+  // progress updates arrive via push instead of only via polling.
+  const wsRefs = useRef<Map<string, WebSocket>>(new Map());
+  useEffect(() => {
+    const activeIds = new Set(activeRunsQuickAccess.map((r) => r.run_id).filter(Boolean));
+
+    // Close sockets for runs no longer active
+    for (const [id, ws] of wsRefs.current.entries()) {
+      if (!activeIds.has(id)) {
+        ws.close();
+        wsRefs.current.delete(id);
+      }
+    }
+
+    // Open sockets for newly active runs
+    for (const runId of activeIds) {
+      if (wsRefs.current.has(runId)) continue;
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const ws = new WebSocket(`${proto}//${host}/api/v1/backtests/${runId}/push`);
+      ws.addEventListener('message', () => {
+        void queryClient.invalidateQueries({ queryKey: ['backtests', 'status', runId] });
+        void queryClient.invalidateQueries({ queryKey: ['backtests'] });
+      });
+      ws.addEventListener('close', () => {
+        wsRefs.current.delete(runId);
+      });
+      wsRefs.current.set(runId, ws);
+    }
+
+    return () => {
+      // Component unmount: close all sockets
+      for (const ws of wsRefs.current.values()) {
+        ws.close();
+      }
+      wsRefs.current.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunsQuickAccess.map((r) => r.run_id).join(',')]);
+
   const activeRunLiveStatusQueries = useQueries({
     queries: activeRunsQuickAccess.map((run) => ({
       queryKey: ['backtests', 'status', run.run_id, 'quick-access'],
       queryFn: async () => {
-        const response = await api.getBacktestStatus(run.run_id);
+        const response = await enhancedApiClient.getBacktestStatus(run.run_id);
         const payload = response as unknown as Record<string, unknown>;
         const progressCandidate = getEnvelopeField(payload, 'progress_pct');
         const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');
@@ -429,34 +673,20 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         };
       },
       staleTime: 6_000,
-      refetchInterval: 7_000,
-      refetchIntervalInBackground: false,
-      retry: 1,
-      enabled: Boolean(run.run_id),
-    })),
-  });
-  const activeRunSummaryQueries = useQueries({
-    queries: activeRunsQuickAccess.map((run) => ({
-      queryKey: ['backtests', 'analytics-summary', run.run_id, 'quick-access'],
-      queryFn: async () => {
-        const response = await api.getBacktestAnalyticsSummary(run.run_id);
-        const payload = response as unknown as Record<string, unknown>;
-        const totalPnlCandidate = getEnvelopeField(payload, 'total_pnl_usd');
-        const totalTradesCandidate = getEnvelopeField(payload, 'total_trades');
-        const winRateCandidate = getEnvelopeField(payload, 'win_rate');
-        return {
-          totalPnlUsd: safeNumber(totalPnlCandidate, Number.NaN),
-          totalTrades: safeNumber(totalTradesCandidate, Number.NaN),
-          winRate: safeNumber(winRateCandidate, Number.NaN),
-        };
+      // Stop polling per-run status once the main list shows it as completed/failed
+      refetchInterval: (query: { state: { data?: { status?: string } } }) => {
+        const statusFromQuery = query.state.data?.status?.toUpperCase();
+        if (statusFromQuery && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(statusFromQuery)) {
+          return false;
+        }
+        return 7_000;
       },
-      staleTime: 12_000,
-      refetchInterval: 12_000,
       refetchIntervalInBackground: false,
       retry: 1,
       enabled: Boolean(run.run_id),
     })),
   });
+  // activeRunSummaryQueries removed — PnL/trades/winRate are sourced from backtestsQuery list data
   const activeRunLiveById = useMemo(() => {
     const lookup = new Map<
       string,
@@ -470,41 +700,37 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         winRate?: number;
       }
     >();
+    // Build a quick lookup from the main list for list-level fields
+    const runListById = new Map<string, BacktestRun>(
+      (backtestsQuery.data ?? []).map((r) => [r.run_id, r])
+    );
 
     activeRunsQuickAccess.forEach((run, index) => {
       const query = activeRunLiveStatusQueries[index];
-      const summaryQuery = activeRunSummaryQueries[index];
+      const listRun = runListById.get(run.run_id);
       const progressValue = query?.data?.progressPct;
       const normalizedProgress =
         typeof progressValue === 'number' && Number.isFinite(progressValue)
           ? Math.max(0, Math.min(100, progressValue))
           : undefined;
 
+      const listPnl = safeNumber(listRun?.total_pnl, Number.NaN);
+      const listTrades = safeNumber(listRun?.total_trades, Number.NaN);
+      const listWinRate = safeNumber(listRun?.win_rate, Number.NaN);
+
       lookup.set(run.run_id, {
         status: query?.data?.status,
         progressPct: normalizedProgress,
         updatedAtMs: query?.data?.updatedAtMs,
         isFetching: Boolean(query?.isFetching),
-        totalPnlUsd:
-          typeof summaryQuery?.data?.totalPnlUsd === 'number' &&
-          Number.isFinite(summaryQuery.data.totalPnlUsd)
-            ? summaryQuery.data.totalPnlUsd
-            : undefined,
-        totalTrades:
-          typeof summaryQuery?.data?.totalTrades === 'number' &&
-          Number.isFinite(summaryQuery.data.totalTrades)
-            ? summaryQuery.data.totalTrades
-            : undefined,
-        winRate:
-          typeof summaryQuery?.data?.winRate === 'number' &&
-          Number.isFinite(summaryQuery.data.winRate)
-            ? summaryQuery.data.winRate
-            : undefined,
+        totalPnlUsd: Number.isFinite(listPnl) ? listPnl : undefined,
+        totalTrades: Number.isFinite(listTrades) ? listTrades : undefined,
+        winRate: Number.isFinite(listWinRate) ? listWinRate : undefined,
       });
     });
 
     return lookup;
-  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, activeRunSummaryQueries]);
+  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, backtestsQuery.data]);
   const capacityPanelRef = useRef<HTMLDivElement>(null);
   const scrollToCapacityPanel = () =>
     capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -671,6 +897,236 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
               void queryClient.invalidateQueries({ queryKey: ['backtests'] });
             }}
           />
+        </section>
+      </PageContainer>
+    );
+  }
+
+  if (view === 'experiments') {
+    if (experimentsQuery.isLoading) {
+      return (
+        <PageContainer size="wide" className="space-y-6">
+          <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8" aria-busy="true">
+            <div className="skeleton h-6 w-52 rounded" />
+            <div className="skeleton mt-4 h-8 w-2/3 rounded" />
+            <div className="skeleton mt-3 h-4 w-1/2 rounded" />
+          </section>
+        </PageContainer>
+      );
+    }
+
+    if (experimentsQuery.isError) {
+      const message =
+        experimentsQuery.error instanceof Error
+          ? experimentsQuery.error.message
+          : 'Failed to load backtest experiments.';
+
+      return (
+        <PageContainer size="wide" className="space-y-6">
+          <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
+            <h1 className="text-xl font-semibold text-white">Backtest Experiments Unavailable</h1>
+            <p className="mt-2 text-sm text-red-200">{message}</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => void experimentsQuery.refetch()}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-600/50 bg-red-900/30 px-4 py-2 text-sm font-medium text-red-100 transition hover:bg-red-900/50"
+              >
+                Retry experiment load
+              </button>
+              <Link
+                to="/backtests"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-500"
+              >
+                Back to dashboard
+              </Link>
+            </div>
+          </div>
+        </PageContainer>
+      );
+    }
+
+    const experiments = filteredExperimentGroups;
+    const totalExperiments = allExperimentGroups.length;
+    const hasActiveFilters =
+      experimentSearch.trim().length > 0 ||
+      experimentStatusFilter !== 'all' ||
+      experimentVariantFilter !== 'all';
+
+    return (
+      <PageContainer size="wide" className="space-y-6">
+        <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
+          <div className="surface-label">
+            <Layers3 className="h-3.5 w-3.5" />
+            Backtest Experiments
+          </div>
+          <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Experiment groups by{' '}
+            <code className="rounded bg-slate-900/80 px-1 py-0.5 text-cyan-300">experiment_id</code>
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
+            Grouped directly from persisted DB metadata so operators can inspect A/B cohorts
+            quickly.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <div className="operator-status-pill" data-tone="accent">
+              <ListChecks className="h-3.5 w-3.5" />
+              {experiments.length}
+              {experiments.length !== totalExperiments ? ` / ${totalExperiments}` : ''} experiment
+              group{experiments.length !== 1 ? 's' : ''}
+            </div>
+            <Link to="/backtests/runs" className="operator-status-pill" data-tone="positive">
+              <Activity className="h-3.5 w-3.5" />
+              View all runs
+            </Link>
+          </div>
+        </section>
+
+        <section className="operator-section-card p-5 space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Search experiment_id
+              </span>
+              <input
+                type="text"
+                value={experimentSearch}
+                onChange={(event) => setExperimentSearch(event.target.value)}
+                placeholder="e.g. arb-ab-2026-05-11"
+                className="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-500/60"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Status
+              </span>
+              <select
+                value={experimentStatusFilter}
+                onChange={(event) => setExperimentStatusFilter(event.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500/60"
+              >
+                <option value="all">All statuses</option>
+                {experimentStatusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Variant
+              </span>
+              <select
+                value={experimentVariantFilter}
+                onChange={(event) => setExperimentVariantFilter(event.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500/60"
+              >
+                <option value="all">All variants</option>
+                {experimentVariantOptions.map((variant) => (
+                  <option key={variant} value={variant}>
+                    {variant}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => void copyFilteredExperimentsUrl()}
+              className="inline-flex items-center gap-2 rounded-lg border border-cyan-600/50 bg-cyan-900/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200 transition hover:border-cyan-400/70"
+            >
+              {hasActiveFilters ? 'Copy filtered URL' : 'Copy page URL'}
+            </button>
+            {hasActiveFilters ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setExperimentSearch('');
+                  setExperimentStatusFilter('all');
+                  setExperimentVariantFilter('all');
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-300 transition hover:border-slate-500"
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+
+          {copyLinkFeedback ? (
+            <p className="text-right text-xs text-cyan-300">{copyLinkFeedback}</p>
+          ) : null}
+
+          {experiments.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              {totalExperiments > 0
+                ? 'No experiment groups match current filters.'
+                : 'No persisted experiment metadata found yet. Run the A/B helper and metadata update flow to populate groups.'}
+            </p>
+          ) : (
+            experiments.map((group) => (
+              <div
+                key={group.experiment_id}
+                className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{group.experiment_id}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {group.run_count} runs · {group.variant_count} variants · latest{' '}
+                      {formatDateTime(group.latest_created_at)}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
+                    {String(group.latest_status || 'unknown').toUpperCase()}
+                  </span>
+                </div>
+
+                {Array.isArray(group.variants) && group.variants.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {group.variants.map((variant) => (
+                      <span
+                        key={`${group.experiment_id}-${variant.variant}`}
+                        className="rounded-full border border-slate-600/70 bg-slate-800/60 px-2.5 py-1 text-[11px] text-slate-300"
+                      >
+                        {variant.variant || 'unlabeled'} · {variant.run_count}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="mt-3 grid gap-2">
+                  {(group.runs || []).slice(0, 6).map((run) => (
+                    <Link
+                      key={run.run_id}
+                      to={`/backtest/${run.run_id}`}
+                      className="flex items-center justify-between rounded-lg border border-slate-700/50 bg-slate-900/60 px-3 py-2 text-xs transition hover:border-cyan-500/40"
+                    >
+                      <div className="space-y-0.5">
+                        <p className="font-semibold text-slate-200">{run.run_id}</p>
+                        <p className="text-slate-500">
+                          {run.variant ? `${run.variant} · ` : ''}
+                          {formatDateTime(run.created_at)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p
+                          className={`font-semibold ${safeNumber(run.total_pnl_usd) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                        >
+                          {formatCurrency(safeNumber(run.total_pnl_usd))}
+                        </p>
+                        <p className="text-slate-500">{String(run.status || '').toUpperCase()}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </section>
       </PageContainer>
     );
@@ -1352,6 +1808,13 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 away.
               </p>
             </div>
+            <Link
+              to="/backtests/experiments"
+              className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
+            >
+              Experiments
+              <ArrowRight className="h-4 w-4" />
+            </Link>
             <Link
               to="/backtests/compare"
               className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"

@@ -218,6 +218,12 @@ func (c *BotAPIClient) GetLiveProgress(runID string) (map[string]interface{}, er
 	return c.makeRequest("GET", endpoint, nil)
 }
 
+// UpdateBacktestMetadata merges or replaces structured metadata for a backtest run.
+func (c *BotAPIClient) UpdateBacktestMetadata(runID string, payload map[string]interface{}) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/metadata", runID)
+	return c.makeRequest("POST", endpoint, payload)
+}
+
 // QuickDeployBot quickly deploys and optionally starts a new bot instance
 func (c *BotAPIClient) QuickDeployBot(instanceName string, autoStart bool, config map[string]interface{}) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/bots/quick-deploy?instance_name=%s&auto_start=%v", instanceName, autoStart)
@@ -251,6 +257,41 @@ func (c *BotAPIClient) GetPerpetualMarkets(limit int) (map[string]interface{}, e
 		endpoint += "?" + encoded
 	}
 	return c.makeRequest("GET", endpoint, nil)
+}
+
+// GetArbitrageImprovementMetrics retrieves bot-side arbitrage efficiency counters.
+func (c *BotAPIClient) GetArbitrageImprovementMetrics() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/arbitrage/improvement-metrics", nil)
+}
+
+// GetArbitragePairPriority retrieves the optional pair-priority ranking diagnostics.
+func (c *BotAPIClient) GetArbitragePairPriority(limit int) (map[string]interface{}, error) {
+	query := url.Values{}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+
+	endpoint := "/api/v1/arbitrage/pair-priority"
+	if encoded := query.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
+	return c.makeRequest("GET", endpoint, nil)
+}
+
+// GetArbitrageOpportunityExplain retrieves additive explainability diagnostics for an opportunity id.
+func (c *BotAPIClient) GetArbitrageOpportunityExplain(opportunityID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/arbitrage/opportunity/%s/explain", url.PathEscape(opportunityID))
+	return c.makeRequest("GET", endpoint, nil)
+}
+
+// GetArbitrageRuntimeSettings retrieves bot-side runtime arbitrage settings.
+func (c *BotAPIClient) GetArbitrageRuntimeSettings() (map[string]interface{}, error) {
+	return c.makeRequest("GET", "/api/v1/arbitrage/runtime-settings", nil)
+}
+
+// UpdateArbitrageRuntimeSettings pushes runtime arbitrage settings to the bot process.
+func (c *BotAPIClient) UpdateArbitrageRuntimeSettings(settings map[string]interface{}) (map[string]interface{}, error) {
+	return c.makeRequest("PUT", "/api/v1/arbitrage/runtime-settings", settings)
 }
 
 // GetRuntimePreflight evaluates whether a runtime can safely start on the upstream bot service.

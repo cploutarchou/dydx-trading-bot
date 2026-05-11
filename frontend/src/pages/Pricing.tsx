@@ -142,6 +142,26 @@ const pricingFaqs = [
   ],
 ] as const;
 
+const funnelSteps = [
+  ['Create evaluation account', 'Access product surfaces with no fixed commercial commitment.'],
+  ['Complete security readiness', 'Validate credentials, environment, and runtime prerequisites.'],
+  [
+    'Run evidence-first workflow',
+    'Review backtests, risk context, and operational signals before activation.',
+  ],
+  [
+    'Activate live terms when ready',
+    'Performance model applies only when realized net profit exists.',
+  ],
+] as const;
+
+const riskDisclosures = [
+  'No representation is made that any account will achieve profits or avoid losses.',
+  'Past or simulated performance is not a guarantee of future outcomes.',
+  'Crypto market structure, liquidity, and latency conditions can change quickly.',
+  'Users remain responsible for legal, tax, and regulatory obligations in their jurisdiction.',
+] as const;
+
 const PricingModelPanel: React.FC = () => (
   <div className="pricing-model-panel">
     <div className="pricing-model-header">
@@ -355,12 +375,35 @@ export const PricingPage: React.FC = () => {
                   <Link
                     to="/register"
                     className={`premium-button justify-center px-5 py-3 text-sm font-semibold ${
-                      plan.featured ? 'premium-button-primary text-white' : 'premium-button-secondary'
+                      plan.featured
+                        ? 'premium-button-primary text-white'
+                        : 'premium-button-secondary'
                     }`}
                   >
                     {plan.name === 'Desk' ? 'Discuss rollout' : 'Start free evaluation'}
                   </Link>
                 </div>
+              </MotionReveal>
+            ))}
+          </div>
+        </section>
+
+        <section className="public-modern-container public-outcome-stage">
+          <MotionReveal className="public-modern-section-copy" distancePx={18}>
+            <div className="surface-label">How it works</div>
+            <h2>Simple subscription funnel from evaluation to live operation.</h2>
+            <p>
+              The commercial path is designed to be explicit at each step so teams can adopt the
+              platform progressively without hidden pricing transitions.
+            </p>
+          </MotionReveal>
+
+          <div className="public-outcome-grid">
+            {funnelSteps.map(([title, body], index) => (
+              <MotionReveal key={title} className="public-outcome-modern" delayMs={index * 70}>
+                <span>Step {String(index + 1).padStart(2, '0')}</span>
+                <strong>{title}</strong>
+                <p>{body}</p>
               </MotionReveal>
             ))}
           </div>
@@ -430,6 +473,26 @@ export const PricingPage: React.FC = () => {
                 <span>FAQ {String(index + 1).padStart(2, '0')}</span>
                 <strong>{question}</strong>
                 <p>{answer}</p>
+              </MotionReveal>
+            ))}
+          </div>
+        </section>
+
+        <section className="public-modern-container public-outcome-stage">
+          <MotionReveal className="public-modern-section-copy" distancePx={18}>
+            <div className="surface-label">Risk disclosure</div>
+            <h2>Risk and compliance expectations are stated up front.</h2>
+            <p>
+              Commercial clarity also means operational realism: live trading includes risk, and
+              users should evaluate suitability, controls, and obligations before activation.
+            </p>
+          </MotionReveal>
+
+          <div className="public-outcome-grid">
+            {riskDisclosures.map((item, index) => (
+              <MotionReveal key={item} className="public-outcome-modern" delayMs={index * 70}>
+                <span>Disclosure {String(index + 1).padStart(2, '0')}</span>
+                <p>{item}</p>
               </MotionReveal>
             ))}
           </div>

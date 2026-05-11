@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
@@ -22,6 +23,7 @@ import (
 // BotAPIClient handles communication with the Python bot API
 type BotAPIClient struct {
 	baseURL       string
+	fallbackURLs  []string
 	token         string
 	fallbackToken string
 	traceID       string
@@ -30,6 +32,90 @@ type BotAPIClient struct {
 }
 
 const defaultBotAPIRequestTimeout = 120 * time.Second
+
+type BotAPIStatsSnapshot struct {
+	TotalRequests        int64 `json:"total_requests"`
+	SuccessfulRequests   int64 `json:"successful_requests"`
+	FailedRequests       int64 `json:"failed_requests"`
+	TransportFailures    int64 `json:"transport_failures"`
+	Timeouts             int64 `json:"timeouts"`
+	Upstream4xx          int64 `json:"upstream_4xx"`
+	Upstream5xx          int64 `json:"upstream_5xx"`
+	TotalLatencyMillis   int64 `json:"total_latency_ms"`
+	AverageLatencyMillis int64 `json:"average_latency_ms"`
+	MaxLatencyMillis     int64 `json:"max_latency_ms"`
+}
+
+type botAPIStatsCollector struct {
+	totalRequests      atomic.Int64
+	successfulRequests atomic.Int64
+	failedRequests     atomic.Int64
+	transportFailures  atomic.Int64
+	timeouts           atomic.Int64
+	upstream4xx        atomic.Int64
+	upstream5xx        atomic.Int64
+	totalLatencyMillis atomic.Int64
+	maxLatencyMillis   atomic.Int64
+}
+
+var botAPIStats botAPIStatsCollector
+
+func BotAPIStats() BotAPIStatsSnapshot {
+	total := botAPIStats.totalRequests.Load()
+	totalLatency := botAPIStats.totalLatencyMillis.Load()
+	averageLatency := int64(0)
+	if total > 0 {
+		averageLatency = totalLatency / total
+	}
+	return BotAPIStatsSnapshot{
+		TotalRequests:        total,
+		SuccessfulRequests:   botAPIStats.successfulRequests.Load(),
+		FailedRequests:       botAPIStats.failedRequests.Load(),
+		TransportFailures:    botAPIStats.transportFailures.Load(),
+		Timeouts:             botAPIStats.timeouts.Load(),
+		Upstream4xx:          botAPIStats.upstream4xx.Load(),
+		Upstream5xx:          botAPIStats.upstream5xx.Load(),
+		TotalLatencyMillis:   totalLatency,
+		AverageLatencyMillis: averageLatency,
+		MaxLatencyMillis:     botAPIStats.maxLatencyMillis.Load(),
+	}
+}
+
+func recordBotAPIRequest(statusCode int, latency time.Duration, err error) {
+	latencyMillis := latency.Milliseconds()
+	botAPIStats.totalRequests.Add(1)
+	botAPIStats.totalLatencyMillis.Add(latencyMillis)
+	for {
+		current := botAPIStats.maxLatencyMillis.Load()
+		if latencyMillis <= current || botAPIStats.maxLatencyMillis.CompareAndSwap(current, latencyMillis) {
+			break
+		}
+	}
+
+	if err != nil {
+		botAPIStats.failedRequests.Add(1)
+		var transportErr *BotAPITransportError
+		if errors.As(err, &transportErr) {
+			botAPIStats.transportFailures.Add(1)
+			if transportErr.StatusCode == http.StatusGatewayTimeout {
+				botAPIStats.timeouts.Add(1)
+			}
+		}
+		return
+	}
+
+	if statusCode >= 200 && statusCode < 400 {
+		botAPIStats.successfulRequests.Add(1)
+		return
+	}
+
+	botAPIStats.failedRequests.Add(1)
+	if statusCode >= 400 && statusCode < 500 {
+		botAPIStats.upstream4xx.Add(1)
+	} else if statusCode >= 500 {
+		botAPIStats.upstream5xx.Add(1)
+	}
+}
 
 // BotAPIError preserves upstream HTTP status and message for delegated routes.
 type BotAPIError struct {
@@ -157,8 +243,11 @@ func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 		token = ResolveConfiguredBotAPIServiceToken()
 	}
 	requestTimeout := resolveBotAPIRequestTimeout()
+	primaryURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	fallbackURLs := resolveBotAPIFallbackURLs(primaryURL)
 	return &BotAPIClient{
-		baseURL:       baseURL,
+		baseURL:       primaryURL,
+		fallbackURLs:  fallbackURLs,
 		token:         token,
 		fallbackToken: token,
 		requestCtx:    context.Background(),
@@ -166,6 +255,32 @@ func NewBotAPIClient(baseURL string, token string) *BotAPIClient {
 			Timeout: requestTimeout,
 		},
 	}
+}
+
+func resolveBotAPIFallbackURLs(primaryURL string) []string {
+	raw := strings.TrimSpace(os.Getenv("BOT_API_FALLBACK_URLS"))
+	if raw == "" {
+		return []string{}
+	}
+
+	parts := strings.Split(raw, ",")
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(parts))
+	primaryURL = strings.TrimRight(strings.TrimSpace(primaryURL), "/")
+
+	for _, part := range parts {
+		candidate := strings.TrimRight(strings.TrimSpace(part), "/")
+		if candidate == "" || strings.EqualFold(candidate, primaryURL) {
+			continue
+		}
+		if _, exists := seen[strings.ToLower(candidate)]; exists {
+			continue
+		}
+		seen[strings.ToLower(candidate)] = struct{}{}
+		result = append(result, candidate)
+	}
+
+	return result
 }
 
 func resolveBotAPIRequestTimeout() time.Duration {
@@ -250,6 +365,7 @@ func (c *BotAPIClient) WebSocketURL(endpoint string) (string, error) {
 func (c *BotAPIClient) WithHTTPClient(httpClient *http.Client) *BotAPIClient {
 	return &BotAPIClient{
 		baseURL:       c.baseURL,
+		fallbackURLs:  c.fallbackURLs,
 		token:         c.token,
 		fallbackToken: c.fallbackToken,
 		traceID:       c.traceID,
@@ -272,6 +388,7 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 
 	return &BotAPIClient{
 		baseURL:       c.baseURL,
+		fallbackURLs:  c.fallbackURLs,
 		token:         token,
 		fallbackToken: c.fallbackToken,
 		traceID:       c.traceID,
@@ -285,6 +402,7 @@ func (c *BotAPIClient) WithToken(token string) *BotAPIClient {
 func (c *BotAPIClient) WithTraceID(traceID string) *BotAPIClient {
 	return &BotAPIClient{
 		baseURL:       c.baseURL,
+		fallbackURLs:  c.fallbackURLs,
 		token:         c.token,
 		fallbackToken: c.fallbackToken,
 		traceID:       strings.TrimSpace(traceID),
@@ -301,6 +419,7 @@ func (c *BotAPIClient) WithRequestContext(ctx context.Context) *BotAPIClient {
 	}
 	return &BotAPIClient{
 		baseURL:       c.baseURL,
+		fallbackURLs:  c.fallbackURLs,
 		token:         c.token,
 		fallbackToken: c.fallbackToken,
 		traceID:       c.traceID,
@@ -324,6 +443,20 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 
 	result, statusCode, respBytes, err := c.doRequest(method, requestURL, requestBytes, c.token)
 	if err != nil {
+		if fallbackResult, fallbackStatus, fallbackResp, fallbackErr := c.tryFallbackRequest(method, endpoint, requestBytes, c.token, err); fallbackErr == nil {
+			return fallbackResult, nil
+		} else if fallbackStatus == http.StatusUnauthorized && c.shouldRetryWithFallback(c.token) {
+			fallbackToken := c.effectiveFallbackToken()
+			if retryResult, retryStatus, retryResp, retryErr := c.tryFallbackRequest(method, endpoint, requestBytes, fallbackToken, fallbackErr); retryErr == nil {
+				return retryResult, nil
+			} else if retryStatus >= 400 && retryStatus < 600 {
+				_ = retryResp
+				return nil, parseBotAPIError(retryStatus, retryResp)
+			}
+		} else if fallbackStatus >= 400 && fallbackStatus < 600 {
+			_ = fallbackResp
+			return nil, parseBotAPIError(fallbackStatus, fallbackResp)
+		}
 		return nil, err
 	}
 
@@ -343,6 +476,28 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 	return result, nil
 }
 
+func (c *BotAPIClient) tryFallbackRequest(method, endpoint string, requestBytes []byte, token string, primaryErr error) (map[string]interface{}, int, []byte, error) {
+	if len(c.fallbackURLs) == 0 {
+		return nil, 0, nil, primaryErr
+	}
+
+	var transportErr *BotAPITransportError
+	if !errors.As(primaryErr, &transportErr) {
+		return nil, 0, nil, primaryErr
+	}
+
+	for _, fallbackBase := range c.fallbackURLs {
+		fallbackURL := fmt.Sprintf("%s%s", strings.TrimRight(strings.TrimSpace(fallbackBase), "/"), endpoint)
+		result, statusCode, respBytes, err := c.doRequest(method, fallbackURL, requestBytes, token)
+		if err == nil {
+			log.Printf("⚠️  Bot API primary upstream unavailable (%s); request succeeded via fallback upstream: %s", c.baseURL, fallbackBase)
+			return result, statusCode, respBytes, nil
+		}
+	}
+
+	return nil, 0, nil, primaryErr
+}
+
 func (c *BotAPIClient) shouldRetryWithFallback(currentToken string) bool {
 	currentToken = strings.TrimSpace(currentToken)
 	fallbackToken := c.effectiveFallbackToken()
@@ -356,6 +511,7 @@ func (c *BotAPIClient) shouldRetryWithFallback(currentToken string) bool {
 }
 
 func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte, token string) (map[string]interface{}, int, []byte, error) {
+	startedAt := time.Now()
 	var requestBody io.Reader
 	if len(requestBytes) > 0 {
 		requestBody = bytes.NewReader(requestBytes)
@@ -391,6 +547,7 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		transportErr := classifyTransportError(method, requestURL, err)
+		recordBotAPIRequest(transportErr.StatusCode, time.Since(startedAt), transportErr)
 		log.Printf("⚠️  Bot API transport error trace_id=%s: %s %s → HTTP %d (%s) | cause: %v",
 			strings.TrimSpace(c.traceID), method, requestURL, transportErr.StatusCode, transportErr.Message, err)
 		return nil, 0, nil, transportErr
@@ -399,8 +556,10 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		recordBotAPIRequest(resp.StatusCode, time.Since(startedAt), err)
 		return nil, 0, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	recordBotAPIRequest(resp.StatusCode, time.Since(startedAt), nil)
 
 	var result map[string]interface{}
 	if len(respBytes) == 0 {

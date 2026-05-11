@@ -10,9 +10,17 @@ import (
 )
 
 func RegisterBacktestRoutes(router *gin.Engine, database *db.Database) {
+	RegisterBacktestRoutesWithCache(router, database, nil)
+}
+
+func RegisterBacktestRoutesWithCache(router *gin.Engine, database *db.Database, cacheService *services.CacheService) {
 	backtestRepo := repository.NewBacktestRepository(database.DB)
 	storageManager := services.GetBacktestStorage()
 	backtestHandler := handlers.NewBacktestHandler(backtestRepo, storageManager)
+	if cacheService != nil {
+		candleCache := services.NewCandleCacheServiceWithRepo(cacheService, backtestRepo)
+		backtestHandler = backtestHandler.WithCandleCache(candleCache)
+	}
 
 	v1 := router.Group("/api/v1")
 	{

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,8 +15,9 @@ import (
 )
 
 type BacktestHandler struct {
-	repo    *repository.BacktestRepository
-	storage *services.BacktestStorageManager
+	repo        *repository.BacktestRepository
+	storage     *services.BacktestStorageManager
+	candleCache *services.CandleCacheService
 }
 
 func NewBacktestHandler(repo *repository.BacktestRepository, storage *services.BacktestStorageManager) *BacktestHandler {
@@ -23,6 +25,12 @@ func NewBacktestHandler(repo *repository.BacktestRepository, storage *services.B
 		repo:    repo,
 		storage: storage,
 	}
+}
+
+// WithCandleCache attaches a CandleCacheService for Redis-backed aggregated chart data.
+func (h *BacktestHandler) WithCandleCache(ccs *services.CandleCacheService) *BacktestHandler {
+	h.candleCache = ccs
+	return h
 }
 
 // ListBacktests retrieves all backtest runs for the current user with pagination
@@ -118,12 +126,50 @@ type APIResponse struct {
 	Error     string      `json:"error,omitempty"`
 }
 
-// GetBacktestCandles retrieves historical candle data for a backtest run
+// GetBacktestCandles retrieves historical candle data for a backtest run.
+// Accepts an optional ?resolution=1min|1hour query param.  When a resolution
+// is specified and the aggregated chart data is present in Redis
+// (backtest:chart:{resolution}:{run_id}:{market}), it is returned directly
+// without querying PostgreSQL.  Falls back to the full DB query on cache miss
+// or when no resolution is given.
 func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	runID := c.Param("run_id")
 	market := c.Query("market")
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
+	resolution := c.Query("resolution") // optional: "1min" | "1hour"
+
+	// Fast path: return pre-aggregated chart data from Redis when available
+	if resolution != "" && h.candleCache != nil && market != "" {
+		if cachedJSON, cErr := h.candleCache.GetAggregatedChart(runID, market, resolution); cErr == nil && cachedJSON != "" {
+			var bars []map[string]interface{}
+			if jsonErr := json.Unmarshal([]byte(cachedJSON), &bars); jsonErr == nil {
+				var candles []CandleResponse
+				for _, b := range bars {
+					candles = append(candles, CandleResponse{
+						Market:    market,
+						Timestamp: fmt.Sprintf("%v", b["timestamp"]),
+						Open:      toFloat64(b["open"]),
+						High:      toFloat64(b["high"]),
+						Low:       toFloat64(b["low"]),
+						Close:     toFloat64(b["close"]),
+						Volume:    toFloat64(b["volume"]),
+					})
+				}
+				c.JSON(http.StatusOK, APIResponse{
+					Success: true,
+					Data: CandlesData{
+						RunID:   runID,
+						Candles: candles,
+						Count:   len(candles),
+						Markets: []string{market},
+					},
+					Timestamp: time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+		}
+	}
 
 	// Verify run exists using repository
 	run, err := h.repo.GetRunByID(runID)
@@ -709,4 +755,20 @@ func (h *BacktestHandler) CleanupOldResults(c *gin.Context) {
 		},
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// toFloat64 safely converts an interface{} JSON number to float64.
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	default:
+		return 0.0
+	}
 }

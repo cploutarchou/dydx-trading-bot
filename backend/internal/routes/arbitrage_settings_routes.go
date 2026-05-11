@@ -84,12 +84,26 @@ func RegisterArbitrageSettingsRoutes(router *gin.Engine, database *db.Database, 
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			botPayload := arbitrageSettingsForBot(settings)
 			botResponse, syncErr := requestClient.UpdateArbitrageRuntimeSettings(botPayload)
+			status := syncStatus(syncErr)
+			writeAuditLog(
+				database.DB,
+				c,
+				"settings.arbitrage_runtime.update",
+				"bot_setting",
+				nil,
+				gin.H{
+					"section":         arbitrageSettingsSection,
+					"keys":            mapKeys(body.Settings),
+					"bot_sync_status": status,
+				},
+				"success",
+			)
 			c.JSON(http.StatusOK, gin.H{
 				"success":         true,
 				"message":         "Arbitrage runtime settings saved",
 				"data":            settings,
 				"bot_runtime":     botResponse,
-				"bot_sync_status": syncStatus(syncErr),
+				"bot_sync_status": status,
 			})
 		})
 	}

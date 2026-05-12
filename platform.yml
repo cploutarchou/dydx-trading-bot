@@ -142,9 +142,9 @@ apps:
     - name: worker
       type: worker
       image: ghcr.io/cploutarchou/dydx-trading-bot/worker:latest
-      replicas: 1
-      cpu: 500
-      memory: 512
+      replicas: 2
+      cpu: 1000
+      memory: 1024
       expose: internal
       path: bot
       env:
@@ -154,16 +154,16 @@ apps:
           BOT_DB_HOST: "81.17.103.31"
           BOT_DB_PORT: "5432"
           BOT_DB_NAME: "dydx_bot"
-          BOT_DB_USER: "dydx_bot"
+          BOT_DB_USER: "platform"
           DB_TYPE: "postgresql"
           DB_HOST: "81.17.103.31"
           DB_PORT: "5432"
           DB_NAME: "dydx_bot"
-          DB_USER: "dydx_bot"
+          DB_USER: "platform"
           POSTGRES_HOST: "81.17.103.31"
           POSTGRES_PORT: "5432"
           POSTGRES_DB: "dydx_bot"
-          POSTGRES_USER: "dydx_bot"
+          POSTGRES_USER: "platform"
           REDIS_ENABLED: "true"
           REDIS_HOST: "81.17.103.31"
           REDIS_PORT: "6379"
@@ -172,7 +172,7 @@ apps:
           REDIS_TIMEOUT: "5"
           BACKTEST_WORKER_BACKEND: "celery"
           WORKER_MODE: "celery-backtest"
-          CELERY_CONCURRENCY: "1"
+          CELERY_CONCURRENCY: "12"
           CELERY_QUEUES: "celery"
           LOKI_ENABLED: "true"
           LOKI_URL: "http://81.17.102.165:3100"

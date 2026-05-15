@@ -12,7 +12,7 @@ import threading
 import time
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Union
 from uuid import uuid4
 
 import httpx
@@ -34,8 +34,9 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-from src.shared.env_loader import load_repo_env
 from starlette.concurrency import run_in_threadpool
+
+from src.shared.env_loader import load_repo_env
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -214,14 +215,14 @@ class _RedisSlidingWindowRateLimiter:
         self._redis_retry_at: float = 0.0
 
     def _get_redis(self) -> Any:
-        import importlib as _importlib
+        import importlib.util as _importlib_util
 
         now = time.monotonic()
         if self._redis_unavailable and now < self._redis_retry_at:
             return None
         if self._redis_client is not None:
             return self._redis_client
-        if _importlib.util.find_spec("redis") is None:
+        if _importlib_util.find_spec("redis") is None:
             self._redis_unavailable = True
             return None
         try:
@@ -842,7 +843,7 @@ def _bot_manager_unavailable_response() -> JSONResponse:
 
 
 def _bot_recovery_diagnostics() -> Dict[str, Any]:
-    if not _bot_manager_ready():
+    if bot_manager is None:
         return {
             "source": "unavailable",
             "attempted": 0,
@@ -867,7 +868,7 @@ def _bot_recovery_diagnostics() -> Dict[str, Any]:
 
 
 def _bot_db_sync_diagnostics() -> Dict[str, Any]:
-    if not _bot_manager_ready():
+    if bot_manager is None:
         return {
             "active": False,
             "remaining_seconds": 0.0,
@@ -1494,7 +1495,7 @@ def custom_openapi():
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     """Manage startup and shutdown lifecycle for the Bot API."""
     global bot_manager_monitor_task
 
@@ -1946,17 +1947,19 @@ def _persist_bot_status_and_event(
         if status is not None:
             uow.bots.update_status(instance_id, status, process_id=process_id)
             bot = uow.bots.get_by_instance_id(instance_id)
+            if bot is None:
+                return None
 
         if event_type:
             uow.events.log_event(
-                bot.id,
+                int(bot.id),  # type: ignore[arg-type]
                 event_type,
                 severity,
                 message,
                 details=details,
             )
 
-        return dict(bot.config or {})
+        return dict(bot.config) if bot.config is not None else {}  # type: ignore[arg-type]
     except Exception as db_error:
         logger.warning(
             "Failed to persist bot lifecycle state for {}: {}",
@@ -2065,7 +2068,7 @@ async def create_bot_instance(
 ):
     """Create a new bot instance"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return _bot_manager_unavailable_response()
         result = await bot_manager.create_instance(config)
 
@@ -2114,7 +2117,7 @@ async def create_bot_instance(
 
                 # Log creation event
                 uow.events.log_event(
-                    bot_db.id,
+                    int(bot_db.id),  # type: ignore[arg-type]
                     "bot_created",
                     "info",
                     f"Bot instance created via API: {config.instance_id}",
@@ -2160,7 +2163,7 @@ async def create_bot_instance(
 async def list_bot_instances(current_user: User = Depends(get_current_active_user)):
     """Get list of all bot instances"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return api_response(
                 success=True,
                 data={"bots": [], "total": 0},
@@ -2190,7 +2193,7 @@ async def get_bot_instance(
 ):
     """Get specific bot instance status"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return _bot_manager_unavailable_response()
         instance = await bot_manager.get_instance_status(instance_id)
 
@@ -2220,7 +2223,7 @@ async def delete_bot_instance(
 ):
     """Delete bot instance"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return _bot_manager_unavailable_response()
         existing_config = _persist_bot_status_and_event(
             instance_id,
@@ -2236,7 +2239,7 @@ async def delete_bot_instance(
                 bot = uow.bots.get_by_instance_id(instance_id)
                 if bot is not None:
                     uow.events.log_event(
-                        bot.id,
+                        int(bot.id),  # type: ignore[arg-type]
                         "bot_deleted",
                         "info",
                         "Bot instance deleted via API",
@@ -2301,7 +2304,7 @@ async def start_bot_instance(
 ):
     """Start bot instance"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return _bot_manager_unavailable_response()
         result = await bot_manager.start_instance(instance_id)
 
@@ -2373,7 +2376,7 @@ async def stop_bot_instance(
 ):
     """Stop bot instance"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return _bot_manager_unavailable_response()
         result = await bot_manager.stop_instance(instance_id, force=force)
 
@@ -2443,7 +2446,7 @@ async def restart_bot_instance(
 ):
     """Restart bot instance"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return _bot_manager_unavailable_response()
         # Stop first
         stop_result = await bot_manager.stop_instance(instance_id, force=False)
@@ -2589,7 +2592,7 @@ async def get_bot_history(
             )
 
         # Get events
-        events = uow.events.get_bot_events(bot.id, days=days)
+        events = uow.events.get_bot_events(int(bot.id), days=days)  # type: ignore[arg-type]
 
         return api_response(
             success=True,
@@ -2641,7 +2644,7 @@ async def get_bot_jobs(
             )
 
         # Get jobs
-        jobs = uow.jobs.get_job_history(bot.id, days=days)
+        jobs = uow.jobs.get_job_history(int(bot.id), days=days)  # type: ignore[arg-type]
 
         # Calculate job statistics
         total_jobs = len(jobs)
@@ -2683,10 +2686,14 @@ async def get_bot_jobs(
                             else None
                         ),
                         "started_at": (
-                            j.started_at.isoformat() if j.started_at else None
+                            j.started_at.isoformat()
+                            if j.started_at is not None
+                            else None
                         ),
                         "completed_at": (
-                            j.completed_at.isoformat() if j.completed_at else None
+                            j.completed_at.isoformat()
+                            if j.completed_at is not None
+                            else None
                         ),
                         "error_message": j.error_message,
                         "cancellation_reason": getattr(j, "cancellation_reason", None),
@@ -2728,11 +2735,11 @@ async def get_bot_trades(
             )
 
         # Get trades
-        trades = uow.trades.get_bot_trades(bot.id)
+        trades = uow.trades.get_bot_trades(int(bot.id))  # type: ignore[arg-type]
 
         # Filter by status if requested
         if status:
-            trades = [t for t in trades if t.status == status.upper()]
+            trades = [t for t in trades if str(t.status) == status.upper()]
 
         return api_response(
             success=True,
@@ -2747,25 +2754,29 @@ async def get_bot_trades(
                         "pair2": t.pair2,
                         "status": t.status,
                         "entry_price1": (
-                            float(t.entry_price1) if t.entry_price1 else None
+                            float(t.entry_price1) if t.entry_price1 is not None else None  # type: ignore[arg-type]
                         ),
                         "entry_price2": (
-                            float(t.entry_price2) if t.entry_price2 else None
+                            float(t.entry_price2) if t.entry_price2 is not None else None  # type: ignore[arg-type]
                         ),
-                        "exit_price1": float(t.exit_price1) if t.exit_price1 else None,
-                        "exit_price2": float(t.exit_price2) if t.exit_price2 else None,
-                        "entry_cost": float(t.entry_cost) if t.entry_cost else None,
+                        "exit_price1": float(t.exit_price1) if t.exit_price1 is not None else None,  # type: ignore[arg-type]
+                        "exit_price2": float(t.exit_price2) if t.exit_price2 is not None else None,  # type: ignore[arg-type]
+                        "entry_cost": float(t.entry_cost) if t.entry_cost is not None else None,  # type: ignore[arg-type]
                         "exit_proceeds": (
-                            float(t.exit_proceeds) if t.exit_proceeds else None
+                            float(t.exit_proceeds) if t.exit_proceeds is not None else None  # type: ignore[arg-type]
                         ),
-                        "profit_loss": float(t.profit_loss) if t.profit_loss else None,
+                        "profit_loss": float(t.profit_loss) if t.profit_loss is not None else None,  # type: ignore[arg-type]
                         "profit_loss_percentage": (
-                            float(t.profit_loss_percentage)
-                            if t.profit_loss_percentage
+                            float(t.profit_loss_percentage)  # type: ignore[arg-type]
+                            if t.profit_loss_percentage is not None
                             else None
                         ),
-                        "opened_at": t.opened_at.isoformat() if t.opened_at else None,
-                        "closed_at": t.closed_at.isoformat() if t.closed_at else None,
+                        "opened_at": (
+                            t.opened_at.isoformat() if t.opened_at is not None else None
+                        ),
+                        "closed_at": (
+                            t.closed_at.isoformat() if t.closed_at is not None else None
+                        ),
                         "duration_seconds": t.duration_seconds,
                     }
                     for t in trades
@@ -2805,7 +2816,7 @@ async def get_bot_stats(
         bot_stats = uow.bots.get_statistics(instance_id)
 
         # Get trade statistics
-        trade_stats = uow.trades.get_trade_statistics(bot.id)
+        trade_stats = uow.trades.get_trade_statistics(int(bot.id))  # type: ignore[arg-type]
 
         return api_response(
             success=True,
@@ -2862,7 +2873,7 @@ async def quick_deploy_bot(
 ):
     """Quick deploy and optionally start a new bot instance"""
     try:
-        if not _bot_manager_ready():
+        if bot_manager is None:
             return _bot_manager_unavailable_response()
         # Generate instance ID from name
         import re
@@ -2967,7 +2978,7 @@ async def readiness_check():
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
         backtest_limits = _backtest_capacity_snapshot(runtime_health)
-        ready = _bot_manager_ready()
+        ready = bot_manager is not None
         status_code = 200 if ready else 503
 
         return api_response(
@@ -3289,12 +3300,9 @@ async def list_perpetual_markets(limit: int = 0):
                 headers={"X-Cache-Stale": "1"},
             )
 
-        allow_static_fallback = (
-            os.getenv("MARKETS_ENDPOINT_ALLOW_STATIC_FALLBACK", "true")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
-        )
+        allow_static_fallback = os.getenv(
+            "MARKETS_ENDPOINT_ALLOW_STATIC_FALLBACK", "true"
+        ).strip().lower() in {"1", "true", "yes", "on"}
         if allow_static_fallback:
             fallback_markets = _static_market_fallback()
             if cap is not None:
@@ -3558,7 +3566,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
         with backtest_service_scope() as service:
             runtime_health = service.get_runtime_health()
             backtest_limits = _backtest_capacity_snapshot(runtime_health)
-            if not _bot_manager_ready():
+            if bot_manager is None:
                 return api_response(
                     success=True,
                     data={
@@ -3644,7 +3652,7 @@ def _resolve_realtime_bot_id(session, bot_instance_id: str) -> Optional[int]:
     try:
         uow_core = UnitOfWork(session)
         bot = uow_core.bots.get_by_instance_id(raw_id)
-        return int(bot.id) if bot else None
+        return int(bot.id) if bot else None  # type: ignore[arg-type]
     except Exception as exc:
         logger.warning(
             "Failed to resolve realtime bot id for {}: {}",
@@ -3670,7 +3678,7 @@ async def get_current_positions(
             # If not a pure int, try to use it as-is (some DB schemas use string IDs)
             bot_id_int = bot_instance_id
 
-        positions = uow.positions.get_open_positions(bot_id_int)
+        positions = uow.positions.get_open_positions(bot_id_int)  # type: ignore[arg-type]
 
         return api_response(
             success=True,
@@ -3724,14 +3732,14 @@ async def get_position(
                 "side1": position.side1,
                 "side2": position.side2,
                 "status": position.status.value,
-                "entry_price1": float(position.entry_price1),
-                "entry_price2": float(position.entry_price2),
-                "current_price1": float(position.current_price1),
-                "current_price2": float(position.current_price2),
-                "current_size1": float(position.current_size1),
-                "current_size2": float(position.current_size2),
-                "entry_cost": float(position.entry_cost),
-                "current_value": float(position.current_value),
+                "entry_price1": float(position.entry_price1 or 0.0),
+                "entry_price2": float(position.entry_price2 or 0.0),
+                "current_price1": float(position.current_price1 or 0.0),
+                "current_price2": float(position.current_price2 or 0.0),
+                "current_size1": float(position.current_size1 or 0.0),
+                "current_size2": float(position.current_size2 or 0.0),
+                "entry_cost": float(position.entry_cost or 0.0),
+                "current_value": float(position.current_value or 0.0),
                 "unrealized_pnl": float(position.unrealized_pnl),
                 "unrealized_pnl_pct": float(position.unrealized_pnl_pct),
                 "realized_pnl": (
@@ -4013,27 +4021,6 @@ async def get_position_history(
         session.close()
 
 
-# ============================================================================
-# WEBSOCKET ENDPOINTS
-# ============================================================================
-
-
-@app.websocket("/api/v1/bots/{bot_instance_id}/positions/live")
-async def websocket_positions(websocket: WebSocket, bot_instance_id: str):
-    """WebSocket endpoint for live position updates"""
-    if not await _authorize_websocket_connection(websocket):
-        return
-    await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
-
-
-@app.websocket("/api/v1/bots/{bot_instance_id}/market/live")
-async def websocket_market(websocket: WebSocket, bot_instance_id: str):
-    """WebSocket endpoint for live market data"""
-    if not await _authorize_websocket_connection(websocket):
-        return
-    await WebSocketServer.handle_connection(websocket, str(bot_instance_id))
-
-
 @app.websocket("/api/v1/bots/{bot_instance_id}/alerts/live")
 async def websocket_alerts(websocket: WebSocket, bot_instance_id: str):
     """WebSocket endpoint for live alerts"""
@@ -4103,7 +4090,7 @@ async def websocket_strategies(websocket: WebSocket):
     channel = "strategies"
     await manager.connect(websocket, channel)
     try:
-        if _bot_manager_ready():
+        if bot_manager is not None:
             await manager.send_personal_message(
                 build_strategy_snapshot_message(
                     bot_manager.get_strategy_status_snapshot()
@@ -4150,7 +4137,7 @@ def get_backtest_service():
     db_session = db.get_session()
     repository = BacktestRepository(db_session)
     # Ensure repository has access to session for service operations
-    repository.db = db_session
+    repository.db = db_session  # type: ignore[attr-defined]
     service = BacktestService(repository)
     return service
 
@@ -4175,7 +4162,7 @@ def close_backtest_service(service: Optional[BacktestService]) -> None:
 
 
 @contextmanager
-def backtest_service_scope():
+def backtest_service_scope() -> Generator["BacktestService", None, None]:
     """Provide a request-scoped backtest service and always release its DB session."""
     service = get_backtest_service()
     try:
@@ -5209,7 +5196,7 @@ async def validate_against_dydx_data(
     """Validate backtest results against real dYdX market data"""
     try:
         with backtest_service_scope() as service:
-            validation_result = await service.validate_against_dydx_data(run_id)
+            validation_result = await service.validate_against_dydx_data(run_id)  # type: ignore[attr-defined]
         if not validation_result:
             return api_response(
                 success=False,

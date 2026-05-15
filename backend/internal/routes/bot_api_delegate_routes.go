@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers for delegated bot API endpoints in the dYdX backend API.
 package routes
 
 import (

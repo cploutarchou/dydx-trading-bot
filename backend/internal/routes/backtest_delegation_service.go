@@ -1,3 +1,4 @@
+// Package routes provides services for delegated backtest operations in the dYdX backend API.
 package routes
 
 import (
@@ -9,8 +10,10 @@ type BacktestDelegationService struct {
 	backtestSync *services.BacktestSyncService
 }
 
-type syncRunFunc func(c *gin.Context, payload map[string]interface{})
-type syncChildrenFunc func(c *gin.Context, runID string, payload map[string]interface{})
+type (
+	syncRunFunc      func(c *gin.Context, payload map[string]interface{})
+	syncChildrenFunc func(c *gin.Context, runID string, payload map[string]interface{})
+)
 
 func NewBacktestDelegationService(backtestSync *services.BacktestSyncService) *BacktestDelegationService {
 	return &BacktestDelegationService{backtestSync: backtestSync}

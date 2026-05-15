@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers for the dYdX backend API introducing broker (IB) features.
 package routes
 
 import (

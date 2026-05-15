@@ -1,3 +1,4 @@
+// Package routes provides helper functions for HTTP response formatting in the dYdX backend API.
 package routes
 
 import (

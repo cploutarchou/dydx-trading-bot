@@ -1,5 +1,6 @@
-import pytest
 from typing import Any, cast
+
+import pytest
 
 from src.middleware.auth_middleware import authenticate_bearer_token
 
@@ -8,7 +9,9 @@ class _FailingSession:
     """Session stub that fails if DB lookup is attempted for service-token auth."""
 
     def query(self, *_args, **_kwargs):  # pragma: no cover - safety assertion
-        raise AssertionError("DB query should not be used for service-token authentication")
+        raise AssertionError(
+            "DB query should not be used for service-token authentication"
+        )
 
 
 @pytest.mark.parametrize("token", ["token-current", "token-previous"])

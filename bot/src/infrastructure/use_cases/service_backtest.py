@@ -12,7 +12,7 @@ import random
 import time
 import traceback as traceback_module
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Awaitable, Dict, List, Optional
+from typing import Any, Awaitable, Dict, List, Optional, cast
 from uuid import uuid4
 
 import httpx
@@ -36,13 +36,19 @@ logger = logging.getLogger(__name__)
 def _linregress_slope(x: Any, y: Any) -> float:
     """Return slope from scipy.stats.linregress across typing/runtime variants."""
     result = linregress(x, y)
-    slope_value = getattr(result, "slope", None)
+    slope_value: Any = getattr(result, "slope", None)
     if slope_value is None:
         if isinstance(result, tuple) and result:
             slope_value = result[0]
         else:
             raise ValueError("Unable to extract slope from linregress result")
-    return float(slope_value)
+
+    if isinstance(slope_value, tuple):
+        if not slope_value:
+            raise ValueError("Unable to extract slope from empty linregress tuple")
+        slope_value = slope_value[0]
+
+    return float(cast(Any, slope_value))
 
 
 class _BacktestRunStatus(BaseModel):
@@ -2439,7 +2445,7 @@ class BacktestService:
                 raise ValueError("No valid market pairs available from request")
 
             client = await self._await_with_deadline(
-                connect_dydx(),
+                cast(Awaitable[Any], connect_dydx()),
                 deadline_monotonic,
                 "connecting to dYdX",
             )

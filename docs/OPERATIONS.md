@@ -49,9 +49,32 @@ backend and bot persistence domains.
 
 - `GET /api/v1/backtests/sync-health` now includes
    `strategy_resolution_metrics` with counters for `store`, `history`, `request`, and `not_found` paths.
+- For dashboard polling, use either:
+   - `GET /api/v1/backtests/sync-health?metrics_only=true`
+   - `GET /api/v1/runtime/strategy-resolution-metrics`
+   - `GET /api/v1/admin/runtime/strategy-resolution-metrics` (admin alias)
+- Prometheus text endpoint:
+   - `GET /api/v1/runtime/strategy-resolution-metrics/prom`
+- Alerting fields are included under `strategy_resolution_metrics.alerts`.
+- Request-fallback alert tuning:
+   - `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE` (default `200`)
+   - `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD` (default `0.05`)
+   - `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS` (default `20`)
 - To disable request-payload strategy fallback in production, set:
    `BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`
-   (effective only when `ENVIRONMENT=production`).
+   (effective when `ENVIRONMENT=production` or `ENVIRONMENT=prod`).
+
+### Probe surfaces for SRE
+
+- `GET /health` and `GET /ready` include:
+   - `strategy_resolution_metrics`
+   - `strategy_resolution_alerts`
+   - `strategy_resolution_alert_recommended`
+
+### Incident response control
+
+- Admin-only reset endpoint:
+   - `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`
 
 ### Database ownership guardrails
 

@@ -392,6 +392,138 @@ def test_sync_health_endpoint_returns_runtime_counters(monkeypatch):
     assert "counts" in payload["data"]["strategy_resolution_metrics"]
 
 
+def test_sync_health_endpoint_metrics_only_filter(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(_call(server.backtest_sync_health(metrics_only=True)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["status"] == "ok"
+    assert "strategy_resolution_metrics" in payload["data"]
+    assert "queue_depth" not in payload["data"]
+
+
+def test_health_and_ready_include_strategy_resolution_alert_metadata(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    health_response = asyncio.run(_call(server.health_check()))
+    health_payload = json.loads(health_response.body)
+    assert health_payload["success"] is True
+    assert "strategy_resolution_metrics" in health_payload["data"]
+    assert "strategy_resolution_alerts" in health_payload["data"]
+    assert "strategy_resolution_alert_recommended" in health_payload["data"]
+
+    ready_response = asyncio.run(_call(server.readiness_check()))
+    ready_payload = json.loads(ready_response.body)
+    assert "strategy_resolution_metrics" in ready_payload["data"]
+    assert "strategy_resolution_alerts" in ready_payload["data"]
+    assert "strategy_resolution_alert_recommended" in ready_payload["data"]
+
+
+def test_runtime_strategy_resolution_metrics_endpoint_returns_snapshot(monkeypatch):
+    server = _load_server_module()
+
+    response = asyncio.run(
+        _call(server.get_strategy_resolution_metrics(current_user=object()))
+    )
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert "counts" in payload["data"]
+    assert "window" in payload["data"]
+    assert "alerts" in payload["data"]
+
+
+def test_admin_runtime_strategy_resolution_metrics_endpoint_returns_snapshot(
+    monkeypatch,
+):
+    server = _load_server_module()
+
+    response = asyncio.run(
+        _call(server.get_strategy_resolution_metrics_admin(current_user=object()))
+    )
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert "counts" in payload["data"]
+    assert "alerts" in payload["data"]
+
+
+def test_runtime_strategy_resolution_metrics_prometheus_endpoint(monkeypatch):
+    server = _load_server_module()
+
+    response = asyncio.run(
+        _call(server.get_strategy_resolution_metrics_prometheus(current_user=object()))
+    )
+    body = response.body.decode("utf-8")
+
+    assert response.status_code == 200
+    assert "bot_strategy_resolution_total" in body
+    assert "bot_strategy_resolution_request_ratio_alert_triggered" in body
+    assert "bot_strategy_resolution_alert_summary" in body
+    assert "bot_strategy_resolution_request_snapshot_fallback_enabled" in body
+
+
+def test_admin_runtime_strategy_resolution_metrics_reset_endpoint(monkeypatch):
+    server = _load_server_module()
+
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("history")
+
+    response = asyncio.run(
+        _call(server.reset_strategy_resolution_metrics_admin(current_user=object()))
+    )
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    counts = payload["data"]["counts"]
+    assert counts["store"] == 0
+    assert counts["history"] == 0
+    assert counts["request"] == 0
+    assert counts["not_found"] == 0
+    assert payload["data"]["window"]["total"] == 0
+
+
+def test_strategy_resolution_request_ratio_alert_triggers(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setenv("STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE", "5")
+    monkeypatch.setenv("STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD", "0.40")
+    monkeypatch.setenv("STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS", "5")
+
+    with server._strategy_resolution_metrics_lock:
+        server._strategy_resolution_metrics["counts"] = {
+            "store": 0,
+            "history": 0,
+            "request": 0,
+            "not_found": 0,
+        }
+        server._strategy_resolution_metrics["last_path"] = None
+        server._strategy_resolution_metrics["last_updated_at"] = None
+        server._strategy_resolution_recent_paths.clear()
+
+    # 3/5 request resolution ratio => 0.6 > 0.4, should trigger alert.
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("store")
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("history")
+
+    snapshot = server._strategy_resolution_metrics_snapshot()
+    assert snapshot["window"]["total"] == 5
+    assert snapshot["window"]["counts"]["request"] == 3
+    assert snapshot["alerts"]["request_ratio_recent"] == 0.6
+    assert snapshot["alerts"]["request_ratio_alert_triggered"] is True
+
+    prom = server._strategy_resolution_metrics_prometheus()
+    assert (
+        'bot_strategy_resolution_alert_summary{alert="request_ratio",severity="warning",reason="request_ratio_exceeded"} 1'
+        in prom
+    )
+
+
 def test_restart_returns_409_when_original_request_payload_missing(monkeypatch):
     server = _load_server_module()
     monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
@@ -479,6 +611,10 @@ def test_openapi_documents_standard_response_envelope():
     assert "/api/v1/admin/backtests/interrupted/reconcile" in schema["paths"]
     assert "/api/v1/capabilities" in schema["paths"]
     assert "/api/v1/runtime/db-config" in schema["paths"]
+    assert "/api/v1/runtime/strategy-resolution-metrics" in schema["paths"]
+    assert "/api/v1/runtime/strategy-resolution-metrics/prom" in schema["paths"]
+    assert "/api/v1/admin/runtime/strategy-resolution-metrics" in schema["paths"]
+    assert "/api/v1/admin/runtime/strategy-resolution-metrics/reset" in schema["paths"]
 
     status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"][
         "responses"

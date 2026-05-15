@@ -1,6 +1,7 @@
 """Authentication router."""
 
 import os
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -43,28 +44,43 @@ def _build_token_response(username: str) -> dict:
     }
 
 
+def _username_value(user: User) -> str:
+    return str(cast(object, user.username))
+
+
+def _hashed_password_value(user: User) -> str:
+    return str(cast(object, user.hashed_password))
+
+
 def _authenticate_user(
-        username: str,
-        password: str,
-        session: Session,
+    username: str,
+    password: str,
+    session: Session,
 ) -> dict:
     if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
         return _build_token_response(username)
 
     user = session.query(User).filter(User.username == username).first()
-    if not user or not PasswordUtils.verify_password(password, user.hashed_password):
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
 
-    return _build_token_response(user.username)
+    hashed_password = _hashed_password_value(user)
+    if not PasswordUtils.verify_password(password, hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+
+    return _build_token_response(_username_value(user))
 
 
 @router.post("/token")
 async def token_login(
-        form_data: OAuth2PasswordRequestForm = Depends(),
-        session: Session = Depends(db.get_session),
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: Session = Depends(db.get_session),
 ):
     """Login endpoint"""
     return _authenticate_user(form_data.username, form_data.password, session)
@@ -72,8 +88,8 @@ async def token_login(
 
 @router.post("/login")
 async def login(
-        payload: LoginRequest,
-        session: Session = Depends(db.get_session),
+    payload: LoginRequest,
+    session: Session = Depends(db.get_session),
 ):
     """Frontend-compatible JSON login endpoint."""
     return _authenticate_user(payload.username, payload.password, session)
@@ -81,8 +97,8 @@ async def login(
 
 @router.post("/register")
 async def register(
-        payload: RegisterRequest,
-        session: Session = Depends(db.get_session),
+    payload: RegisterRequest,
+    session: Session = Depends(db.get_session),
 ):
     """Register endpoint."""
     username = SecurityUtils.sanitize_input(payload.username, max_length=50)
@@ -109,7 +125,9 @@ async def register(
         )
 
     existing_user = (
-        session.query(User).filter((User.username == username) | (User.email == email)).first()
+        session.query(User)
+        .filter((User.username == username) | (User.email == email))
+        .first()
     )
     if existing_user:
         raise HTTPException(
@@ -132,7 +150,7 @@ async def register(
     session.commit()
     session.refresh(user)
 
-    token_response = _build_token_response(user.username)
+    token_response = _build_token_response(_username_value(user))
     return {
         "message": "User registered successfully",
         "user": {

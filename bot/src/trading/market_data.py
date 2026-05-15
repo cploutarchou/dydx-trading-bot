@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
+
 from src.constants import (
     CANDLE_FETCH_CONCURRENCY,
     CANDLES_RECENT_CACHE_TTL_SECONDS,
@@ -172,6 +173,7 @@ async def get_candles_recent(client, market, resolution=None):
     # Check shared Redis cache (written by the Celery Beat market sync task)
     try:
         import os as _os
+
         import redis as _redis
 
         _rc = _redis.from_url(
@@ -184,7 +186,7 @@ async def get_candles_recent(client, market, resolution=None):
         )
         _redis_val = _rc.get(f"market:candles:{market}:{effective_resolution}")
         _rc.close()
-        if _redis_val:
+        if isinstance(_redis_val, (str, bytes, bytearray)) and _redis_val:
             import json as _json
 
             _redis_data = _json.loads(_redis_val)
@@ -411,11 +413,18 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
     # Build DataFrame from gathered results
     df: pd.DataFrame | None = None
     for i, item in enumerate(results):
-        if isinstance(item, Exception):
+        if isinstance(item, BaseException):
             logger.warning(
                 "Skipping market {} – candle fetch failed: {}",
                 tradeable_markets[i],
                 item,
+            )
+            continue
+        if not isinstance(item, tuple) or len(item) != 2:
+            logger.warning(
+                "Skipping market {} – unexpected candle fetch payload type={}",
+                tradeable_markets[i],
+                type(item).__name__,
             )
             continue
         market, close_prices = item

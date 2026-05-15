@@ -13,11 +13,12 @@ import inspect
 import os
 import signal
 import sys
-from typing import Any, Optional
+from typing import Any, Optional, cast
+
+from loguru import logger
 
 # Import configuration and bot functions
 from config.config import config
-from loguru import logger
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import abort_all_positions
@@ -74,13 +75,34 @@ class BotInstance:
         else:
             self.logger.error(normalized_message.format(error_detail))
 
+    def _require_logger(self) -> Any:
+        if self.logger is None:
+            raise RuntimeError("Logger is not initialized")
+        return self.logger
+
+    def _require_config(self) -> Any:
+        if self.config is None:
+            raise RuntimeError("Configuration is not initialized")
+        return self.config
+
+    def _require_messenger(self) -> TelegramMessenger:
+        if self.messenger is None:
+            raise RuntimeError("Messenger is not initialized")
+        return self.messenger
+
+    async def _maybe_await(self, value: Any) -> Any:
+        """Await values only when they are awaitable (supports sync/async callables)."""
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
     def setup_logging(self):
         """Setup instance-specific logging"""
         setup_logging()
         self.logger = logger.bind(
             instance_id=self.instance_id, component="bot_instance"
         )
-        self.logger.info(f"Bot instance {self.instance_id} initializing...")
+        self._require_logger().info(f"Bot instance {self.instance_id} initializing...")
 
     def load_config(self):
         """Load instance-specific configuration"""
@@ -106,16 +128,25 @@ class BotInstance:
                             TelegramSettings,
                         )
 
-                        self.config = DydxConfig(
+                        DydxConfigFactory = cast(Any, DydxConfig)
+                        TelegramSettingsFactory = cast(Any, TelegramSettings)
+                        BotSettingsFactory = cast(Any, BotSettings)
+                        DYDXTestnetSettingsFactory = cast(Any, DYDXTestnetSettings)
+                        DYDXMainnetSettingsFactory = cast(Any, DYDXMainnetSettings)
+                        LoggingSettingsFactory = cast(Any, LoggingSettings)
+                        LokiSettingsFactory = cast(Any, LokiSettings)
+                        BacktestSettingsFactory = cast(Any, BacktestSettings)
+
+                        self.config = DydxConfigFactory(
                             is_testnet=config_data.get("is_testnet", True),
                             environment=config_data.get("environment", "development"),
-                            telegram=TelegramSettings(
+                            telegram=TelegramSettingsFactory(
                                 token=config_data.get("telegram", {}).get("token", ""),
                                 chat_id=config_data.get("telegram", {}).get(
                                     "chat_id", ""
                                 ),
                             ),
-                            botSettings=BotSettings(
+                            botSettings=BotSettingsFactory(
                                 is_testnet=config_data.get("is_testnet", True),
                                 subaccountNumber=int(
                                     config_data.get("botSettings", {}).get(
@@ -216,7 +247,7 @@ class BotInstance:
                                     if str(market).strip()
                                 ],
                             ),
-                            dydx_testnet=DYDXTestnetSettings(
+                            dydx_testnet=DYDXTestnetSettingsFactory(
                                 dydx_chain_address=config_data.get(
                                     "dydx_testnet", {}
                                 ).get("dydx_chain_address", ""),
@@ -224,7 +255,7 @@ class BotInstance:
                                     "dydx_testnet", {}
                                 ).get("dydx_chain_secret", ""),
                             ),
-                            dydx_mainnet=DYDXMainnetSettings(
+                            dydx_mainnet=DYDXMainnetSettingsFactory(
                                 dydx_chain_address=config_data.get(
                                     "dydx_mainnet", {}
                                 ).get("dydx_chain_address", ""),
@@ -232,11 +263,11 @@ class BotInstance:
                                     "dydx_mainnet", {}
                                 ).get("dydx_chain_secret", ""),
                             ),
-                            logging=LoggingSettings(
+                            logging=LoggingSettingsFactory(
                                 level=config_data.get("logging", {}).get(
                                     "level", "INFO"
                                 ),
-                                loki=LokiSettings(
+                                loki=LokiSettingsFactory(
                                     enabled=config_data.get("logging", {})
                                     .get("loki", {})
                                     .get("enabled", False),
@@ -254,7 +285,7 @@ class BotInstance:
                                     .get("labels", {}),
                                 ),
                             ),
-                            backtesting=BacktestSettings(
+                            backtesting=BacktestSettingsFactory(
                                 candleResolution=config_data.get("backtesting", {}).get(
                                     "candleResolution", "1HOUR"
                                 ),
@@ -323,7 +354,7 @@ class BotInstance:
         """Setup signal handlers for graceful shutdown"""
 
         def signal_handler(signum, frame):
-            self.logger.info(
+            self._require_logger().info(
                 f"Received signal {signum}, shutting down instance {self.instance_id}..."
             )
             self.running = False
@@ -339,51 +370,54 @@ class BotInstance:
             self.load_config()
             self.setup_signal_handlers()
 
+            runtime_logger = self._require_logger()
+            runtime_config = self._require_config()
+
             # Initialize Telegram messenger with instance-specific credentials
             telegram_token = ""
             telegram_chat_id = ""
-            if self.config and self.config.telegram:
-                telegram_token = self.config.telegram.token or ""
-                telegram_chat_id = self.config.telegram.chat_id or ""
+            if runtime_config.telegram:
+                telegram_token = runtime_config.telegram.token or ""
+                telegram_chat_id = runtime_config.telegram.chat_id or ""
 
             self.messenger = TelegramMessenger(
                 bot_token=telegram_token,
                 chat_id=telegram_chat_id,
                 instance_id=self.instance_id,
-                environment=self.config.environment if self.config else "development",
+                environment=runtime_config.environment,
             )
 
             # Send startup message
             account_address = (
-                self.config.dydx_testnet.dydx_chain_address
-                if self.config.is_testnet
-                else self.config.dydx_mainnet.dydx_chain_address
+                runtime_config.dydx_testnet.dydx_chain_address
+                if runtime_config.is_testnet
+                else runtime_config.dydx_mainnet.dydx_chain_address
             )
             config_dict = {
                 "instance_id": self.instance_id,
-                "environment": self.config.environment,
-                "is_testnet": self.config.is_testnet,
-                "strategy": self.config.botSettings.strategy,
+                "environment": runtime_config.environment,
+                "is_testnet": runtime_config.is_testnet,
+                "strategy": runtime_config.botSettings.strategy,
                 "account_address": account_address,
-                "usd_per_trade": self.config.botSettings.usdPerTrade,
-                "zscore_threshold": self.config.botSettings.ZScoreThreshold,
+                "usd_per_trade": runtime_config.botSettings.usdPerTrade,
+                "zscore_threshold": runtime_config.botSettings.ZScoreThreshold,
             }
-            self.messenger.send_startup_message(config_dict)
+            self._require_messenger().send_startup_message(config_dict)
 
             # Connect to dYdX client using per-instance credentials
-            self.logger.info("Connecting to dYdX client...")
-            if self.config.is_testnet and self.config.dydx_testnet:
-                instance_address = self.config.dydx_testnet.dydx_chain_address
-                instance_mnemonic = self.config.dydx_testnet.dydx_chain_secret
+            runtime_logger.info("Connecting to dYdX client...")
+            if runtime_config.is_testnet and runtime_config.dydx_testnet:
+                instance_address = runtime_config.dydx_testnet.dydx_chain_address
+                instance_mnemonic = runtime_config.dydx_testnet.dydx_chain_secret
             else:
                 instance_address = (
-                    self.config.dydx_mainnet.dydx_chain_address
-                    if self.config.dydx_mainnet
+                    runtime_config.dydx_mainnet.dydx_chain_address
+                    if runtime_config.dydx_mainnet
                     else ""
                 )
                 instance_mnemonic = (
-                    self.config.dydx_mainnet.dydx_chain_secret
-                    if self.config.dydx_mainnet
+                    runtime_config.dydx_mainnet.dydx_chain_secret
+                    if runtime_config.dydx_mainnet
                     else ""
                 )
             if not instance_address:
@@ -393,9 +427,11 @@ class BotInstance:
             self.client = await connect_dydx_runtime(
                 address=instance_address,
                 mnemonic=instance_mnemonic,
-                is_testnet=self.config.is_testnet,
+                is_testnet=runtime_config.is_testnet,
             )
-            self.logger.info("Successfully connected to dYdX as {}", instance_address)
+            runtime_logger.info(
+                "Successfully connected to dYdX as {}", instance_address
+            )
 
         except Exception as e:
             error_detail = self._describe_exception(e)
@@ -413,18 +449,21 @@ class BotInstance:
     async def run_initial_setup(self):
         """Run initial setup tasks (positions, cointegration analysis)"""
         try:
+            runtime_logger = self._require_logger()
+            runtime_config = self._require_config()
+            runtime_messenger = self._require_messenger()
             # Get bot settings
-            bot_settings = self.config.botSettings
+            bot_settings = runtime_config.botSettings
 
             # Abort all open positions if requested
             if bot_settings.abortAllPositions:
-                self.logger.info("Closing open positions...")
-                await abort_all_positions(self.client)
-                self.logger.info("All positions closed")
+                runtime_logger.info("Closing open positions...")
+                await self._maybe_await(abort_all_positions(self.client))
+                runtime_logger.info("All positions closed")
 
             # Find cointegrated pairs if requested
             if bot_settings.findCointegratedPairs:
-                self.logger.info("Starting cointegration analysis...")
+                runtime_logger.info("Starting cointegration analysis...")
                 selected_markets = getattr(bot_settings, "selectedMarkets", [])
                 instance_resolution = getattr(bot_settings, "resolutionTimeframe", None)
                 signature = inspect.signature(construct_market_prices)
@@ -433,10 +472,12 @@ class BotInstance:
                     kwargs["selected_markets"] = selected_markets
                 if "resolution" in signature.parameters and instance_resolution:
                     kwargs["resolution"] = instance_resolution
-                    self.logger.info(
+                    runtime_logger.info(
                         f"Using strategy resolution for cointegration: {instance_resolution}"
                     )
-                df_market_prices = await construct_market_prices(self.client, **kwargs)
+                df_market_prices = await self._maybe_await(
+                    construct_market_prices(self.client, **kwargs)
+                )
 
                 # Store results in instance-specific file
                 stores_result = store_cointegration_results(df_market_prices)
@@ -451,12 +492,12 @@ class BotInstance:
                         f"Failed to save cointegration results{error_detail}"
                     )
 
-                self.logger.info("Cointegration analysis completed")
+                runtime_logger.info("Cointegration analysis completed")
 
         except Exception as e:
             error_detail = self._describe_exception(e)
             self._log_exception("Error in initial setup: {}", e)
-            self.messenger.send_error_message(
+            runtime_messenger.send_error_message(
                 "Setup Failed",
                 f"Bot instance {self.instance_id} setup failed: {error_detail}",
                 is_critical=True,
@@ -467,22 +508,25 @@ class BotInstance:
     async def trading_loop(self):
         """Main trading loop"""
         self.running = True
-        self.logger.info(f"Starting trading loop for instance {self.instance_id}")
+        runtime_logger = self._require_logger()
+        runtime_config = self._require_config()
+        runtime_messenger = self._require_messenger()
+        runtime_logger.info(f"Starting trading loop for instance {self.instance_id}")
 
         try:
             while self.running:
-                bot_settings = self.config.botSettings
+                bot_settings = runtime_config.botSettings
 
                 # Manage existing positions
                 if bot_settings.manageExits:
                     try:
-                        self.logger.debug("Managing exits...")
-                        await manage_trade_exits(self.client)
+                        runtime_logger.debug("Managing exits...")
+                        await self._maybe_await(manage_trade_exits(self.client))
                         await asyncio.sleep(1)
                     except Exception as e:
                         error_detail = self._describe_exception(e)
                         self._log_exception("Error managing exits: {}", e)
-                        self.messenger.send_error_message(
+                        runtime_messenger.send_error_message(
                             "Exit Management Error",
                             f"Instance {self.instance_id}: {error_detail}",
                             is_critical=False,
@@ -492,12 +536,12 @@ class BotInstance:
                 # Place new trades
                 if bot_settings.placeTrades:
                     try:
-                        self.logger.debug("Finding trading opportunities...")
-                        await open_positions(self.client)
+                        runtime_logger.debug("Finding trading opportunities...")
+                        await self._maybe_await(open_positions(self.client))
                     except Exception as e:
                         error_detail = self._describe_exception(e)
                         self._log_exception("Error opening positions: {}", e)
-                        self.messenger.send_error_message(
+                        runtime_messenger.send_error_message(
                             "Trade Entry Error",
                             f"Instance {self.instance_id}: {error_detail}",
                             is_critical=False,
@@ -508,14 +552,14 @@ class BotInstance:
                 await asyncio.sleep(5)  # 5 second cycle
 
         except KeyboardInterrupt:
-            self.logger.info(f"Bot instance {self.instance_id} stopped by user")
-            self.messenger.send_shutdown_message(
+            runtime_logger.info(f"Bot instance {self.instance_id} stopped by user")
+            runtime_messenger.send_shutdown_message(
                 f"User interrupt (instance {self.instance_id})"
             )
         except Exception as e:
             error_detail = self._describe_exception(e)
             self._log_exception("Critical error in trading loop: {}", e)
-            self.messenger.send_error_message(
+            runtime_messenger.send_error_message(
                 "Trading Loop Error",
                 f"Instance {self.instance_id}: {error_detail}",
                 is_critical=True,
@@ -544,6 +588,24 @@ class BotInstance:
                         f"Bot instance {self.instance_id} failed: {self._describe_exception(e)}"
                     )
             raise
+
+
+def parse_arguments() -> argparse.Namespace:
+    """Parse CLI arguments for worker instance execution."""
+    parser = argparse.ArgumentParser(description="Run a single bot instance worker")
+    parser.add_argument(
+        "--instance-id",
+        dest="instance_id",
+        required=True,
+        help="Unique instance id assigned by BotInstanceManager",
+    )
+    parser.add_argument(
+        "--config",
+        dest="config",
+        default=None,
+        help="Optional path to per-instance YAML configuration",
+    )
+    return parser.parse_args()
 
 
 async def main():

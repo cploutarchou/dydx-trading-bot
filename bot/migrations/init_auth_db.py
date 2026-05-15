@@ -6,11 +6,12 @@ Creates authentication tables and default admin user
 from datetime import datetime
 from typing import Type, Union
 
-from auth_utils import PasswordUtils
-from database import db, init_db
-from internal.domain.models.auth_models import User
 from loguru import logger
 from sqlalchemy.orm import Session
+
+from src.api.auth_utils import PasswordUtils
+from src.infrastructure.database import db, init_db
+from src.infrastructure.domain.models.auth_models import User
 
 
 def create_admin_user(session: Session) -> Union[Type[User], User]:
@@ -64,16 +65,18 @@ def test_email_config():
 
         email_provider = config("EMAIL_PROVIDER", default="")
 
-        if email_provider.lower() == "mailgun":
+        if str(email_provider).lower() == "mailgun":
             api_key = config("MAILGUN_API_KEY", default="")
             domain = config("MAILGUN_DOMAIN", default="")
 
             if api_key and domain:
                 logger.info("✅ Mailgun configuration found")
             else:
-                logger.warning("⚠️  Mailgun configuration incomplete (API_KEY or DOMAIN missing)")
+                logger.warning(
+                    "⚠️  Mailgun configuration incomplete (API_KEY or DOMAIN missing)"
+                )
 
-        elif email_provider.lower() == "smtp":
+        elif str(email_provider).lower() == "smtp":
             smtp_host = config("SMTP_HOST", default="")
             smtp_username = config("SMTP_USERNAME", default="")
 
@@ -82,7 +85,9 @@ def test_email_config():
             else:
                 logger.warning("⚠️  SMTP configuration incomplete")
         else:
-            logger.warning("⚠️  No email provider configured. Set EMAIL_PROVIDER in .env")
+            logger.warning(
+                "⚠️  No email provider configured. Set EMAIL_PROVIDER in .env"
+            )
 
     except Exception as e:
         logger.warning(f"⚠️  Email configuration test failed: {e}")
@@ -154,7 +159,9 @@ def create_test_users(session: Session):
 
     created_count = 0
     for user_data in test_users:
-        existing_user = session.query(User).filter(User.username == user_data["username"]).first()
+        existing_user = (
+            session.query(User).filter(User.username == user_data["username"]).first()
+        )
 
         if not existing_user:
             test_user = User(
@@ -218,7 +225,9 @@ def main():
         print("  Swagger UI: http://localhost:8889/docs")
         print()
         print("📧 Email Configuration:")
-        print("  1. Edit config/profiles/<environment>.config.enc.json with make dev-config")
+        print(
+            "  1. Edit config/profiles/<environment>.config.enc.json with make dev-config"
+        )
         print("  2. Configure MAILGUN_API_KEY and MAILGUN_DOMAIN")
         print("  3. Or set up SMTP with your email provider")
         print("  4. Test with: POST /auth/test-email")

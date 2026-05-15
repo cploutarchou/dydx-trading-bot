@@ -244,49 +244,79 @@ class StrategyVersion(Base):
 class BacktestRun(Base):
     __tablename__ = "backtest_runtime_runs"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    run_id = Column(String(64), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    status = Column(String(32), nullable=False, default="pending", index=True)
-    progress_pct = Column(Float, nullable=False, default=0.0)
-    current_pair = Column(String(255), nullable=True)
-    current_task = Column(String(64), nullable=True)
-    total_pnl = Column(Float, nullable=False, default=0.0)
-    win_rate = Column(Float, nullable=False, default=0.0)
-    sharpe_ratio = Column(Float, nullable=False, default=0.0)
-    max_drawdown_pct = Column(Float, nullable=False, default=0.0)
-    total_trades = Column(Integer, nullable=False, default=0)
-    profit_factor = Column(Float, nullable=False, default=0.0)
-    start_date = Column(String(32), nullable=True)
-    end_date = Column(String(32), nullable=True)
-    error = Column(Text, nullable=True)
-    error_message = Column(Text, nullable=True)
-    request_json = Column(JSON, nullable=False, default=dict)
-    trades_json = Column(JSON, nullable=False, default=list)
-    position_snapshots_json = Column(JSON, nullable=False, default=list)
-    daily_pnl_json = Column(JSON, nullable=False, default=list)
-    cancel_requested = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
-    started_at = Column(DateTime, nullable=True, index=True)
-    completed_at = Column(DateTime, nullable=True, index=True)
-    deadline_at = Column(DateTime, nullable=True)
-    timeout_seconds = Column(Float, nullable=True)
-    updated_at = Column(
-        DateTime, default=utc_now, onupdate=utc_now, nullable=False, index=True
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending", index=True
+    )
+    progress_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    current_pair: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    current_task: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    total_pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    sharpe_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    max_drawdown_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_trades: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    profit_factor: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    start_date: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    end_date: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    trades_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    position_snapshots_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    daily_pnl_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    cancel_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, nullable=False, index=True
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    timeout_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+        index=True,
     )
 
 
 class BacktestRunRequestPayload(Base):
     __tablename__ = "backtest_run_requests"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    run_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("backtest_runtime_runs.run_id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
         index=True,
     )
-    request_json = Column(JSON, nullable=False, default=dict)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    request_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now, nullable=False
+    )

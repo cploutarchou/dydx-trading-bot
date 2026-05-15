@@ -42,10 +42,7 @@ class DatabaseConfig:
 
     def __init__(self):
         self.cutover_mode = (
-            os.getenv("BOT_DB_CUTOVER_MODE", "shared")
-            .strip()
-            .lower()
-            .replace("-", "_")
+            os.getenv("BOT_DB_CUTOVER_MODE", "shared").strip().lower().replace("-", "_")
         )
         if self.cutover_mode not in {
             "shared",
@@ -57,7 +54,9 @@ class DatabaseConfig:
                 "shared, dedicated, dedicated_with_shared_fallback"
             )
 
-        raw_db_type = self._env("BOT_DB_TYPE", self._env("DB_TYPE", "postgresql")).strip().lower()
+        raw_db_type = (
+            self._env("BOT_DB_TYPE", self._env("DB_TYPE", "postgresql")).strip().lower()
+        )
         if raw_db_type not in {"postgres", "postgresql"}:
             raise ValueError(
                 f"Unsupported DB_TYPE '{raw_db_type}'. Only PostgreSQL is supported."
@@ -106,9 +105,9 @@ class DatabaseConfig:
         if lowered.startswith("postgresql+psycopg2://"):
             return candidate
         if lowered.startswith("postgresql://"):
-            return "postgresql+psycopg2://" + candidate[len("postgresql://"):]
+            return "postgresql+psycopg2://" + candidate[len("postgresql://") :]
         if lowered.startswith("postgres://"):
-            return "postgresql+psycopg2://" + candidate[len("postgres://"):]
+            return "postgresql+psycopg2://" + candidate[len("postgres://") :]
         raise ValueError(
             "Unsupported database URL scheme. Only PostgreSQL URLs are supported."
         )
@@ -222,12 +221,14 @@ class DatabaseConfig:
             "echo_sql": self.echo_sql,
             "shared_target_detected": self._shared_target is not None,
             "shared_target_matches_runtime": self.shared_target_matches_runtime,
-            "ownership_guardrail": "enforced" if self.cutover_mode == "dedicated" else "advisory",
+            "ownership_guardrail": (
+                "enforced" if self.cutover_mode == "dedicated" else "advisory"
+            ),
         }
 
     @staticmethod
     def _normalized_target_fields(
-            fields: tuple[str, str, str, str, str] | None,
+        fields: tuple[str, str, str, str, str] | None,
     ) -> tuple[str, str, str] | None:
         if fields is None:
             return None
@@ -261,7 +262,9 @@ class DatabaseConfig:
             (self.db_name, self.db_host, self.db_port, self.db_user, self.db_password)
         )
         shared_target = self._normalized_target_fields(self._shared_target)
-        return bool(runtime_target and shared_target and runtime_target == shared_target)
+        return bool(
+            runtime_target and shared_target and runtime_target == shared_target
+        )
 
     def _validate_db_ownership_guardrail(self) -> None:
         if self.cutover_mode != "dedicated":
@@ -356,7 +359,9 @@ class DatabaseManager:
             self._engine.dispose()
             logger.info("Disposed inherited SQLAlchemy pool in forked child process")
         except Exception as exc:
-            logger.warning("Failed disposing inherited SQLAlchemy pool in child: {}", exc)
+            logger.warning(
+                "Failed disposing inherited SQLAlchemy pool in child: {}", exc
+            )
 
     def _initialize(self):
         """Initialize database engine and session factory"""
@@ -374,7 +379,9 @@ class DatabaseManager:
             return "configured (redacted)"
 
         logger.info(f"Initializing database: {config.db_type}")
-        logger.info(f"Connection string: {_redact_connection_string(connection_string)}")
+        logger.info(
+            f"Connection string: {_redact_connection_string(connection_string)}"
+        )
 
         self._engine = create_engine(connection_string, **engine_kwargs)
 
@@ -391,13 +398,19 @@ class DatabaseManager:
         """Get SQLAlchemy engine"""
         if self._engine is None:
             self._initialize()
-        return self._engine
+        engine = self._engine
+        if engine is None:
+            raise RuntimeError("Database engine is not initialized")
+        return engine
 
     def get_session(self) -> Session:
         """Get new database session"""
         if self._session_factory is None:
             self._initialize()
-        return self._session_factory()
+        session_factory = self._session_factory
+        if session_factory is None:
+            raise RuntimeError("Database session factory is not initialized")
+        return session_factory()
 
     @contextmanager
     def session_scope(self) -> Iterator[Session]:
@@ -429,22 +442,18 @@ class DatabaseManager:
             inspector = inspect(connection)
 
             if inspector.has_table("bot_instances"):
-                logger.info("Applying compatibility fix: normalizing bot_instances.status values")
-                status_udt = connection.execute(
-                    text(
-                        """
+                logger.info(
+                    "Applying compatibility fix: normalizing bot_instances.status values"
+                )
+                status_udt = connection.execute(text("""
                         SELECT c.udt_name
                         FROM information_schema.columns c
                         WHERE c.table_name = 'bot_instances'
                           AND c.column_name = 'status' LIMIT 1
-                        """
-                    )
-                ).scalar()
+                        """)).scalar()
 
                 if status_udt == "botstatusenum":
-                    connection.execute(
-                        text(
-                            """
+                    connection.execute(text("""
                             UPDATE bot_instances
                             SET status = CASE UPPER(CAST(status AS TEXT))
                                              WHEN 'FAILED' THEN 'ERROR'::botstatusenum
@@ -453,13 +462,9 @@ class DatabaseManager:
                                 END
                             WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
                                OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
-                            """
-                        )
-                    )
+                            """))
                 else:
-                    connection.execute(
-                        text(
-                            """
+                    connection.execute(text("""
                             UPDATE bot_instances
                             SET status = CASE UPPER(CAST(status AS TEXT))
                                              WHEN 'FAILED' THEN 'ERROR'
@@ -468,13 +473,12 @@ class DatabaseManager:
                                 END
                             WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
                                OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
-                            """
-                        )
-                    )
+                            """))
 
             if inspector.has_table("backtest_strategies"):
                 columns = {
-                    column["name"] for column in inspector.get_columns("backtest_strategies")
+                    column["name"]
+                    for column in inspector.get_columns("backtest_strategies")
                 }
                 if "pair_selection_mode" not in columns:
                     logger.info(
@@ -496,15 +500,20 @@ class DatabaseManager:
                     column["name"]: column for column in inspector.get_columns("jobs")
                 }
                 bot_id_column = job_columns.get("bot_id")
-                if bot_id_column is not None and not bool(bot_id_column.get("nullable", True)):
-                    logger.info("Applying compatibility fix: allowing jobs.bot_id to be nullable")
+                if bot_id_column is not None and not bool(
+                    bot_id_column.get("nullable", True)
+                ):
+                    logger.info(
+                        "Applying compatibility fix: allowing jobs.bot_id to be nullable"
+                    )
                     connection.execute(
                         text("ALTER TABLE jobs ALTER COLUMN bot_id DROP NOT NULL")
                     )
 
             if inspector.has_table("backtest_runtime_runs"):
                 run_columns = {
-                    column["name"] for column in inspector.get_columns("backtest_runtime_runs")
+                    column["name"]
+                    for column in inspector.get_columns("backtest_runtime_runs")
                 }
                 add_column_sql = {
                     "started_at": "ALTER TABLE backtest_runtime_runs ADD COLUMN started_at TIMESTAMP NULL",
@@ -520,10 +529,10 @@ class DatabaseManager:
                         )
                         connection.execute(text(statement))
 
-                logger.info("Applying compatibility fix: normalizing backtest runtime statuses")
-                connection.execute(
-                    text(
-                        """
+                logger.info(
+                    "Applying compatibility fix: normalizing backtest runtime statuses"
+                )
+                connection.execute(text("""
                         UPDATE backtest_runtime_runs
                         SET status = CASE
                             WHEN status IS NULL THEN 'pending'
@@ -550,9 +559,7 @@ class DatabaseManager:
                                 'processing', 'active', 'succeeded', 'success',
                                 'done', 'error', 'timed_out', 'stalled', 'canceled'
                            )
-                        """
-                    )
-                )
+                        """))
 
     def verify_required_tables(self) -> dict:
         """Verify runtime-critical tables are present in the active bot database."""
@@ -569,8 +576,7 @@ class DatabaseManager:
         missing = sorted(required - present)
         if missing:
             raise RuntimeError(
-                "Bot database schema is missing required tables: "
-                + ", ".join(missing)
+                "Bot database schema is missing required tables: " + ", ".join(missing)
             )
         return {"required": sorted(required), "missing": missing}
 
@@ -578,7 +584,9 @@ class DatabaseManager:
         config = DatabaseConfig()
         alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"
         if not alembic_path.exists():
-            logger.warning("Alembic config not found at {}; skipping migrations", alembic_path)
+            logger.warning(
+                "Alembic config not found at {}; skipping migrations", alembic_path
+            )
             return None
 
         alembic_config = Config(str(alembic_path))
@@ -600,11 +608,13 @@ class DatabaseManager:
             if inspector.has_table("alembic_version"):
                 return "already-versioned"
 
-            has_core_schema = inspector.has_table("bot_instances") and inspector.has_table(
-                "backtest_strategies"
-            )
+            has_core_schema = inspector.has_table(
+                "bot_instances"
+            ) and inspector.has_table("backtest_strategies")
             if not has_core_schema:
-                logger.info("Skipping Alembic baseline stamp: core legacy tables not detected")
+                logger.info(
+                    "Skipping Alembic baseline stamp: core legacy tables not detected"
+                )
                 return "skipped-core-schema-not-detected"
 
         logger.warning(
@@ -622,7 +632,9 @@ class DatabaseManager:
             return
 
         baseline_revision = "8c1f34af2f10"
-        baseline_status = self.ensure_alembic_baseline(baseline_revision=baseline_revision)
+        baseline_status = self.ensure_alembic_baseline(
+            baseline_revision=baseline_revision
+        )
         logger.info("Alembic baseline path: {}", baseline_status)
         if baseline_status == "stamped":
             logger.info("Alembic baseline stamped revision={}", baseline_revision)
@@ -637,6 +649,8 @@ class DatabaseManager:
 
         logger.info("Running pending Alembic migrations...")
 
+        engine = self.get_engine()
+
         # ── Pre-migration connection eviction ─────────────────────────────────
         # CREATE INDEX CONCURRENTLY waits for all transactions that were open
         # when the build starts to finish.  Long-lived connections from worker
@@ -647,20 +661,18 @@ class DatabaseManager:
         #      CONCURRENTLY can obtain a clean snapshot immediately.
         # Worker subprocesses reconnect transparently on their next query via
         # SQLAlchemy's connection-checkout retry / pool_pre_ping logic.
-        self._engine.dispose()
+        engine.dispose()
         try:
-            with self._engine.connect().execution_options(isolation_level="AUTOCOMMIT") as _conn:
-                result = _conn.execute(
-                    text(
-                        """
+            with engine.connect().execution_options(
+                isolation_level="AUTOCOMMIT"
+            ) as _conn:
+                result = _conn.execute(text("""
                         SELECT COUNT(pg_terminate_backend(pid))
                         FROM pg_stat_activity
                         WHERE datname = current_database()
                           AND pid <> pg_backend_pid()
                           AND backend_type = 'client backend'
-                        """
-                    )
-                )
+                        """))
                 terminated = result.scalar() or 0
                 if terminated:
                     logger.warning(

@@ -63,6 +63,10 @@ The bot manager owns process lifecycle. Bot instances run as isolated subprocess
 instance status, lifecycle events, supervised job state, and backtest progress. `bot_states/` is kept only for generated
 per-instance config, subprocess log output, and temporary/debug compatibility artifacts.
 
+Worker startup now loads per-instance runtime config from `bot_instances.config` first (database-first), then falls back to
+`bot_states/config_<instance_id>.yaml`, and finally environment defaults. When DB config is used, the YAML is refreshed as a
+derived cache artifact for compatibility/debugging.
+
 Async background work must be launched through the supervised job helper so task failures, cancellations, progress, and
 traceback summaries are persisted in the `jobs` table instead of disappearing as unobserved task exceptions.
 
@@ -71,6 +75,17 @@ bot rows with missing workers are marked error. Set `BACKTEST_AUTO_RECOVERY_MODE
 and `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` for testnet live bot auto-restart; mainnet live restart also requires
 `BOT_AUTO_RECOVER_LIVE_MAINNET=true`. Backtest startup recovery waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`
 before acting so fresh rows from another API worker are not incorrectly failed.
+
+For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is ordered as: strategy table lookup by
+`strategy_id` → recent persisted backtest request snapshots in DB → request-provided `strategy_payload_snapshot`
+(compatibility fallback).
+
+To monitor strategy-resolution drift, use `GET /api/v1/backtests/sync-health` and inspect
+`data.strategy_resolution_metrics.counts` (`store`, `history`, `request`, `not_found`).
+
+Optional strict mode (production safety hardening): set
+`BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`.
+When `ENVIRONMENT=production`, request-level `strategy_payload_snapshot` fallback is disabled.
 
 The bot service is not a public frontend integration surface. The supported product path is:
 

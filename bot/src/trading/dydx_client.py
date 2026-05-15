@@ -9,6 +9,7 @@ from dydx_v4_client.network import make_mainnet, make_testnet
 from dydx_v4_client.node.client import NodeClient
 from dydx_v4_client.wallet import Wallet
 from loguru import logger
+
 from src.constants import (
     DYDX_ADDRESS,
     INDEXER_ENDPOINT_MAINNET,
@@ -20,6 +21,8 @@ from src.trading.market_data import get_candles_recent
 
 _JURISDICTION_CHECK_TTL = timedelta(minutes=10)
 _jurisdiction_success_cache: dict[str, datetime] = {}
+
+_PREFLIGHT_CLIENT_TTL = timedelta(minutes=5)
 
 
 def _sanitize_node_url(raw_url: str, env_name: str) -> str:
@@ -66,6 +69,9 @@ class Client:
         self.indexer_account = indexer_account
         self.node = node
         self.wallet = wallet
+
+
+_preflight_client_cache: dict[str, tuple[Client, datetime]] = {}
 
 
 def _resolve_runtime_network(is_testnet: bool):
@@ -119,7 +125,22 @@ async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) ->
     Connect to dYdX using explicit runtime credentials and environment selection.
 
     This is used both for managed runtime instances and readiness checks.
+    Results are cached for _PREFLIGHT_CLIENT_TTL to avoid re-initialising the
+    node connection and re-deriving the wallet on every preflight poll.
     """
+    cache_key = f"{address}:{'testnet' if is_testnet else 'mainnet'}"
+    now = datetime.now(timezone.utc)
+    cached = _preflight_client_cache.get(cache_key)
+    if cached is not None:
+        client, cached_at = cached
+        if (now - cached_at) < _PREFLIGHT_CLIENT_TTL:
+            logger.debug(
+                "Reusing cached dYdX client for {} (age {:.0f}s)",
+                cache_key,
+                (now - cached_at).total_seconds(),
+            )
+            return client
+
     logger.info(
         "Initializing dYdX clients for runtime environment={}",
         "testnet" if is_testnet else "mainnet",
@@ -185,6 +206,7 @@ async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) ->
 
     client = Client(indexer, indexer_account, node, wallet)
     await check_jurisdiction(client, "BTC-USD")
+    _preflight_client_cache[cache_key] = (client, now)
     return client
 
 

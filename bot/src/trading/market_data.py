@@ -378,6 +378,13 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
         if str(market).strip()
     }
 
+    if not selected:
+        logger.warning(
+            "construct_market_prices: no selected_markets configured — "
+            "falling back to ALL active markets on the exchange. "
+            "This is usually unintentional; set selectedMarkets in the instance config."
+        )
+
     # Find tradeable pairs
     tradeable_markets = []
     for market in markets["markets"].keys():

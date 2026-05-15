@@ -106,8 +106,19 @@ run:
 ## dev: Run application with auto-reload (requires air)
 dev:
 	@echo "$(CYAN)Running in development mode with hot-reload...$(NC)"
-	@if command -v air > /dev/null; then \
-		air; \
+	@AIR_BIN="$$(command -v air 2>/dev/null || true)"; \
+	if [ -z "$$AIR_BIN" ]; then \
+		GO_BIN="$$(go env GOBIN)"; \
+		if [ -z "$$GO_BIN" ]; then \
+			GO_BIN="$$(go env GOPATH)/bin"; \
+		fi; \
+		if [ -x "$$GO_BIN/air" ]; then \
+			AIR_BIN="$$GO_BIN/air"; \
+		fi; \
+	fi; \
+	if [ -n "$$AIR_BIN" ] && [ -x "$$AIR_BIN" ]; then \
+		echo "$(CYAN)Using air: $$AIR_BIN$(NC)"; \
+		exec "$$AIR_BIN"; \
 	else \
 		echo "$(RED)air not installed. Run: make install-tools$(NC)"; \
 		exit 1; \

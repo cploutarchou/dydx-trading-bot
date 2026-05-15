@@ -6,8 +6,10 @@ SQLAlchemy models for user authentication, JWT tokens, and related data.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import relationship
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from internal.domain import Base
 from src.shared.time_utils import utc_now
@@ -18,17 +20,23 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    username = Column(String(50), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
-    full_name = Column(String(100), nullable=True)
-    is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=utc_now)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, index=True
+    )
+    username: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False, index=True
+    )
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )
 
-    tokens = relationship(
+    tokens: Mapped[list["UserToken"]] = relationship(
         "UserToken",
         back_populates="user",
         cascade="all, delete-orphan",
@@ -49,14 +57,17 @@ class UserToken(Base):
 
     __tablename__ = "user_tokens"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
-    token = Column(Text, nullable=False, unique=True)
-    token_type = Column(String(20), default="refresh")
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=utc_now)
-    is_revoked = Column(Boolean, default=False)
+    token: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    token_type: Mapped[str] = mapped_column(String(20), default="refresh")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    user = relationship("User", back_populates="tokens")
+    user: Mapped["User"] = relationship("User", back_populates="tokens")

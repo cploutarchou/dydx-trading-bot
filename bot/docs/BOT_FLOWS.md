@@ -4,6 +4,19 @@ Scope: full bot system, including API lifecycle, strategy runtime, worker proces
 
 Last code-traced: 2026-04-28.
 
+## Developer Workspace Notes
+
+The repository includes a `.vscode/` workspace setup for day-to-day bot development:
+
+- `settings.json` points Python tooling at the project `.venv` and enables pytest + analysis defaults.
+- `extensions.json` recommends the core Python, formatter, linting, and Docker extensions.
+- `launch.json` includes debug profiles for the FastAPI API, the local API wrapper, the bot runtime, and compound
+  API/bot launches.
+- `tasks.json` provides Makefile-backed run/test/preflight tasks plus stop tasks for the long-running local services.
+
+For the smoothest experience, open the repo in VS Code, install the recommended extensions, and use **Run Task** or
+**Run and Debug** for the workflows above.
+
 ## Architecture Snapshot
 
 ### Core Components

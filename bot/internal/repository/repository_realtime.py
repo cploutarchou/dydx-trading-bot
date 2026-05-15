@@ -8,10 +8,10 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from internal.domain.models_realtime import (
-    Position,
-    MarketData,
-    BotStats,
     Alert,
+    BotStats,
+    MarketData,
+    Position,
     PositionStatusEnum,
 )
 from src.shared.time_utils import utc_now
@@ -241,8 +241,15 @@ class StatsRepository:
             daily_trades_opened = opened_today
             daily_trades_closed = len(closed_today)
             if closed_today:
-                daily_pnl = sum(t.realized_pnl or 0.0 for t in closed_today)
-                winning = sum(1 for t in closed_today if (t.realized_pnl or 0.0) > 0)
+                daily_pnl = sum(
+                    float(t.realized_pnl) if t.realized_pnl is not None else 0.0  # type: ignore[arg-type]
+                    for t in closed_today
+                )
+                winning = sum(
+                    1
+                    for t in closed_today
+                    if t.realized_pnl is not None and float(t.realized_pnl) > 0  # type: ignore[arg-type]
+                )
                 daily_win_rate = winning / len(closed_today)
         except Exception:
             # Trades table may not yet exist in all environments; degrade gracefully
@@ -290,7 +297,7 @@ class AlertRepository:
         return (
             self.session.query(Alert)
             .filter(
-                Alert.bot_instance_id == bot_instance_id, Alert.acknowledged == False
+                Alert.bot_instance_id == bot_instance_id, Alert.acknowledged.is_(False)
             )
             .all()
         )

@@ -300,6 +300,11 @@ class AsyncJobManager:
         self._with_uow(lambda uow: uow.jobs.cancel_job(job_id, reason=reason))
         logger.info("job_cancelled job_id={} reason={}", job_id, reason)
 
+    @staticmethod
+    async def _as_coroutine(awaitable: Awaitable[Any]) -> Any:
+        """Normalize Awaitable values to a coroutine for asyncio.create_task typing."""
+        return await awaitable
+
     def create_supervised_task(
             self,
             awaitable: Awaitable[Any],
@@ -320,7 +325,10 @@ class AsyncJobManager:
         )
         self.mark_running(resolved_job_id)
         started = time.perf_counter()
-        task = asyncio.create_task(awaitable, name=resolved_job_id)
+        task = asyncio.create_task(
+            self._as_coroutine(awaitable),
+            name=resolved_job_id,
+        )
         self.tasks[resolved_job_id] = task
 
         def _done(completed_task: asyncio.Task) -> None:

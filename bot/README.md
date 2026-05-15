@@ -38,6 +38,25 @@ make preflight-testnet
 `make local-api` starts the canonical API without uvicorn hot reload by default, which gives cleaner shutdown semantics
 for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is needed.
 
+## VS Code Workspace
+
+The repository includes workspace settings in [`.vscode/`](/home/chris/workspace/dydx-trading-bot/bot/.vscode) for a
+consistent Python backend workflow.
+
+- `settings.json` sets the project interpreter to `.venv/bin/python`, enables pytest, and configures Python formatting
+  and analysis defaults.
+- `extensions.json` recommends the core Python toolchain, formatter, linting, and Docker support.
+- `launch.json` includes debug profiles for the FastAPI API server, the local API wrapper, and the bot runtime, plus
+  compound launches for API + bot workflows.
+- `tasks.json` provides one-click Makefile-backed tasks for local API, bot runtime, tests, and testnet preflight checks.
+
+Suggested daily workflow:
+
+1. Open the repo in VS Code.
+2. Let the recommended extensions install.
+3. Use **Run Task** for `Make: local-api`, `Make: local-bot`, or `Make: test`.
+4. Use **Run and Debug** for the launch profiles or compound launches when tracing runtime behavior.
+
 ## Runtime Model
 
 The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; PostgreSQL is the source of truth for

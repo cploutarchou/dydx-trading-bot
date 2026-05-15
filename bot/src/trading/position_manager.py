@@ -4,11 +4,12 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
-from uuid import uuid4
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
+
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
     USD_MIN_COLLATERAL,
@@ -18,7 +19,6 @@ from src.constants import (
 from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number
-from src.trading.arbitrage_observability import increment_metric, record_rejection
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -27,6 +27,12 @@ from src.trading.account_manager import (
     place_market_order,
 )
 from src.trading.analysis.cointegration import calculate_zscore
+from src.trading.arbitrage_observability import increment_metric, record_rejection
+from src.trading.arbitrage_runtime_config import (
+    is_arbitrage_improvements_enabled,
+    is_pair_priority_engine_enabled,
+    pair_priority_max_pairs,
+)
 from src.trading.bot_agent import BotAgent
 from src.trading.bot_agents_state import (
     BOT_AGENTS_PATH,
@@ -35,11 +41,6 @@ from src.trading.bot_agents_state import (
     save_processed_positions,
 )
 from src.trading.market_data import get_candles_recent, get_markets
-from src.trading.arbitrage_runtime_config import (
-    is_arbitrage_improvements_enabled,
-    is_pair_priority_engine_enabled,
-    pair_priority_max_pairs,
-)
 from src.trading.pair_priority import prioritize_pairs
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
@@ -58,6 +59,23 @@ IGNORE_ASSETS = [
 _ENTRY_FAILURE_STATE: Dict[str, Dict[str, Any]] = {}
 
 
+def _as_float(value: Any, *, field_name: str) -> float:
+    """Convert numeric-like runtime values to float with explicit failures."""
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid numeric value for {field_name}: {value!r}") from exc
+
+
+def _as_numeric_series(values: Any, *, field_name: str) -> pd.Series:
+    """Convert iterable/Series values to a numeric float pandas Series."""
+    series = values if isinstance(values, pd.Series) else pd.Series(values)
+    numeric_series = pd.to_numeric(series, errors="coerce")
+    if numeric_series.isna().any():
+        raise ValueError(f"Invalid numeric series for {field_name}")
+    return numeric_series.astype(float)
+
+
 def _entry_backoff_now() -> float:
     return time.monotonic()
 
@@ -71,7 +89,7 @@ def _entry_backoff_seconds(failure_count: int) -> float:
     mult = float(os.getenv("ENTRY_FAILURE_BACKOFF_MULTIPLIER", "2") or "2")
     max_seconds = float(os.getenv("ENTRY_FAILURE_BACKOFF_MAX_SECONDS", "180") or "180")
     exponent = max(0, int(failure_count) - 1)
-    delay = base * (mult ** exponent)
+    delay = base * (mult**exponent)
     return min(max_seconds, max(base, delay))
 
 
@@ -106,9 +124,9 @@ def _utc_now_iso() -> str:
 
 
 async def _get_recent_candles_for_cycle(
-        client,
-        market: str,
-        cycle_cache: Optional[Dict[str, Any]],
+    client,
+    market: str,
+    cycle_cache: Optional[Dict[str, Any]],
 ):
     if not is_arbitrage_improvements_enabled() or cycle_cache is None:
         return await get_candles_recent(client, market)
@@ -123,11 +141,11 @@ async def _get_recent_candles_for_cycle(
 
 
 async def _resolve_leg_open_state(
-        client,
-        *,
-        base_market: str,
-        quote_market: str,
-        scan_cycle_id: str,
+    client,
+    *,
+    base_market: str,
+    quote_market: str,
+    scan_cycle_id: str,
 ) -> tuple[bool, bool]:
     """Resolve whether either leg is already open, with safe fallback behavior."""
     if is_arbitrage_improvements_enabled():
@@ -153,17 +171,17 @@ async def _resolve_leg_open_state(
 
 
 def _build_trade_opened_notification(
-        bot_open_dict: Dict[str, Any],
-        *,
-        fallback_base_market: str = "",
-        fallback_quote_market: str = "",
-        fallback_base_side: str = "",
-        fallback_quote_side: str = "",
-        fallback_base_size: Any = 0,
-        fallback_quote_size: Any = 0,
-        fallback_z_score: Any = 0,
-        fallback_hedge_ratio: Any = 0,
-        fallback_half_life: Any = 0,
+    bot_open_dict: Dict[str, Any],
+    *,
+    fallback_base_market: str = "",
+    fallback_quote_market: str = "",
+    fallback_base_side: str = "",
+    fallback_quote_side: str = "",
+    fallback_base_size: Any = 0,
+    fallback_quote_size: Any = 0,
+    fallback_z_score: Any = 0,
+    fallback_hedge_ratio: Any = 0,
+    fallback_half_life: Any = 0,
 ) -> Dict[str, Any]:
     """Map BotAgent.open_trades() fields into Telegram's opened-trade payload."""
     base_market = bot_open_dict.get("market_1", "") or fallback_base_market
@@ -193,7 +211,9 @@ def _opposite_order_side(side: str) -> str:
     raise ValueError(f"Unsupported order side: {side}")
 
 
-def _close_side_from_exchange_position(position: Dict[str, Any], fallback_side: str) -> str:
+def _close_side_from_exchange_position(
+    position: Dict[str, Any], fallback_side: str
+) -> str:
     exchange_side = str(position.get("side", "")).upper()
     if exchange_side == "LONG":
         return "SELL"
@@ -202,21 +222,23 @@ def _close_side_from_exchange_position(position: Dict[str, Any], fallback_side: 
     return _opposite_order_side(fallback_side)
 
 
-def _close_size_from_exchange_position(position: Dict[str, Any], fallback_size: Any) -> Any:
+def _close_size_from_exchange_position(
+    position: Dict[str, Any], fallback_size: Any
+) -> Any:
     return position.get("sumOpen") or position.get("size") or fallback_size
 
 
 def _failsafe_close_price(
-        market: str,
-        side: str,
-        exchange_position: Optional[Dict[str, Any]],
-        markets: Dict[str, Any],
-        fallback_price: Any = None,
+    market: str,
+    side: str,
+    exchange_position: Optional[Dict[str, Any]],
+    markets: Dict[str, Any],
+    fallback_price: Any = None,
 ) -> str:
     raw_price = (
-            (exchange_position or {}).get("entryPrice")
-            or (exchange_position or {}).get("price")
-            or fallback_price
+        (exchange_position or {}).get("entryPrice")
+        or (exchange_position or {}).get("price")
+        or fallback_price
     )
     price = float(raw_price)
     accept_price = price * 1.7 if side == "BUY" else price * 0.3
@@ -225,13 +247,13 @@ def _failsafe_close_price(
 
 
 async def _place_reduce_only_close_with_retries(
-        client,
-        *,
-        market: str,
-        side: str,
-        size: Any,
-        price: Any,
-        attempts: int = 3,
+    client,
+    *,
+    market: str,
+    side: str,
+    size: Any,
+    price: Any,
+    attempts: int = 3,
 ) -> tuple[Dict[str, Any], str]:
     last_error: Optional[Exception] = None
     for attempt in range(1, attempts + 1):
@@ -259,14 +281,14 @@ async def _place_reduce_only_close_with_retries(
 
 
 async def _close_orphan_exchange_leg(
-        client,
-        *,
-        tracked_position: Dict[str, Any],
-        exchange_positions: Dict[str, Any],
-        orphan_market: str,
-        fallback_side: str,
-        fallback_size: Any,
-        messenger: TelegramMessenger,
+    client,
+    *,
+    tracked_position: Dict[str, Any],
+    exchange_positions: Dict[str, Any],
+    orphan_market: str,
+    fallback_side: str,
+    fallback_size: Any,
+    messenger: TelegramMessenger,
 ) -> bool:
     markets = await get_markets(client)
     exchange_position = exchange_positions.get(orphan_market, {})
@@ -414,8 +436,19 @@ async def open_positions(client):
         base_market = row["base_market"]
         quote_market = row["quote_market"]
         pair_key = _entry_pair_key(base_market, quote_market)
-        hedge_ratio = row["hedge_ratio"]
-        half_life = row["half_life"]
+        try:
+            hedge_ratio = _as_float(row["hedge_ratio"], field_name="hedge_ratio")
+            half_life = _as_float(row["half_life"], field_name="half_life")
+        except ValueError as exc:
+            increment_metric("pair_candidates_skipped_total")
+            logger.warning(
+                "scan_cycle={} pair_skipped pair={}/{} reason=invalid_pair_data error={}",
+                scan_cycle_id,
+                base_market,
+                quote_market,
+                exc,
+            )
+            continue
 
         # Continue if ignore asset
         if base_market in IGNORE_ASSETS or quote_market in IGNORE_ASSETS:
@@ -451,13 +484,43 @@ async def open_positions(client):
         except Exception:
             increment_metric("pair_candidates_skipped_total")
             increment_metric("stale_data_detected_total")
-            logger.exception("Failed to fetch candles for {} / {}", base_market, quote_market)
+            logger.exception(
+                "Failed to fetch candles for {} / {}", base_market, quote_market
+            )
             continue
 
         # Get ZScore
         if len(series_1) > 0 and len(series_1) == len(series_2):
-            spread = series_1 - (hedge_ratio * series_2)
-            z_score = calculate_zscore(spread).values.tolist()[-1]
+            try:
+                series_1_numeric = _as_numeric_series(series_1, field_name="series_1")
+                series_2_numeric = _as_numeric_series(series_2, field_name="series_2")
+            except ValueError as exc:
+                increment_metric("pair_candidates_skipped_total")
+                logger.warning(
+                    "scan_cycle={} pair_skipped pair={}/{} reason=invalid_series_data error={}",
+                    scan_cycle_id,
+                    base_market,
+                    quote_market,
+                    exc,
+                )
+                continue
+
+            spread = series_1_numeric - (hedge_ratio * series_2_numeric)
+            try:
+                z_score = _as_float(
+                    calculate_zscore(spread).values.tolist()[-1],
+                    field_name="z_score",
+                )
+            except ValueError as exc:
+                increment_metric("pair_candidates_skipped_total")
+                logger.warning(
+                    "scan_cycle={} pair_skipped pair={}/{} reason=invalid_z_score error={}",
+                    scan_cycle_id,
+                    base_market,
+                    quote_market,
+                    exc,
+                )
+                continue
 
             # Establish if potential trade
             if abs(z_score) >= ZSCORE_THRESH:
@@ -487,24 +550,32 @@ async def open_positions(client):
                     quote_side = "BUY" if z_score > 0 else "SELL"
 
                     # Get acceptable price in string format with correct number of decimals
-                    base_price = series_1.iloc[-1]
-                    quote_price = series_2.iloc[-1]
+                    base_price = _as_float(
+                        series_1_numeric.iloc[-1], field_name="base_price"
+                    )
+                    quote_price = _as_float(
+                        series_2_numeric.iloc[-1], field_name="quote_price"
+                    )
                     accept_base_price = (
-                        float(base_price) * 1.01 if z_score < 0 else float(base_price) * 0.99
+                        base_price * 1.01 if z_score < 0 else base_price * 0.99
                     )
                     accept_quote_price = (
-                        float(quote_price) * 1.01 if z_score > 0 else float(quote_price) * 0.99
+                        quote_price * 1.01 if z_score > 0 else quote_price * 0.99
                     )
                     failsafe_base_price = (
-                        float(base_price) * 0.05 if z_score < 0 else float(base_price) * 1.7
+                        base_price * 0.05 if z_score < 0 else base_price * 1.7
                     )
                     base_tick_size = markets["markets"][base_market]["tickSize"]
                     quote_tick_size = markets["markets"][quote_market]["tickSize"]
 
                     # Format prices
                     accept_base_price = format_number(accept_base_price, base_tick_size)
-                    accept_quote_price = format_number(accept_quote_price, quote_tick_size)
-                    accept_failsafe_base_price = format_number(failsafe_base_price, base_tick_size)
+                    accept_quote_price = format_number(
+                        accept_quote_price, quote_tick_size
+                    )
+                    accept_failsafe_base_price = format_number(
+                        failsafe_base_price, base_tick_size
+                    )
 
                     # Get size
                     base_quantity = 1 / base_price * USD_PER_TRADE
@@ -517,7 +588,9 @@ async def open_positions(client):
                     quote_size = format_number(quote_quantity, quote_step_size)
 
                     # Ensure size (minimum order size greater than $1 according to V4 documentation)
-                    base_min_order_size = 1 / float(markets["markets"][base_market]["oraclePrice"])
+                    base_min_order_size = 1 / float(
+                        markets["markets"][base_market]["oraclePrice"]
+                    )
                     quote_min_order_size = 1 / float(
                         markets["markets"][quote_market]["oraclePrice"]
                     )
@@ -655,8 +728,8 @@ async def open_positions(client):
 
                         # Handle success in opening trades
                         if (
-                                isinstance(bot_open_dict, dict)
-                                and bot_open_dict.get("pair_status") == "LIVE"
+                            isinstance(bot_open_dict, dict)
+                            and bot_open_dict.get("pair_status") == "LIVE"
                         ):
                             increment_metric("opportunities_executed_total")
                             _record_entry_success(pair_key)
@@ -677,14 +750,18 @@ async def open_positions(client):
 
                             # Save trade using atomic per-instance state update.
                             await append_tracked_position(bot_open_dict)
-                            persisted_trade_id = persist_live_trade_opened(bot_open_dict)
+                            persisted_trade_id = persist_live_trade_opened(
+                                bot_open_dict
+                            )
                             persist_trade_activity_event(
                                 "trade_entry_opened",
                                 f"Opened live trade for {base_market} / {quote_market}",
                                 details={
                                     "market_1": base_market,
                                     "market_2": quote_market,
-                                    "z_score": float(bot_open_dict.get("z_score", z_score)),
+                                    "z_score": float(
+                                        bot_open_dict.get("z_score", z_score)
+                                    ),
                                     "order_id_m1": bot_open_dict.get("order_id_m1"),
                                     "order_id_m2": bot_open_dict.get("order_id_m2"),
                                 },
@@ -711,7 +788,9 @@ async def open_positions(client):
                                 details={
                                     "market_1": base_market,
                                     "market_2": quote_market,
-                                    "pair_status": bot_open_dict.get("pair_status", "unknown"),
+                                    "pair_status": bot_open_dict.get(
+                                        "pair_status", "unknown"
+                                    ),
                                     "comments": bot_open_dict.get("comments", ""),
                                     "failure_count": int(
                                         _ENTRY_FAILURE_STATE.get(pair_key, {}).get(
@@ -749,7 +828,7 @@ async def open_positions(client):
                     scan_cycle_id,
                     base_market,
                     quote_market,
-                    float(z_score),
+                    z_score,
                     float(ZSCORE_THRESH),
                 )
         else:
@@ -842,14 +921,14 @@ async def manage_trade_exits(client):
 
         # Perform matching checks
         check_m1 = (
-                position_market_m1 == order_market_m1
-                and position_size_m1 == order_size_m1
-                and position_side_m1 == order_side_m1
+            position_market_m1 == order_market_m1
+            and position_size_m1 == order_size_m1
+            and position_side_m1 == order_side_m1
         )
         check_m2 = (
-                position_market_m2 == order_market_m2
-                and position_size_m2 == order_size_m2
-                and position_side_m2 == order_side_m2
+            position_market_m2 == order_market_m2
+            and position_size_m2 == order_size_m2
+            and position_side_m2 == order_side_m2
         )
         m1_live = position_market_m1 in markets_live
         m2_live = position_market_m2 in markets_live
@@ -906,9 +985,14 @@ async def manage_trade_exits(client):
         series_2 = await get_candles_recent(client, position_market_m2)
         await asyncio.sleep(0.2)
 
+        series_1_numeric = _as_numeric_series(series_1, field_name="series_1_exit")
+        series_2_numeric = _as_numeric_series(series_2, field_name="series_2_exit")
+
         # Get markets for reference of tick size
         markets = await get_markets(client)
-        z_score_traded: float = float(position["z_score"])
+        z_score_traded: float = _as_float(
+            position["z_score"], field_name="z_score_traded"
+        )
         z_score_current: float = z_score_traded
 
         # Protect API
@@ -918,15 +1002,20 @@ async def manage_trade_exits(client):
         if CLOSE_AT_ZSCORE_CROSS:
 
             # Initialize z_scores
-            hedge_ratio = position["hedge_ratio"]
-            if len(series_1) > 0 and len(series_1) == len(series_2):
-                spread = series_1 - (hedge_ratio * series_2)
-                z_score_current = calculate_zscore(spread).values.tolist()[-1]
+            hedge_ratio = _as_float(position["hedge_ratio"], field_name="hedge_ratio")
+            if len(series_1_numeric) > 0 and len(series_1_numeric) == len(
+                series_2_numeric
+            ):
+                spread = series_1_numeric - (hedge_ratio * series_2_numeric)
+                z_score_current = _as_float(
+                    calculate_zscore(spread).values.tolist()[-1],
+                    field_name="z_score_current",
+                )
 
             # Determine trigger
             z_score_level_check = abs(z_score_current) >= abs(z_score_traded)
             z_score_cross_check = (z_score_current < 0 < z_score_traded) or (
-                    z_score_current > 0 > z_score_traded
+                z_score_current > 0 > z_score_traded
             )
 
             # Close trade
@@ -948,8 +1037,8 @@ async def manage_trade_exits(client):
                 side_m2 = "BUY"
 
             # Get and format Price
-            price_m1 = float(series_1.iloc[-1])
-            price_m2 = float(series_2.iloc[-1])
+            price_m1 = _as_float(series_1_numeric.iloc[-1], field_name="price_m1")
+            price_m2 = _as_float(series_2_numeric.iloc[-1], field_name="price_m2")
             accept_price_m1 = price_m1 * 1.05 if side_m1 == "BUY" else price_m1 * 0.95
             accept_price_m2 = price_m2 * 1.05 if side_m2 == "BUY" else price_m2 * 0.95
             tick_size_m1 = markets["markets"][position_market_m1]["tickSize"]
@@ -980,13 +1069,15 @@ async def manage_trade_exits(client):
                     position_market_m1,
                 )
 
-                (close_order_m1, close_order_m1_id) = await _place_reduce_only_close_with_retries(
-                    client,
-                    market=position_market_m1,
-                    side=side_m1,
-                    size=position_size_m1,
-                    price=accept_price_m1,
-                    attempts=3,
+                close_order_m1, close_order_m1_id = (
+                    await _place_reduce_only_close_with_retries(
+                        client,
+                        market=position_market_m1,
+                        side=side_m1,
+                        size=position_size_m1,
+                        price=accept_price_m1,
+                        attempts=3,
+                    )
                 )
 
                 logger.debug("Close order m1 id: {}", close_order_m1.get("id"))
@@ -1000,13 +1091,15 @@ async def manage_trade_exits(client):
                     position_market_m2,
                 )
 
-                (close_order_m2, close_order_m2_id) = await _place_reduce_only_close_with_retries(
-                    client,
-                    market=position_market_m2,
-                    side=side_m2,
-                    size=position_size_m2,
-                    price=accept_price_m2,
-                    attempts=3,
+                close_order_m2, close_order_m2_id = (
+                    await _place_reduce_only_close_with_retries(
+                        client,
+                        market=position_market_m2,
+                        side=side_m2,
+                        size=position_size_m2,
+                        price=accept_price_m2,
+                        attempts=3,
+                    )
                 )
 
                 logger.debug("Close order m2 id: {}", close_order_m2.get("id"))
@@ -1059,13 +1152,15 @@ async def manage_trade_exits(client):
                         position_market_m2,
                     )
                     try:
-                        close_order_m2, close_order_m2_id = await _place_reduce_only_close_with_retries(
-                            client,
-                            market=position_market_m2,
-                            side=side_m2,
-                            size=position_size_m2,
-                            price=accept_price_m2,
-                            attempts=3,
+                        close_order_m2, close_order_m2_id = (
+                            await _place_reduce_only_close_with_retries(
+                                client,
+                                market=position_market_m2,
+                                side=side_m2,
+                                size=position_size_m2,
+                                price=accept_price_m2,
+                                attempts=3,
+                            )
                         )
                         messenger.send_trade_closed_message(
                             {

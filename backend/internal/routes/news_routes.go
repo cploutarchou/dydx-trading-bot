@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers for the dYdX backend API news features.
 package routes
 
 import (

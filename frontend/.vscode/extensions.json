@@ -1,0 +1,12 @@
+{
+	"recommendations": [
+		"dbaeumer.vscode-eslint",
+		"esbenp.prettier-vscode",
+		"bradlc.vscode-tailwindcss",
+		"msjsdiag.debugger-for-chrome",
+		"rangav.vscode-thunder-client",
+		"eamodio.gitlens",
+		"christian-kohler.path-intellisense",
+		"christian-kohler.npm-intellisense"
+	]
+}

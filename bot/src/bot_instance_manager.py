@@ -7,6 +7,7 @@ from src.shared.env_loader import load_repo_env
 load_repo_env(__file__)
 
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
@@ -37,6 +38,8 @@ from src.infrastructure.use_cases.async_job_manager import async_job_manager
 
 class BotInstanceManager:
     """Manages multiple bot instances with isolated state and configuration"""
+
+    CONFIG_SCHEMA_VERSION = 1
 
     ACTIVE_RUNTIME_STATUSES = {
         BotStatus.RUNNING,
@@ -411,6 +414,27 @@ class BotInstanceManager:
                     created_at=record.created_at,
                     last_update=record.updated_at,
                 )
+
+                # Regenerate the on-disk config YAML if it was lost (e.g. after a
+                # server restart or volume wipe).  Without this the worker subprocess
+                # falls back to env-based config which lacks per-instance credentials.
+                config_file = self._get_instance_state_files(record.instance_id)[
+                    "config"
+                ]
+                if not config_file.exists():
+                    try:
+                        self._create_instance_config_file(record.instance_id, config)
+                        logger.info(
+                            "Regenerated missing config file for recovered instance {}",
+                            record.instance_id,
+                        )
+                    except Exception as cfg_exc:
+                        logger.warning(
+                            "Failed to regenerate config file for instance {} during DB recovery: {}",
+                            record.instance_id,
+                            cfg_exc,
+                        )
+
                 loaded += 1
 
             self.recovery_diagnostics["loaded"] = loaded
@@ -540,6 +564,46 @@ class BotInstanceManager:
         """Translate manager status into the SQLAlchemy enum used by persisted rows."""
         return BotStatusEnum[instance.status.name]
 
+    @staticmethod
+    def _runtime_contract_payload(instance: BotInstanceState) -> dict[str, Any]:
+        """Build the canonical runtime config payload persisted in bot_instances.config."""
+        return {
+            "instance_name": instance.config.instance_name,
+            "credentials": instance.config.credentials.model_dump(),
+            "telegram": (
+                instance.config.telegram.model_dump()
+                if instance.config.telegram
+                else {}
+            ),
+            "trading_params": instance.config.trading_params.model_dump(),
+            "backtesting_params": (
+                instance.config.backtesting_params.model_dump()
+                if instance.config.backtesting_params
+                else {}
+            ),
+        }
+
+    @staticmethod
+    def _config_payload_hash(payload: dict[str, Any]) -> str:
+        """Compute deterministic hash for runtime-config drift and cache validation."""
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _build_config_meta(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Attach schema/hash metadata to persisted runtime config payloads."""
+        return {
+            "schema_version": self.CONFIG_SCHEMA_VERSION,
+            "hash_algorithm": "sha256",
+            "payload_hash": self._config_payload_hash(payload),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     def _ensure_instance_record(self, instance: BotInstanceState):
         """Create the DB row for an instance if API orchestration has not done it yet."""
         if not self._db_persistence_enabled():
@@ -550,6 +614,7 @@ class BotInstanceManager:
             uow = UnitOfWork(session)
             if uow.bots.get_by_instance_id(instance.instance_id) is not None:
                 return
+            runtime_payload = self._runtime_contract_payload(instance)
             uow.bots.create_bot(
                 instance_id=instance.instance_id,
                 network=(
@@ -559,19 +624,8 @@ class BotInstanceManager:
                 ),
                 strategy=instance.config.trading_params.strategy,
                 config={
-                    "instance_name": instance.config.instance_name,
-                    "credentials": instance.config.credentials.model_dump(),
-                    "telegram": (
-                        instance.config.telegram.model_dump()
-                        if instance.config.telegram
-                        else {}
-                    ),
-                    "trading_params": instance.config.trading_params.model_dump(),
-                    "backtesting_params": (
-                        instance.config.backtesting_params.model_dump()
-                        if instance.config.backtesting_params
-                        else {}
-                    ),
+                    **runtime_payload,
+                    "config_meta": self._build_config_meta(runtime_payload),
                 },
             )
         except Exception as exc:
@@ -663,23 +717,13 @@ class BotInstanceManager:
                 persisted_config = self._coerce_record_config_payload(
                     getattr(record, "config", None)
                 )
+                runtime_payload = self._runtime_contract_payload(instance)
                 started_at_value = instance.process_info.get("started_at")
                 stopped_at_value = instance.process_info.get("stopped_at")
                 persisted_config.update(
                     {
-                        "instance_name": instance.config.instance_name,
-                        "credentials": instance.config.credentials.model_dump(),
-                        "telegram": (
-                            instance.config.telegram.model_dump()
-                            if instance.config.telegram
-                            else {}
-                        ),
-                        "trading_params": instance.config.trading_params.model_dump(),
-                        "backtesting_params": (
-                            instance.config.backtesting_params.model_dump()
-                            if instance.config.backtesting_params
-                            else {}
-                        ),
+                        **runtime_payload,
+                        "config_meta": self._build_config_meta(runtime_payload),
                         "runtime_state": {
                             "status": instance.status.value,
                             "process_id": instance.process_info.get("pid"),

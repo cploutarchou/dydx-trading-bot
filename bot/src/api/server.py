@@ -10,6 +10,7 @@ import re
 import sys
 import threading
 import time
+from collections import deque
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Union
@@ -31,7 +32,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
@@ -92,7 +93,7 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     )
     bot_manager = None
 
-from internal.domain.models import BotStatusEnum
+from internal.domain.models import BacktestRun, BotStatusEnum
 from src.api.realtime_serializers import (
     serialize_market_core,
     serialize_realtime_position,
@@ -304,6 +305,16 @@ def _read_non_negative_int_env(name: str, default: int) -> int:
         return max(0, int(default))
 
 
+def _read_non_negative_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return max(0.0, float(default))
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return max(0.0, float(default))
+
+
 _BACKTEST_ENDPOINT_CACHE_TTL_SECONDS = _read_non_negative_int_env(
     "BACKTEST_ENDPOINT_CACHE_TTL_SECONDS", 2
 )
@@ -339,6 +350,19 @@ _instance_create_rate_limiter: _RedisSlidingWindowRateLimiter = (
 )
 _backtest_endpoint_cache: Dict[str, Dict[str, Any]] = {}
 _backtest_endpoint_cache_lock = threading.Lock()
+_strategy_resolution_metrics_lock = threading.Lock()
+_strategy_resolution_path_keys = ("store", "history", "request", "not_found")
+_strategy_resolution_metrics: Dict[str, Any] = {
+    "counts": {key: 0 for key in _strategy_resolution_path_keys},
+    "last_path": None,
+    "last_updated_at": None,
+}
+_strategy_resolution_recent_paths = deque(
+    maxlen=max(
+        1,
+        _read_non_negative_int_env("STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE", 200),
+    )
+)
 
 # ---------------------------------------------------------------------------
 # Market data cache – serves stale data when dYdX is temporarily unavailable.
@@ -935,6 +959,185 @@ def _read_bool_env(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _request_snapshot_fallback_enabled() -> bool:
+    """Whether strategy_payload_snapshot request fallback is allowed.
+
+    Strict mode is opt-in: when
+    BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true and
+    ENVIRONMENT=production, fallback to request snapshot is disabled.
+    """
+    strict_disable_in_prod = _read_bool_env(
+        "BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION",
+        False,
+    )
+    is_production = os.getenv("ENVIRONMENT", "development").strip().lower() in {
+        "production",
+        "prod",
+    }
+    return not (strict_disable_in_prod and is_production)
+
+
+def _record_strategy_resolution_path(path: str) -> None:
+    with _strategy_resolution_metrics_lock:
+        counts = _strategy_resolution_metrics.setdefault("counts", {})
+        counts[path] = int(counts.get(path, 0) or 0) + 1
+        _strategy_resolution_recent_paths.append(path)
+        _strategy_resolution_metrics["last_path"] = path
+        _strategy_resolution_metrics["last_updated_at"] = utc_now_iso()
+
+
+def _strategy_resolution_metrics_snapshot() -> Dict[str, Any]:
+    with _strategy_resolution_metrics_lock:
+        counts = dict(_strategy_resolution_metrics.get("counts", {}))
+        recent_paths = list(_strategy_resolution_recent_paths)
+        recent_total = len(recent_paths)
+        recent_counts: Dict[str, int] = {
+            key: 0 for key in _strategy_resolution_path_keys
+        }
+        for path in recent_paths:
+            recent_counts[path] = int(recent_counts.get(path, 0) or 0) + 1
+
+        request_ratio_recent = (
+            float(recent_counts.get("request", 0)) / float(recent_total)
+            if recent_total > 0
+            else 0.0
+        )
+        request_ratio_alert_threshold = _read_non_negative_float_env(
+            "STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD",
+            0.05,
+        )
+        request_ratio_alert_min_runs = max(
+            1,
+            _read_non_negative_int_env(
+                "STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS",
+                20,
+            ),
+        )
+        request_ratio_alert_triggered = (
+            recent_total >= request_ratio_alert_min_runs
+            and request_ratio_recent > request_ratio_alert_threshold
+        )
+
+        return {
+            "counts": counts,
+            "total": int(sum(int(v or 0) for v in counts.values())),
+            "last_path": _strategy_resolution_metrics.get("last_path"),
+            "last_updated_at": _strategy_resolution_metrics.get("last_updated_at"),
+            "window": {
+                "size": int(_strategy_resolution_recent_paths.maxlen or recent_total),
+                "total": recent_total,
+                "counts": recent_counts,
+            },
+            "alerts": {
+                "request_ratio_recent": request_ratio_recent,
+                "request_ratio_alert_threshold": request_ratio_alert_threshold,
+                "request_ratio_alert_min_runs": request_ratio_alert_min_runs,
+                "request_ratio_alert_triggered": request_ratio_alert_triggered,
+            },
+            "request_snapshot_fallback_enabled": _request_snapshot_fallback_enabled(),
+            "strict_disable_in_production": _read_bool_env(
+                "BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION",
+                False,
+            ),
+        }
+
+
+def _reset_strategy_resolution_metrics() -> Dict[str, Any]:
+    with _strategy_resolution_metrics_lock:
+        _strategy_resolution_metrics["counts"] = {
+            key: 0 for key in _strategy_resolution_path_keys
+        }
+        _strategy_resolution_metrics["last_path"] = None
+        _strategy_resolution_metrics["last_updated_at"] = utc_now_iso()
+        _strategy_resolution_recent_paths.clear()
+    return _strategy_resolution_metrics_snapshot()
+
+
+def _strategy_resolution_metrics_prometheus() -> str:
+    snapshot = _strategy_resolution_metrics_snapshot()
+    counts = dict(snapshot.get("counts", {}))
+    window = dict(snapshot.get("window", {}))
+    window_counts = dict(window.get("counts", {}))
+    alerts = dict(snapshot.get("alerts", {}))
+
+    lines: List[str] = []
+    lines.append(
+        "# HELP bot_strategy_resolution_total Total strategy-resolution decisions by path"
+    )
+    lines.append("# TYPE bot_strategy_resolution_total counter")
+    for path in _strategy_resolution_path_keys:
+        lines.append(
+            f'bot_strategy_resolution_total{{path="{path}"}} {int(counts.get(path, 0) or 0)}'
+        )
+
+    lines.append(
+        "# HELP bot_strategy_resolution_window_total Strategy-resolution decisions in the recent alert window"
+    )
+    lines.append("# TYPE bot_strategy_resolution_window_total gauge")
+    lines.append(
+        f"bot_strategy_resolution_window_total {int(window.get('total', 0) or 0)}"
+    )
+
+    lines.append(
+        "# HELP bot_strategy_resolution_window_ratio Ratio per path in the recent alert window"
+    )
+    lines.append("# TYPE bot_strategy_resolution_window_ratio gauge")
+    window_total = int(window.get("total", 0) or 0)
+    for path in _strategy_resolution_path_keys:
+        ratio = (
+            float(window_counts.get(path, 0) or 0) / float(window_total)
+            if window_total > 0
+            else 0.0
+        )
+        lines.append(
+            f'bot_strategy_resolution_window_ratio{{path="{path}"}} {ratio:.6f}'
+        )
+
+    lines.append(
+        "# HELP bot_strategy_resolution_request_ratio_recent Request-fallback ratio in recent window"
+    )
+    lines.append("# TYPE bot_strategy_resolution_request_ratio_recent gauge")
+    lines.append(
+        f"bot_strategy_resolution_request_ratio_recent {float(alerts.get('request_ratio_recent', 0.0) or 0.0):.6f}"
+    )
+
+    lines.append(
+        "# HELP bot_strategy_resolution_request_ratio_alert_triggered Whether request-fallback ratio alert is triggered"
+    )
+    lines.append("# TYPE bot_strategy_resolution_request_ratio_alert_triggered gauge")
+    lines.append(
+        "bot_strategy_resolution_request_ratio_alert_triggered {}".format(
+            1 if bool(alerts.get("request_ratio_alert_triggered", False)) else 0
+        )
+    )
+
+    alert_triggered = bool(alerts.get("request_ratio_alert_triggered", False))
+    alert_reason = "request_ratio_exceeded" if alert_triggered else "none"
+    alert_severity = "warning" if alert_triggered else "ok"
+    lines.append(
+        "# HELP bot_strategy_resolution_alert_summary Single-line summary for strategy-resolution alert state"
+    )
+    lines.append("# TYPE bot_strategy_resolution_alert_summary gauge")
+    lines.append(
+        'bot_strategy_resolution_alert_summary{alert="request_ratio",severity="%s",reason="%s"} %d'
+        % (alert_severity, alert_reason, 1 if alert_triggered else 0)
+    )
+
+    lines.append(
+        "# HELP bot_strategy_resolution_request_snapshot_fallback_enabled Whether request snapshot fallback is enabled"
+    )
+    lines.append(
+        "# TYPE bot_strategy_resolution_request_snapshot_fallback_enabled gauge"
+    )
+    lines.append(
+        "bot_strategy_resolution_request_snapshot_fallback_enabled {}".format(
+            1 if bool(snapshot.get("request_snapshot_fallback_enabled", False)) else 0
+        )
+    )
+
+    return "\n".join(lines) + "\n"
+
+
 def _backtest_admission_limit_snapshot() -> Dict[str, int]:
     max_active = _read_positive_int_env("BACKTEST_MAX_ACTIVE_RUNS_GLOBAL", 10)
     max_queue_depth = _read_positive_int_env("BACKTEST_MAX_QUEUE_DEPTH", max_active)
@@ -1266,6 +1469,58 @@ def _resolve_strategy_backtest_request(
     selected_pair_labels: List[str],
     endpoint: str,
 ) -> Union[BacktestConfigRequest, JSONResponse]:
+    def _strategy_snapshot_from_backtest_history(
+        strategy_id: int,
+        *,
+        limit: int = 100,
+    ) -> Optional[Dict[str, Any]]:
+        session = db.get_session()
+        try:
+            rows = (
+                session.query(BacktestRun.request_json, BacktestRun.run_id)
+                .order_by(BacktestRun.updated_at.desc())
+                .limit(max(1, int(limit)))
+                .all()
+            )
+            for request_json, run_id in rows:
+                if not isinstance(request_json, dict):
+                    continue
+
+                candidate = request_json.get("strategy_payload_snapshot")
+                if not isinstance(candidate, dict):
+                    continue
+
+                candidate_id = candidate.get("id", request_json.get("strategy_id"))
+                if candidate_id is None:
+                    continue
+                try:
+                    if int(candidate_id) != int(strategy_id):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+
+                resolved = dict(candidate)
+                resolved.setdefault("id", int(strategy_id))
+                _record_strategy_resolution_path("history")
+                logger.info(
+                    "strategy_resolved_from_backtest_history strategy_id={} endpoint={} run_id={}",
+                    strategy_id,
+                    endpoint,
+                    run_id,
+                )
+                return resolved
+            return None
+        except Exception as history_error:
+            logger.warning(
+                "strategy_history_lookup_failed strategy_id={} endpoint={} error={}",
+                strategy_id,
+                endpoint,
+                history_error,
+            )
+            return None
+        finally:
+            session.close()
+
     fallback_snapshot = dict(request.strategy_payload_snapshot or {})
     if request.strategy_id is None:
         if not fallback_snapshot and not request.trading_parameters:
@@ -1281,45 +1536,53 @@ def _resolve_strategy_backtest_request(
         return _manual_backtest_request(request, pairs, selected_pair_labels)
 
     strategy: Optional[Dict[str, Any]] = None
+    lookup_error: Optional[Exception] = None
     try:
         strategy = InMemoryStrategyStore.get(request.strategy_id)
-    except Exception as lookup_error:
-        if fallback_snapshot:
-            fallback_snapshot.setdefault("id", request.strategy_id)
-            logger.warning(
-                "strategy_lookup_failed strategy_id={} endpoint={} error={} using_snapshot_fallback=true",
-                request.strategy_id,
-                endpoint,
-                lookup_error,
-            )
-            strategy = fallback_snapshot
-        else:
-            logger.warning(
-                "strategy_lookup_failed strategy_id={} endpoint={} error={}",
-                request.strategy_id,
-                endpoint,
-                lookup_error,
-            )
-            return api_response(
-                success=False,
-                message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
-                data={
-                    "error": "STRATEGY_NOT_FOUND",
-                    "strategy_id": request.strategy_id,
-                },
-                status_code=404,
-            )
+    except Exception as exc:
+        lookup_error = exc
 
-    if not strategy and fallback_snapshot:
+    if strategy:
+        _record_strategy_resolution_path("store")
+
+    if not strategy and lookup_error is None:
+        strategy = _strategy_snapshot_from_backtest_history(request.strategy_id)
+
+    if not strategy and fallback_snapshot and _request_snapshot_fallback_enabled():
         fallback_snapshot.setdefault("id", request.strategy_id)
-        logger.warning(
-            "strategy_not_found strategy_id={} endpoint={} using_snapshot_fallback=true",
-            request.strategy_id,
-            endpoint,
-        )
+        _record_strategy_resolution_path("request")
+        if lookup_error is not None:
+            logger.info(
+                "strategy_lookup_failed strategy_id={} endpoint={} error={} using_request_snapshot=true",
+                request.strategy_id,
+                endpoint,
+                lookup_error,
+            )
+        else:
+            logger.info(
+                "strategy_not_found strategy_id={} endpoint={} using_request_snapshot=true",
+                request.strategy_id,
+                endpoint,
+            )
         strategy = fallback_snapshot
 
+    if lookup_error is not None and not strategy:
+        logger.warning(
+            "strategy_lookup_failed strategy_id={} endpoint={} error={}",
+            request.strategy_id,
+            endpoint,
+            lookup_error,
+        )
+
     if not strategy:
+        if fallback_snapshot and not _request_snapshot_fallback_enabled():
+            logger.warning(
+                "strategy_request_snapshot_fallback_disabled strategy_id={} endpoint={} environment={} strict_disable_in_production=true",
+                request.strategy_id,
+                endpoint,
+                os.getenv("ENVIRONMENT", "development"),
+            )
+        _record_strategy_resolution_path("not_found")
         logger.warning(
             "strategy_not_found strategy_id={} endpoint={}",
             request.strategy_id,
@@ -2956,6 +3219,8 @@ async def health_check():
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
         backtest_limits = _backtest_capacity_snapshot(runtime_health)
+        strategy_resolution_metrics = _strategy_resolution_metrics_snapshot()
+        strategy_resolution_alerts = dict(strategy_resolution_metrics.get("alerts", {}))
         return api_response(
             success=True,
             data={
@@ -2964,6 +3229,13 @@ async def health_check():
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
+                "strategy_resolution_metrics": strategy_resolution_metrics,
+                "strategy_resolution_alerts": strategy_resolution_alerts,
+                "strategy_resolution_alert_recommended": bool(
+                    strategy_resolution_alerts.get(
+                        "request_ratio_alert_triggered", False
+                    )
+                ),
                 "backtest_websocket_metrics": manager.get_backtest_send_failure_summary(),
                 "bot_recovery": _bot_recovery_diagnostics(),
                 "bot_db_sync": _bot_db_sync_diagnostics(),
@@ -2978,6 +3250,8 @@ async def readiness_check():
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
         backtest_limits = _backtest_capacity_snapshot(runtime_health)
+        strategy_resolution_metrics = _strategy_resolution_metrics_snapshot()
+        strategy_resolution_alerts = dict(strategy_resolution_metrics.get("alerts", {}))
         ready = bot_manager is not None
         status_code = 200 if ready else 503
 
@@ -2989,6 +3263,13 @@ async def readiness_check():
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
                 "backtest_limits": backtest_limits,
+                "strategy_resolution_metrics": strategy_resolution_metrics,
+                "strategy_resolution_alerts": strategy_resolution_alerts,
+                "strategy_resolution_alert_recommended": bool(
+                    strategy_resolution_alerts.get(
+                        "request_ratio_alert_triggered", False
+                    )
+                ),
                 "backtest_websocket_metrics": manager.get_backtest_send_failure_summary(),
                 "bot_recovery": _bot_recovery_diagnostics(),
                 "bot_db_sync": _bot_db_sync_diagnostics(),
@@ -5170,15 +5451,29 @@ async def compare_backtests(
 
 
 @app.get("/api/v1/backtests/sync-health")
-async def backtest_sync_health():
+async def backtest_sync_health(
+    metrics_only: bool = False,
+):
     """Backend sync visibility endpoint for run orchestration health."""
     try:
+        metrics_snapshot = _strategy_resolution_metrics_snapshot()
+        if metrics_only:
+            return api_response(
+                success=True,
+                data={
+                    "status": "ok",
+                    "strategy_resolution_metrics": metrics_snapshot,
+                },
+                message="Backtest sync health metrics retrieved",
+            )
+
         runtime_health = await run_in_threadpool(_get_backtest_runtime_health_sync)
         return api_response(
             success=True,
             data={
                 "status": "ok",
                 **runtime_health,
+                "strategy_resolution_metrics": metrics_snapshot,
             },
             message="Backtest sync health retrieved",
         )
@@ -5187,6 +5482,60 @@ async def backtest_sync_health():
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
         )
+
+
+@app.get("/api/v1/runtime/strategy-resolution-metrics")
+async def get_strategy_resolution_metrics(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Lightweight dashboard endpoint for strategy-resolution drift metrics."""
+    del current_user
+    return api_response(
+        success=True,
+        data=_strategy_resolution_metrics_snapshot(),
+        message="Strategy resolution metrics retrieved",
+    )
+
+
+@app.get(
+    "/api/v1/runtime/strategy-resolution-metrics/prom",
+    response_class=PlainTextResponse,
+)
+async def get_strategy_resolution_metrics_prometheus(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Prometheus text-format strategy-resolution metrics for dashboards/probes."""
+    del current_user
+    return PlainTextResponse(
+        content=_strategy_resolution_metrics_prometheus(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+@app.get("/api/v1/admin/runtime/strategy-resolution-metrics")
+async def get_strategy_resolution_metrics_admin(
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-only alias for strategy-resolution drift metrics."""
+    del current_user
+    return api_response(
+        success=True,
+        data=_strategy_resolution_metrics_snapshot(),
+        message="Strategy resolution metrics retrieved",
+    )
+
+
+@app.post("/api/v1/admin/runtime/strategy-resolution-metrics/reset")
+async def reset_strategy_resolution_metrics_admin(
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-only endpoint to reset in-memory strategy-resolution counters."""
+    del current_user
+    return api_response(
+        success=True,
+        data=_reset_strategy_resolution_metrics(),
+        message="Strategy resolution metrics reset",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/dydx-validation")

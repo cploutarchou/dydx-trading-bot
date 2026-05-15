@@ -595,6 +595,9 @@ def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_p
     assert persisted_record.strategy == "cointegration"
     assert persisted_record.config["telegram"] == {}
     assert persisted_record.config["trading_params"]["strategy"] == "cointegration"
+    assert persisted_record.config["config_meta"]["schema_version"] == 1
+    assert persisted_record.config["config_meta"]["hash_algorithm"] == "sha256"
+    assert len(persisted_record.config["config_meta"]["payload_hash"]) == 64
     assert persisted_record.config["runtime_state"]["status"] == "stopped"
     assert persisted_record.config["runtime_state"]["last_error"] == "runtime crashed"
     assert persisted_record.config["runtime_state"]["exit_code"] == 7
@@ -681,6 +684,8 @@ def test_save_instances_state_coerces_string_config_payload(monkeypatch, tmp_pat
 
     assert session.commits >= 1
     assert isinstance(persisted_record.config, dict)
+    assert persisted_record.config["config_meta"]["schema_version"] == 1
+    assert persisted_record.config["config_meta"]["hash_algorithm"] == "sha256"
     assert persisted_record.config["runtime_state"]["status"] == "stopped"
 
 

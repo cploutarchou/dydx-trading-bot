@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers for the dYdX backend API backtest features.
 package routes
 
 import (

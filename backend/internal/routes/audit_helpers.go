@@ -1,3 +1,4 @@
+// Package routes provides helper functions for audit logging in the dYdX backend API.
 package routes
 
 import (

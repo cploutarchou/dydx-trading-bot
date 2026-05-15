@@ -33,6 +33,18 @@ from src.trading.dydx_client import connect_dydx
 logger = logging.getLogger(__name__)
 
 
+def _linregress_slope(x: Any, y: Any) -> float:
+    """Return slope from scipy.stats.linregress across typing/runtime variants."""
+    result = linregress(x, y)
+    slope_value = getattr(result, "slope", None)
+    if slope_value is None:
+        if isinstance(result, tuple) and result:
+            slope_value = result[0]
+        else:
+            raise ValueError("Unable to extract slope from linregress result")
+    return float(slope_value)
+
+
 class _BacktestRunStatus(BaseModel):
     run_id: str
     status: str
@@ -632,7 +644,9 @@ class BacktestService:
         clean_request = dict(cls._strip_runtime_control(request_payload or {}))
         existing = cls._task_context_from_request(clean_request)
         request_metadata = clean_request.get("metadata")
-        request_metadata = request_metadata if isinstance(request_metadata, dict) else {}
+        request_metadata = (
+            request_metadata if isinstance(request_metadata, dict) else {}
+        )
         selected_pairs = cls._selected_pair_labels_from_request(clean_request)
         raw_strategy_snapshot = clean_request.get("strategy_payload_snapshot")
         strategy_snapshot = (
@@ -2063,8 +2077,7 @@ class BacktestService:
                 coint_stat, coint_pvalue, _ = coint(log_p1, log_p2)
 
                 # Estimate hedge ratio on log prices and test spread stationarity.
-                lr = linregress(log_p2, log_p1)
-                hedge_ratio = float(lr.slope)
+                hedge_ratio = _linregress_slope(log_p2, log_p1)
                 spread = log_p1 - (hedge_ratio * log_p2)
 
                 adf_stat, adf_pvalue, *_ = adfuller(spread, autolag="AIC")
@@ -2075,8 +2088,7 @@ class BacktestService:
                 if len(lagged) < 3 or np.std(lagged) <= 1e-12:
                     return -1e9
 
-                mean_rev_lr = linregress(lagged, delta)
-                kappa = float(mean_rev_lr.slope)
+                kappa = _linregress_slope(lagged, delta)
                 if kappa >= 0:
                     half_life = float("inf")
                 else:

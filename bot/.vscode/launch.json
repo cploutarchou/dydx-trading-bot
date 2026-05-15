@@ -39,5 +39,23 @@
 			"justMyCode": true,
 			"console": "integratedTerminal"
 		}
+	],
+	"compounds": [
+		{
+			"name": "Python: API + Bot runtime",
+			"configurations": [
+				"Python: Local API wrapper (start_api.py)",
+				"Python: Bot runtime (main.py)"
+			],
+			"stopAll": true
+		},
+		{
+			"name": "Python: FastAPI + Bot runtime",
+			"configurations": [
+				"Python: FastAPI (src.api.server via uvicorn)",
+				"Python: Bot runtime (main.py)"
+			],
+			"stopAll": true
+		}
 	]
 }

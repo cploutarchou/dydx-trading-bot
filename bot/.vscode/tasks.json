@@ -58,6 +58,28 @@
 			],
 			"group": "none",
 			"problemMatcher": []
+		},
+		{
+			"label": "Stop: local-api",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"pkill -f 'uvicorn src.api.server:app' || true"
+			],
+			"group": "none",
+			"problemMatcher": []
+		},
+		{
+			"label": "Stop: local-bot",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"pkill -f '/main.py' || true"
+			],
+			"group": "none",
+			"problemMatcher": []
 		}
 	]
 }

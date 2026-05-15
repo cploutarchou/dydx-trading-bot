@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers for the dYdX backend API authentication features.
 package routes
 
 import (
@@ -62,7 +63,7 @@ func authSessionHandler(database *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// Request/Response models
+// RegisterRequest represents the payload for user registration.
 type RegisterRequest struct {
 	Username       string `json:"username" binding:"required"`
 	Email          string `json:"email" binding:"required,email"`

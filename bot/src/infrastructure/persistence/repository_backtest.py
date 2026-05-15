@@ -236,22 +236,23 @@ class BacktestRepository:
         record.position_snapshots_json = payload.get("position_snapshots") or []
         record.daily_pnl_json = payload.get("daily_pnl") or []
         record.cancel_requested = bool(payload.get("cancel_requested", False))
-        record.created_at = self._parse_dt(
+        parsed_created_at = self._parse_dt(
             payload.get("created_at"), default=self._now()
         )
+        record.created_at = parsed_created_at or self._now()
         record.started_at = self._parse_dt(payload.get("started_at"))
         record.completed_at = self._parse_dt(
             payload.get("completed_at") or payload.get("finished_at")
         )
         record.deadline_at = self._parse_dt(payload.get("deadline_at"))
+        timeout_seconds_value = payload.get("timeout_seconds")
         record.timeout_seconds = (
-            float(payload.get("timeout_seconds"))
-            if payload.get("timeout_seconds") is not None
-            else None
+            float(timeout_seconds_value) if timeout_seconds_value is not None else None
         )
-        record.updated_at = self._parse_dt(
+        parsed_updated_at = self._parse_dt(
             payload.get("updated_at"), default=self._now()
         )
+        record.updated_at = parsed_updated_at or self._now()
 
         self._upsert_request_snapshot(run_id, incoming_request_payload)
 

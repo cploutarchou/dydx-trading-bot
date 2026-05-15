@@ -4,18 +4,35 @@ Run Database Migration for Backtesting Tables
 This script sets up the database tables needed for the backtesting API
 """
 
-import os
 import sys
+from pathlib import Path
 
-# Add the bot directory to a Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from logging_setup import setup_logging
-from migrate_backtest_tables import run_migration
+def _bootstrap_runtime_dependencies():
+    """Resolve runtime dependencies after ensuring repo root is importable."""
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    # ⚠️ CRITICAL: Load environment variables before runtime/config imports.
+    from src.shared.env_loader import load_repo_env
+
+    load_repo_env(__file__)
+
+    from src.shared.logging_setup import setup_logging
+
+    try:
+        from migrations.migrate_backtest_tables import run_migration
+    except ModuleNotFoundError:
+        # Fallback for direct script invocation from this folder.
+        from migrate_backtest_tables import run_migration
+
+    return setup_logging, run_migration
 
 
 def main():
     """Run the database migration"""
+    setup_logging, run_migration = _bootstrap_runtime_dependencies()
 
     # Setup logging
     setup_logging()

@@ -22,6 +22,12 @@ from src.infrastructure.workers.celery_monitor import build_progress_meta, failu
 logger = logging.getLogger(__name__)
 
 
+def _normalize_request_payload(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -29,7 +35,6 @@ def _now_iso() -> str:
 def _get_redis_client():
     """Return a lazily-created synchronous redis client for pub/sub publishing."""
     import redis as _redis
-    from urllib.parse import quote
 
     try:
         explicit_url = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL")
@@ -99,11 +104,12 @@ def _mark_worker_failure(
     session = db.get_session()
     try:
         repository = BacktestRepository(session)
-        data = repository.get_run(run_id)
-        if not data:
+        run_data = repository.get_run(run_id)
+        if not isinstance(run_data, dict):
             return
-        request_payload = (
-            data.get("request") if isinstance(data.get("request"), dict) else {}
+        data: Dict[str, Any] = dict(run_data)
+        request_payload: Dict[str, Any] = _normalize_request_payload(
+            data.get("request")
         )
         data.update(
             {
@@ -148,7 +154,7 @@ def _mark_worker_failure(
 
 
 def _selected_pairs(data: Dict[str, Any]) -> list[str]:
-    request = data.get("request") if isinstance(data.get("request"), dict) else {}
+    request: Dict[str, Any] = _normalize_request_payload(data.get("request"))
     raw = (
         data.get("selected_pairs")
         or request.get("selected_pairs")
@@ -174,14 +180,15 @@ def run_backtest_task(
     session = db.get_session()
     try:
         repository = BacktestRepository(session)
-        data = repository.get_run(run_id)
-        if not data:
+        run_data = repository.get_run(run_id)
+        if not isinstance(run_data, dict):
             raise ValueError(f"Backtest run '{run_id}' not found")
+        data: Dict[str, Any] = dict(run_data)
 
         service = BacktestService(repository)
         task_id = str(self.request.id or run_id)
-        request_payload = (
-            data.get("request") if isinstance(data.get("request"), dict) else {}
+        request_payload: Dict[str, Any] = _normalize_request_payload(
+            data.get("request")
         )
         task_context = service._build_task_context(
             request_payload,

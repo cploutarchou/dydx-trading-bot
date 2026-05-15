@@ -1,0 +1,61 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Python: FastAPI (src.api.server via uvicorn)",
+			"type": "debugpy",
+			"request": "launch",
+			"module": "uvicorn",
+			"args": [
+				"src.api.server:app",
+				"--host",
+				"0.0.0.0",
+				"--port",
+				"8889",
+				"--reload"
+			],
+			"cwd": "${workspaceFolder}",
+			"envFile": "${workspaceFolder}/.env",
+			"justMyCode": true,
+			"console": "integratedTerminal"
+		},
+		{
+			"name": "Python: Local API wrapper (start_api.py)",
+			"type": "debugpy",
+			"request": "launch",
+			"program": "${workspaceFolder}/start_api.py",
+			"cwd": "${workspaceFolder}",
+			"envFile": "${workspaceFolder}/.env",
+			"justMyCode": true,
+			"console": "integratedTerminal"
+		},
+		{
+			"name": "Python: Bot runtime (main.py)",
+			"type": "debugpy",
+			"request": "launch",
+			"program": "${workspaceFolder}/main.py",
+			"cwd": "${workspaceFolder}",
+			"envFile": "${workspaceFolder}/.env",
+			"justMyCode": true,
+			"console": "integratedTerminal"
+		}
+	],
+	"compounds": [
+		{
+			"name": "Python: API + Bot runtime",
+			"configurations": [
+				"Python: Local API wrapper (start_api.py)",
+				"Python: Bot runtime (main.py)"
+			],
+			"stopAll": true
+		},
+		{
+			"name": "Python: FastAPI + Bot runtime",
+			"configurations": [
+				"Python: FastAPI (src.api.server via uvicorn)",
+				"Python: Bot runtime (main.py)"
+			],
+			"stopAll": true
+		}
+	]
+}

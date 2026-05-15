@@ -2,11 +2,17 @@
 Repository classes for realtime data operations
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session
 
-from internal.domain.models_realtime import Position, MarketData, BotStats, Alert, PositionStatusEnum
+from internal.domain.models_realtime import (
+    Alert,
+    BotStats,
+    MarketData,
+    Position,
+    PositionStatusEnum,
+)
 from src.shared.time_utils import utc_now
 
 
@@ -18,20 +24,36 @@ class PositionRepository:
 
     def get_open_positions(self, bot_instance_id: int) -> List[Position]:
         """Get all open positions for a bot"""
-        return self.session.query(Position).filter(
-            Position.bot_instance_id == bot_instance_id,
-            Position.status == PositionStatusEnum.OPEN
-        ).all()
+        return (
+            self.session.query(Position)
+            .filter(
+                Position.bot_instance_id == bot_instance_id,
+                Position.status == PositionStatusEnum.OPEN,
+            )
+            .all()
+        )
 
     def get_position_by_id(self, position_id: str) -> Optional[Position]:
         """Get position by ID"""
-        return self.session.query(Position).filter(
-            Position.position_id == position_id
-        ).first()
+        return (
+            self.session.query(Position)
+            .filter(Position.position_id == position_id)
+            .first()
+        )
 
-    def create_position(self, bot_instance_id: int, position_id: str, pair1: str, pair2: str,
-                        side1: str, side2: str, entry_price1: float, entry_price2: float,
-                        entry_size1: float, entry_size2: float) -> Position:
+    def create_position(
+        self,
+        bot_instance_id: int,
+        position_id: str,
+        pair1: str,
+        pair2: str,
+        side1: str,
+        side2: str,
+        entry_price1: float,
+        entry_price2: float,
+        entry_size1: float,
+        entry_size2: float,
+    ) -> Position:
         """Create a new position"""
         position = Position(
             bot_instance_id=bot_instance_id,
@@ -49,9 +71,15 @@ class PositionRepository:
         self.session.commit()
         return position
 
-    def update_position_prices(self, position_id: str, current_price1: float, current_price2: float):
+    def update_position_prices(
+        self, position_id: str, current_price1: float, current_price2: float
+    ):
         """Update current prices for a position"""
-        position = self.session.query(Position).filter(Position.position_id == position_id).first()
+        position = (
+            self.session.query(Position)
+            .filter(Position.position_id == position_id)
+            .first()
+        )
         if position:
             position.current_price1 = current_price1
             position.current_price2 = current_price2
@@ -63,7 +91,11 @@ class PositionRepository:
 
     def close_position(self, position_id: str):
         """Close a position"""
-        position = self.session.query(Position).filter(Position.position_id == position_id).first()
+        position = (
+            self.session.query(Position)
+            .filter(Position.position_id == position_id)
+            .first()
+        )
         if position:
             position.status = PositionStatusEnum.CLOSED
             position.closed_at = utc_now()
@@ -76,25 +108,42 @@ class MarketDataRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_market_data(self, bot_instance_id: int, symbol: str) -> Optional[MarketData]:
+    def get_market_data(
+        self, bot_instance_id: int, symbol: str
+    ) -> Optional[MarketData]:
         """Get market data for a symbol"""
-        return self.session.query(MarketData).filter(
-            MarketData.bot_instance_id == bot_instance_id,
-            MarketData.symbol == symbol
-        ).first()
+        return (
+            self.session.query(MarketData)
+            .filter(
+                MarketData.bot_instance_id == bot_instance_id,
+                MarketData.symbol == symbol,
+            )
+            .first()
+        )
 
     def get_all_market_data(self, bot_instance_id: int) -> List[MarketData]:
         """Get all market data for a bot"""
-        return self.session.query(MarketData).filter(
-            MarketData.bot_instance_id == bot_instance_id
-        ).all()
+        return (
+            self.session.query(MarketData)
+            .filter(MarketData.bot_instance_id == bot_instance_id)
+            .all()
+        )
 
-    def upsert_market_data(self, bot_instance_id: int, symbol: str, current_price: float,
-                           bid_price: Optional[float] = None, ask_price: Optional[float] = None,
-                           volume_24h: Optional[float] = None, volatility_24h: Optional[float] = None,
-                           rsi: Optional[float] = None, macd: Optional[float] = None,
-                           moving_avg_20: Optional[float] = None, moving_avg_50: Optional[float] = None,
-                           funding_rate: Optional[float] = None):
+    def upsert_market_data(
+        self,
+        bot_instance_id: int,
+        symbol: str,
+        current_price: float,
+        bid_price: Optional[float] = None,
+        ask_price: Optional[float] = None,
+        volume_24h: Optional[float] = None,
+        volatility_24h: Optional[float] = None,
+        rsi: Optional[float] = None,
+        macd: Optional[float] = None,
+        moving_avg_20: Optional[float] = None,
+        moving_avg_50: Optional[float] = None,
+        funding_rate: Optional[float] = None,
+    ):
         """Insert or update market data"""
         market_data = self.get_market_data(bot_instance_id, symbol)
         if market_data:
@@ -138,11 +187,15 @@ class StatsRepository:
 
     def get_stats(self, bot_instance_id: int) -> Optional[BotStats]:
         """Get stats for a bot"""
-        return self.session.query(BotStats).filter(
-            BotStats.bot_instance_id == bot_instance_id
-        ).first()
+        return (
+            self.session.query(BotStats)
+            .filter(BotStats.bot_instance_id == bot_instance_id)
+            .first()
+        )
 
-    def calculate_and_update_stats(self, bot_instance_id: int, position_repo: PositionRepository):
+    def calculate_and_update_stats(
+        self, bot_instance_id: int, position_repo: PositionRepository
+    ):
         """Calculate and update bot statistics"""
         positions = position_repo.get_open_positions(bot_instance_id)
         stats = self.get_stats(bot_instance_id)
@@ -175,8 +228,14 @@ class AlertRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def create_alert(self, bot_instance_id: int, alert_type: str, severity: str,
-                     message: str, details: Optional[dict] = None):
+    def create_alert(
+        self,
+        bot_instance_id: int,
+        alert_type: str,
+        severity: str,
+        message: str,
+        details: Optional[dict] = None,
+    ):
         """Create a new alert"""
         alert = Alert(
             bot_instance_id=bot_instance_id,
@@ -191,10 +250,13 @@ class AlertRepository:
 
     def get_unacknowledged_alerts(self, bot_instance_id: int) -> List[Alert]:
         """Get unacknowledged alerts for a bot"""
-        return self.session.query(Alert).filter(
-            Alert.bot_instance_id == bot_instance_id,
-            Alert.acknowledged == False
-        ).all()
+        return (
+            self.session.query(Alert)
+            .filter(
+                Alert.bot_instance_id == bot_instance_id, Alert.acknowledged == False
+            )
+            .all()
+        )
 
     def get_unnotified_alerts(self, bot_instance_id: int) -> List[Alert]:
         """Alias for get_unacknowledged_alerts for API compatibility"""
@@ -215,7 +277,7 @@ class PositionSnapshotsRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_position_history(self, position_id: str, hours: int = 24) -> List[dict]:
+    def get_position_history(self, position_id: str, hours: int = 24) -> List[Any]:
         """Get historical P&L snapshots for a position"""
         # Placeholder: fetch snapshots from a dedicated table if it exists
         # For now, return empty list as the schema may not have a dedicated snapshots table

@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers for delegated bot API endpoints in the dYdX backend API.
 package routes
 
 import (
@@ -76,22 +77,6 @@ func delegateJSON(c *gin.Context, fallback *services.BotAPIClient, call func(*se
 		return
 	}
 	c.JSON(http.StatusOK, result)
-}
-
-func requireCeleryAdmin(c *gin.Context) bool {
-	role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
-	if c.GetBool("is_admin") || role == "admin" || role == "super_admin" || role == "backoffice_admin" {
-		return true
-	}
-	c.JSON(http.StatusForbidden, gin.H{
-		"success":   false,
-		"message":   "Admin access required",
-		"error":     "admin access required",
-		"code":      "admin_required",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"trace_id":  middleware.GetTraceID(c),
-	})
-	return false
 }
 
 func normalizeBacktestRunPayload(config map[string]interface{}) map[string]interface{} {
@@ -2833,16 +2818,6 @@ func parseIntQuery(s string, target *int) (int, error) {
 		*target = i
 	}
 	return i, err
-}
-
-func parseIntPtr(s *string) *int {
-	if s == nil {
-		return nil
-	}
-	if i, err := strconv.Atoi(*s); err == nil {
-		return &i
-	}
-	return nil
 }
 
 func parseBacktestListOffset(c *gin.Context) int {

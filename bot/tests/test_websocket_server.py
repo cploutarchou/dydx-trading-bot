@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any, cast
 
 from src.api import websocket_server
 
@@ -47,7 +48,9 @@ def test_send_initial_state_backtest_channel_emits_snapshot(monkeypatch):
 
     ws = _DummyWebSocket()
     asyncio.run(
-        websocket_server.WebSocketServer.send_initial_state(ws, "backtest-run-123")
+        websocket_server.WebSocketServer.send_initial_state(
+            cast(Any, ws), "backtest-run-123"
+        )
     )
 
     assert session.closed is True
@@ -85,7 +88,7 @@ def test_handle_message_request_status_uses_backtest_run_id(monkeypatch):
     ws = _DummyWebSocket()
     asyncio.run(
         websocket_server.WebSocketServer.handle_message(
-            ws,
+            cast(Any, ws),
             "backtest-run-456",
             {"type": "request_status"},
         )
@@ -142,7 +145,9 @@ def test_send_stats_resolves_string_instance_id_to_numeric_bot_id(monkeypatch):
     )
 
     ws = _DummyWebSocket()
-    asyncio.run(websocket_server.WebSocketServer.send_stats(ws, "strategy-1-9"))
+    asyncio.run(
+        websocket_server.WebSocketServer.send_stats(cast(Any, ws), "strategy-1-9")
+    )
 
     assert len(sent_messages) == 1
     assert sent_messages[0]["type"] == "stats"
@@ -174,7 +179,9 @@ def test_send_backtest_status_tracks_per_run_send_failures(monkeypatch):
 
     ws = _FailingWebSocket()
     sent = asyncio.run(
-        websocket_server.WebSocketServer.send_backtest_status(ws, "run-metrics")
+        websocket_server.WebSocketServer.send_backtest_status(
+            cast(Any, ws), "run-metrics"
+        )
     )
 
     assert sent is False

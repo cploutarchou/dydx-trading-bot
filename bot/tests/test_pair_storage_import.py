@@ -2,30 +2,36 @@
 """Test imports for pair_storage module"""
 
 try:
-    from internal.domain.persistence.cointegration_storage import CointegrationResult
+    from src.infrastructure.domain.cointegration_storage import CointegrationResult
 
-    print("✓ Direct import from cointegration_storage works")
+    print(
+        f"✓ Direct import from cointegration_storage works ({CointegrationResult.__name__})"
+    )
 except Exception as e:
     print(f"✗ Direct import failed: {e}")
 
 try:
-    from internal.domain import CointegrationResult as CR
+    from src.infrastructure.domain.cointegration_storage import (
+        CointegrationResult as CR,
+    )
 
-    print("✓ Package import from domain works")
+    print(f"✓ Package import from domain works ({CR.__name__})")
 except Exception as e:
     print(f"✗ Package import failed: {e}")
 
 try:
-    from functions.func_cointegration import store_cointegration_results
+    from src.trading.analysis.cointegration import store_cointegration_results
 
-    print("✓ func_cointegration imports successfully")
+    print(
+        f"✓ func_cointegration imports successfully ({store_cointegration_results.__name__})"
+    )
 except Exception as e:
     print(f"✗ func_cointegration import failed: {e}")
 
 try:
-    from functions.func_entry_pairs import open_positions
+    from src.trading.position_manager import open_positions
 
-    print("✓ func_entry_pairs imports successfully")
+    print(f"✓ func_entry_pairs imports successfully ({open_positions.__name__})")
 except Exception as e:
     print(f"✗ func_entry_pairs import failed: {e}")
 

@@ -1,4 +1,5 @@
 import pytest
+from typing import Any, cast
 
 from src.middleware.auth_middleware import authenticate_bearer_token
 
@@ -17,7 +18,10 @@ def test_authenticate_bearer_token_accepts_rotation_overlap_tokens(monkeypatch, 
     monkeypatch.setenv("BOT_API_TOKEN_PREVIOUS", "token-previous")
     monkeypatch.delenv("BOT_API_TOKENS", raising=False)
 
-    user = authenticate_bearer_token(f"Bearer {token}", _FailingSession())
+    user = authenticate_bearer_token(
+        f"Bearer {token}",
+        cast(Any, _FailingSession()),
+    )
 
     assert user.username == "backend-service-token"
     assert user.is_active is True

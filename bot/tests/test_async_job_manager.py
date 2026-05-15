@@ -1,11 +1,12 @@
 import asyncio
 
-import src.infrastructure.use_cases.async_job_manager as job_manager_module
-from internal.domain import Base
-from internal.domain.models import Job, JobStatusEnum
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+
+import src.infrastructure.use_cases.async_job_manager as job_manager_module
+from internal.domain import Base
+from internal.domain.models import Job, JobStatusEnum
 from src.infrastructure.use_cases.async_job_manager import AsyncJobManager
 
 
@@ -52,6 +53,7 @@ def test_supervised_task_failure_is_persisted(monkeypatch):
         job = session.query(Job).filter(Job.job_id == "job-failure").one()
         assert job.status == JobStatusEnum.FAILED
         assert job.error_message == "async failure"
+        assert job.error_traceback is not None
         assert "RuntimeError" in job.error_traceback
     finally:
         session.close()

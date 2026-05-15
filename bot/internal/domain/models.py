@@ -2,23 +2,28 @@
 Core database models for the trading bot system
 """
 
+from __future__ import annotations
+
 import enum
+from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
+    Boolean,
     Column,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
     Integer,
     String,
     Text,
-    DateTime,
-    Float,
-    Boolean,
-    ForeignKey,
-    Enum,
-    JSON,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.shared.time_utils import utc_now
+
 from . import Base
 
 
@@ -51,19 +56,37 @@ class TradeStatusEnum(enum.Enum):
 class Bot(Base):
     __tablename__ = "bot_instances"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    instance_id = Column(String(50), unique=True, nullable=False, index=True)
-    network = Column(String(20), nullable=False)  # testnet, mainnet
-    strategy = Column(String(50), nullable=False)
-    config = Column(JSON, nullable=False)
-    status = Column(Enum(BotStatusEnum), default=BotStatusEnum.CREATED)
-    process_id = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=utc_now)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instance_id: Mapped[str] = mapped_column(
+        String(50),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    network: Mapped[str] = mapped_column(String(20), nullable=False)  # testnet, mainnet
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[BotStatusEnum] = mapped_column(
+        Enum(BotStatusEnum),
+        default=BotStatusEnum.CREATED,
+    )
+    process_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )
 
     # Relationships
-    jobs = relationship("Job", back_populates="bot", cascade="all, delete-orphan")
-    trades = relationship("Trade", back_populates="bot", cascade="all, delete-orphan")
+    jobs: Mapped[list["Job"]] = relationship(
+        "Job",
+        back_populates="bot",
+        cascade="all, delete-orphan",
+    )
+    trades: Mapped[list["Trade"]] = relationship(
+        "Trade",
+        back_populates="bot",
+        cascade="all, delete-orphan",
+    )
 
 
 class Job(Base):

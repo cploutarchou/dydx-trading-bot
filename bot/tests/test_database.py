@@ -1,3 +1,4 @@
+# pyright: reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportArgumentType=false
 """
 Database integration test - demonstrates all core functionality
 Run this to verify database system works correctly
@@ -17,10 +18,9 @@ import sys
 # Add bot directory to path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from internal.repository.repository import UnitOfWork
-
 from internal.domain import BotStatusEnum, JobStatusEnum, TradeStatusEnum
 from src.infrastructure.database import db
+from src.infrastructure.persistence.repository import UnitOfWork
 
 
 def test_database_integration():
@@ -60,7 +60,9 @@ def test_database_integration():
         bot_updated = uow.bots.get_by_instance_id("test-bot-001")
         assert bot_updated.status == BotStatusEnum.RUNNING
         assert bot_updated.process_id == 12345
-        print(f"   ✅ Bot status: {bot_updated.status}, PID: {bot_updated.process_id}\n")
+        print(
+            f"   ✅ Bot status: {bot_updated.status}, PID: {bot_updated.process_id}\n"
+        )
 
         # Test Event Logging
         print("5️⃣  Testing Event Logging...")
@@ -200,11 +202,13 @@ def test_database_integration():
                     entry_size2=0.05,
                 )
         except Exception as e:
-            print(f"   ✅ Error caught and transaction rolled back: {type(e).__name__}\n")
+            print(
+                f"   ✅ Error caught and transaction rolled back: {type(e).__name__}\n"
+            )
 
         # Test Job Failure with Retry Logic
         print("1️⃣5️⃣  Testing Job Failure with Retry Logic...")
-        job2 = uow.jobs.create_job(
+        uow.jobs.create_job(
             job_id="job-002",
             bot_id=bot.id,
             job_type="trade_exit",

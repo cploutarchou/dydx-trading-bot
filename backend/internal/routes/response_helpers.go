@@ -2,7 +2,6 @@
 package routes
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
@@ -17,16 +16,4 @@ func respondEnvelope(c *gin.Context, statusCode int, success bool, message strin
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 		"trace_id":  middleware.GetTraceID(c),
 	})
-}
-
-func respondErrorEnvelope(c *gin.Context, statusCode int, message string, code string) {
-	payload := gin.H{"error": message}
-	if code != "" {
-		payload["code"] = code
-	}
-	respondEnvelope(c, statusCode, false, message, payload)
-}
-
-func respondOKEnvelope(c *gin.Context, message string, data interface{}) {
-	respondEnvelope(c, http.StatusOK, true, message, data)
 }

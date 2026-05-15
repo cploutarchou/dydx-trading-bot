@@ -388,6 +388,8 @@ def test_sync_health_endpoint_returns_runtime_counters(monkeypatch):
     assert payload["data"]["queue_depth"] == 2
     assert payload["data"]["active_jobs"] == 1
     assert payload["data"]["total_runs"] == 5
+    assert "strategy_resolution_metrics" in payload["data"]
+    assert "counts" in payload["data"]["strategy_resolution_metrics"]
 
 
 def test_restart_returns_409_when_original_request_payload_missing(monkeypatch):
@@ -553,6 +555,8 @@ def test_run_backtest_compat_uses_strategy_snapshot_when_lookup_fails(monkeypatc
         raise RuntimeError("db unavailable")
 
     monkeypatch.setattr(server.InMemoryStrategyStore, "get", _raise_lookup)
+    metrics_before = server._strategy_resolution_metrics_snapshot()
+    request_before = int(metrics_before["counts"].get("request", 0) or 0)
 
     request = server.BacktestRunRequestCompat(
         start_date="2026-03-01",
@@ -583,6 +587,71 @@ def test_run_backtest_compat_uses_strategy_snapshot_when_lookup_fails(monkeypatc
         stub_service.last_request.strategy_payload_snapshot["name"]
         == "Backend Strategy"
     )
+    metrics_after = server._strategy_resolution_metrics_snapshot()
+    assert int(metrics_after["counts"].get("request", 0) or 0) == request_before + 1
+
+
+def test_run_backtest_compat_strict_mode_disables_request_snapshot_fallback_in_production(
+    monkeypatch,
+):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", lambda _strategy_id: None)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv(
+        "BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION",
+        "true",
+    )
+
+    original_get_session = server.db.get_session
+
+    class _SessionProxy:
+        def query(self, *_args, **_kwargs):
+            class _QueryProxy:
+                def order_by(self, *_a, **_k):
+                    return self
+
+                def limit(self, *_a, **_k):
+                    return self
+
+                def all(self):
+                    return []
+
+            return _QueryProxy()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(server.db, "get_session", lambda: _SessionProxy())
+
+    try:
+        request = server.BacktestRunRequestCompat(
+            start_date="2026-03-01",
+            end_date="2026-03-31",
+            strategy_id=4,
+            pairs=["BTC-USD", "ETH-USD"],
+            strategy_payload_snapshot={
+                "id": 4,
+                "name": "Should Not Be Used",
+                "description": "strict mode disables request fallback",
+            },
+        )
+
+        response = asyncio.run(_call(server.run_backtest_compat(request)))
+        payload = json.loads(response.body)
+    finally:
+        monkeypatch.setattr(server.db, "get_session", original_get_session)
+
+    assert response.status_code == 404
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "STRATEGY_NOT_FOUND"
+    assert stub_service.last_request is None
 
 
 def test_create_backtest_uses_strategy_snapshot_when_lookup_returns_none(monkeypatch):
@@ -622,6 +691,100 @@ def test_create_backtest_uses_strategy_snapshot_when_lookup_returns_none(monkeyp
     assert (
         stub_service.last_request.strategy_payload_snapshot["name"]
         == "Backend-only Strategy"
+    )
+
+
+def test_run_backtest_compat_prefers_history_snapshot_before_request_fallback(
+    monkeypatch,
+):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", lambda _strategy_id: None)
+    monkeypatch.setattr(
+        server,
+        "_resolve_strategy_backtest_request",
+        server._resolve_strategy_backtest_request,
+    )
+
+    # Monkeypatch the internal helper by wrapping resolver call context.
+    original_resolver = server._resolve_strategy_backtest_request
+
+    def _resolver_with_history(request, pairs, selected_pair_labels, endpoint):
+        original_query = server.db.get_session
+
+        class _SessionProxy:
+            def __init__(self, session):
+                self._session = session
+
+            def query(self, *args, **kwargs):
+                class _QueryProxy:
+                    def order_by(self, *_a, **_k):
+                        return self
+
+                    def limit(self, *_a, **_k):
+                        return self
+
+                    def all(self):
+                        return [
+                            (
+                                {
+                                    "strategy_id": 4,
+                                    "strategy_payload_snapshot": {
+                                        "id": 4,
+                                        "name": "History Snapshot",
+                                        "description": "Recovered from backtest history",
+                                        "starting_balance": 2200,
+                                        "pair_selection_mode": "liquidity",
+                                    },
+                                },
+                                "run-historical-1",
+                            )
+                        ]
+
+                return _QueryProxy()
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(server.db, "get_session", lambda: _SessionProxy(None))
+        try:
+            return original_resolver(request, pairs, selected_pair_labels, endpoint)
+        finally:
+            monkeypatch.setattr(server.db, "get_session", original_query)
+
+    monkeypatch.setattr(
+        server, "_resolve_strategy_backtest_request", _resolver_with_history
+    )
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=4,
+        pairs=["BTC-USD", "ETH-USD"],
+        strategy_payload_snapshot={
+            "id": 4,
+            "name": "Request Snapshot",
+            "description": "Fallback payload",
+            "starting_balance": 1500,
+            "pair_selection_mode": "liquidity",
+        },
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+    assert (
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "History Snapshot"
     )
 
 

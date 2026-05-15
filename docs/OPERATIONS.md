@@ -33,6 +33,26 @@ The local development baseline is intentionally split:
 
 This mirrors the production ownership model and avoids accidental shared-state coupling.
 
+## Backtest Strategy Resolution
+
+For bot backtest creation endpoints (`POST /api/v1/backtests`, `POST /api/v1/backtests/run`), strategy payload
+resolution is intentionally ordered to reduce `strategy_not_found` drift during delegated backend execution:
+
+1. Bot strategy table lookup by `strategy_id`
+2. Most recent persisted backtest request snapshots in bot DB
+3. Request-provided `strategy_payload_snapshot` (compatibility fallback)
+
+If lookup falls to step 3, execution still proceeds, but operators should verify strategy replication/sync between
+backend and bot persistence domains.
+
+### Drift monitoring and strict mode
+
+- `GET /api/v1/backtests/sync-health` now includes
+   `strategy_resolution_metrics` with counters for `store`, `history`, `request`, and `not_found` paths.
+- To disable request-payload strategy fallback in production, set:
+   `BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`
+   (effective only when `ENVIRONMENT=production`).
+
 ### Database ownership guardrails
 
 - bot runtime supports cutover modes via `BOT_DB_CUTOVER_MODE`:
@@ -77,6 +97,10 @@ This mirrors the production ownership model and avoids accidental shared-state c
 
 Plain-text files under `bot/bot_states/` are operational debug artifacts only. PostgreSQL is the recovery source for
 runtime status and job/backtest progress.
+
+Runtime worker configuration is also database-first: workers resolve per-instance settings from `bot_instances.config`
+before consulting `bot_states/config_<instance_id>.yaml`. The YAML file remains a compatibility/debug cache and is
+refreshed from DB payloads when available.
 
 ## Troubleshooting
 

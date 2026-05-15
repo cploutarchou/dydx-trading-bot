@@ -10,7 +10,7 @@ import threading
 import time
 import traceback as traceback_module
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, TypeVar, cast
 
 from celery import states
 from celery.result import AsyncResult
@@ -43,6 +43,7 @@ TASK_CONTEXT_KEY = "_task_context"
 TASK_FAILURE_KEY = "_task_failure"
 _MONITOR_CACHE: Dict[str, Dict[str, Any]] = {}
 _MONITOR_CACHE_LOCK = threading.Lock()
+_T = TypeVar("_T")
 
 
 def utc_now_iso() -> str:
@@ -64,7 +65,7 @@ def _clear_monitor_cache() -> None:
         _MONITOR_CACHE.clear()
 
 
-def _cached_monitor_result(cache_key: str, factory):
+def _cached_monitor_result(cache_key: str, factory: Callable[[], _T]) -> _T:
     ttl = _monitor_cache_ttl_seconds()
     if ttl <= 0:
         return factory()
@@ -73,7 +74,9 @@ def _cached_monitor_result(cache_key: str, factory):
     with _MONITOR_CACHE_LOCK:
         entry = _MONITOR_CACHE.get(cache_key)
         if entry and float(entry.get("expires_at", 0.0)) > now:
-            return copy.deepcopy(entry.get("value"))
+            cached_value = entry.get("value")
+            if cached_value is not None:
+                return cast(_T, copy.deepcopy(cached_value))
 
     value = factory()
     with _MONITOR_CACHE_LOCK:
@@ -445,7 +448,7 @@ def list_celery_tasks(
         )
         return {"tasks": tasks[: max(1, min(limit, 500))], "total": len(tasks)}
 
-    return _cached_monitor_result(cache_key, _build_tasks)
+    return cast(Dict[str, Any], _cached_monitor_result(cache_key, _build_tasks))
 
 
 def get_celery_task(task_id: str) -> Optional[Dict[str, Any]]:
@@ -556,7 +559,7 @@ def list_celery_workers() -> Dict[str, Any]:
             )
         return {"workers": workers, "total": len(workers)}
 
-    return _cached_monitor_result("workers", _build_workers)
+    return cast(Dict[str, Any], _cached_monitor_result("workers", _build_workers))
 
 
 def list_celery_queues() -> Dict[str, Any]:
@@ -578,7 +581,7 @@ def list_celery_queues() -> Dict[str, Any]:
             pass
         return {"queues": payload, "total": len(payload)}
 
-    return _cached_monitor_result("queues", _build_queues)
+    return cast(Dict[str, Any], _cached_monitor_result("queues", _build_queues))
 
 
 def celery_health() -> Dict[str, Any]:
@@ -613,7 +616,7 @@ def celery_health() -> Dict[str, Any]:
             "errors": errors,
         }
 
-    return _cached_monitor_result("health", _build_health)
+    return cast(Dict[str, Any], _cached_monitor_result("health", _build_health))
 
 
 def failure_meta(

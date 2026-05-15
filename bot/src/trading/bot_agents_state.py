@@ -11,7 +11,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -31,6 +31,7 @@ _INSTANCE_ID: str = os.getenv("BOT_INSTANCE_ID", "default")
 # File-based paths (fallback)
 # ---------------------------------------------------------------------------
 
+
 def _resolve_bot_agents_path() -> Path:
     configured_path = os.getenv("BOT_AGENTS_FILE", "bot_states/bot_agents.json")
     resolved = configured_path.replace("{instance_id}", _INSTANCE_ID)
@@ -49,7 +50,8 @@ _BOT_AGENTS_THREAD_LOCK = threading.RLock()
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def _db_load_positions() -> List[Dict[str, Any]]:
+
+def _db_load_positions() -> Optional[List[Dict[str, Any]]]:
     """Read tracked positions from the database.
 
     Returns:
@@ -58,10 +60,13 @@ def _db_load_positions() -> List[Dict[str, Any]]:
     """
     try:
         from src.infrastructure.database import db
+
         session = db.get_session()
         try:
             result = session.execute(
-                _sa_text("SELECT positions_json FROM tracked_positions WHERE instance_id = :iid"),
+                _sa_text(
+                    "SELECT positions_json FROM tracked_positions WHERE instance_id = :iid"
+                ),
                 {"iid": _INSTANCE_ID},
             ).fetchone()
             if result is None:
@@ -79,6 +84,7 @@ def _db_save_positions(positions: List[Dict[str, Any]]) -> bool:
     """Upsert tracked positions into the database. Returns True on success."""
     try:
         from src.infrastructure.database import db
+
         session = db.get_session()
         try:
             now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -117,12 +123,14 @@ def _db_save_positions(positions: List[Dict[str, Any]]) -> bool:
 
 def _sa_text(sql: str):
     from sqlalchemy import text
+
     return text(sql)
 
 
 # ---------------------------------------------------------------------------
 # File I/O (fallback)
 # ---------------------------------------------------------------------------
+
 
 def position_identity(position: Dict[str, Any]) -> tuple[str, str, str, str]:
     return (
@@ -171,6 +179,7 @@ def _bot_agents_file_lock():
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def load_tracked_positions() -> List[Dict[str, Any]]:
     async with _BOT_AGENTS_ASYNC_LOCK:
         db_result = _db_load_positions()
@@ -205,8 +214,8 @@ async def append_tracked_position(position: Dict[str, Any]) -> None:
 
 
 async def save_processed_positions(
-        original_positions: List[Dict[str, Any]],
-        remaining_positions: List[Dict[str, Any]],
+    original_positions: List[Dict[str, Any]],
+    remaining_positions: List[Dict[str, Any]],
 ) -> None:
     """Atomically save processed positions while preserving concurrent appends."""
     processed_ids = {position_identity(item) for item in original_positions}
@@ -221,7 +230,9 @@ async def save_processed_positions(
                     current_positions = _read_bot_agents_unlocked()
 
         concurrent_additions = [
-            item for item in current_positions if position_identity(item) not in processed_ids
+            item
+            for item in current_positions
+            if position_identity(item) not in processed_ids
         ]
         merged = remaining_positions + concurrent_additions
 
@@ -239,12 +250,11 @@ def _db_delete_positions() -> bool:
     """Delete the tracked positions row for this instance. Returns True on success."""
     try:
         from src.infrastructure.database import db
+
         session = db.get_session()
         try:
             session.execute(
-                _sa_text(
-                    "DELETE FROM tracked_positions WHERE instance_id = :iid"
-                ),
+                _sa_text("DELETE FROM tracked_positions WHERE instance_id = :iid"),
                 {"iid": _INSTANCE_ID},
             )
             session.commit()
@@ -255,7 +265,9 @@ def _db_delete_positions() -> bool:
         finally:
             session.close()
     except Exception as exc:
-        logger.debug("DB delete tracked positions failed ({}); falling back to file", exc)
+        logger.debug(
+            "DB delete tracked positions failed ({}); falling back to file", exc
+        )
         return False
 
 

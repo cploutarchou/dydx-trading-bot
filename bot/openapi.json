@@ -4,6 +4,18 @@
       "BacktestConfigRequest": {
         "description": "Backtest configuration request",
         "properties": {
+          "bot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional bot identifier",
+            "title": "Bot Id"
+          },
           "description": {
             "anyOf": [
               {
@@ -21,15 +33,52 @@
             "title": "End Date",
             "type": "string"
           },
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selected runtime environment",
+            "title": "Environment"
+          },
           "initial_balance": {
             "default": 10000.0,
             "description": "Initial balance",
             "title": "Initial Balance",
             "type": "number"
           },
+          "max_pairs": {
+            "default": 0,
+            "description": "Maximum number of pairs to process (0 means no cap)",
+            "title": "Max Pairs",
+            "type": "integer"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional structured run metadata persisted with the request",
+            "title": "Metadata"
+          },
           "name": {
             "description": "Backtest name",
             "title": "Name",
+            "type": "string"
+          },
+          "pair_selection_mode": {
+            "default": "liquidity",
+            "description": "Pair selection mode",
+            "title": "Pair Selection Mode",
             "type": "string"
           },
           "pairs": {
@@ -40,10 +89,96 @@
             "title": "Pairs",
             "type": "array"
           },
+          "requested_by_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requesting user identifier",
+            "title": "Requested By User Id"
+          },
+          "selected_pairs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact selected markets requested for this run",
+            "title": "Selected Pairs"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Request source label",
+            "title": "Source"
+          },
+          "source_strategy_version": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Originating strategy version metadata",
+            "title": "Source Strategy Version"
+          },
           "start_date": {
             "description": "Start date (YYYY-MM-DD)",
             "title": "Start Date",
             "type": "string"
+          },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional originating strategy id",
+            "title": "Strategy Id"
+          },
+          "strategy_payload_snapshot": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Immutable strategy payload snapshot used for this run",
+            "title": "Strategy Payload Snapshot"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Maximum wall-clock runtime for the backtest",
+            "title": "Timeout Seconds"
           },
           "trading_parameters": {
             "additionalProperties": true,
@@ -336,6 +471,17 @@
           }
         },
         "properties": {
+          "bot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bot Id"
+          },
           "description": {
             "anyOf": [
               {
@@ -351,6 +497,17 @@
             "title": "End Date",
             "type": "string"
           },
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment"
+          },
           "initial_balance": {
             "default": 1000.0,
             "title": "Initial Balance",
@@ -360,6 +517,18 @@
             "default": 0,
             "title": "Max Pairs",
             "type": "integer"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
           },
           "name": {
             "anyOf": [
@@ -373,9 +542,15 @@
             "title": "Name"
           },
           "pair_selection_mode": {
-            "default": "liquidity",
-            "title": "Pair Selection Mode",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Selection Mode"
           },
           "pairs": {
             "anyOf": [
@@ -391,6 +566,51 @@
             ],
             "title": "Pairs"
           },
+          "requested_by_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By User Id"
+          },
+          "selected_pairs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Pairs"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "source_strategy_version": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Strategy Version"
+          },
           "start_date": {
             "title": "Start Date",
             "type": "string"
@@ -405,6 +625,29 @@
               }
             ],
             "title": "Strategy Id"
+          },
+          "strategy_payload_snapshot": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Payload Snapshot"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
           },
           "trading_parameters": {
             "anyOf": [
@@ -429,11 +672,14 @@
       "BacktestStatus": {
         "description": "Backtest status enumeration",
         "enum": [
-          "created",
+          "pending",
           "running",
+          "paused",
           "completed",
           "failed",
-          "cancelled"
+          "timeout",
+          "cancelled",
+          "stale"
         ],
         "title": "BacktestStatus",
         "type": "string"
@@ -937,14 +1183,17 @@
         "type": "object"
       },
       "BotStatus": {
-        "description": "Bot status enumeration.",
+        "description": "Bot status enumeration with incident-safe recovery states.",
         "enum": [
           "created",
           "starting",
           "running",
           "stopping",
           "stopped",
-          "error"
+          "error",
+          "recovering",
+          "degraded",
+          "safeguarded"
         ],
         "title": "BotStatus",
         "type": "string"
@@ -1009,6 +1258,34 @@
           "password"
         ],
         "title": "RegisterRequest",
+        "type": "object"
+      },
+      "RuntimePreflightRequest": {
+        "description": "Preflight payload for environment-specific runtime readiness checks.",
+        "properties": {
+          "credentials": {
+            "$ref": "#/components/schemas/BotCredentials"
+          },
+          "instance_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instance Name"
+          },
+          "trading_params": {
+            "$ref": "#/components/schemas/TradingParameters"
+          }
+        },
+        "required": [
+          "credentials",
+          "trading_params"
+        ],
+        "title": "RuntimePreflightRequest",
         "type": "object"
       },
       "StandardApiResponse": {
@@ -1264,6 +1541,11 @@
             "title": "Abort All Positions",
             "type": "boolean"
           },
+          "capital_allocation_usd": {
+            "default": 0.0,
+            "title": "Capital Allocation Usd",
+            "type": "number"
+          },
           "close_at_zscore_cross": {
             "default": true,
             "title": "Close At Zscore Cross",
@@ -1319,6 +1601,13 @@
             "title": "Resolution Timeframe",
             "type": "string"
           },
+          "selected_markets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Markets",
+            "type": "array"
+          },
           "stats_window": {
             "default": 21,
             "title": "Stats Window",
@@ -1333,6 +1622,11 @@
             "default": "cointegration",
             "title": "Strategy",
             "type": "string"
+          },
+          "subaccount_number": {
+            "default": 0,
+            "title": "Subaccount Number",
+            "type": "integer"
           },
           "take_profit_pct": {
             "default": 5.0,
@@ -1531,6 +1825,309 @@
           }
         ],
         "summary": "Reconcile Interrupted Backtests Admin",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/admin/runtime/strategy-resolution-metrics": {
+      "get": {
+        "description": "Admin-only alias for strategy-resolution drift metrics.",
+        "operationId": "get_strategy_resolution_metrics_admin_api_v1_admin_runtime_strategy_resolution_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Strategy Resolution Metrics Admin",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/admin/runtime/strategy-resolution-metrics/reset": {
+      "post": {
+        "description": "Admin-only endpoint to reset in-memory strategy-resolution counters.",
+        "operationId": "reset_strategy_resolution_metrics_admin_api_v1_admin_runtime_strategy_resolution_metrics_reset_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Reset Strategy Resolution Metrics Admin",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/arbitrage/improvement-metrics": {
+      "get": {
+        "operationId": "get_arbitrage_improvement_metrics_api_v1_arbitrage_improvement_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Arbitrage Improvement Metrics",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/arbitrage/opportunity/{opportunity_id}/explain": {
+      "get": {
+        "operationId": "get_arbitrage_opportunity_explain_api_v1_arbitrage_opportunity__opportunity_id__explain_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "title": "Opportunity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Arbitrage Opportunity Explain",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/arbitrage/pair-priority": {
+      "get": {
+        "operationId": "get_arbitrage_pair_priority_api_v1_arbitrage_pair_priority_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Arbitrage Pair Priority",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/arbitrage/runtime-settings": {
+      "get": {
+        "operationId": "get_arbitrage_runtime_settings_api_v1_arbitrage_runtime_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Arbitrage Runtime Settings",
+        "x-response-envelope": "StandardApiResponse"
+      },
+      "put": {
+        "operationId": "update_arbitrage_runtime_settings_api_v1_arbitrage_runtime_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update Arbitrage Runtime Settings",
         "x-response-envelope": "StandardApiResponse"
       }
     },
@@ -2145,6 +2742,18 @@
       "get": {
         "description": "Backend sync visibility endpoint for run orchestration health.",
         "operationId": "backtest_sync_health_api_v1_backtests_sync_health_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "metrics_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Metrics Only",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2165,6 +2774,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -2341,6 +2960,62 @@
           }
         ],
         "summary": "Get Backtest Analytics",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/backtests/{run_id}/analytics/summary": {
+      "get": {
+        "description": "Get compact analytics summary for high-frequency dashboard surfaces.",
+        "operationId": "get_backtest_analytics_summary_api_v1_backtests__run_id__analytics_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Backtest Analytics Summary",
         "x-response-envelope": "StandardApiResponse"
       }
     },
@@ -2578,6 +3253,129 @@
         "x-response-envelope": "StandardApiResponse"
       }
     },
+    "/api/v1/backtests/{run_id}/metadata": {
+      "post": {
+        "description": "Attach or merge structured metadata into a persisted backtest run.",
+        "operationId": "update_backtest_metadata_api_v1_backtests__run_id__metadata_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update Backtest Metadata",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/backtests/{run_id}/pause": {
+      "post": {
+        "description": "Request a cooperative pause for a running backtest.",
+        "operationId": "pause_backtest_api_v1_backtests__run_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Pause Backtest",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
     "/api/v1/backtests/{run_id}/performance-metrics": {
       "get": {
         "description": "Get advanced performance metrics with market benchmarking",
@@ -2736,6 +3534,174 @@
         "x-response-envelope": "StandardApiResponse"
       }
     },
+    "/api/v1/backtests/{run_id}/restart": {
+      "post": {
+        "description": "Cancel the current run if needed and start a fresh run from the same request.",
+        "operationId": "restart_backtest_api_v1_backtests__run_id__restart_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Restart Backtest",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/backtests/{run_id}/resume": {
+      "post": {
+        "description": "Resume a paused backtest.",
+        "operationId": "resume_backtest_api_v1_backtests__run_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resume Backtest",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/backtests/{run_id}/retry": {
+      "post": {
+        "description": "Start a fresh run from the same request payload.",
+        "operationId": "retry_backtest_api_v1_backtests__run_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Retry Backtest",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
     "/api/v1/backtests/{run_id}/status": {
       "get": {
         "description": "Get current backtest status and progress",
@@ -2875,6 +3841,62 @@
           }
         ],
         "summary": "Get Backtest Trades",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/backtests/{run_id}/websocket-metrics": {
+      "get": {
+        "description": "Get per-run websocket send-failure metrics for reconnect-thrashing alerting.",
+        "operationId": "get_backtest_websocket_metrics_api_v1_backtests__run_id__websocket_metrics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Backtest Websocket Metrics",
         "x-response-envelope": "StandardApiResponse"
       }
     },
@@ -3057,7 +4079,7 @@
             "required": true,
             "schema": {
               "title": "Bot Instance Id",
-              "type": "integer"
+              "type": "string"
             }
           },
           {
@@ -3123,7 +4145,7 @@
             "required": true,
             "schema": {
               "title": "Bot Instance Id",
-              "type": "integer"
+              "type": "string"
             }
           }
         ],
@@ -3179,7 +4201,7 @@
             "required": true,
             "schema": {
               "title": "Bot Instance Id",
-              "type": "integer"
+              "type": "string"
             }
           },
           {
@@ -3310,7 +4332,7 @@
             "required": true,
             "schema": {
               "title": "Bot Instance Id",
-              "type": "integer"
+              "type": "string"
             }
           },
           {
@@ -3375,7 +4397,7 @@
             "required": true,
             "schema": {
               "title": "Bot Instance Id",
-              "type": "integer"
+              "type": "string"
             }
           }
         ],
@@ -4005,6 +5027,518 @@
         "x-response-envelope": "StandardApiResponse"
       }
     },
+    "/api/v1/celery/health": {
+      "get": {
+        "description": "Admin-only Celery broker/backend/worker health.",
+        "operationId": "celery_monitor_health_api_v1_celery_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Celery Monitor Health",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/celery/queues": {
+      "get": {
+        "description": "Admin-only Celery queue overview.",
+        "operationId": "celery_queues_api_v1_celery_queues_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Celery Queues",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/celery/tasks": {
+      "get": {
+        "description": "Admin-only Celery task list with safe metadata redaction.",
+        "operationId": "celery_tasks_api_v1_celery_tasks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queue",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Queue"
+            }
+          },
+          {
+            "in": "query",
+            "name": "strategy_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "backtest_run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Backtest Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bot Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "environment",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Environment"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Celery Tasks",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/celery/tasks/{task_id}": {
+      "get": {
+        "description": "Admin-only Celery task detail including failure traceback when available.",
+        "operationId": "celery_task_detail_api_v1_celery_tasks__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Celery Task Detail",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/celery/tasks/{task_id}/retry": {
+      "post": {
+        "description": "Admin-only retry for supported failed tasks.",
+        "operationId": "celery_task_retry_api_v1_celery_tasks__task_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Celery Task Retry",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/celery/tasks/{task_id}/revoke": {
+      "post": {
+        "description": "Admin-only Celery revoke/cancel endpoint.",
+        "operationId": "celery_task_revoke_api_v1_celery_tasks__task_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Celery Task Revoke",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/celery/workers": {
+      "get": {
+        "description": "Admin-only Celery worker inspection.",
+        "operationId": "celery_workers_api_v1_celery_workers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Celery Workers",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/markets/perpetuals": {
+      "get": {
+        "description": "Return available dYdX perpetual markets for run configuration.\n\nResults are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).\nWhen the live dYdX call fails, stale cache data is served (up to\n``MARKETS_STALE_TTL_SECONDS``, default 300 s) with an ``X-Cache-Stale: 1``\nheader so callers can distinguish live vs fallback responses.\nWhen both live resolution and cache fallback are unavailable, the endpoint\ncan return a deterministic static fallback list instead of 5xx.",
+        "operationId": "list_perpetual_markets_api_v1_markets_perpetuals_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Perpetual Markets",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
     "/api/v1/runtime/db-config": {
       "get": {
         "description": "Admin-only diagnostics for effective runtime database configuration.",
@@ -4038,6 +5572,120 @@
         ],
         "summary": "Runtime Db Config",
         "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/runtime/preflight": {
+      "post": {
+        "description": "Evaluate whether a live runtime is ready to start on the selected environment.",
+        "operationId": "runtime_preflight_api_v1_runtime_preflight_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimePreflightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Runtime Preflight",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/runtime/strategy-resolution-metrics": {
+      "get": {
+        "description": "Lightweight dashboard endpoint for strategy-resolution drift metrics.",
+        "operationId": "get_strategy_resolution_metrics_api_v1_runtime_strategy_resolution_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {}
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Strategy Resolution Metrics",
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/runtime/strategy-resolution-metrics/prom": {
+      "get": {
+        "description": "Prometheus text-format strategy-resolution metrics for dashboards/probes.",
+        "operationId": "get_strategy_resolution_metrics_prometheus_api_v1_runtime_strategy_resolution_metrics_prom_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Strategy Resolution Metrics Prometheus"
       }
     },
     "/api/v1/strategies": {
@@ -4763,6 +6411,28 @@
         ],
         "summary": "Health Check",
         "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "Return bot-local runtime metrics for backend /metrics dependency probing.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Metrics"
       }
     },
     "/ready": {

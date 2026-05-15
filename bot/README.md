@@ -82,10 +82,34 @@ For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is orde
 
 To monitor strategy-resolution drift, use `GET /api/v1/backtests/sync-health` and inspect
 `data.strategy_resolution_metrics.counts` (`store`, `history`, `request`, `not_found`).
+For lightweight dashboard polling, use:
+
+- `GET /api/v1/backtests/sync-health?metrics_only=true`
+- `GET /api/v1/runtime/strategy-resolution-metrics`
+- `GET /api/v1/admin/runtime/strategy-resolution-metrics` (admin-only alias)
+- `GET /api/v1/runtime/strategy-resolution-metrics/prom` (Prometheus text format)
+- `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset` (admin-only counter reset)
+
+Windowed alerting is also exposed under
+`data.strategy_resolution_metrics.alerts.request_ratio_alert_triggered`.
+Defaults:
+
+- `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE=200`
+- `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD=0.05`
+- `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS=20`
 
 Optional strict mode (production safety hardening): set
 `BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`.
-When `ENVIRONMENT=production`, request-level `strategy_payload_snapshot` fallback is disabled.
+When `ENVIRONMENT=production` (or `prod`), request-level
+`strategy_payload_snapshot` fallback is disabled.
+
+`GET /health` and `GET /ready` now include:
+
+- `strategy_resolution_metrics`
+- `strategy_resolution_alerts`
+- `strategy_resolution_alert_recommended`
+
+This lets standard SRE probes detect strategy-resolution drift without calling dedicated runtime endpoints.
 
 The bot service is not a public frontend integration surface. The supported product path is:
 

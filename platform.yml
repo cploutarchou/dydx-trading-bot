@@ -58,6 +58,10 @@ apps:
       REFRESH_TOKEN_EXPIRE_DAYS: "1"
       BOT_API_USE_SERVICE_TOKEN: "true"
       API_BYPASS_AUTH: "false"
+      BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION: "true"
+      STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE: "200"
+      STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD: "0.05"
+      STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS: "20"
       FRONTEND_URL: "https://app.cydevcloud.com"
     secrets:
       # Pulled at runtime from Nomad Variables at nomad/jobs/api

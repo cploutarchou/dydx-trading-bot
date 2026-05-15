@@ -7,12 +7,13 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, cast
 
 from fastapi import WebSocket, WebSocketDisconnect
-from internal.repository.repository_realtime import UnitOfWorkRealtime
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
+
+from internal.repository.repository_realtime import UnitOfWorkRealtime
 from src.api.realtime_serializers import (
     serialize_market_core,
     serialize_realtime_position,
@@ -455,7 +456,7 @@ class WebSocketServer:
         try:
             core_uow = UnitOfWork(session)
             bot = core_uow.bots.get_by_instance_id(raw)
-            return int(bot.id) if bot else None
+            return int(cast(int, bot.id)) if bot else None
         except Exception as exc:
             logger.warning(
                 "Failed resolving websocket bot instance '{}' to numeric id: {}",

@@ -3,10 +3,16 @@ Database migration script for backtest tables
 Run this to create the necessary tables for backtest functionality
 """
 
-from database import DatabaseConfig, DatabaseManager
-from internal.domain.models_backtest import BacktestRun
+# ⚠️ CRITICAL: Load environment variables before config/database imports
+from src.shared.env_loader import load_repo_env
+
+load_repo_env(__file__)
+
 from loguru import logger
 from sqlalchemy import create_engine
+
+from internal.domain.models import BacktestRun
+from src.infrastructure.database import DatabaseConfig, DatabaseManager
 
 
 def create_backtest_tables():

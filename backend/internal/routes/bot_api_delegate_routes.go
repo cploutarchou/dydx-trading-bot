@@ -23,8 +23,7 @@ import (
 var websocketUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return middleware.IsAllowedBrowserOrigin(r.Header.Get("Origin"))
-	},
-}
+	}}
 
 func extractBotAuthToken(c *gin.Context) string {
 	return middleware.ExtractRequestAccessToken(c)
@@ -2834,16 +2833,6 @@ func parseIntQuery(s string, target *int) (int, error) {
 		*target = i
 	}
 	return i, err
-}
-
-func parseIntPtr(s *string) *int {
-	if s == nil {
-		return nil
-	}
-	if i, err := strconv.Atoi(*s); err == nil {
-		return &i
-	}
-	return nil
 }
 
 func parseBacktestListOffset(c *gin.Context) int {

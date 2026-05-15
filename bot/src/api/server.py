@@ -92,7 +92,7 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     )
     bot_manager = None
 
-from internal.domain.models import BotStatusEnum
+from internal.domain.models import BacktestRun, BotStatusEnum
 from src.api.realtime_serializers import (
     serialize_market_core,
     serialize_realtime_position,
@@ -339,6 +339,17 @@ _instance_create_rate_limiter: _RedisSlidingWindowRateLimiter = (
 )
 _backtest_endpoint_cache: Dict[str, Dict[str, Any]] = {}
 _backtest_endpoint_cache_lock = threading.Lock()
+_strategy_resolution_metrics_lock = threading.Lock()
+_strategy_resolution_metrics: Dict[str, Any] = {
+    "counts": {
+        "store": 0,
+        "history": 0,
+        "request": 0,
+        "not_found": 0,
+    },
+    "last_path": None,
+    "last_updated_at": None,
+}
 
 # ---------------------------------------------------------------------------
 # Market data cache – serves stale data when dYdX is temporarily unavailable.
@@ -935,6 +946,47 @@ def _read_bool_env(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _request_snapshot_fallback_enabled() -> bool:
+    """Whether strategy_payload_snapshot request fallback is allowed.
+
+    Strict mode is opt-in: when
+    BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true and
+    ENVIRONMENT=production, fallback to request snapshot is disabled.
+    """
+    strict_disable_in_prod = _read_bool_env(
+        "BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION",
+        False,
+    )
+    is_production = (
+        os.getenv("ENVIRONMENT", "development").strip().lower() == "production"
+    )
+    return not (strict_disable_in_prod and is_production)
+
+
+def _record_strategy_resolution_path(path: str) -> None:
+    with _strategy_resolution_metrics_lock:
+        counts = _strategy_resolution_metrics.setdefault("counts", {})
+        counts[path] = int(counts.get(path, 0) or 0) + 1
+        _strategy_resolution_metrics["last_path"] = path
+        _strategy_resolution_metrics["last_updated_at"] = utc_now_iso()
+
+
+def _strategy_resolution_metrics_snapshot() -> Dict[str, Any]:
+    with _strategy_resolution_metrics_lock:
+        counts = dict(_strategy_resolution_metrics.get("counts", {}))
+        return {
+            "counts": counts,
+            "total": int(sum(int(v or 0) for v in counts.values())),
+            "last_path": _strategy_resolution_metrics.get("last_path"),
+            "last_updated_at": _strategy_resolution_metrics.get("last_updated_at"),
+            "request_snapshot_fallback_enabled": _request_snapshot_fallback_enabled(),
+            "strict_disable_in_production": _read_bool_env(
+                "BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION",
+                False,
+            ),
+        }
+
+
 def _backtest_admission_limit_snapshot() -> Dict[str, int]:
     max_active = _read_positive_int_env("BACKTEST_MAX_ACTIVE_RUNS_GLOBAL", 10)
     max_queue_depth = _read_positive_int_env("BACKTEST_MAX_QUEUE_DEPTH", max_active)
@@ -1266,6 +1318,58 @@ def _resolve_strategy_backtest_request(
     selected_pair_labels: List[str],
     endpoint: str,
 ) -> Union[BacktestConfigRequest, JSONResponse]:
+    def _strategy_snapshot_from_backtest_history(
+        strategy_id: int,
+        *,
+        limit: int = 100,
+    ) -> Optional[Dict[str, Any]]:
+        session = db.get_session()
+        try:
+            rows = (
+                session.query(BacktestRun.request_json, BacktestRun.run_id)
+                .order_by(BacktestRun.updated_at.desc())
+                .limit(max(1, int(limit)))
+                .all()
+            )
+            for request_json, run_id in rows:
+                if not isinstance(request_json, dict):
+                    continue
+
+                candidate = request_json.get("strategy_payload_snapshot")
+                if not isinstance(candidate, dict):
+                    continue
+
+                candidate_id = candidate.get("id", request_json.get("strategy_id"))
+                if candidate_id is None:
+                    continue
+                try:
+                    if int(candidate_id) != int(strategy_id):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+
+                resolved = dict(candidate)
+                resolved.setdefault("id", int(strategy_id))
+                _record_strategy_resolution_path("history")
+                logger.info(
+                    "strategy_resolved_from_backtest_history strategy_id={} endpoint={} run_id={}",
+                    strategy_id,
+                    endpoint,
+                    run_id,
+                )
+                return resolved
+            return None
+        except Exception as history_error:
+            logger.warning(
+                "strategy_history_lookup_failed strategy_id={} endpoint={} error={}",
+                strategy_id,
+                endpoint,
+                history_error,
+            )
+            return None
+        finally:
+            session.close()
+
     fallback_snapshot = dict(request.strategy_payload_snapshot or {})
     if request.strategy_id is None:
         if not fallback_snapshot and not request.trading_parameters:
@@ -1281,45 +1385,53 @@ def _resolve_strategy_backtest_request(
         return _manual_backtest_request(request, pairs, selected_pair_labels)
 
     strategy: Optional[Dict[str, Any]] = None
+    lookup_error: Optional[Exception] = None
     try:
         strategy = InMemoryStrategyStore.get(request.strategy_id)
-    except Exception as lookup_error:
-        if fallback_snapshot:
-            fallback_snapshot.setdefault("id", request.strategy_id)
-            logger.warning(
-                "strategy_lookup_failed strategy_id={} endpoint={} error={} using_snapshot_fallback=true",
-                request.strategy_id,
-                endpoint,
-                lookup_error,
-            )
-            strategy = fallback_snapshot
-        else:
-            logger.warning(
-                "strategy_lookup_failed strategy_id={} endpoint={} error={}",
-                request.strategy_id,
-                endpoint,
-                lookup_error,
-            )
-            return api_response(
-                success=False,
-                message=f"STRATEGY_NOT_FOUND: strategy_id={request.strategy_id}",
-                data={
-                    "error": "STRATEGY_NOT_FOUND",
-                    "strategy_id": request.strategy_id,
-                },
-                status_code=404,
-            )
+    except Exception as exc:
+        lookup_error = exc
 
-    if not strategy and fallback_snapshot:
+    if strategy:
+        _record_strategy_resolution_path("store")
+
+    if not strategy and lookup_error is None:
+        strategy = _strategy_snapshot_from_backtest_history(request.strategy_id)
+
+    if not strategy and fallback_snapshot and _request_snapshot_fallback_enabled():
         fallback_snapshot.setdefault("id", request.strategy_id)
-        logger.warning(
-            "strategy_not_found strategy_id={} endpoint={} using_snapshot_fallback=true",
-            request.strategy_id,
-            endpoint,
-        )
+        _record_strategy_resolution_path("request")
+        if lookup_error is not None:
+            logger.info(
+                "strategy_lookup_failed strategy_id={} endpoint={} error={} using_request_snapshot=true",
+                request.strategy_id,
+                endpoint,
+                lookup_error,
+            )
+        else:
+            logger.info(
+                "strategy_not_found strategy_id={} endpoint={} using_request_snapshot=true",
+                request.strategy_id,
+                endpoint,
+            )
         strategy = fallback_snapshot
 
+    if lookup_error is not None and not strategy:
+        logger.warning(
+            "strategy_lookup_failed strategy_id={} endpoint={} error={}",
+            request.strategy_id,
+            endpoint,
+            lookup_error,
+        )
+
     if not strategy:
+        if fallback_snapshot and not _request_snapshot_fallback_enabled():
+            logger.warning(
+                "strategy_request_snapshot_fallback_disabled strategy_id={} endpoint={} environment={} strict_disable_in_production=true",
+                request.strategy_id,
+                endpoint,
+                os.getenv("ENVIRONMENT", "development"),
+            )
+        _record_strategy_resolution_path("not_found")
         logger.warning(
             "strategy_not_found strategy_id={} endpoint={}",
             request.strategy_id,
@@ -5179,6 +5291,7 @@ async def backtest_sync_health():
             data={
                 "status": "ok",
                 **runtime_health,
+                "strategy_resolution_metrics": _strategy_resolution_metrics_snapshot(),
             },
             message="Backtest sync health retrieved",
         )

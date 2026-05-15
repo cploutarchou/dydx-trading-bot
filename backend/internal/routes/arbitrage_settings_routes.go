@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers for the dYdX backend API arbitrage settings features.
 package routes
 
 import (

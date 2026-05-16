@@ -952,15 +952,16 @@ func mergeRemoteRuntimeState(runtimeState StrategyRuntimeState, remote map[strin
 			}
 		}
 	}
-	if status == "running" {
+	switch status {
+	case "running":
 		runtimeState.LastError = ""
 		runtimeState.StoppedAt = nil
 		if runtimeState.StartedAt == nil {
 			runtimeState.StartedAt = &now
 		}
-	} else if status == "starting" || status == "stopping" {
+	case "starting", "stopping":
 		runtimeState.LastError = ""
-	} else if status == "stopped" {
+	case "stopped":
 		runtimeState.LastError = ""
 		runtimeState.ProcessID = nil
 		runtimeState.StoppedAt = &now

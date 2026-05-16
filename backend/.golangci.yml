@@ -133,7 +133,7 @@ linters:
           disabled: false
 
     staticcheck:
-      checks: [ "all" ]
+      checks: ["all"]
 
     gosec:
       severity: medium
@@ -246,7 +246,7 @@ linters:
           - gosec
 
       # Exclude shadow checking on err variable
-      - text: "shadow: declaration of \"err\""
+      - text: 'shadow: declaration of "err"'
         linters:
           - govet
 

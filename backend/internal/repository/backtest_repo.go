@@ -29,7 +29,7 @@ var errAdvisoryLockUnsupported = errors.New("postgres advisory locks unsupported
 
 func backtestAdmissionLockKey(userID int) int64 {
 	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(fmt.Sprintf("backtest-admission:%d", userID)))
+	_, _ = fmt.Fprintf(hasher, "backtest-admission:%d", userID)
 	return int64(hasher.Sum64())
 }
 

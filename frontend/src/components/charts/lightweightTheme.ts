@@ -41,7 +41,7 @@ export const createTradingChart = (
   options?: DeepPartial<ChartOptions>
 ): IChartApi => {
   return createChart(container, {
-    width: container.clientWidth,
+    autoSize: true,
     height,
     ...BASE_CHART_OPTIONS,
     ...options,

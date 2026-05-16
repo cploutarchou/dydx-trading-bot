@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api, { type BacktestExperimentGroup } from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
+import { resolveBackendWebSocketUrl } from '../api/origin';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
@@ -712,9 +713,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     // Open sockets for newly active runs
     for (const runId of activeIds) {
       if (wsRefs.current.has(runId)) continue;
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const ws = new WebSocket(`${proto}//${host}/api/v1/backtests/${runId}/push`);
+      const token = localStorage.getItem('token') || undefined;
+      const wsUrl = resolveBackendWebSocketUrl(
+        `/api/v1/backtests/${encodeURIComponent(runId)}/push`,
+        token
+      );
+      const ws = new WebSocket(wsUrl);
       ws.addEventListener('message', () => {
         void queryClient.invalidateQueries({ queryKey: ['backtests', 'status', runId] });
         void queryClient.invalidateQueries({ queryKey: ['backtests'] });

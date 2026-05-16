@@ -6,9 +6,9 @@
 import React from 'react';
 import { useBacktestProgress } from '../api/hooks';
 import {
-  LiveStateBadge,
-  formatBacktestProgressSourceLabel,
-  resolveBacktestStreamBadge,
+    LiveStateBadge,
+    formatBacktestProgressSourceLabel,
+    resolveBacktestStreamBadge,
 } from './ui/LiveState';
 
 interface BacktestProgressProps {

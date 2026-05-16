@@ -646,7 +646,6 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       }
       wsRefs.current.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunsQuickAccess.map((r) => r.run_id).join(',')]);
 
   const activeRunLiveStatusQueries = useQueries({

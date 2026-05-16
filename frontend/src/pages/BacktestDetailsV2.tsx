@@ -43,9 +43,9 @@ import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 import BacktestTradesPanel from '../components/BacktestTradesPanel';
 import { PageContainer } from '../components/PageContainer';
 import {
-  LiveStateBadge,
+    LiveStateBadge,
     formatBacktestProgressSourceLabel,
-  resolveBacktestStreamBadge,
+    resolveBacktestStreamBadge,
 } from '../components/ui/LiveState';
 
 interface Candle {
@@ -1559,7 +1559,10 @@ export const BacktestDetailsV2: React.FC = () => {
     !isCompleted &&
     !isFailed &&
     (liveBacktest.cancellable || isRunning || isPaused);
-  const canRestart = Boolean(runId) && !controlBusy;
+  const canRestart =
+    Boolean(runId) &&
+    !controlBusy &&
+    (liveBacktest.restartable || isFailed || isCompleted || isPaused);
   const canRetry = Boolean(runId) && !controlBusy && isFailed;
 
   const handleBacktestControl = async (
@@ -1612,6 +1615,23 @@ export const BacktestDetailsV2: React.FC = () => {
     } catch (err: unknown) {
       const response = asRecord(asRecord(err)?.response);
       const statusCode = toNumber(response?.status, 0);
+      const responseData = asRecord(response?.data);
+      const conflictMessage = firstMeaningfulString(
+        responseData?.message,
+        responseData?.error,
+        responseData?.detail,
+        (err as { message?: unknown } | null)?.message
+      );
+
+      if ((action === 'restart' || action === 'retry') && statusCode === 409) {
+        await fetchBacktestMetadata(false);
+        setControlError(
+          conflictMessage ||
+            `Could not ${action} this run because its state changed. Status was refreshed — retry the same action if still needed.`
+        );
+        return;
+      }
+
       if ((action === 'restart' || action === 'retry') && statusCode === 404) {
         try {
           await runFromPersistedRequest();
@@ -1739,7 +1759,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6 text-white">
-      <div className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.10),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(56,189,248,0.14),_transparent_28%),linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 shadow-[0_20px_80px_rgba(2,6,23,0.45)] sm:p-7">
+      <div className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.10),transparent_24%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.14),transparent_28%),linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 shadow-[0_20px_80px_rgba(2,6,23,0.45)] sm:p-7">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-3">
@@ -1853,7 +1873,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid min-w-full grid-cols-2 gap-3 sm:min-w-[360px] xl:max-w-[420px]">
+            <div className="grid min-w-full grid-cols-2 gap-3 sm:min-w-90 xl:max-w-105">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Run ID</p>
                 <p className="mt-2 break-all font-mono text-sm text-slate-100">{backtest.run_id}</p>
@@ -2004,7 +2024,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </p>
               {failureReason && (
                 <p className="mt-2 text-sm text-red-200">
-                  Reason: <span className="break-words font-mono">{failureReason}</span>
+                  Reason: <span className="wrap-break-word font-mono">{failureReason}</span>
                 </p>
               )}
               {failureDiagnostic.category !== 'cancelled' && (
@@ -2052,7 +2072,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 )}
               </div>
 
-              <div className="grid min-w-full gap-2 sm:grid-cols-2 xl:min-w-[420px]">
+              <div className="grid min-w-full gap-2 sm:grid-cols-2 xl:min-w-105">
                 <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3">
                   <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Relation</p>
                   <p className="mt-1 text-sm font-semibold text-slate-100">
@@ -2122,7 +2142,7 @@ export const BacktestDetailsV2: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.45fr)_420px]">
-            <div className="rounded-[24px] border border-slate-800 bg-slate-950/50 p-4 sm:p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-950/50 p-4 sm:p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-[11px] font-semibold uppercase text-cyan-300">
@@ -2177,7 +2197,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-cyan-500/25 bg-cyan-950/20 p-4 sm:p-5">
+            <div className="rounded-3xl border border-cyan-500/25 bg-cyan-950/20 p-4 sm:p-5">
               <div className="flex items-start gap-3">
                 <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-3 text-cyan-200">
                   <Bot className="h-5 w-5" />
@@ -2475,7 +2495,7 @@ export const BacktestDetailsV2: React.FC = () => {
       {/* Candles Tab */}
       {activeTab === 'candles' && (
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.5fr)_360px]">
-          <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-4 sm:p-5">
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-4 sm:p-5">
             {analyticsLoading ? (
               <div className="flex items-center justify-center py-16 gap-3">
                 <Loader className="w-6 h-6 animate-spin text-blue-400" />
@@ -2557,7 +2577,7 @@ export const BacktestDetailsV2: React.FC = () => {
             )}
           </div>
           <div className="space-y-5">
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                 Visible Range
               </p>
@@ -2602,7 +2622,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                 Live Telemetry
               </p>
@@ -2611,7 +2631,7 @@ export const BacktestDetailsV2: React.FC = () => {
                   <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
                     Active task
                   </p>
-                  <p className="mt-2 break-words font-mono text-sm text-slate-100">
+                  <p className="mt-2 wrap-break-word font-mono text-sm text-slate-100">
                     {currentTaskLine || 'No active task line yet'}
                   </p>
                 </div>
@@ -2650,7 +2670,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Top Pairs</p>
               <div className="mt-4 space-y-3">
                 {topPairs.length > 0 ? (
@@ -2685,14 +2705,14 @@ export const BacktestDetailsV2: React.FC = () => {
       {activeTab === 'positions' && (
         <div>
           {positionsLoading ? (
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-6">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-6">
               <div className="flex items-center justify-center gap-3 py-16">
                 <Loader className="h-6 w-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading position snapshots...</p>
               </div>
             </div>
           ) : positionsError ? (
-            <div className="rounded-[24px] border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+            <div className="rounded-3xl border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
               {positionsError}
             </div>
           ) : positions.length === 0 ? (
@@ -2715,14 +2735,14 @@ export const BacktestDetailsV2: React.FC = () => {
       {activeTab === 'trades' && (
         <div>
           {tradesLoading ? (
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-6">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-6">
               <div className="flex items-center justify-center gap-3 py-16">
                 <Loader className="h-6 w-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading trade history...</p>
               </div>
             </div>
           ) : tradesError ? (
-            <div className="rounded-[24px] border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+            <div className="rounded-3xl border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
               {tradesError}
             </div>
           ) : trades.length === 0 ? (

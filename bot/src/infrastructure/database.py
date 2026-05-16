@@ -495,6 +495,45 @@ class DatabaseManager:
                         "Compatibility fix applied: backtest_strategies.pair_selection_mode"
                     )
 
+            if inspector.has_table("positions_realtime"):
+                realtime_columns = {
+                    column["name"]
+                    for column in inspector.get_columns("positions_realtime")
+                }
+                realtime_compat_columns = {
+                    "hedge_ratio": (
+                        "ALTER TABLE positions_realtime "
+                        "ADD COLUMN hedge_ratio DOUBLE PRECISION NULL"
+                    ),
+                    "correlation": (
+                        "ALTER TABLE positions_realtime "
+                        "ADD COLUMN correlation DOUBLE PRECISION NULL"
+                    ),
+                    "half_life": (
+                        "ALTER TABLE positions_realtime "
+                        "ADD COLUMN half_life DOUBLE PRECISION NULL"
+                    ),
+                    "funding_rate": (
+                        "ALTER TABLE positions_realtime "
+                        "ADD COLUMN funding_rate DOUBLE PRECISION NULL"
+                    ),
+                    "dydx_order_ids": (
+                        "ALTER TABLE positions_realtime "
+                        "ADD COLUMN dydx_order_ids JSON NULL"
+                    ),
+                    "dydx_position_id": (
+                        "ALTER TABLE positions_realtime "
+                        "ADD COLUMN dydx_position_id VARCHAR(100) NULL"
+                    ),
+                }
+                for column_name, statement in realtime_compat_columns.items():
+                    if column_name not in realtime_columns:
+                        logger.info(
+                            "Applying compatibility fix: adding positions_realtime.{}",
+                            column_name,
+                        )
+                        connection.execute(text(statement))
+
             if inspector.has_table("jobs"):
                 job_columns = {
                     column["name"]: column for column in inspector.get_columns("jobs")

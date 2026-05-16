@@ -61,11 +61,12 @@ Suggested daily workflow:
 
 The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; PostgreSQL is the source of truth for
 instance status, lifecycle events, supervised job state, and backtest progress. `bot_states/` is kept only for generated
-per-instance config, subprocess log output, and temporary/debug compatibility artifacts.
+subprocess log output and temporary/debug state artifacts.
 
-Worker startup now loads per-instance runtime config from `bot_instances.config` first (database-first), then falls back to
-`bot_states/config_<instance_id>.yaml`, and finally environment defaults. When DB config is used, the YAML is refreshed as a
-derived cache artifact for compatibility/debugging.
+Worker startup loads per-instance runtime config from `bot_instances.config` only. If the row is missing or lacks
+credentials/trading parameters, the worker fails fast instead of falling back to YAML or environment defaults. Deprecated
+`bot_states/config_<instance_id>.yaml` files can be migrated once with
+`bot/.venv/bin/python scripts/migrate_yaml_configs_to_db.py`; workers do not read or refresh them.
 
 Async background work must be launched through the supervised job helper so task failures, cancellations, progress, and
 traceback summaries are persisted in the `jobs` table instead of disappearing as unobserved task exceptions.

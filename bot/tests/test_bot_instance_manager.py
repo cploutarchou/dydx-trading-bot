@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import Any, Dict, cast
 
 import pytest
-import yaml
 
 import src.bot_instance_manager as bot_instance_manager_module
 from src.bot_instance_manager import BotInstanceManager
@@ -15,6 +14,7 @@ from src.infrastructure.domain.bot_api_models import (
     BacktestingParameters,
     BotCredentials,
     BotInstanceConfig,
+    BotInstanceState,
     BotStatus,
     TradingParameters,
 )
@@ -163,7 +163,9 @@ def test_start_instance_launches_from_bot_root_with_module_mode(tmp_path, monkey
     kwargs = popen_calls["kwargs"]
     bot_root = Path(bot_instance_manager_module.__file__).resolve().parents[1]
     assert cmd[1:3] == ["-m", "src.main_instance"]
+    assert "--config" not in cmd
     assert kwargs["cwd"] == bot_root
+    assert "BOT_CONFIG_FILE" not in kwargs["env"]
     assert kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(bot_root)
 
 
@@ -333,7 +335,7 @@ def test_delete_instance_force_stops_degraded_runtime_before_cleanup(
     assert "strategy-1-101" not in manager.instances
 
 
-def test_create_instance_persists_runtime_and_backtest_parameters_to_yaml(tmp_path):
+def test_create_instance_keeps_runtime_config_in_db_contract_payload(tmp_path):
     manager = BotInstanceManager(state_dir=str(tmp_path))
 
     result = asyncio.run(manager.create_instance(_strategy_config()))
@@ -341,12 +343,12 @@ def test_create_instance_persists_runtime_and_backtest_parameters_to_yaml(tmp_pa
     assert result.success is True
 
     config_path = tmp_path / "config_strategy-1-101.yaml"
-    contents = config_path.read_text(encoding="utf-8")
-
-    assert "strategy: cointegration" in contents
-    assert "maxPositions: 3" in contents
-    assert "startingBalance: 5000.0" in contents
-    assert "benchmarkSymbol: ETH-USD" in contents
+    assert not config_path.exists()
+    payload = manager._runtime_contract_payload(manager.instances["strategy-1-101"])
+    assert payload["trading_params"]["strategy"] == "cointegration"
+    assert payload["trading_params"]["max_positions"] == 3
+    assert payload["backtesting_params"]["starting_balance"] == 5000.0
+    assert payload["backtesting_params"]["benchmark_symbol"] == "ETH-USD"
 
 
 def test_dev_environment_defaults_to_unlimited_instances(monkeypatch, tmp_path):
@@ -383,9 +385,7 @@ def test_production_environment_uses_default_limit(monkeypatch, tmp_path):
     assert blocked.message == "Maximum instances limit reached (10)"
 
 
-def test_instance_config_uses_structured_defaults_instead_of_legacy_env(
-    monkeypatch, tmp_path
-):
+def test_runtime_contract_payload_uses_instance_config_only(monkeypatch, tmp_path):
     manager = BotInstanceManager(state_dir=str(tmp_path))
     config = _strategy_config()
     config.telegram = None
@@ -396,44 +396,21 @@ def test_instance_config_uses_structured_defaults_instead_of_legacy_env(
     monkeypatch.setenv("BACKTEST_BENCHMARK_SYMBOL", "LEGACY-USD")
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
 
-    monkeypatch.setattr(
-        bot_instance_manager_module,
-        "load_app_config",
-        lambda: SimpleNamespace(
-            environment="development",
-            telegram=SimpleNamespace(token="run-token", chat_id="run-chat"),
-            backtesting=SimpleNamespace(
-                candleResolution="4HOUR",
-                maxHistoryDays=180,
-                startingBalance=2500.0,
-                transactionFee=0.0009,
-                slippage=0.0025,
-                benchmarkSymbol="SOL-USD",
-                riskFreeRate=0.04,
-            ),
-            logging=SimpleNamespace(
-                level="WARNING",
-                loki=SimpleNamespace(
-                    enabled=True,
-                    url="http://loki.example",
-                    username="loki-user",
-                    password="loki-pass",
-                    labels={"source": "run-json"},
-                ),
-            ),
-        ),
+    state = BotInstanceState(
+        instance_id=config.instance_id,
+        config=config,
+        status=BotStatus.STOPPED,
+        process_info={},
+        trading_stats={},
+        created_at=datetime.now(timezone.utc),
+        last_update=datetime.now(timezone.utc),
     )
+    payload = manager._runtime_contract_payload(state)
 
-    config_path = manager._create_instance_config_file("strategy-1-101", config)
-    parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-
-    assert parsed["telegram"]["token"] == "run-token"
-    assert parsed["telegram"]["chat_id"] == "run-chat"
-    assert parsed["backtesting"]["benchmarkSymbol"] == "SOL-USD"
-    assert parsed["backtesting"]["startingBalance"] == 2500.0
-    assert parsed["logging"]["level"] == "WARNING"
-    assert parsed["logging"]["loki"]["labels"]["source"] == "run-json"
-    assert parsed["logging"]["loki"]["labels"]["instance"] == "strategy-1-101"
+    assert payload["telegram"] == {}
+    assert payload["backtesting_params"] == {}
+    assert payload["trading_params"]["strategy"] == "cointegration"
+    assert payload["credentials"]["address"] == config.credentials.address
 
 
 def test_manager_recovers_instances_from_database_before_legacy_disk(

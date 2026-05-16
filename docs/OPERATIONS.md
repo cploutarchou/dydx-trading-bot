@@ -119,11 +119,12 @@ backend and bot persistence domains.
 - frontend consumes backend-only live channels
 
 Plain-text files under `bot/bot_states/` are operational debug artifacts only. PostgreSQL is the recovery source for
-runtime status and job/backtest progress.
+runtime status, job/backtest progress, and per-instance runtime configuration.
 
-Runtime worker configuration is also database-first: workers resolve per-instance settings from `bot_instances.config`
-before consulting `bot_states/config_<instance_id>.yaml`. The YAML file remains a compatibility/debug cache and is
-refreshed from DB payloads when available.
+Runtime worker configuration is DB-only: workers resolve per-instance settings from `bot_instances.config` and fail fast
+when that payload is missing or incomplete. Deprecated `bot_states/config_<instance_id>.yaml` files must be migrated with
+`bot/.venv/bin/python scripts/migrate_yaml_configs_to_db.py` before relying on those instances; workers do not read YAML
+in dev, staging, or production.
 
 ## Troubleshooting
 

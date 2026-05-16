@@ -2336,7 +2336,7 @@ async def create_bot_instance(
         result = await bot_manager.create_instance(config)
 
         if result.success:
-            # Persist to database
+            # Persist DB-backed runtime config. Worker startup requires this row.
             persisted_config: Dict[str, Any] = {
                 "instance_name": config.instance_name,
                 "credentials": (
@@ -2359,6 +2359,7 @@ async def create_bot_instance(
 
                 # Create database record if the manager has not already done so.
                 bot_db = uow.bots.get_by_instance_id(config.instance_id)
+                config_meta = bot_manager._build_config_meta(persisted_config)
                 if bot_db is None:
                     bot_db = uow.bots.create_bot(
                         instance_id=config.instance_id,
@@ -2375,25 +2376,49 @@ async def create_bot_instance(
                             if config.trading_params
                             else "default"
                         ),
-                        config=persisted_config,
+                        config={**persisted_config, "config_meta": config_meta},
                     )
+                else:
+                    bot_db.config = {**persisted_config, "config_meta": config_meta}
+                    session.commit()
 
-                # Log creation event
-                uow.events.log_event(
-                    int(bot_db.id),  # type: ignore[arg-type]
-                    "bot_created",
-                    "info",
-                    f"Bot instance created via API: {config.instance_id}",
-                    details={"instance_name": config.instance_name},
-                )
+                try:
+                    uow.events.log_event(
+                        int(bot_db.id),  # type: ignore[arg-type]
+                        "bot_created",
+                        "info",
+                        f"Bot instance created via API: {config.instance_id}",
+                        details={"instance_name": config.instance_name},
+                    )
+                except Exception as event_error:
+                    logger.warning(
+                        "Failed to record bot_created event for '{}': {}",
+                        config.instance_id,
+                        event_error,
+                    )
                 logger.info(
                     f"Bot instance '{config.instance_id}' persisted to database"
                 )
             except Exception as db_error:
-                logger.warning(f"Failed to persist bot to database: {db_error}")
+                logger.error(f"Failed to persist bot to database: {db_error}")
                 if session is not None:
                     session.rollback()
-                # Continue anyway - bot was created in manager
+                try:
+                    await bot_manager.delete_instance(config.instance_id)
+                except Exception as cleanup_error:
+                    logger.warning(
+                        "Failed to clean up bot instance '{}' after DB persistence failure: {}",
+                        config.instance_id,
+                        cleanup_error,
+                    )
+                return api_response(
+                    success=False,
+                    message=(
+                        "Failed to persist DB-backed bot configuration; "
+                        "instance was not created"
+                    ),
+                    status_code=500,
+                )
             finally:
                 if session is not None:
                     session.close()

@@ -2,6 +2,12 @@
 
 ## 2026-05-16
 
+- Migrated bot runtime config handling to DB-only startup:
+  - worker reads `bot_instances.config` and fails fast when config is missing/incomplete
+  - manager no longer writes or passes per-instance YAML config files
+  - added `scripts/migrate_yaml_configs_to_db.py` for one-time migration of deprecated `bot_states/config_*.yaml`
+  - updated runtime docs/runbooks to remove YAML fallback instructions
+
 - Added strategy-resolution drift observability endpoints and filters:
   - `GET /api/v1/backtests/sync-health?metrics_only=true`
   - `GET /api/v1/runtime/strategy-resolution-metrics`
@@ -24,7 +30,7 @@
 
 - Broader regression pass (`.venv pytest -q`) showed `tests/test_main_instance.py` failures caused by missing source file `src/main_instance.py` in the working tree.
 - `make test` target currently cannot run in this environment because `bot/docker/.env` is missing.
-- Restored `src/main_instance.py` from git history and reintroduced DB-first config-loading helpers expected by runtime/tests (`_load_config_data_from_db`, file-cache refresh, hash drift warnings).
+- Restored `src/main_instance.py` from git history and reintroduced the DB-first config-loading helpers expected at that time.
 - Validation after restore:
   - `./.venv/bin/python -m pytest tests/test_main_instance.py -q` -> `7 passed`
   - `./.venv/bin/python -m pytest -q` -> blocked by `test_comprehensive.py` import-time `sys.exit(1)` internal error

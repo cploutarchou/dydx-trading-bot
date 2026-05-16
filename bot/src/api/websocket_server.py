@@ -71,6 +71,7 @@ class ConnectionManager:
             "total_send_attempts": 0,
             "total_send_successes": 0,
             "total_send_failures": 0,
+            "total_send_disconnects": 0,
             "consecutive_send_failures": 0,
             "last_error_type": None,
             "last_error_repr": None,
@@ -81,6 +82,23 @@ class ConnectionManager:
         }
         self.send_metrics[run_id] = bucket
         return bucket
+
+    @staticmethod
+    def _is_expected_disconnect(exc: Exception) -> bool:
+        return isinstance(exc, WebSocketDisconnect)
+
+    def _record_backtest_connect(self, channel_id: str) -> None:
+        """Reset stale failure streaks when a backtest client reconnects."""
+        if not self._is_backtest_channel(channel_id):
+            return
+        run_id = self._backtest_run_id(channel_id)
+        if not run_id:
+            return
+        bucket = self._run_metrics_bucket(run_id)
+        now_ts = time.time()
+        bucket["consecutive_send_failures"] = 0
+        bucket["updated_at"] = utc_now_iso()
+        self._prune_recent_failures(bucket, now_ts)
 
     def _prune_recent_failures(self, bucket: Dict[str, Any], now_ts: float) -> None:
         window_seconds = self._positive_float_env(
@@ -121,16 +139,32 @@ class ConnectionManager:
         bucket = self._run_metrics_bucket(run_id)
         now_ts = time.time()
         bucket["total_send_attempts"] += 1
-        bucket["total_send_failures"] += 1
-        bucket["consecutive_send_failures"] += 1
+        is_expected_disconnect = self._is_expected_disconnect(exc)
+        if is_expected_disconnect:
+            bucket["total_send_disconnects"] += 1
+            bucket["consecutive_send_failures"] = 0
+        else:
+            bucket["total_send_failures"] += 1
+            bucket["consecutive_send_failures"] += 1
         bucket["last_error_type"] = type(exc).__name__
         bucket["last_error_repr"] = repr(exc)
         bucket["last_failure_at"] = utc_now_iso()
         bucket["updated_at"] = bucket["last_failure_at"]
-        recent = bucket.get("recent_failure_timestamps") or []
-        recent.append(now_ts)
-        bucket["recent_failure_timestamps"] = recent
+        if not is_expected_disconnect:
+            recent = bucket.get("recent_failure_timestamps") or []
+            recent.append(now_ts)
+            bucket["recent_failure_timestamps"] = recent
         self._prune_recent_failures(bucket, now_ts)
+
+        if is_expected_disconnect:
+            logger.debug(
+                "backtest_ws_expected_disconnect run_id={} operation={} last_error_type={} last_error_repr={!r}",
+                run_id,
+                operation,
+                bucket["last_error_type"],
+                bucket["last_error_repr"],
+            )
+            return
 
         alert_threshold = self._positive_int_env(
             "BACKTEST_WS_FAILURE_ALERT_THRESHOLD", 5
@@ -213,6 +247,9 @@ class ConnectionManager:
                 "total_send_attempts": int(bucket.get("total_send_attempts", 0) or 0),
                 "total_send_successes": int(bucket.get("total_send_successes", 0) or 0),
                 "total_send_failures": int(bucket.get("total_send_failures", 0) or 0),
+                "total_send_disconnects": int(
+                    bucket.get("total_send_disconnects", 0) or 0
+                ),
                 "consecutive_send_failures": int(
                     bucket.get("consecutive_send_failures", 0) or 0
                 ),
@@ -265,6 +302,7 @@ class ConnectionManager:
 
         self.active_connections[bot_instance_id].add(websocket)
         self.user_subscriptions[websocket] = {bot_instance_id}
+        self._record_backtest_connect(bot_instance_id)
 
         logger.info(
             f"Client connected to bot {bot_instance_id}. Total: {len(self.active_connections[bot_instance_id])}"
@@ -303,6 +341,13 @@ class ConnectionManager:
             await connection.send_json(message)
             self._record_send_success(channel_id)
             return connection, True
+        except WebSocketDisconnect as e:
+            self._record_send_failure(
+                channel_id,
+                e,
+                operation="broadcast_to_bot",
+            )
+            return connection, False
         except Exception as e:
             self._record_send_failure(
                 channel_id,
@@ -350,6 +395,14 @@ class ConnectionManager:
             await websocket.send_json(message)
             self._record_send_success(channel_id)
             return True
+        except WebSocketDisconnect as e:
+            self._record_send_failure(
+                channel_id,
+                e,
+                operation="send_personal_message",
+            )
+            self._drop_connection(websocket)
+            return False
         except Exception as e:
             self._record_send_failure(
                 channel_id,

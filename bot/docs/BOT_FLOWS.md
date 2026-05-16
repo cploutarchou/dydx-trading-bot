@@ -24,7 +24,7 @@ For the smoothest experience, open the repo in VS Code, install the recommended 
 | Component | Responsibility | Canonical files |
 | --- | --- | --- |
 | FastAPI control plane | Authenticated HTTP and websocket API, request tracing, readiness, lifecycle orchestration, backtest orchestration | `src/api/server.py`, `src/api/start_api.py`, `app.py`, `start_api.py` |
-| Bot instance manager | Creates instance config files, starts/stops/deletes worker subprocesses, tracks status, persists lifecycle state, monitors dead workers | `src/bot_instance_manager.py` |
+| Bot instance manager | Creates DB-backed instance config records, starts/stops/deletes worker subprocesses, tracks status, persists lifecycle state, monitors dead workers | `src/bot_instance_manager.py` |
 | Worker runtime | Loads per-instance config, connects to dYdX, optionally aborts all positions, optionally scans cointegration pairs, runs the trading loop | `src/main_instance.py`, `worker_entrypoint.py`, `main.py` |
 | Trading runtime | Finds entries, manages exits, tracks open pairs, executes two-leg orders, performs emergency cleanup | `src/trading/position_manager.py`, `src/trading/bot_agent.py`, `src/trading/account_manager.py` |
 | Exchange adapter | dYdX wallet/client creation, market data, account/order/position calls | `src/trading/dydx_client.py`, `src/trading/market_data.py`, `src/trading/account_manager.py` |
@@ -36,11 +36,10 @@ For the smoothest experience, open the repo in VS Code, install the recommended 
 - The API process and each live trading instance are separate OS processes. `BotInstanceManager.start_instance()` starts workers with `subprocess.Popen(...)` using `python -m src.main_instance`.
 - Worker state is isolated by environment variables and per-instance files:
   - `BOT_INSTANCE_ID`
-  - `BOT_CONFIG_FILE`
   - `BOT_AGENTS_FILE`
   - `BOT_PAIRS_FILE`
 - The manager owns worker lifecycle. API routes should call `bot_manager` methods rather than creating or killing processes directly.
-- PostgreSQL is the authoritative instance metadata store when database persistence is enabled. Legacy disk snapshots are optional and disabled unless `BOT_ENABLE_LEGACY_STATE_FALLBACK` or `BOT_WRITE_LEGACY_STATE_SNAPSHOT` is enabled.
+- PostgreSQL is the authoritative instance metadata/config store. Legacy disk snapshots are optional debug artifacts only and are disabled unless `BOT_WRITE_LEGACY_STATE_SNAPSHOT` is enabled.
 
 ### Component Diagram
 
@@ -76,7 +75,7 @@ flowchart LR
 2. Auth dependencies from `src/middleware/auth_middleware.py` validate the bearer token unless `API_BYPASS_AUTH=true`.
 3. The request trace middleware assigns or propagates `X-Trace-Id` and wraps responses with `api_response(...)`.
 4. `create_bot_instance()` validates the payload as `BotInstanceConfig` and calls `bot_manager.create_instance(...)`.
-5. `BotInstanceManager` writes `bot_states/config_<instance_id>.yaml`, stores in-memory state, ensures the database row exists, persists status, and publishes strategy websocket status if the instance id maps to a strategy.
+5. `BotInstanceManager` stores in-memory state, ensures the DB config row exists in `bot_instances.config`, persists status, and publishes strategy websocket status if the instance id maps to a strategy.
 6. `POST /api/v1/bots/{instance_id}/start` calls `bot_manager.start_instance(...)`.
 7. The manager transitions `STOPPED -> STARTING`, creates an async job, opens `bot_states/bot_<instance_id>.log`, and starts `src.main_instance` as a subprocess.
 8. The worker loads the structured config before runtime imports, connects to dYdX, optionally closes all positions, optionally performs cointegration discovery, then enters the trading loop.
@@ -336,10 +335,9 @@ Create:
 
 1. API validates `BotInstanceConfig`.
 2. Manager rejects duplicates and max-instance overflow.
-3. Manager writes `bot_states/config_<instance_id>.yaml`.
-4. Manager stores `BotInstanceState(status=STOPPED)`.
-5. Manager ensures/persists DB metadata.
-6. API logs `bot_created` and sends lifecycle notification.
+3. Manager stores `BotInstanceState(status=STOPPED)`.
+4. Manager ensures/persists DB metadata and config payload.
+5. API logs `bot_created` and sends lifecycle notification.
 
 Start:
 
@@ -425,9 +423,9 @@ sequenceDiagram
     Auth-->>API: User
     API->>Manager: start_instance(id)
     Manager->>DB: create live_runtime job, persist STARTING
-    Manager->>Files: open bot_<id>.log, read config_<id>.yaml
-    Manager->>Worker: Popen python -m src.main_instance --instance-id --config
-    Worker->>Files: load per-instance config
+    Manager->>Files: open bot_<id>.log
+    Manager->>Worker: Popen python -m src.main_instance --instance-id
+    Worker->>DB: load bot_instances.config or fail fast
     Worker->>Exchange: connect_dydx()
     Worker->>Runtime: run_initial_setup()
     Runtime->>Exchange: optional abort positions, market data
@@ -528,11 +526,12 @@ PostgreSQL:
 
 Local files:
 
-- `bot_states/config_<instance_id>.yaml`: runtime config generated by the manager and consumed by the worker.
 - `bot_states/bot_<instance_id>.log`: stdout/stderr from the worker subprocess.
 - `bot_states/bot_agents_<instance_id>.json`: live tracked pair state for entry/exit management.
 - `bot_states/cointegrated_pairs_<instance_id>.json`: pair storage when `BOT_PAIRS_FILE` points to this path.
 - `bot_states/instances.json`: optional legacy manager snapshot only when enabled.
+- Deprecated `bot_states/config_<instance_id>.yaml` files are migration inputs only. Use
+  `bot/.venv/bin/python scripts/migrate_yaml_configs_to_db.py`; workers do not read them.
 - `pair_history/cointegration_results.json`: default pair storage outside multi-instance `BOT_PAIRS_FILE`.
 
 In-memory state:
@@ -559,7 +558,6 @@ flowchart LR
     end
 
     subgraph Files["bot_states/* and pair_history/*"]
-        ConfigFile["config_<id>.yaml"]
         LogFile["bot_<id>.log"]
         AgentsFile["bot_agents_<id>.json"]
         PairsFile["cointegrated_pairs_<id>.json"]
@@ -580,10 +578,9 @@ flowchart LR
     Manager --> Bots
     Manager --> Events
     Manager --> Jobs
-    Manager --> ConfigFile
     Manager --> LogFile
     Manager --> Worker
-    Worker --> ConfigFile
+    Worker --> Bots
     Worker --> LogFile
     Worker --> EntryExit
     EntryExit --> AgentsFile
@@ -597,7 +594,7 @@ flowchart LR
 
 ### Consistency Safeguards
 
-- Manager DB recovery loads persisted bot rows first. Disk fallback requires explicit opt-in.
+- Manager DB recovery loads persisted bot rows only; local snapshots are not a runtime recovery source.
 - Persisted credentials must include address and mnemonic; otherwise the manager skips the instance during DB recovery and records diagnostics.
 - Per-instance lifecycle locks reject overlapping start/stop operations.
 - Status persistence stores `runtime_state` inside the DB config payload, including PID, last error, exit code, timestamps, and trading stats.
@@ -658,7 +655,7 @@ Use a testnet config and small `usd_per_trade`.
 
 1. `POST /api/v1/runtime/preflight`: confirm `ready=true` or inspect blockers.
 2. `POST /api/v1/bots`: create an instance.
-3. Confirm `bot_states/config_<instance_id>.yaml` exists.
+3. Confirm the `bot_instances.config` DB payload exists and contains credentials plus `trading_params`.
 4. `POST /api/v1/bots/{instance_id}/start`: confirm status becomes `running` and `bot_states/bot_<instance_id>.log` receives output.
 5. `GET /api/v1/bots/{instance_id}`: confirm PID, status, and last update.
 6. Connect to `/ws/strategies`: confirm initial `strategy_status_snapshot` and lifecycle updates for strategy-scoped ids.
@@ -704,7 +701,7 @@ Use a testnet config and small `usd_per_trade`.
 
 ## Assumptions, Unknowns, And Documentation Gaps
 
-- Inferred: PostgreSQL is intended to be authoritative for bot instance recovery in deployed environments because disk fallback is disabled unless explicitly enabled.
+- PostgreSQL is authoritative for bot instance recovery and runtime configuration in every environment; YAML config fallback is removed.
 - Inferred: `recovering`, `safeguarded`, and parts of heartbeat-based `degraded` state are operational vocabulary for incident handling. Startup auto-recovery now covers orphaned backtests and missing live worker processes, but it intentionally defaults to fail-safe marking rather than unattended live restart.
 - Gap: Live DB persistence records accepted order prices and best-effort fill averages when the exchange exposes fills; operators should still reconcile against exchange-reported fills for settlement-grade accounting.
 - Gap: The worker signal handler calls `sys.exit(0)` directly. This is acceptable at the process entrypoint boundary, but library/service code should continue raising typed errors instead.

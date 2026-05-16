@@ -108,20 +108,13 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
 
     chart.subscribeCrosshairMove(handleCrosshairMove);
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      const nextWidth = entries[0]?.contentRect.width;
-      if (!nextWidth) {
-        return;
-      }
-      chart.applyOptions({ width: nextWidth, height });
-    });
-    resizeObserver.observe(container);
+    // autoSize:true (set via createTradingChart) owns the ResizeObserver internally —
+    // no manual observer needed here.
 
     chartRef.current = chart;
     areaSeriesRef.current = areaSeries;
 
     return () => {
-      resizeObserver.disconnect();
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
       areaSeriesRef.current = null;
       chartRef.current = null;
@@ -156,9 +149,14 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
     }));
 
     areaSeries.setData(areaData);
+
+    // fitContent after a rAF so autoSize has already set the real chart width.
+    // Without this the chart draws into a zero-width viewport and appears blank.
     if (!hasFittedContentRef.current) {
-      chart.timeScale().fitContent();
-      hasFittedContentRef.current = true;
+      requestAnimationFrame(() => {
+        chartRef.current?.timeScale().fitContent();
+        hasFittedContentRef.current = true;
+      });
     }
   }, [normalizedData]);
 

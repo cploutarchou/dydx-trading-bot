@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api, { type BacktestExperimentGroup } from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
+import { resolveBackendWebSocketUrl } from '../api/origin';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
@@ -36,6 +37,7 @@ import {
     type StrategyRef,
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
+import { usePersistentPreference } from '../hooks/usePersistentPreference';
 
 export type BacktestsView = 'dashboard' | 'new' | 'runs' | 'experiments';
 
@@ -129,6 +131,65 @@ const BacktestWorkflowCards = () => (
   </section>
 );
 
+const BacktestsModeSwitcher: React.FC<{ view: BacktestsView }> = ({ view }) => {
+  const items: Array<{ key: BacktestsView; label: string; to: string; icon: React.ReactNode }> = [
+    {
+      key: 'dashboard',
+      label: 'Dashboard',
+      to: '/backtests',
+      icon: <Sparkles className="h-4 w-4" />,
+    },
+    {
+      key: 'new',
+      label: 'New Run',
+      to: '/backtests/new',
+      icon: <PlusCircle className="h-4 w-4" />,
+    },
+    {
+      key: 'runs',
+      label: 'Runs',
+      to: '/backtests/runs',
+      icon: <ListChecks className="h-4 w-4" />,
+    },
+    {
+      key: 'experiments',
+      label: 'Experiments',
+      to: '/backtests/experiments',
+      icon: <Layers3 className="h-4 w-4" />,
+    },
+  ];
+
+  return (
+    <section className="operator-section-card p-3 sm:p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {items.map((item) => {
+            const isActive = view === item.key;
+            return (
+              <Link
+                key={item.key}
+                to={item.to}
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                  isActive
+                    ? 'border border-cyan-500/40 bg-cyan-500/15 text-cyan-100'
+                    : 'border border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500 hover:text-slate-100'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+        <p className="text-xs text-slate-400">
+          Use Dashboard for decision signals, Runs for archive inspection, and Experiments for A/B
+          cohorts.
+        </p>
+      </div>
+    </section>
+  );
+};
+
 const parseTimestampMs = (value: unknown): number | undefined => {
   if (typeof value !== 'string') {
     return undefined;
@@ -213,6 +274,22 @@ const getFreshnessCardBorderClasses = (updatedAtMs?: number): string => {
   }
 
   return 'border-rose-500/45 hover:border-rose-400/70';
+};
+
+type FreshnessState = 'fresh' | 'delayed' | 'stale' | 'unknown';
+
+const getFreshnessState = (updatedAtMs?: number): FreshnessState => {
+  const elapsedSeconds = getFreshnessElapsedSeconds(updatedAtMs);
+  if (elapsedSeconds === null) {
+    return 'unknown';
+  }
+  if (elapsedSeconds < 10) {
+    return 'fresh';
+  }
+  if (elapsedSeconds < 45) {
+    return 'delayed';
+  }
+  return 'stale';
 };
 
 const toObject = (value: unknown): Record<string, unknown> =>
@@ -305,6 +382,16 @@ const resolveCapacityRiskModel = (
 };
 
 export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard' }) => {
+  const [operatorDensity] = usePersistentPreference<'comfortable' | 'dense'>(
+    'operator-ui-density',
+    'comfortable',
+    {
+      allowedValues: ['comfortable', 'dense'] as const,
+      legacyKeys: ['backtest-details-summary-density'],
+    }
+  );
+  const isOperatorDense = operatorDensity === 'dense';
+  const pageSpacingClass = isOperatorDense ? 'space-y-4' : 'space-y-6';
   const [searchParams, setSearchParams] = useSearchParams();
   const getEnvelopeField = (payload: Record<string, unknown>, key: string): unknown => {
     const nested = payload.data;
@@ -626,9 +713,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     // Open sockets for newly active runs
     for (const runId of activeIds) {
       if (wsRefs.current.has(runId)) continue;
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const ws = new WebSocket(`${proto}//${host}/api/v1/backtests/${runId}/push`);
+      const token = localStorage.getItem('token') || undefined;
+      const wsUrl = resolveBackendWebSocketUrl(
+        `/api/v1/backtests/${encodeURIComponent(runId)}/push`,
+        token
+      );
+      const ws = new WebSocket(wsUrl);
       ws.addEventListener('message', () => {
         void queryClient.invalidateQueries({ queryKey: ['backtests', 'status', runId] });
         void queryClient.invalidateQueries({ queryKey: ['backtests'] });
@@ -784,9 +874,36 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       : statisticsHealth.integrityPct >= 85
         ? 'warning'
         : 'accent';
+  const leaderboardPanelRef = useRef<HTMLDivElement>(null);
+  const activeRunsPanelRef = useRef<HTMLDivElement>(null);
   const capacityPanelRef = useRef<HTMLDivElement>(null);
+  const scrollToLeaderboardPanel = () =>
+    leaderboardPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const scrollToActiveRunsPanel = () =>
+    activeRunsPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const scrollToCapacityPanel = () =>
     capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const activeRunFreshnessSummary = useMemo(() => {
+    let fresh = 0;
+    let delayed = 0;
+    let stale = 0;
+    let unknown = 0;
+
+    activeRunsQuickAccess.forEach((run) => {
+      const state = getFreshnessState(activeRunLiveById.get(run.run_id)?.updatedAtMs);
+      if (state === 'fresh') {
+        fresh += 1;
+      } else if (state === 'delayed') {
+        delayed += 1;
+      } else if (state === 'stale') {
+        stale += 1;
+      } else {
+        unknown += 1;
+      }
+    });
+
+    return { fresh, delayed, stale, unknown };
+  }, [activeRunsQuickAccess, activeRunLiveById]);
 
   const capacityRisk = useMemo(
     () =>
@@ -891,7 +1008,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
   if (view === 'new') {
     return (
-      <PageContainer size="wide" className="space-y-6">
+      <PageContainer size="wide" className={pageSpacingClass}>
         <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
           <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
             <div>
@@ -958,7 +1075,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   if (view === 'experiments') {
     if (experimentsQuery.isLoading) {
       return (
-        <PageContainer size="wide" className="space-y-6">
+        <PageContainer size="wide" className={pageSpacingClass}>
           <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8" aria-busy="true">
             <div className="skeleton h-6 w-52 rounded" />
             <div className="skeleton mt-4 h-8 w-2/3 rounded" />
@@ -975,7 +1092,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
           : 'Failed to load backtest experiments.';
 
       return (
-        <PageContainer size="wide" className="space-y-6">
+        <PageContainer size="wide" className={pageSpacingClass}>
           <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
             <h1 className="text-xl font-semibold text-white">Backtest Experiments Unavailable</h1>
             <p className="mt-2 text-sm text-red-200">{message}</p>
@@ -1007,7 +1124,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       experimentVariantFilter !== 'all';
 
     return (
-      <PageContainer size="wide" className="space-y-6">
+      <PageContainer size="wide" className={pageSpacingClass}>
         <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
           <div className="surface-label">
             <Layers3 className="h-3.5 w-3.5" />
@@ -1187,7 +1304,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
   if (backtestsQuery.isLoading) {
     return (
-      <PageContainer size="wide" className="space-y-6">
+      <PageContainer size="wide" className={pageSpacingClass}>
         <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8" aria-busy="true">
           <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
             <div>
@@ -1235,7 +1352,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         : 'Failed to load backtest intelligence.';
 
     return (
-      <PageContainer size="wide" className="space-y-6">
+      <PageContainer size="wide" className={pageSpacingClass}>
         <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
           <h1 className="text-xl font-semibold text-white">Backtest Intelligence Unavailable</h1>
           <p className="mt-2 text-sm text-red-200">{message}</p>
@@ -1267,7 +1384,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   }
 
   return (
-    <PageContainer size="wide" className="space-y-6">
+    <PageContainer size="wide" className={pageSpacingClass}>
       <section className="operator-hero px-6 py-6 sm:px-8 sm:py-8">
         <div className="relative grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
           <div>
@@ -1344,7 +1461,59 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <BacktestsModeSwitcher view={view} />
+
+      {view === 'dashboard' && (
+        <section className="operator-section-card p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Operator quick actions
+              </p>
+              <p className="mt-1 text-sm text-slate-300">
+                Jump to critical sections or launch the next workflow without losing dashboard
+                context.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={scrollToActiveRunsPanel}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-200 transition hover:border-emerald-400/60"
+              >
+                Active runs
+              </button>
+              <button
+                type="button"
+                onClick={scrollToLeaderboardPanel}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200 transition hover:border-cyan-400/60"
+              >
+                Leaderboard
+              </button>
+              <button
+                type="button"
+                onClick={scrollToCapacityPanel}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-violet-200 transition hover:border-violet-400/60"
+              >
+                Capacity
+              </button>
+              <Link
+                to="/backtests/new"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-200 transition hover:border-slate-500"
+              >
+                New run
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section
+        className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 ${
+          isOperatorDense ? 'gap-3' : 'gap-4'
+        }`}
+      >
         <StatCard
           label="Cumulative P&L"
           value={formatCurrency(intelligence.totalPnl)}
@@ -1376,6 +1545,54 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
           icon={<Activity className="h-5 w-5" />}
         />
       </section>
+
+      {view === 'dashboard' && (
+        <section className="operator-section-card p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-300">
+                Data confidence
+              </p>
+              <h2 className="mt-1 text-xl font-semibold text-white">Statistics Confidence Bar</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Highlights metric completeness and live-status agreement so operators can trust
+                decisions under time pressure.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+              <span className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-slate-300">
+                Validated runs: {statisticsHealth.validatedCompletedRuns}/
+                {statisticsHealth.completedRuns}
+              </span>
+              <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-amber-200">
+                Stale active: {statisticsHealth.staleActiveRuns}
+              </span>
+              <span className="rounded-full border border-rose-500/35 bg-rose-500/10 px-3 py-1 text-rose-200">
+                Status mismatch: {statisticsHealth.statusMismatches}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+              <span>Confidence score</span>
+              <span>{statisticsHealth.integrityPct.toFixed(0)}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+              <div
+                className={`h-2 rounded-full transition-all duration-500 ${
+                  statisticsHealth.integrityPct >= 95
+                    ? 'bg-emerald-400'
+                    : statisticsHealth.integrityPct >= 85
+                      ? 'bg-amber-400'
+                      : 'bg-rose-400'
+                }`}
+                style={{ width: `${statisticsHealth.integrityPct}%` }}
+              />
+            </div>
+          </div>
+        </section>
+      )}
 
       {view === 'dashboard' && <BacktestWorkflowCards />}
 
@@ -1426,66 +1643,72 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       )}
 
       {view === 'dashboard' && (
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)]">
-          <TerminalDataGrid
-            title="Strategy leaderboard"
-            subtitle="Sortable ranking weighted for profitability, Sharpe, consistency, and drawdown discipline."
-            rows={intelligence.strategies}
-            columns={strategyColumns}
-            rowKey={(row) => row.key}
-            searchPlaceholder="Search strategy names or setups"
-            getSearchText={(row) =>
-              [row.label, String(row.strategyId ?? ''), String(row.totalRuns)].join(' ')
-            }
-            metrics={[
-              {
-                label: 'Ranked',
-                value: intelligence.strategies.length,
-                detail: 'strategy groups',
-              },
-              {
-                label: 'Best P&L',
-                value: intelligence.bestStrategy
-                  ? formatCurrency(intelligence.bestStrategy.totalPnl)
-                  : '—',
-                detail: intelligence.bestStrategy?.label || 'awaiting completed runs',
-                tone:
-                  intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
-                    ? 'positive'
-                    : 'default',
-              },
-              {
-                label: 'Safest Drawdown',
-                value: intelligence.safestStrategy
-                  ? formatPercent(intelligence.safestStrategy.avgDrawdownPct)
-                  : '—',
-                detail: intelligence.safestStrategy?.label || 'awaiting drawdown data',
-                tone: 'accent',
-              },
-              {
-                label: 'Avg Sharpe',
-                value: intelligence.avgSharpe.toFixed(2),
-                detail: 'completed runs only',
-              },
-            ]}
-            liveBadge={
-              <span
-                className="operator-status-pill"
-                data-tone={intelligence.activeRuns > 0 ? 'accent' : 'positive'}
-              >
-                {intelligence.activeRuns > 0 ? `${intelligence.activeRuns} live` : 'Stable'}
-              </span>
-            }
-            defaultSortKey="pnl"
-            emptyState={
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-6 text-sm text-slate-400">
-                No completed backtests yet. Launch your first run from this Backtests desk and the
-                leaderboard will populate here.
-              </div>
-            }
-          />
+        <section
+          className={`grid grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.9fr)] ${
+            isOperatorDense ? 'gap-4' : 'gap-6'
+          }`}
+        >
+          <div ref={leaderboardPanelRef}>
+            <TerminalDataGrid
+              title="Strategy leaderboard"
+              subtitle="Sortable ranking weighted for profitability, Sharpe, consistency, and drawdown discipline."
+              rows={intelligence.strategies}
+              columns={strategyColumns}
+              rowKey={(row) => row.key}
+              searchPlaceholder="Search strategy names or setups"
+              getSearchText={(row) =>
+                [row.label, String(row.strategyId ?? ''), String(row.totalRuns)].join(' ')
+              }
+              metrics={[
+                {
+                  label: 'Ranked',
+                  value: intelligence.strategies.length,
+                  detail: 'strategy groups',
+                },
+                {
+                  label: 'Best P&L',
+                  value: intelligence.bestStrategy
+                    ? formatCurrency(intelligence.bestStrategy.totalPnl)
+                    : '—',
+                  detail: intelligence.bestStrategy?.label || 'awaiting completed runs',
+                  tone:
+                    intelligence.bestStrategy && intelligence.bestStrategy.totalPnl >= 0
+                      ? 'positive'
+                      : 'default',
+                },
+                {
+                  label: 'Safest Drawdown',
+                  value: intelligence.safestStrategy
+                    ? formatPercent(intelligence.safestStrategy.avgDrawdownPct)
+                    : '—',
+                  detail: intelligence.safestStrategy?.label || 'awaiting drawdown data',
+                  tone: 'accent',
+                },
+                {
+                  label: 'Avg Sharpe',
+                  value: intelligence.avgSharpe.toFixed(2),
+                  detail: 'completed runs only',
+                },
+              ]}
+              liveBadge={
+                <span
+                  className="operator-status-pill"
+                  data-tone={intelligence.activeRuns > 0 ? 'accent' : 'positive'}
+                >
+                  {intelligence.activeRuns > 0 ? `${intelligence.activeRuns} live` : 'Stable'}
+                </span>
+              }
+              defaultSortKey="pnl"
+              emptyState={
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-6 text-sm text-slate-400">
+                  No completed backtests yet. Launch your first run from this Backtests desk and the
+                  leaderboard will populate here.
+                </div>
+              }
+            />
+          </div>
 
-          <div className="space-y-6">
+          <div className={isOperatorDense ? 'space-y-4' : 'space-y-6'}>
             <div ref={capacityPanelRef} className="operator-section-card p-5">
               <div className="mb-4 flex items-center gap-3">
                 <div className="rounded-xl bg-violet-500/10 p-2 text-violet-300">
@@ -1584,7 +1807,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
               </div>
             </div>
 
-            <div className="operator-section-card p-5">
+            <div ref={activeRunsPanelRef} className="operator-section-card p-5">
               <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-start gap-3">
                   <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300">
@@ -1640,6 +1863,25 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 </div>
               </div>
 
+              {activeRunsQuickAccess.length > 0 ? (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
+                    Fresh {activeRunFreshnessSummary.fresh}
+                  </span>
+                  <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-200">
+                    Delayed {activeRunFreshnessSummary.delayed}
+                  </span>
+                  <span className="rounded-full border border-rose-500/35 bg-rose-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-200">
+                    Stale {activeRunFreshnessSummary.stale}
+                  </span>
+                  {activeRunFreshnessSummary.unknown > 0 ? (
+                    <span className="rounded-full border border-slate-600/70 bg-slate-700/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+                      Unknown {activeRunFreshnessSummary.unknown}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
               {activeRunsQuickAccess.length === 0 ? (
                 <p className="text-sm text-slate-400">
                   No active runs right now. Start a new backtest and it will appear here.
@@ -1679,6 +1921,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                     const freshnessLabel = formatFreshnessAge(live?.updatedAtMs);
                     const freshnessTone = getFreshnessToneClasses(live?.updatedAtMs);
                     const freshnessCardBorder = getFreshnessCardBorderClasses(live?.updatedAtMs);
+                    const updateSourceLabel = live?.isFetching ? 'Polling refresh' : 'Live status';
                     const pnlClass =
                       typeof live?.totalPnlUsd === 'number'
                         ? live.totalPnlUsd >= 0
@@ -1756,6 +1999,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                               ? formatPercent(normalizePercent(live.winRate))
                               : '—'}
                           </span>
+                          <span className="text-slate-500">Source: {updateSourceLabel}</span>
                         </div>
                       </Link>
                     );

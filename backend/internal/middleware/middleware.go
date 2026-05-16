@@ -23,8 +23,6 @@ func CORSMiddleware() gin.HandlerFunc {
 				// Echo the origin to support credentials in browsers
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			}
-		} else if len(allowedOrigins) == 0 {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Trace-Id")
@@ -67,10 +65,21 @@ func IsAllowedBrowserOrigin(origin string) bool {
 
 func isAllowedCORSOrigin(origin string, allowed map[string]struct{}) bool {
 	if len(allowed) == 0 {
-		return true
+		return !isProductionEnvironment()
 	}
 	_, ok := allowed[normalizeOrigin(origin)]
 	return ok
+}
+
+func isProductionEnvironment() bool {
+	for _, key := range []string{"APP_ENV", "ENVIRONMENT", "GIN_MODE"} {
+		value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+		switch value {
+		case "prod", "production", "release":
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeOrigin(origin string) string {

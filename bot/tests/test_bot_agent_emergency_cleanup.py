@@ -391,3 +391,140 @@ def test_open_trades_emergency_failure_raises_json_telemetry(monkeypatch):
         assert "Unexpected emergency closure error for IMX-USD" in text
         assert "telemetry={" in text
         assert '"cleanup_status":"failed"' in text
+
+
+def test_check_order_status_treats_failed_as_failed(monkeypatch):
+    """FAILED status should never be treated as live."""
+
+    class DummyMessenger:
+        def send_error_message(self, *args, **kwargs):
+            return None
+
+    statuses = ["FAILED"]
+
+    async def fake_check_order_status(client, order_id):
+        _ = client
+        _ = order_id
+        return statuses.pop(0)
+
+    async def _fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
+    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
+
+    agent = BotAgent(
+        client=object(),
+        market_1="BTC-USD",
+        market_2="ETH-USD",
+        base_side="BUY",
+        base_size="0.1",
+        base_price="100000",
+        quote_side="SELL",
+        quote_size="1",
+        quote_price="3000",
+        accept_failsafe_base_price="90000",
+        z_score=2.0,
+        half_life=10,
+        hedge_ratio=0.5,
+    )
+
+    result = asyncio.run(agent.check_order_status_by_id("order-1"))
+
+    assert result == "failed"
+    assert agent.order_dict["pair_status"] == "FAILED"
+
+
+def test_check_order_status_treats_cancelled_variants_as_failed(monkeypatch):
+    """Both canceled spellings and lowercase values should fail consistently."""
+
+    class DummyMessenger:
+        def send_error_message(self, *args, **kwargs):
+            return None
+
+    async def _fast_sleep(_seconds):
+        return None
+
+    for variant in ("CANCELED", "CANCELLED", "cancelled", "canceled"):
+        statuses = [variant]
+
+        async def fake_check_order_status(client, order_id):
+            _ = client
+            _ = order_id
+            return statuses.pop(0)
+
+        monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
+        monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+        monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
+
+        agent = BotAgent(
+            client=object(),
+            market_1="BTC-USD",
+            market_2="ETH-USD",
+            base_side="BUY",
+            base_size="0.1",
+            base_price="100000",
+            quote_side="SELL",
+            quote_size="1",
+            quote_price="3000",
+            accept_failsafe_base_price="90000",
+            z_score=2.0,
+            half_life=10,
+            hedge_ratio=0.5,
+        )
+
+        result = asyncio.run(agent.check_order_status_by_id("order-1"))
+
+        assert result == "failed"
+        assert agent.order_dict["pair_status"] == "FAILED"
+
+
+def test_check_order_status_cancels_non_filled_second_probe(monkeypatch):
+    """Non-filled status after retry should cancel order and return error."""
+
+    class DummyMessenger:
+        def send_error_message(self, *args, **kwargs):
+            return None
+
+    statuses = ["open", "partially_filled"]
+    cancelled = []
+
+    async def fake_check_order_status(client, order_id):
+        _ = client
+        _ = order_id
+        return statuses.pop(0)
+
+    async def fake_cancel_order(client, order_id):
+        _ = client
+        cancelled.append(order_id)
+
+    async def _fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
+    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr("src.trading.bot_agent.cancel_order", fake_cancel_order)
+    monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
+
+    agent = BotAgent(
+        client=object(),
+        market_1="BTC-USD",
+        market_2="ETH-USD",
+        base_side="BUY",
+        base_size="0.1",
+        base_price="100000",
+        quote_side="SELL",
+        quote_size="1",
+        quote_price="3000",
+        accept_failsafe_base_price="90000",
+        z_score=2.0,
+        half_life=10,
+        hedge_ratio=0.5,
+    )
+
+    result = asyncio.run(agent.check_order_status_by_id("order-1"))
+
+    assert result == "error"
+    assert agent.order_dict["pair_status"] == "ERROR"
+    assert cancelled == ["order-1"]

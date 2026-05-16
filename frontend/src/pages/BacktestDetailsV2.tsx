@@ -1540,6 +1540,35 @@ export const BacktestDetailsV2: React.FC = () => {
       icon: Waves,
       color: progressQuery.isConnected ? 'text-cyan-300' : 'text-amber-300',
     },
+    {
+      label: 'Stats Integrity',
+      value: `${
+        [
+          Number.isFinite(totalPnl),
+          Number.isFinite(winRatePercent),
+          Number.isFinite(liveBacktest.sharpe_ratio),
+          Number.isFinite(maxDrawdown),
+        ].filter(Boolean).length * 25
+      }%`,
+      detail: `${
+        [
+          Number.isFinite(totalPnl),
+          Number.isFinite(winRatePercent),
+          Number.isFinite(liveBacktest.sharpe_ratio),
+          Number.isFinite(maxDrawdown),
+        ].filter(Boolean).length
+      }/4 core signals validated`,
+      icon: ShieldCheck,
+      color:
+        [
+          Number.isFinite(totalPnl),
+          Number.isFinite(winRatePercent),
+          Number.isFinite(liveBacktest.sharpe_ratio),
+          Number.isFinite(maxDrawdown),
+        ].filter(Boolean).length === 4
+          ? 'text-emerald-300'
+          : 'text-amber-300',
+    },
   ];
 
   const runControlStatus = normalizeStatus(liveBacktest.control_status);

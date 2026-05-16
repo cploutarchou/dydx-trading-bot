@@ -730,6 +730,60 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
     return lookup;
   }, [activeRunsQuickAccess, activeRunLiveStatusQueries, backtestsQuery.data]);
+
+  const statisticsHealth = useMemo(() => {
+    const runs = backtestsQuery.data ?? [];
+    const normalizeStatus = (value: unknown) =>
+      String(value || '')
+        .trim()
+        .toUpperCase();
+    const completedRuns = runs.filter((run) => normalizeStatus(run.status) === 'COMPLETED');
+
+    const validatedCompletedRuns = completedRuns.filter((run) => {
+      const pnl = safeNumber(run.total_pnl, Number.NaN);
+      const sharpe = safeNumber(run.sharpe_ratio, Number.NaN);
+      const winRate = safeNumber(run.win_rate, Number.NaN);
+      return Number.isFinite(pnl) && Number.isFinite(sharpe) && Number.isFinite(winRate);
+    }).length;
+
+    const integrityPct =
+      completedRuns.length > 0 ? (validatedCompletedRuns / completedRuns.length) * 100 : 100;
+
+    let staleActiveRuns = 0;
+    let statusMismatches = 0;
+    activeRunsQuickAccess.forEach((run) => {
+      const live = activeRunLiveById.get(run.run_id);
+      if (typeof live?.updatedAtMs === 'number') {
+        const ageSeconds = Math.max(0, Math.round((Date.now() - live.updatedAtMs) / 1000));
+        if (ageSeconds >= 90) {
+          staleActiveRuns += 1;
+        }
+      }
+
+      const runStatus = normalizeStatus(run.status);
+      const liveStatus = normalizeStatus(live?.status);
+      if (liveStatus && runStatus && liveStatus !== runStatus) {
+        statusMismatches += 1;
+      }
+    });
+
+    return {
+      completedRuns: completedRuns.length,
+      validatedCompletedRuns,
+      integrityPct: Math.min(100, Math.max(0, integrityPct)),
+      staleActiveRuns,
+      statusMismatches,
+    };
+  }, [activeRunLiveById, activeRunsQuickAccess, backtestsQuery.data]);
+
+  const statisticsHealthTone =
+    statisticsHealth.integrityPct >= 95 &&
+    statisticsHealth.staleActiveRuns === 0 &&
+    statisticsHealth.statusMismatches === 0
+      ? 'positive'
+      : statisticsHealth.integrityPct >= 85
+        ? 'warning'
+        : 'accent';
   const capacityPanelRef = useRef<HTMLDivElement>(null);
   const scrollToCapacityPanel = () =>
     capacityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1250,6 +1304,10 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Drawdown discipline stays weighted in rankings
               </div>
+              <div className="operator-status-pill" data-tone={statisticsHealthTone}>
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Stats integrity {statisticsHealth.integrityPct.toFixed(0)}%
+              </div>
             </div>
           </div>
 
@@ -1286,7 +1344,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
           label="Cumulative P&L"
           value={formatCurrency(intelligence.totalPnl)}
@@ -1310,6 +1368,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
           value={formatPercent(intelligence.avgDrawdownPct)}
           hint="Lower is safer"
           icon={<ShieldCheck className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Stats Integrity"
+          value={`${statisticsHealth.integrityPct.toFixed(0)}%`}
+          hint={`${statisticsHealth.validatedCompletedRuns}/${statisticsHealth.completedRuns} completed runs validated · ${statisticsHealth.staleActiveRuns} stale active · ${statisticsHealth.statusMismatches} status mismatch`}
+          icon={<Activity className="h-5 w-5" />}
         />
       </section>
 
@@ -1521,19 +1585,19 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
             </div>
 
             <div className="operator-section-card p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-3">
                   <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300">
                     <Activity className="h-5 w-5" />
                   </div>
-                  <div>
+                  <div className="max-w-2xl">
                     <h2 className="text-lg font-semibold text-white">Active Runs Quick Access</h2>
                     <p className="text-sm text-slate-400">
                       Open live backtests instantly without leaving the dashboard.
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
                   <button
                     type="button"
                     onClick={scrollToCapacityPanel}
@@ -1799,7 +1863,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
       {view === 'runs' && (
         <section className="operator-section-card p-5 space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">All Backtests</h2>
               <p className="text-sm text-slate-400">
@@ -1807,20 +1871,22 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 away.
               </p>
             </div>
-            <Link
-              to="/backtests/experiments"
-              className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
-            >
-              Experiments
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              to="/backtests/compare"
-              className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
-            >
-              Compare runs
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to="/backtests/experiments"
+                className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
+              >
+                Experiments
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/backtests/compare"
+                className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
+              >
+                Compare runs
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </div>
           <BacktestList />
         </section>

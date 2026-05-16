@@ -97,6 +97,13 @@ class BotAgent:
         payload = {k: v for k, v in fields.items()}
         return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
+    @staticmethod
+    def _normalize_order_status(status) -> str:
+        normalized = str(status or "").strip().upper()
+        if normalized == "CANCELED":
+            return "CANCELLED"
+        return normalized
+
     async def _emergency_close_first_leg(self):
         close_size = self.order_dict.get("order_m1_size") or self.base_size
         close_side = self._opposite_side(self.base_side)
@@ -175,21 +182,25 @@ class BotAgent:
         await asyncio.sleep(2)
 
         # Check order status
-        order_status = await check_order_status(self.client, order_id)
+        order_status = self._normalize_order_status(
+            await check_order_status(self.client, order_id)
+        )
 
         # Guard: If order cancelled move onto next Pair
-        if order_status == "CANCELED":
+        if order_status in {"CANCELLED", "FAILED"}:
             logger.warning("{} vs {} - Order cancelled", self.market_1, self.market_2)
             self.order_dict["pair_status"] = "FAILED"
             return "failed"
 
-        # Guard: If order not filled wait until order expiration
-        if order_status != "FAILED":
+        # Guard: only FILLED can proceed as a live paired leg
+        if order_status != "FILLED":
             await asyncio.sleep(15)
-            order_status = await check_order_status(self.client, order_id)
+            order_status = self._normalize_order_status(
+                await check_order_status(self.client, order_id)
+            )
 
             # Guard: If order cancelled move onto next Pair
-            if order_status == "CANCELED":
+            if order_status in {"CANCELLED", "FAILED"}:
                 logger.warning("{} vs {} - Order cancelled", self.market_1, self.market_2)
                 self.order_dict["pair_status"] = "FAILED"
                 return "failed"

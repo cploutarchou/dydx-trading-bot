@@ -1,7 +1,9 @@
 """Telegram messaging system for dYdX Trading Bot."""
 
+import asyncio
 import html
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -125,8 +127,8 @@ class TelegramMessenger:
         TelegramMessenger._recent_messages[key] = now
         return False
 
-    def _send_request(self, method: str, data: Dict[str, Any]) -> bool:
-        """Send HTTP request to Telegram API."""
+    def _send_request_blocking(self, method: str, data: Dict[str, Any]) -> bool:
+        """Send HTTP request to Telegram API (blocking path)."""
         if not self.enabled:
             return False
 
@@ -188,6 +190,21 @@ class TelegramMessenger:
                 return False
 
         return False
+
+    def _send_request(self, method: str, data: Dict[str, Any]) -> bool:
+        """Send HTTP request, avoiding event-loop blocking in async trading paths."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return self._send_request_blocking(method, data)
+
+        threading.Thread(
+            target=self._send_request_blocking,
+            args=(method, data),
+            daemon=True,
+            name="telegram-send",
+        ).start()
+        return True
 
     def send_message(
             self,

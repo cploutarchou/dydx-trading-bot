@@ -47,11 +47,11 @@ setup: ## Create Python virtual environment
 	@echo "📌 Activate with: source .venv/bin/activate"
 
 install: ## Install all dependencies including backend package
-	.venv/bin/pip install --upgrade pip setuptools wheel
-	.venv/bin/pip install -r requirements.txt
-	.venv/bin/pip install -e ./backend --use-pep517
-	@echo "✅ All dependencies installed"
-	@echo "📌 Backend package installed in editable mode"
+	@echo "Installing dependencies per service (backend/frontend/bot)..."
+	cd backend && go mod download
+	cd frontend && npm install
+	cd bot && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt
+	@echo "✅ Service dependencies installed"
 
 config: ## Deprecated legacy config target (bot uses runtime config under bot/)
 	@echo "⚠️  'make config' is deprecated for this monorepo layout."
@@ -110,7 +110,10 @@ env: ## Show deprecation warning for .env
 # ============================================================================
 
 test: ## Run pytest suite (tests/ directory only)
-	PYTHONPATH=$(PWD) .venv/bin/pytest tests/ -v --tb=short
+	@echo "Running service-level verification..."
+	cd backend && make test
+	cd frontend && npm run lint && npm run build
+	cd bot && .venv/bin/python -m pytest tests/ -v --tb=short
 
 docs-governance: ## Validate canonical docs links and archival policy
 	python3 scripts/validate_docs_governance.py

@@ -5,6 +5,11 @@
 
 import React from 'react';
 import { useBacktestProgress } from '../api/hooks';
+import {
+    LiveStateBadge,
+    formatBacktestProgressSourceLabel,
+    resolveBacktestStreamBadge,
+} from './ui/LiveState';
 
 interface BacktestProgressProps {
   runId: string;
@@ -28,10 +33,12 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
   const details = (progressQuery.data ?? {}) as Record<string, unknown>;
   const message = typeof details.message === 'string' ? details.message : '';
   const progressPercent = progressQuery.progressPercent || 0;
+  const progressSource = formatBacktestProgressSourceLabel(progressQuery.progressSource);
   const errorMessage =
     (progressQuery.error as Error | null)?.message ||
     (progressQuery.isError ? 'Failed to fetch backtest progress' : null);
   const isConnected = progressQuery.isConnected ?? !progressQuery.isError;
+  const streamBadge = resolveBacktestStreamBadge(progressQuery.progressSource, isConnected);
 
   React.useEffect(() => {
     completionHandledRef.current = false;
@@ -60,7 +67,7 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
               ? 'Backtest timed out'
               : progressQuery.isStalled
                 ? 'Backtest stalled'
-              : 'Backtest failed')
+                : 'Backtest failed')
       );
     }
   }, [
@@ -124,11 +131,18 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
       {/* Status Badge */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white">Backtest Progress</h3>
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(status.toLowerCase())}`}
-        >
-          {status.toUpperCase()}
-        </span>
+        <div className="flex items-center gap-2">
+          <LiveStateBadge
+            tone={streamBadge.tone}
+            label={streamBadge.label}
+            className="rounded-full px-3 py-1 normal-case"
+          />
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(status.toLowerCase())}`}
+          >
+            {status.toUpperCase()}
+          </span>
+        </div>
       </div>
 
       {/* Progress Bar */}
@@ -169,7 +183,10 @@ export const BacktestProgress: React.FC<BacktestProgressProps> = ({
       {/* Connection Status */}
       <div className="flex items-center gap-2 text-xs text-slate-400">
         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-        <span>{isConnected ? 'Connected to server' : 'Disconnected (reconnecting...)'}</span>
+        <span>
+          {isConnected ? 'Connected to server' : 'Disconnected (reconnecting...)'} · source{' '}
+          {progressSource}
+        </span>
       </div>
 
       {/* Error Display */}

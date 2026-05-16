@@ -44,6 +44,11 @@ def _column_type(bind, table_name: str, column_name: str) -> str | None:
     return str(col["type"]).upper()
 
 
+def _column_exists(bind, table_name: str, column_name: str) -> bool:
+    cols = {c["name"] for c in sa.inspect(bind).get_columns(table_name)}
+    return column_name in cols
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -52,7 +57,8 @@ def upgrade() -> None:
         # retry_count: backfill + NOT NULL + DEFAULT 0
         op.execute(sa.text("UPDATE jobs SET retry_count = 0 WHERE retry_count IS NULL"))
         op.alter_column(
-            "jobs", "retry_count",
+            "jobs",
+            "retry_count",
             existing_type=sa.Integer(),
             nullable=False,
             server_default="0",
@@ -61,14 +67,17 @@ def upgrade() -> None:
         # max_retries: backfill + NOT NULL + DEFAULT 3
         op.execute(sa.text("UPDATE jobs SET max_retries = 3 WHERE max_retries IS NULL"))
         op.alter_column(
-            "jobs", "max_retries",
+            "jobs",
+            "max_retries",
             existing_type=sa.Integer(),
             nullable=False,
             server_default="3",
         )
 
         # progress_pct: backfill + NOT NULL + DEFAULT 0 (added by harden migration but may have NULLs)
-        op.execute(sa.text("UPDATE jobs SET progress_pct = 0.0 WHERE progress_pct IS NULL"))
+        op.execute(
+            sa.text("UPDATE jobs SET progress_pct = 0.0 WHERE progress_pct IS NULL")
+        )
 
     # ── event_logs: json → jsonb ──────────────────────────────────────────────
     # jsonb allows GIN indexing and is faster for queries.
@@ -78,18 +87,22 @@ def upgrade() -> None:
     if bind.dialect.name == "postgresql" and _table_exists(bind, "event_logs"):
         col_type = _column_type(bind, "event_logs", "details")
         if col_type and "JSONB" not in col_type:
-            op.execute(sa.text(
-                "ALTER TABLE event_logs ALTER COLUMN details TYPE jsonb USING details::jsonb"
-            ))
+            op.execute(
+                sa.text(
+                    "ALTER TABLE event_logs ALTER COLUMN details TYPE jsonb USING details::jsonb"
+                )
+            )
 
-    # ── trades: timestamp defaults ────────────────────────────────────────────
+    # ── trades: timestamp defaults (for schemas that include these columns) ──
     if _table_exists(bind, "trades"):
-        op.execute(sa.text(
-            "UPDATE trades SET created_at = NOW() WHERE created_at IS NULL"
-        ))
-        op.execute(sa.text(
-            "UPDATE trades SET updated_at = NOW() WHERE updated_at IS NULL"
-        ))
+        if _column_exists(bind, "trades", "created_at"):
+            op.execute(
+                sa.text("UPDATE trades SET created_at = NOW() WHERE created_at IS NULL")
+            )
+        if _column_exists(bind, "trades", "updated_at"):
+            op.execute(
+                sa.text("UPDATE trades SET updated_at = NOW() WHERE updated_at IS NULL")
+            )
 
 
 def downgrade() -> None:
@@ -99,20 +112,24 @@ def downgrade() -> None:
     if bind.dialect.name == "postgresql" and _table_exists(bind, "event_logs"):
         col_type = _column_type(bind, "event_logs", "details")
         if col_type and "JSONB" in col_type:
-            op.execute(sa.text(
-                "ALTER TABLE event_logs ALTER COLUMN details TYPE json USING details::json"
-            ))
+            op.execute(
+                sa.text(
+                    "ALTER TABLE event_logs ALTER COLUMN details TYPE json USING details::json"
+                )
+            )
 
     # Restore nullable on jobs columns (drop server defaults + allow NULL)
     if _table_exists(bind, "jobs"):
         op.alter_column(
-            "jobs", "retry_count",
+            "jobs",
+            "retry_count",
             existing_type=sa.Integer(),
             nullable=True,
             server_default=None,
         )
         op.alter_column(
-            "jobs", "max_retries",
+            "jobs",
+            "max_retries",
             existing_type=sa.Integer(),
             nullable=True,
             server_default=None,

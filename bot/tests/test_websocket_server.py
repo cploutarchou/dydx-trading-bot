@@ -1,6 +1,8 @@
 import asyncio
 from typing import Any, cast
 
+from fastapi import WebSocketDisconnect
+
 from src.api import websocket_server
 
 
@@ -23,6 +25,16 @@ class _DummySession:
 class _FailingWebSocket:
     async def send_json(self, _message):
         raise RuntimeError("socket not connected")
+
+
+class _DisconnectingWebSocket:
+    async def send_json(self, _message):
+        raise WebSocketDisconnect()
+
+
+class _AcceptingDummyWebSocket:
+    async def accept(self):
+        return None
 
 
 def test_send_initial_state_backtest_channel_emits_snapshot(monkeypatch):
@@ -190,3 +202,68 @@ def test_send_backtest_status_tracks_per_run_send_failures(monkeypatch):
     assert metrics["metrics"]["total_send_failures"] >= 1
     assert metrics["metrics"]["consecutive_send_failures"] >= 1
     assert metrics["alert_recommended"] is True
+
+
+def test_send_backtest_status_expected_disconnect_does_not_raise_alert(monkeypatch):
+    session = _DummySession()
+    websocket_server.manager.send_metrics.clear()
+    monkeypatch.setenv("BACKTEST_WS_FAILURE_ALERT_THRESHOLD", "1")
+    monkeypatch.setattr(websocket_server.db, "get_session", lambda: session)
+
+    class _FakeRepository:
+        def __init__(self, db_session):
+            assert db_session is session
+
+        def get_run_overview(self, run_id: str):
+            assert run_id == "run-disconnect"
+            return {
+                "status": "running",
+                "progress_pct": 10.0,
+                "current_pair": "BTC-USD/ETH-USD",
+                "current_task": "processing pair",
+                "updated_at": "2026-04-08T20:41:16Z",
+            }
+
+    monkeypatch.setattr(websocket_server, "BacktestRepository", _FakeRepository)
+
+    ws = _DisconnectingWebSocket()
+    sent = asyncio.run(
+        websocket_server.WebSocketServer.send_backtest_status(
+            cast(Any, ws), "run-disconnect"
+        )
+    )
+
+    assert sent is False
+    metrics = websocket_server.manager.get_backtest_send_failure_metrics(
+        "run-disconnect"
+    )
+    assert metrics["metrics"]["total_send_failures"] == 0
+    assert metrics["metrics"]["total_send_disconnects"] >= 1
+    assert metrics["metrics"]["consecutive_send_failures"] == 0
+    assert metrics["alert_recommended"] is False
+
+
+def test_backtest_connect_resets_stale_consecutive_failures():
+    websocket_server.manager.send_metrics.clear()
+    run_id = "run-connect-reset"
+    channel_id = f"backtest-{run_id}"
+
+    websocket_server.manager._record_send_failure(
+        channel_id,
+        RuntimeError("boom"),
+        operation="test",
+    )
+    websocket_server.manager._record_send_failure(
+        channel_id,
+        RuntimeError("boom"),
+        operation="test",
+    )
+
+    before = websocket_server.manager.get_backtest_send_failure_metrics(run_id)
+    assert before["metrics"]["consecutive_send_failures"] >= 2
+
+    ws = _AcceptingDummyWebSocket()
+    asyncio.run(websocket_server.manager.connect(cast(Any, ws), channel_id))
+
+    after = websocket_server.manager.get_backtest_send_failure_metrics(run_id)
+    assert after["metrics"]["consecutive_send_failures"] == 0

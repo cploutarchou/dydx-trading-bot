@@ -37,7 +37,8 @@ class BotInstance:
 
     def __init__(self, instance_id: str, config_file: Optional[str] = None):
         self.instance_id = instance_id
-        self.config_file = config_file
+        self.deprecated_config_file = config_file
+        self._deprecated_config_file_warning_emitted = False
         self.logger: Optional[Any] = None
         self.client = None
         self.messenger = None
@@ -113,6 +114,8 @@ class BotInstance:
         """Strip non-runtime metadata so hash comparisons are stable."""
         payload = dict(config_data or {})
         payload.pop("_config_meta", None)
+        payload.pop("config_meta", None)
+        payload.pop("runtime_state", None)
         return payload
 
     def _runtime_config_hash(self, config_data: Dict[str, Any]) -> str:
@@ -120,40 +123,39 @@ class BotInstance:
         encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
-    def _warn_on_config_cache_hash_mismatch(
-        self,
-        db_payload: Optional[Dict[str, Any]],
-        file_payload: Optional[Dict[str, Any]],
+    def _warn_on_config_metadata_hash_mismatch(
+        self, db_payload: Optional[Dict[str, Any]]
     ) -> None:
         if self.logger is None:
             return
         if not db_payload:
             return
 
-        db_meta = db_payload.get("_config_meta")
+        db_meta = db_payload.get("_config_meta") or db_payload.get("config_meta")
         if isinstance(db_meta, dict):
             expected_hash = str(db_meta.get("payload_hash") or "").strip()
             if expected_hash:
                 actual_hash = self._runtime_config_hash(db_payload)
                 if expected_hash != actual_hash:
                     self.logger.warning(
-                        "Runtime config metadata hash mismatch instance_id={} expected_hash={} actual_hash={}",
+                        "Runtime config metadata hash mismatch instance_id={} "
+                        "expected_hash={} actual_hash={}",
                         self.instance_id,
                         expected_hash,
                         actual_hash,
                     )
 
-        if not file_payload:
+    def _warn_if_deprecated_config_file_supplied(self) -> None:
+        if not self.deprecated_config_file:
             return
-
-        db_hash = self._runtime_config_hash(db_payload)
-        file_hash = self._runtime_config_hash(file_payload)
-        if db_hash != file_hash:
+        if self._deprecated_config_file_warning_emitted:
+            return
+        self._deprecated_config_file_warning_emitted = True
+        if self.logger is not None:
             self.logger.warning(
-                "Runtime config cache drift detected instance_id={} db_hash={} file_hash={}",
+                "Ignoring deprecated runtime config file path for {}; "
+                "DB-backed bot_instances.config is required",
                 self.instance_id,
-                db_hash,
-                file_hash,
             )
 
     def _load_config_data_from_db(self) -> Optional[Dict[str, Any]]:
@@ -183,48 +185,179 @@ class BotInstance:
             if session is not None:
                 session.close()
 
-    def _load_config_data_from_file(self) -> Optional[Dict[str, Any]]:
-        if not self.config_file or not os.path.exists(self.config_file):
-            return None
-        try:
-            import yaml
+    @staticmethod
+    def _coerce_bool(value: Any, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
 
-            if self.logger is not None:
-                self.logger.info(
-                    "Loading instance config file cache from {}", self.config_file
+    @staticmethod
+    def _required_mapping(payload: Dict[str, Any], key: str) -> Dict[str, Any]:
+        value = payload.get(key)
+        if not isinstance(value, dict) or not value:
+            raise ValueError(f"DB runtime config is missing required '{key}' object")
+        return value
+
+    @staticmethod
+    def _required_text(payload: Dict[str, Any], key: str) -> str:
+        value = str(payload.get(key) or "").strip()
+        if not value:
+            raise ValueError(f"DB runtime config is missing required '{key}' value")
+        return value
+
+    def _normalize_db_runtime_payload(
+        self, config_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Convert persisted DB config into the runtime DydxConfig input shape."""
+        payload = self._canonical_runtime_config_data(config_data)
+        if "botSettings" in payload:
+            bot_settings = self._required_mapping(payload, "botSettings")
+            if "is_testnet" not in payload:
+                raise ValueError(
+                    "DB runtime config is missing required 'is_testnet' value"
                 )
-            with open(self.config_file, "r", encoding="utf-8") as file_handle:
-                payload = yaml.safe_load(file_handle) or {}
-            if not isinstance(payload, dict):
-                return None
+            is_testnet = self._coerce_bool(payload.get("is_testnet"), default=True)
+            network_key = "dydx_testnet" if is_testnet else "dydx_mainnet"
+            network_payload = self._required_mapping(payload, network_key)
+            self._required_text(network_payload, "dydx_chain_address")
+            self._required_text(network_payload, "dydx_chain_secret")
+            if "subaccountNumber" not in bot_settings:
+                raise ValueError(
+                    "DB runtime config is missing required "
+                    "'botSettings.subaccountNumber' value"
+                )
+            if not str(bot_settings.get("strategy") or "").strip():
+                raise ValueError(
+                    "DB runtime config is missing required 'botSettings.strategy' value"
+                )
             return payload
-        except Exception as exc:
-            if self.logger is not None:
-                self.logger.warning(
-                    "Failed to load instance config file cache for {}: {}",
-                    self.instance_id,
-                    self._describe_exception(exc),
-                )
-            return None
 
-    def _refresh_config_file_cache(self, payload: Dict[str, Any]) -> None:
-        if not self.config_file:
-            return
-        try:
-            import yaml
+        runtime_defaults = config()
+        if runtime_defaults is None:
+            raise RuntimeError("Failed to resolve runtime configuration defaults")
 
-            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
-            cache_payload = dict(payload or {})
-            cache_payload.pop("_config_meta", None)
-            with open(self.config_file, "w", encoding="utf-8") as file_handle:
-                yaml.safe_dump(cache_payload, file_handle, sort_keys=False)
-        except Exception as exc:
-            if self.logger is not None:
-                self.logger.warning(
-                    "Failed to refresh config file cache for {}: {}",
-                    self.instance_id,
-                    self._describe_exception(exc),
-                )
+        credentials = self._required_mapping(payload, "credentials")
+        trading = self._required_mapping(payload, "trading_params")
+        if "is_testnet" not in trading:
+            raise ValueError(
+                "DB runtime config is missing required 'trading_params.is_testnet' value"
+            )
+        if "subaccount_number" not in trading:
+            raise ValueError(
+                "DB runtime config is missing required 'trading_params.subaccount_number' value"
+            )
+        if not str(trading.get("strategy") or "").strip():
+            raise ValueError(
+                "DB runtime config is missing required 'trading_params.strategy' value"
+            )
+
+        address = self._required_text(credentials, "address")
+        mnemonic = self._required_text(credentials, "mnemonic")
+        is_testnet = self._coerce_bool(trading.get("is_testnet"), default=True)
+
+        telegram_payload = payload.get("telegram")
+        telegram = telegram_payload if isinstance(telegram_payload, dict) else {}
+        backtesting_payload = payload.get("backtesting_params")
+        backtesting = (
+            backtesting_payload if isinstance(backtesting_payload, dict) else {}
+        )
+        selected_markets = trading.get("selected_markets")
+        if not isinstance(selected_markets, list):
+            selected_markets = trading.get("selectedMarkets", [])
+
+        loki_defaults = runtime_defaults.logging.loki
+
+        return {
+            "is_testnet": is_testnet,
+            "environment": runtime_defaults.environment,
+            "telegram": {
+                "token": telegram.get("token") or runtime_defaults.telegram.token,
+                "chat_id": telegram.get("chat_id")
+                or runtime_defaults.telegram.chat_id,
+            },
+            "botSettings": {
+                "subaccountNumber": trading.get("subaccount_number", 0),
+                "capitalAllocationUsd": trading.get("capital_allocation_usd", 0.0),
+                "abortAllPositions": trading.get("abort_all_positions", False),
+                "findCointegratedPairs": trading.get(
+                    "find_cointegrated_pairs", False
+                ),
+                "manageExits": trading.get("manage_exits", False),
+                "placeTrades": trading.get("place_trades", False),
+                "resolutionTimeframe": trading.get(
+                    "resolution_timeframe", "1HOUR"
+                ),
+                "strategy": trading.get("strategy", "cointegration"),
+                "statsWindow": trading.get("stats_window", 21),
+                "maxHalfLife": trading.get("max_half_life", 24),
+                "ZScoreThreshold": trading.get("zscore_threshold", 1.5),
+                "usdPerTrade": trading.get("usd_per_trade", 10.0),
+                "usdMinCollateral": trading.get("usd_min_collateral", 100.0),
+                "closeAtZscoreCross": trading.get(
+                    "close_at_zscore_cross", True
+                ),
+                "maxPositions": trading.get("max_positions", 5),
+                "maxDrawdownPct": trading.get("max_drawdown_pct", 15.0),
+                "stopLossPct": trading.get("stop_loss_pct", 2.0),
+                "takeProfitPct": trading.get("take_profit_pct", 5.0),
+                "trailingStopPct": trading.get("trailing_stop_pct", 1.0),
+                "rebalanceIntervalHours": trading.get(
+                    "rebalance_interval_hours", 24
+                ),
+                "positionTimeoutHours": trading.get("position_timeout_hours", 72),
+                "selectedMarkets": selected_markets,
+            },
+            "backtesting": {
+                "candleResolution": backtesting.get(
+                    "candle_resolution",
+                    runtime_defaults.backtesting.candleResolution,
+                ),
+                "maxHistoryDays": backtesting.get(
+                    "max_history_days", runtime_defaults.backtesting.maxHistoryDays
+                ),
+                "startingBalance": backtesting.get(
+                    "starting_balance", runtime_defaults.backtesting.startingBalance
+                ),
+                "transactionFee": backtesting.get(
+                    "transaction_fee", runtime_defaults.backtesting.transactionFee
+                ),
+                "slippage": backtesting.get(
+                    "slippage", runtime_defaults.backtesting.slippage
+                ),
+                "benchmarkSymbol": backtesting.get(
+                    "benchmark_symbol",
+                    runtime_defaults.backtesting.benchmarkSymbol,
+                ),
+                "riskFreeRate": backtesting.get(
+                    "risk_free_rate", runtime_defaults.backtesting.riskFreeRate
+                ),
+            },
+            "dydx_testnet": {
+                "dydx_chain_address": address if is_testnet else "",
+                "dydx_chain_secret": mnemonic if is_testnet else "",
+            },
+            "dydx_mainnet": {
+                "dydx_chain_address": "" if is_testnet else address,
+                "dydx_chain_secret": "" if is_testnet else mnemonic,
+            },
+            "logging": {
+                "level": runtime_defaults.logging.level,
+                "loki": {
+                    "enabled": loki_defaults.enabled,
+                    "url": loki_defaults.url,
+                    "username": loki_defaults.username,
+                    "password": loki_defaults.password,
+                    "labels": {
+                        **(loki_defaults.labels or {}),
+                        "instance": self.instance_id,
+                    },
+                },
+            },
+        }
 
     def _build_runtime_config(self, config_data: Dict[str, Any]) -> Any:
         from config.config import (
@@ -246,6 +379,7 @@ class BotInstance:
         LoggingSettingsFactory = cast(Any, LoggingSettings)
         LokiSettingsFactory = cast(Any, LokiSettings)
         BacktestSettingsFactory = cast(Any, BacktestSettings)
+        config_data = self._normalize_db_runtime_payload(config_data)
 
         return DydxConfigFactory(
             is_testnet=config_data.get("is_testnet", True),
@@ -389,28 +523,20 @@ class BotInstance:
     def load_config(self):
         """Load instance-specific configuration"""
         try:
+            self._warn_if_deprecated_config_file_supplied()
             db_payload = self._load_config_data_from_db()
-            file_payload = self._load_config_data_from_file()
-            self._warn_on_config_cache_hash_mismatch(db_payload, file_payload)
+            if not db_payload:
+                raise RuntimeError(
+                    "DB-backed runtime config is required but missing for "
+                    f"instance {self.instance_id}"
+                )
 
-            selected_payload = db_payload or file_payload
-
-            if selected_payload:
-                self.config = self._build_runtime_config(selected_payload)
-                if db_payload:
-                    self._refresh_config_file_cache(db_payload)
-                    if self.logger is not None:
-                        self.logger.info(
-                            "Runtime config loaded from database for {}",
-                            self.instance_id,
-                        )
-                elif self.logger is not None:
-                    self.logger.info(
-                        "Runtime config loaded from file cache for {}",
-                        self.instance_id,
-                    )
-            else:
-                self.config = config()
+            self._warn_on_config_metadata_hash_mismatch(db_payload)
+            self.config = self._build_runtime_config(db_payload)
+            if self.logger is not None:
+                self.logger.info(
+                    "Runtime config loaded from database for {}", self.instance_id
+                )
 
             if self.config is None:
                 raise RuntimeError("Failed to load configuration")
@@ -681,7 +807,7 @@ def parse_arguments() -> argparse.Namespace:
         "--config",
         dest="config",
         default=None,
-        help="Optional path to per-instance YAML configuration",
+        help=argparse.SUPPRESS,
     )
     return parser.parse_args()
 

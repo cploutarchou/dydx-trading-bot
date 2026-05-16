@@ -2,7 +2,7 @@
 """Close open perpetual positions for the address derived from the configured mnemonic.
 
 This script:
-- Loads YAML config via app.config
+- Loads DB/env-backed runtime config via app.config
 - Derives the on-chain address from the mnemonic
 - Queries the indexer for open positions for that address (subaccount 0)
 - For each open position, places a market reduce-only order to close it

@@ -1,87 +1,49 @@
 #!/usr/bin/env python3
-"""
-Test script for Loki logging configuration
-Usage: python test_loki.py [development|production]
-"""
+"""Send test log records through the DB/env-backed runtime logging config."""
+
+from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
-import yaml
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BOT_ROOT = REPO_ROOT / "bot"
+if str(BOT_ROOT) not in sys.path:
+    sys.path.insert(0, str(BOT_ROOT))
 
-# Add the app directory to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
+from src.shared.env_loader import load_repo_env  # noqa: E402
 
-def test_loki_connection(environment="development"):
-    """Test Loki connection with specified environment"""
-    
-    # Temporarily modify config for testing
-    from pathlib import Path
-    
-    config_path = Path(__file__).parent.parent / "app" / "config.yaml"
-    
-    # Read current config
-    with open(config_path, 'r') as f:
-        config_data = yaml.safe_load(f)
-    
-    # Store original environment
-    original_environment = config_data.get('environment', 'development')
-    
-    # Temporarily update environment in config
-    config_data['environment'] = environment
-    
-    # Write temporary config
-    with open(config_path, 'w') as f:
-        yaml.dump(config_data, f, default_flow_style=False)
-    
-    try:
-        # Import after modifying config
-        from logging_setup import setup_logging
-        
-        print(f"\n🧪 Testing Loki connection with environment: {environment}")
-        print("=" * 50)
-        
-        # Setup logging
-        setup_logging()
-        
-        # Get logger and test different log levels
-        logger = logging.getLogger("test_loki")
-        
-        print("\n📝 Sending test logs...")
-        
-        # Test different log levels
-        logger.debug("🔍 DEBUG: This is a debug message for testing")
-        logger.info("ℹ️  INFO: Loki connection test - info level")
-        logger.warning("⚠️  WARNING: This is a test warning message")
-        logger.error("❌ ERROR: Test error message (don't worry, this is just a test)")
-        
-        # Test with extra context
-        logger.info("📊 Trading Bot Status", extra={
-            "market": "BTC-USD",
-            "action": "test",
-            "environment": environment
-        })
-        
-        print("✅ Test logs sent successfully!")
-        print("   Check your Loki instance to verify logs are being received")
-        
-    except Exception as e:
-        print(f"❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        
-    finally:
-        # Restore original environment in config
-        config_data['environment'] = original_environment
-        with open(config_path, 'w') as f:
-            yaml.dump(config_data, f, default_flow_style=False)
+
+def test_loki_connection(environment: str = "development") -> None:
+    os.environ["ENVIRONMENT"] = environment
+    os.environ["APP_CONFIG_ENV"] = environment
+    load_repo_env(str(BOT_ROOT / "src" / "main_instance.py"))
+
+    from src.shared.logging_setup import setup_logging
+
+    print(f"\nTesting Loki connection with environment: {environment}")
+    print("=" * 50)
+
+    setup_logging()
+    logger = logging.getLogger("test_loki")
+
+    logger.debug("DEBUG: Loki connection debug test")
+    logger.info("INFO: Loki connection info test")
+    logger.warning("WARNING: Loki connection warning test")
+    logger.error("ERROR: Loki connection error test")
+    logger.info(
+        "Trading bot Loki context test",
+        extra={"market": "BTC-USD", "action": "test", "environment": environment},
+    )
+    print("Test logs emitted. Check Loki for delivery if LOKI_ENABLED=true.")
+
 
 if __name__ == "__main__":
-    environment = sys.argv[1] if len(sys.argv) > 1 else "development"
-    
-    if environment not in ["development", "dev", "production", "prod"]:
+    selected_environment = sys.argv[1] if len(sys.argv) > 1 else "development"
+    if selected_environment not in {"development", "dev", "production", "prod"}:
         print("Usage: python test_loki.py [development|production]")
-        sys.exit(1)
-        
-    test_loki_connection(environment)
+        raise SystemExit(1)
+
+    test_loki_connection(selected_environment)
